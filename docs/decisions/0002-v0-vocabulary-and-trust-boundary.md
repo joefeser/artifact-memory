@@ -60,12 +60,12 @@ v0 transitions are:
 | `superseded` | none |
 | `rejected` | none |
 
-Every transition out of `draft` creates durable history rather than replacing
-the prior accepted or sealed record. A superseding record names what it
-supersedes; rejection does not authorize a later state transition. Individual
-record schemas decide whether a lifecycle field is required. Until those
-schemas exist, consumers must not infer edit or transition authority from a
-missing lifecycle field.
+Every transition after leaving `draft` creates durable history rather than
+replacing the prior accepted or sealed record. A superseding record names what
+it supersedes; rejection does not authorize a later state transition.
+Individual record schemas decide whether a lifecycle field is required. Until
+those schemas exist, consumers must not infer edit or transition authority from
+a missing lifecycle field.
 
 ## Rationale
 
