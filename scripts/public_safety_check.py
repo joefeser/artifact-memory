@@ -58,23 +58,22 @@ def check_paths(history: dict[str, set[str]], current: list[str]) -> list[str]:
     return sorted(set(findings))
 
 
-def check_historical_content(history: dict[str, set[str]]) -> list[str]:
-    """Scan each reachable blob once and never print matching content."""
-
-    object_ids = "\n".join(history) + "\n"
+def read_blobs(object_ids: list[str]) -> dict[str, bytes]:
+    if not object_ids:
+        return {}
     process = subprocess.Popen(
         ["git", "cat-file", "--batch"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    output, error = process.communicate(object_ids.encode("ascii"))
+    output, error = process.communicate(("\n".join(object_ids) + "\n").encode("ascii"))
     if process.returncode:
         raise RuntimeError(error.decode("utf-8", errors="replace").strip())
 
-    findings = []
+    blobs = {}
     offset = 0
-    for object_id, paths in history.items():
+    for object_id in object_ids:
         header_end = output.find(b"\n", offset)
         if header_end < 0:
             raise RuntimeError("git cat-file returned an incomplete header")
@@ -85,30 +84,51 @@ def check_historical_content(history: dict[str, set[str]]) -> list[str]:
         _, object_type, size_text = header
         size = int(size_text)
         content = output[offset : offset + size]
-        offset += size + 1  # cat-file terminates each response with a newline.
-        if object_type != "blob" or all(path == SCANNER_PATH for path in paths):
+        offset += size + 1
+        if object_type == "blob":
+            blobs[object_id] = content
+    return blobs
+
+
+def check_historical_content(history: dict[str, set[str]]) -> list[str]:
+    """Scan each reachable blob once and never print matching content."""
+
+    blobs = read_blobs(list(history))
+    findings = []
+    for object_id, paths in history.items():
+        if object_id not in blobs or all(path == SCANNER_PATH for path in paths):
             continue
-        text = content.decode("utf-8", errors="replace")
+        text = blobs[object_id].decode("utf-8", errors="replace")
         if SECRET_LIKE.search(text):
             path = sorted(path for path in paths if path != SCANNER_PATH)[0]
             findings.append(f"secret-like historical content: object {object_id}, path {path}")
     return findings
 
 
+def staged_objects() -> dict[str, str]:
+    entries = {}
+    output = subprocess.check_output(["git", "ls-files", "--stage", "-z"])
+    for record in output.split(b"\0"):
+        if not record:
+            continue
+        header, path = record.split(b"\t", 1)
+        parts = header.split()
+        if len(parts) == 3:
+            entries[path.decode("utf-8", errors="surrogateescape")] = parts[1].decode("ascii")
+    return entries
+
+
 def check_current_content(paths: list[str]) -> list[str]:
     """Scan staged and non-ignored worktree files without echoing content."""
 
-    tracked = set(run("git", "ls-files", "--cached").splitlines())
+    staged = staged_objects()
+    staged_content = read_blobs(list(staged.values()))
     findings = []
     for path in paths:
         if path == SCANNER_PATH:
             continue
         try:
-            content = (
-                subprocess.check_output(["git", "show", ":" + path])
-                if path in tracked
-                else Path(path).read_bytes()
-            )
+            content = staged_content[staged[path]] if path in staged else Path(path).read_bytes()
         except (OSError, subprocess.CalledProcessError) as error:
             findings.append(f"current content scan failed: {path} ({error})")
             continue
