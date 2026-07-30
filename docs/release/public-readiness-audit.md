@@ -13,7 +13,9 @@ does not itself change repository visibility or grant publication authority.
   fixture files.
 - The platform matrix completed successfully on real macOS, Linux, and
   Windows runners. Receipts contain no host paths, usernames, or mount points.
-- The full provider-free test suite passes with 42 tests.
+- The full provider-free test suite passes with 43 tests.
+- The package installs and its `artifact-memory version --json` smoke passes
+  on the macOS, Linux, and Windows CI runners.
 - The repository license, security policy, contribution guidance, synthetic
   fixture policy, and support limitations are present.
 
