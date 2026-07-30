@@ -23,10 +23,16 @@ Never commit:
 If a credential enters Git history, revoke or rotate it immediately before
 attempting history repair.
 
+During private incubation, GitHub secret scanning and private vulnerability
+reporting are unavailable for this personal repository. The repository uses a
+full-history public-safety check in local development and CI as a compensating
+guardrail; this is not equivalent protection. Before changing visibility,
+review all refs, workflow logs, artifacts, and releases, then enable every
+available GitHub security feature and restore branch protections.
+
 ## Trust boundary
 
 Record validation, content verification, authorization, transport security,
 storage custody, and backup recovery are separate concerns. A valid record or
 digest does not prove that its claims are true, that its sender is trusted, or
 that its receiver is authorized to retrieve referenced content or take action.
-
