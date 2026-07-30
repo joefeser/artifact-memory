@@ -31,4 +31,7 @@ tmp/
 *.db3
 *.log
 .DS_Store
-
+__pycache__/
+.agent-control/tmp/
+.agent-control/pr-loop-handoffs/
+.agent-control/reviews/
