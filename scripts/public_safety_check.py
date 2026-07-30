@@ -29,13 +29,12 @@ SECRET_LIKE = re.compile(
 SCANNER_PATH = "scripts/public_safety_check.py"
 
 
-def run(*args: str) -> str:
-    return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT)
-
-
 def history_entries() -> dict[str, set[str]]:
     entries: dict[str, set[str]] = {}
-    for line in run("git", "rev-list", "--objects", "--all").splitlines():
+    output = subprocess.check_output(
+        ["git", "rev-list", "--objects", "--all"], text=True, stderr=subprocess.STDOUT
+    )
+    for line in output.splitlines():
         parts = line.split(" ", 1)
         if len(parts) == 2:
             entries.setdefault(parts[0], set()).add(parts[1])
@@ -43,11 +42,17 @@ def history_entries() -> dict[str, set[str]]:
 
 
 def commits() -> list[str]:
-    return run("git", "rev-list", "--all").splitlines()
+    return subprocess.check_output(
+        ["git", "rev-list", "--all"], text=True, stderr=subprocess.STDOUT
+    ).splitlines()
 
 
 def current_paths() -> list[str]:
-    return run("git", "ls-files", "--cached", "--others", "--exclude-standard").splitlines()
+    return subprocess.check_output(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        text=True,
+        stderr=subprocess.STDOUT,
+    ).splitlines()
 
 
 def check_paths(history: dict[str, set[str]], current: list[str]) -> list[str]:
