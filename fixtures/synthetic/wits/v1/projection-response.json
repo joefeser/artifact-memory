@@ -1,0 +1,6 @@
+{
+  "admission": "admitted",
+  "projection_ref": "wits-projection://synthetic/meaning-0001",
+  "projection_schema_ref": "wits-contract://synthetic/opaque-v1",
+  "projection_digest": "sha-256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}
