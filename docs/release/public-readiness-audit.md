@@ -7,15 +7,16 @@ does not itself change repository visibility or grant publication authority.
 
 - Reachable branches were reviewed: `main`, `dev`, and the three open feature
   branches for PRs #34, #38, and #40. No tags exist yet.
-- The governance history scanner reported a pass over 24 commits, 362
-  historical objects, and 136 current paths.
-- Public JSON syntax validation reported a pass for 55 schema and synthetic
+- The governance history scanner reported a pass over 27 commits, 403
+  historical objects, and 148 current paths.
+- Public JSON syntax validation reported a pass for 59 schema and synthetic
   fixture files.
 - The platform matrix completed successfully on real macOS, Linux, and
   Windows runners. Receipts contain no host paths, usernames, or mount points.
 - The full provider-free test suite passes with 43 tests.
 - The package installs and its `artifact-memory version --json` smoke passes
   on the macOS, Linux, and Windows CI runners.
+- The repository currently has no tags and no retained Actions artifacts.
 - The repository license, security policy, contribution guidance, synthetic
   fixture policy, and support limitations are present.
 
@@ -29,6 +30,8 @@ setting before visibility changes.
 - review and approve the open PRs through the authenticated review process;
 - inspect repository history and Actions artifacts after the final merge;
 - restore or verify branch protection and push rules;
+- verify rules in the repository settings; the API ruleset endpoint is not
+  available on the current private-repository plan;
 - configure and use the owner's signing key for a release tag;
 - change visibility only after the anonymous public-clone checklist passes.
 
