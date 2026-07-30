@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from . import CONTRACT_VERSION, __version__
+from .context import ContextFailure, export_context
 from .projection import project_records, related_records, search_records
 from .scan import diff_manifests, scan_path, verify_path
 from .validator import ValidationFailure, load_json, validate_file
@@ -69,6 +70,13 @@ def main(argv: list[str] | None = None) -> int:
     related.add_argument("index", type=Path)
     related.add_argument("record_id")
     related.add_argument("--json", action="store_true", dest="as_json")
+    context = subparsers.add_parser("context")
+    context.add_argument("records", type=Path, nargs="+")
+    context.add_argument("--evidence", type=Path)
+    context.add_argument("--out", type=Path)
+    context.add_argument("--allow-sensitivity", choices=["public", "private", "restricted"], default="public")
+    context.add_argument("--max-bytes", type=int, default=32_768)
+    context.add_argument("--json", action="store_true", dest="as_json")
     version = subparsers.add_parser("version")
     version.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args(argv)
@@ -116,6 +124,19 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_OK
     if args.command == "related":
         _receipt({"outcome": "complete", "record_id": args.record_id, "relationships": related_records(args.index, args.record_id)}, args.as_json)
+        return EXIT_OK
+    if args.command == "context":
+        try:
+            records = [load_json(path) for path in args.records]
+            evidence = load_json(args.evidence) if args.evidence else []
+            result = export_context(records, evidence, args.allow_sensitivity, args.max_bytes)
+        except (ValidationFailure, ContextFailure) as exc:
+            _receipt({"outcome": "rejected", "diagnostics": [{"code": getattr(exc, "code", "invalid-input"), "message": getattr(exc, "message", str(exc))}]}, args.as_json)
+            return EXIT_INVALID
+        if args.out:
+            args.out.mkdir(parents=True, exist_ok=True)
+            (args.out / "context-pack.json").write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        _receipt({"outcome": "complete", "pack_id": result["pack_id"], "selected_record_count": len(result["records"]), "redacted_record_count": len(result["selection_receipt"]["redacted_record_ids"]), "authority_boundary": result["authority_boundary"]}, args.as_json)
         return EXIT_OK
     try:
         record = load_json(args.record)
