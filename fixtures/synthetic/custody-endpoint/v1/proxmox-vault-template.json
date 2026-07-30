@@ -1,0 +1,13 @@
+{
+  "schema_id": "artifact-memory/custody-endpoint/v1",
+  "endpoint_ref": "endpoint://joe-home-proxmox-vault-1",
+  "purpose": "off-machine-custody",
+  "deployment": {"class": "dedicated-guest-vm", "guest_only": true, "proxmox_host_tailscale": false, "provisioning_state": "unprovisioned"},
+  "network_boundary": {"access": "tailscale-inside-guest", "public_inbound": false, "approved_clients_only": true},
+  "transport": {"method": "restic-over-sftp", "authenticated": true, "account_state": "owner-to-fill", "remote_write_authorization": "not-authorized"},
+  "storage": {"encryption": "required", "key_material_state": "external-not-recorded", "storage_location_state": "owner-to-fill"},
+  "schedule": {"after_material_change": true, "minimum_backup_interval": "weekly", "integrity_verification": "monthly", "isolated_restore_rehearsal": "quarterly"},
+  "provisioning": {"vm_address_state": "owner-to-fill", "account_state": "owner-to-fill", "storage_state": "owner-to-fill"},
+  "remote_write": "not-authorized",
+  "portability_boundary": ["endpoint identity is logical and portable", "hostname is not canonical identity", "IP address is not canonical identity", "mount point is not canonical identity", "drive letter and UNC path are not canonical identity"]
+}
