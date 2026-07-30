@@ -12,6 +12,7 @@
     "correlation_id": {"type": "string", "pattern": "^[A-Za-z0-9._~-]+$"},
     "expires_at": {"type": "string", "format": "date-time"},
     "record_refs": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["record_id", "revision_digest"], "properties": {"record_id": {"type": "string"}, "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}}}},
+    "record_bundle": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
     "artifact_refs": {"type": "array", "items": {"type": "string"}},
     "handling": {"type": "object", "additionalProperties": false, "required": ["sensitivity", "disclosure"], "properties": {"sensitivity": {"enum": ["public", "private", "restricted"]}, "disclosure": {"enum": ["informational-only", "receiver-policy-required"]}}},
     "authority_boundary": {"const": "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"},

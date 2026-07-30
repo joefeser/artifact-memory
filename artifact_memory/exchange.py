@@ -15,8 +15,10 @@ def _canonical(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
-def make_envelope(audience_ref: str, correlation_id: str, expires_at: str, record_refs: list[dict[str, str]], artifact_refs: list[str], sensitivity: str = "public") -> dict[str, Any]:
+def make_envelope(audience_ref: str, correlation_id: str, expires_at: str, record_refs: list[dict[str, str]], artifact_refs: list[str], sensitivity: str = "public", record_bundle: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     body = {"schema_id": "artifact-memory/exchange-envelope/v1", "audience_ref": audience_ref, "correlation_id": correlation_id, "expires_at": expires_at, "record_refs": sorted(record_refs, key=lambda item: item["record_id"]), "artifact_refs": sorted(artifact_refs), "handling": {"sensitivity": sensitivity, "disclosure": "informational-only"}, "authority_boundary": AUTHORITY_BOUNDARY}
+    if record_bundle is not None:
+        body["record_bundle"] = sorted(record_bundle, key=lambda item: item.get("record_id", ""))
     return {**body, "envelope_id": "exchange://" + hashlib.sha256(_canonical(body)).hexdigest()}
 
 
