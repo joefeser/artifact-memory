@@ -3,6 +3,7 @@
 Status: accepted
 Date: 2026-07-30
 Linked issues: #2, #3, #1
+Supersedes: none
 
 ## Context
 
@@ -10,6 +11,21 @@ Artifact Memory must preserve meaning without confusing it with bytes,
 locations, generated views, transport, or authority. The first executable
 slice needs a small vocabulary that independent implementations can use before
 the full filesystem and adapter surface exists.
+
+## Considered options
+
+1. Use paths, filenames, or content digests as artifact identity. Rejected
+   because locations change and identical bytes can represent different
+   semantic artifacts or versions.
+2. Combine knowledge, artifacts, content, locations, and receipts into one
+   record type. Rejected because it would hide provenance and make generated
+   projections look canonical.
+3. Treat exchanged records or receipts as operational authority. Rejected
+   because evidence and transport cannot safely grant execution, disclosure,
+   mutation, or approval.
+4. Keep the vocabulary and authority boundaries explicit and non-overlapping.
+   Chosen because independent implementations can validate each claim without
+   silently inheriting authority from another layer.
 
 ## Decision
 
@@ -37,13 +53,22 @@ and `rejected`. A draft may be revised; a sealed record is immutable; a
 superseded record remains evidence of its former state; a rejected record is
 retained only when policy requires an auditable outcome.
 
-## Trust and privacy boundary
+## Rationale
 
-The public repository may contain protocol contracts, reference code, synthetic
-fixtures, and sanitized receipts. A private vault may contain real records and
-artifact bytes. A valid JSON record or digest proves structure or integrity
-only; it does not prove the claim is true, the sender is trusted, the receiver
-is authorized, or the referenced bytes may be disclosed.
+Separate identities keep semantic meaning stable while content and storage
+locations change. Explicit lifecycle, provenance, and non-authority rules also
+let implementations report incomplete or unverified evidence without
+upgrading it into a trusted claim.
+
+## Security consequences
+
+The public repository may contain protocol contracts, reference code,
+synthetic fixtures, and receipts newly authored from public-safe synthetic
+inputs. Sanitizing or redacting a private operational receipt does not make it
+publishable. A private vault may contain real records and artifact bytes. A
+valid JSON record or digest proves structure or integrity only; it does not
+prove the claim is true, the sender is trusted, the receiver is authorized, or
+the referenced bytes may be disclosed.
 
 Knowledge exchange never grants execution, mutation, spending, deployment,
 credential use, declassification, or approval authority. An adapter must be
@@ -76,9 +101,12 @@ The example deliberately keeps meaning, artifact/version identity, exact
 content, and observed location separate. It grants no retrieval or execution
 authority.
 
-## Consequences
+## Compatibility consequences
 
 Later schema, manifest, authenticity, extension, and adapter decisions must
 preserve these separations. The narrow vocabulary allows the first vertical
 slice to expose implementation mistakes without requiring v0 to pretend that
-all platform filesystem semantics are equivalent.
+all platform filesystem semantics are equivalent. Implementations may add
+extensions, but unknown required extensions fail closed and unknown optional
+extensions remain opaque; future decisions that change these identities or
+authority boundaries must supersede this record explicitly.

@@ -31,9 +31,10 @@ The receiver and operator are not assumed to be the same principal.
 ## Trust boundaries
 
 1. **Public repository / private vault:** the repository contains only
-   public-safe contracts, code, synthetic fixtures, and sanitized receipts.
-   Real records, bytes, task archives, sessions, and resolver configuration
-   remain outside it.
+   public-safe contracts, code, synthetic fixtures, and receipts newly authored
+   from public-safe synthetic inputs. Sanitizing or redacting a private
+   operational receipt does not make it publishable. Real records, bytes, task
+   archives, sessions, and resolver configuration remain outside it.
 2. **Canonical records / generated views:** canonical JSON is authoritative;
    indexes and context packs are replaceable projections with source-set
    digests.
