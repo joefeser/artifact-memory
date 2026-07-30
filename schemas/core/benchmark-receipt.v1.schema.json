@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/benchmark-receipt/v1",
+  "title": "Artifact Memory benchmark receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "outcome", "runtime_family", "corpus", "measurements", "bounded_outcomes", "resource_limits", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/benchmark-receipt/v1"},
+    "outcome": {"const": "complete"},
+    "runtime_family": {"enum": ["darwin", "linux", "windows"]},
+    "corpus": {"type": "object", "additionalProperties": false, "required": ["file_count", "file_size_bytes", "depth", "repeated_content"], "properties": {"file_count": {"type": "integer", "minimum": 1}, "file_size_bytes": {"type": "integer", "minimum": 1}, "depth": {"type": "integer", "minimum": 1}, "repeated_content": {"const": true}}},
+    "measurements": {"type": "object", "additionalProperties": false, "required": ["scan_wall_seconds", "projection_wall_seconds", "scanned_entry_count", "projected_record_count"], "properties": {"scan_wall_seconds": {"type": "number", "minimum": 0}, "projection_wall_seconds": {"type": "number", "minimum": 0}, "scanned_entry_count": {"type": "integer", "minimum": 1}, "projected_record_count": {"type": "integer", "minimum": 1}}},
+    "bounded_outcomes": {"type": "object", "additionalProperties": false, "required": ["resource_limit", "resource_limit_diagnostic", "cancelled", "cancelled_diagnostic", "unbounded_scan"], "properties": {"resource_limit": {"const": "partial"}, "resource_limit_diagnostic": {"const": "resource-limit"}, "cancelled": {"const": "cancelled"}, "cancelled_diagnostic": {"const": "cancelled"}, "unbounded_scan": {"const": "complete"}}},
+    "resource_limits": {"type": "object", "additionalProperties": false, "required": ["benchmark_max_bytes", "archive_max_uncompressed_bytes"], "properties": {"benchmark_max_bytes": {"type": "integer", "minimum": 1}, "archive_max_uncompressed_bytes": {"type": "integer", "minimum": 1}}},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+  }
+}

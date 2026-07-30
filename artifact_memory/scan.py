@@ -5,12 +5,22 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 
 CHUNK_SIZE = 1024 * 1024
 POLICY_REF = "scan-policy://reference-cli/v0"
+
+
+@dataclass(frozen=True)
+class ScanLimits:
+    """Optional caller-owned bounds for a single scan."""
+
+    max_entries: int | None = None
+    max_bytes: int | None = None
+    cancellation_check: Callable[[], bool] | None = None
 
 
 def _canonical(value: Any) -> bytes:
@@ -61,13 +71,22 @@ def _walk(root: Path) -> Iterator[tuple[Path, str]]:
                 yield Path(entry.path), "unsupported"
 
 
-def scan_path(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+def scan_path(root: Path, limits: ScanLimits | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     """Scan one root into a deterministic manifest and policy-bound receipt."""
     root = root.resolve()
     entries: list[dict[str, Any]] = []
     diagnostics: list[dict[str, str]] = []
     casefold_paths: dict[str, str] = {}
+    total_bytes = 0
+    cancelled = False
     for path, kind in _walk(root):
+        if limits and limits.cancellation_check and limits.cancellation_check():
+            diagnostics.append({"code": "cancelled", "message": "scan cancelled by caller"})
+            cancelled = True
+            break
+        if limits and limits.max_entries is not None and len(entries) >= limits.max_entries:
+            diagnostics.append({"code": "resource-limit", "message": "scan entry limit reached"})
+            break
         try:
             relative = path.relative_to(root).as_posix()
         except ValueError:
@@ -77,7 +96,12 @@ def scan_path(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
             entry = {"path": relative, "kind": "directory"}
         elif kind == "file":
             try:
-                entry = {"path": relative, "kind": "file", "byte_size": path.stat().st_size, "content_digest": _sha256_stream(path)}
+                byte_size = path.stat().st_size
+                if limits and limits.max_bytes is not None and total_bytes + byte_size > limits.max_bytes:
+                    diagnostics.append({"code": "resource-limit", "message": "scan byte limit reached"})
+                    break
+                entry = {"path": relative, "kind": "file", "byte_size": byte_size, "content_digest": _sha256_stream(path)}
+                total_bytes += byte_size
             except (OSError, UnicodeError):
                 diagnostics.append({"code": "unreadable", "message": "file could not be read"})
                 continue
@@ -90,7 +114,7 @@ def scan_path(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         casefold_paths[folded] = relative
         entries.append(entry)
     entries.sort(key=lambda entry: entry["path"])
-    outcome = "complete" if not diagnostics else "partial"
+    outcome = "cancelled" if cancelled else ("complete" if not diagnostics else "partial")
     payload = {"schema_id": "artifact-memory/manifest/v1", "policy_ref": POLICY_REF, "comparison_profile": "v0-case-sensitive-unicode-codepoint", "completeness": outcome, "entries": entries}
     manifest_ref = _manifest_id(payload)
     manifest = {**payload, "manifest_id": manifest_ref, "tree_digest": _tree_digest(entries)}

@@ -12,7 +12,7 @@
     "manifest_ref": {"type": "string", "pattern": "^manifest://[0-9a-f]{64}$"},
     "outcome": {"type": "string", "enum": ["complete", "partial", "failed", "cancelled"]},
     "accounted_entry_count": {"type": "integer", "minimum": 0},
-    "diagnostics": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": {"code": {"type": "string", "enum": ["unreadable", "excluded", "unsupported", "collision", "resolver-unavailable"]}, "message": {"type": "string", "minLength": 1}}}},
+    "diagnostics": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": {"code": {"type": "string", "enum": ["unreadable", "excluded", "unsupported", "collision", "resolver-unavailable", "resource-limit", "cancelled"]}, "message": {"type": "string", "minLength": 1}}}},
     "extensions": {"type": "object", "additionalProperties": true}
   }
 }

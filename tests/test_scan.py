@@ -4,7 +4,8 @@ from pathlib import Path
 import hashlib
 import json
 
-from artifact_memory.scan import diff_manifests, scan_path, verify_path
+from artifact_memory.scan import ScanLimits, diff_manifests, scan_path, verify_path
+from artifact_memory.validator import validate
 
 
 class ScanTests(unittest.TestCase):
@@ -52,6 +53,21 @@ class ScanTests(unittest.TestCase):
             _, receipt = scan_path(root)
             self.assertEqual(receipt["outcome"], "partial")
             self.assertEqual(receipt["diagnostics"][0]["code"], "unsupported")
+
+    def test_resource_limit_and_cancellation_are_distinct(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "a.txt").write_bytes(b"1234")
+            (root / "b.txt").write_bytes(b"5678")
+            _, limited = scan_path(root, ScanLimits(max_bytes=4))
+            self.assertEqual(limited["outcome"], "partial")
+            self.assertEqual(limited["diagnostics"][0]["code"], "resource-limit")
+            _, cancelled = scan_path(root, ScanLimits(cancellation_check=lambda: True))
+            self.assertEqual(cancelled["outcome"], "cancelled")
+            self.assertEqual(cancelled["diagnostics"][0]["code"], "cancelled")
+            schema = json.loads((Path(__file__).resolve().parents[1] / "schemas/core/scan-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            validate(limited, schema)
+            validate(cancelled, schema)
 
 
 if __name__ == "__main__":
