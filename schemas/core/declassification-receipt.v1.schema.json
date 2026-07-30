@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/declassification-receipt/v1",
+  "title": "Artifact Memory declassification receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "source_task_ref", "outcome", "admitted_fields", "excluded_categories", "raw_retention", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/declassification-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^declassification-receipt://[0-9a-f]{64}$"},
+    "source_task_ref": {"type": "string", "pattern": "^codex-task://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "outcome": {"enum": ["admitted", "not-authorized", "rejected", "partially-admitted"]},
+    "admitted_fields": {"type": "array", "items": {"type": "string"}},
+    "excluded_categories": {"type": "array", "items": {"type": "string"}},
+    "raw_retention": {"enum": ["none", "encrypted-recovery-only", "owner-policy-required"]},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

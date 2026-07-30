@@ -1,0 +1,12 @@
+{
+  "task_id": "synthetic-task-0001",
+  "title": "Synthetic Artifact Memory review",
+  "summary": "Review one canonical record and record the next safe contract seam.",
+  "decisions": ["Keep provider evidence opaque."],
+  "open_questions": ["Which owner decision is needed before release?"],
+  "raw_transcript": "SYNTHETIC-ONLY-RAW-TRANSCRIPT-NOT-A-REAL-TASK",
+  "raw_attachments": ["SYNTHETIC-ONLY-ATTACHMENT"],
+  "credential_material": "SYNTHETIC-ONLY-NOT-A-CREDENTIAL",
+  "absolute_path": "SYNTHETIC-LOCAL-PATH-NOT-A-REAL-PATH",
+  "unrelated_task_content": "SYNTHETIC-EXCLUDED-CONTENT"
+}
