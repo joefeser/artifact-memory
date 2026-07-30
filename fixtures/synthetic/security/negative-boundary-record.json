@@ -1,0 +1,17 @@
+{
+  "fixture_id": "SYNTHETIC-SECURITY-NEGATIVE-001",
+  "class": "negative",
+  "case": "forbidden-sensitive-field",
+  "record": {
+    "kind": "synthetic-note",
+    "metadata": {
+      "credential_material": "SYNTHETIC-ONLY-NOT-A-CREDENTIAL",
+      "absolute_resolver_location": "SYNTHETIC-LOCAL-LOCATION"
+    }
+  },
+  "expected": {
+    "outcome": "reject",
+    "reason": "forbidden-sensitive-field",
+    "authority_granted": false
+  }
+}
