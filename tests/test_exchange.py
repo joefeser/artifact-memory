@@ -4,15 +4,30 @@ from pathlib import Path
 
 from artifact_memory.exchange import AUTHORITY_BOUNDARY, admit, make_envelope
 from artifact_memory.independent_reader import ReaderFailure, read_bundle
-from artifact_memory.validator import validate
+from artifact_memory.validator import ValidationFailure, validate
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def canonical_record(**overrides):
+    record = {
+        "schema_id": "artifact-memory/knowledge-record/v1",
+        "record_id": "record://synthetic/reader-0001",
+        "record_type": "note",
+        "lifecycle": "accepted",
+        "meaning": {"summary": "Synthetic independent-reader record."},
+        "artifact_refs": [],
+        "provenance": [{"kind": "author", "source_ref": "actor://synthetic/reader"}],
+        "extensions": {},
+    }
+    record.update(overrides)
+    return record
+
+
 class ExchangeTests(unittest.TestCase):
     def test_independent_reader_preserves_optional_and_rejects_required_extensions(self):
-        record = {"schema_id": "artifact-memory/knowledge-record/v1", "record_id": "record://synthetic/reader-0001", "extensions": {"https://synthetic.example/optional": {"version": "v1", "required": False, "value": {"opaque": True}}}}
+        record = canonical_record(extensions={"https://synthetic.example/optional": {"version": "v1", "required": False, "value": {"opaque": True}}})
         envelope = make_envelope("system://independent-reader", "synthetic-exchange-reader", "2099-01-01T00:00:00Z", [{"record_id": record["record_id"], "revision_digest": "sha-256:" + "a" * 64}], ["artifact://synthetic/order"], record_bundle=[record])
         result = read_bundle(json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode())
         self.assertEqual(result["outcome"], "accepted")
@@ -42,25 +57,25 @@ class ExchangeTests(unittest.TestCase):
         self.assertEqual(receipt["outcome"], "rejected")
         self.assertEqual(receipt["diagnostics"][0]["code"], "expired")
 
+    def test_timezone_naive_expiry_is_rejected(self):
+        envelope = make_envelope("system://synthetic-reader", "synthetic-exchange-naive", "2099-01-01T00:00:00", [], [])
+        schema = json.loads((ROOT / "artifact_memory/schemas/core/exchange-envelope.v1.schema.json").read_text(encoding="utf-8"))
+        with self.assertRaisesRegex(ValidationFailure, "timezone offset"):
+            validate(envelope, schema)
+        self.assertEqual(admit(envelope)["outcome"], "rejected")
+
     def test_independent_reader_rejects_malformed_shapes_at_its_boundary(self):
         for value in ([], 1, "scalar"):
             with self.assertRaises(ReaderFailure):
                 read_bundle(json.dumps(value).encode())
-        malformed = {
-            "schema_id": "artifact-memory/exchange-envelope/v1",
-            "record_bundle": [
-                {
-                    "schema_id": "artifact-memory/knowledge-record/v1",
-                    "record_id": "record://synthetic/malformed",
-                    "extensions": [],
-                }
-            ],
-            "artifact_refs": [],
-        }
+        malformed = {"schema_id": "artifact-memory/exchange-envelope/v1", "record_bundle": [canonical_record(extensions=[])], "artifact_refs": []}
         with self.assertRaisesRegex(ReaderFailure, "extensions"):
             read_bundle(json.dumps(malformed).encode())
-        malformed["record_bundle"][0]["extensions"] = {"https://synthetic.example/extension": []}
+        malformed["record_bundle"][0] = canonical_record(extensions={"https://synthetic.example/extension": []})
         with self.assertRaisesRegex(ReaderFailure, "declaration"):
+            read_bundle(json.dumps(malformed).encode())
+        malformed["record_bundle"][0] = {"schema_id": "artifact-memory/knowledge-record/v1", "record_id": "record://synthetic/incomplete"}
+        with self.assertRaisesRegex(ReaderFailure, "fields"):
             read_bundle(json.dumps(malformed).encode())
 
 

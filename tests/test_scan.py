@@ -40,6 +40,22 @@ class ScanTests(unittest.TestCase):
             self.assertEqual(result["outcome"], "rejected")
             self.assertEqual(result["diagnostics"][0]["code"], "required-field-missing")
 
+    def test_verification_rejects_manifest_identity_tampering(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first_root = root / "first"
+            second_root = root / "second"
+            first_root.mkdir()
+            second_root.mkdir()
+            (first_root / "value.txt").write_text("first", encoding="utf-8")
+            (second_root / "value.txt").write_text("second", encoding="utf-8")
+            first, _ = scan_path(first_root)
+            second, _ = scan_path(second_root)
+            tampered_digest = {**first, "tree_digest": second["tree_digest"]}
+            self.assertEqual(verify_path(second_root, tampered_digest)["outcome"], "rejected")
+            tampered_id = {**first, "manifest_id": second["manifest_id"]}
+            self.assertEqual(verify_path(first_root, tampered_id)["outcome"], "rejected")
+
     def test_diff_reports_content_changes_and_move_candidates(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

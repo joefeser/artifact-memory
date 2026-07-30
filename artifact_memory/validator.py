@@ -99,9 +99,11 @@ def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
             _fail("constraint-failed", "string does not match pattern", path)
         if schema.get("format") == "date-time":
             try:
-                datetime.fromisoformat(value.replace("Z", "+00:00"))
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
             except ValueError:
                 _fail("constraint-failed", "invalid date-time", path)
+            if parsed.utcoffset() is None:
+                _fail("constraint-failed", "date-time requires a timezone offset", path)
     if isinstance(value, (int, float)) and value < schema.get("minimum", value):
         _fail("constraint-failed", "number is below minimum", path)
 

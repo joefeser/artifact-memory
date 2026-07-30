@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import tarfile
@@ -49,6 +50,20 @@ def _source_entries(sources: dict[str, Path]) -> list[tuple[str, Path]]:
                 if path.is_file() and not path.is_symlink():
                     entries.append((f"{label}/{path.relative_to(root).as_posix()}", path))
     return entries
+
+
+def _safe_archive_relative_path(value: Any) -> PurePosixPath:
+    if (
+        not isinstance(value, str)
+        or not value
+        or "\\" in value
+        or re.match(r"^[A-Za-z]:", value)
+    ):
+        raise BackupFailure("unsafe-backup-member")
+    path = PurePosixPath(value)
+    if path.is_absolute() or ".." in path.parts or path.as_posix() in {"", "."}:
+        raise BackupFailure("unsafe-backup-member")
+    return path
 
 
 def _snapshot_sources(sources: dict[str, Path], snapshot_root: Path) -> tuple[dict[str, Any], list[tuple[str, Path]]]:
@@ -179,17 +194,18 @@ def restore_isolated(backup_file: Path, target_dir: Path, passphrase: str, backu
             _run_openssl(["-d"], passphrase, backup_file, plain)
             with tarfile.open(plain, "r") as archive:
                 seen: set[str] = set()
+                staging_root = staging.resolve()
                 for member in archive.getmembers():
-                    member_path = PurePosixPath(member.name)
+                    member_path = _safe_archive_relative_path(member.name)
                     if (
-                        member_path.is_absolute()
-                        or ".." in member_path.parts
-                        or member.name in seen
+                        member.name in seen
                         or not (member.isdir() or member.isreg())
                     ):
                         raise BackupFailure("unsafe-backup-member")
                     seen.add(member.name)
                     destination = staging / member_path
+                    if not destination.resolve().is_relative_to(staging_root):
+                        raise BackupFailure("unsafe-backup-member")
                     if member.isdir():
                         destination.mkdir(parents=True, exist_ok=True)
                         continue
@@ -207,14 +223,14 @@ def restore_isolated(backup_file: Path, target_dir: Path, passphrase: str, backu
             for entry in manifest["entries"]:
                 if not isinstance(entry, dict):
                     raise BackupFailure("backup-manifest-invalid")
-                entry_path = PurePosixPath(entry.get("path", ""))
+                try:
+                    entry_path = _safe_archive_relative_path(entry.get("path"))
+                except BackupFailure as exc:
+                    raise BackupFailure("backup-manifest-invalid") from exc
                 digest = entry.get("digest")
                 byte_size = entry.get("byte_size")
                 if (
-                    not entry_path.parts
-                    or entry_path.is_absolute()
-                    or ".." in entry_path.parts
-                    or not isinstance(digest, str)
+                    not isinstance(digest, str)
                     or not isinstance(byte_size, int)
                     or byte_size < 0
                 ):
@@ -224,6 +240,8 @@ def restore_isolated(backup_file: Path, target_dir: Path, passphrase: str, backu
                     raise BackupFailure("backup-manifest-invalid")
                 expected_paths.add(normalized)
                 restored_path = staging / entry_path
+                if not restored_path.resolve().is_relative_to(staging_root):
+                    raise BackupFailure("backup-manifest-invalid")
                 if not restored_path.is_file() or sha256_path(restored_path) != digest or restored_path.stat().st_size != byte_size:
                     raise BackupFailure("restored-content-mismatch")
             actual_paths = {

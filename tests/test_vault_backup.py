@@ -100,6 +100,19 @@ class VaultBackupTests(unittest.TestCase):
             self.assertEqual(receipt["outcome"], "failed")
             self.assertIn("unsafe-backup-member", receipt["limitations"])
 
+            for index, unsafe_name in enumerate(("..\\..\\escape", "C:\\escape")):
+                windows_unsafe = root / f"windows-unsafe-{index}.tar"
+                with tarfile.open(windows_unsafe, "w") as archive:
+                    payload = b"synthetic"
+                    entry = tarfile.TarInfo(unsafe_name)
+                    entry.size = len(payload)
+                    archive.addfile(entry, io.BytesIO(payload))
+                with patch("artifact_memory.backup._run_openssl", side_effect=copy_without_encryption):
+                    receipt = restore_isolated(windows_unsafe, root / f"windows-unsafe-restore-{index}", "unused", "backup://synthetic/test")
+                validate(receipt, schema)
+                self.assertEqual(receipt["outcome"], "failed")
+                self.assertIn("unsafe-backup-member", receipt["limitations"])
+
     def test_synthetic_git_bundle_verifies(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary) / "repo"

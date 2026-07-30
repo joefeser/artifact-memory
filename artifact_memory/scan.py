@@ -123,6 +123,21 @@ def verify_path(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
             "manifest_ref": manifest.get("manifest_id") if isinstance(manifest, dict) else None,
             "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}],
         }
+    identity_payload = {key: value for key, value in manifest.items() if key not in {"manifest_id", "tree_digest"}}
+    try:
+        expected_tree_digest = _tree_digest(manifest["entries"])
+    except (KeyError, TypeError):
+        return {
+            "outcome": "rejected",
+            "manifest_ref": manifest["manifest_id"],
+            "diagnostics": [{"code": "manifest-identity-invalid", "path": "$.entries", "message": "manifest entries cannot produce the declared tree identity"}],
+        }
+    if manifest["tree_digest"] != expected_tree_digest or manifest["manifest_id"] != _manifest_id(identity_payload):
+        return {
+            "outcome": "rejected",
+            "manifest_ref": manifest["manifest_id"],
+            "diagnostics": [{"code": "manifest-identity-invalid", "path": "$", "message": "manifest identity does not match its canonical body"}],
+        }
     actual, receipt = scan_path(root)
     if manifest.get("completeness") != "complete" or actual["completeness"] != "complete":
         return {

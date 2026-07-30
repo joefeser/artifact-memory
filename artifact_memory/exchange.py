@@ -38,7 +38,7 @@ def admit(envelope: dict[str, Any], seen_envelope_ids: set[str] | None = None, s
                 outcome, diagnostics = "quarantined", [{"code": "empty-bundle", "message": "envelope contains no admitted references"}]
             else:
                 outcome, diagnostics = "admitted", []
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError):
             outcome, diagnostics = "rejected", [{"code": "invalid-envelope", "message": "expiry or required envelope field is invalid"}]
     accepted = [item["record_id"] for item in envelope.get("record_refs", [])] if outcome == "admitted" else []
     receipt_body = {"envelope_ref": envelope_id, "outcome": outcome, "accepted_record_ids": accepted, "diagnostics": diagnostics, "authority_boundary": AUTHORITY_BOUNDARY}
