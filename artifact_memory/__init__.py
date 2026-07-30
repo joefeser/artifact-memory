@@ -1,0 +1,4 @@
+"""Provider-free Artifact Memory v0 reference runtime."""
+
+__version__ = "0.1.0-dev"
+CONTRACT_VERSION = "v0"

@@ -8,7 +8,7 @@
   "properties": {
     "schema_id": {"const": "artifact-memory/location-observation/v1"},
     "observation_id": {"type": "string", "pattern": "^location-observation://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
-    "content_ref": {"type": "string", "pattern": "^content://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "content_ref": {"type": "string", "pattern": "^content://[A-Za-z0-9._~-]+/[A-Za-z0-9._~/-]+$"},
     "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
     "relative_path": {"type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(?:/|$))[A-Za-z0-9._~/-]+$"},
     "presence": {"type": "string", "enum": ["present", "absent", "removal-observed", "unavailable", "verified-absent-at-endpoint"]},
