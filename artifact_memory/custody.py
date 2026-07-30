@@ -20,7 +20,6 @@ def record_custody(
     """Record the custody model without claiming that transfer occurred."""
     outcome = "recorded" if authorized else "not-authorized"
     body = {
-        "schema_id": "artifact-memory/custody-receipt/v1",
         "backup_ref": backup_ref,
         "endpoint_ref": endpoint_ref,
         "custody_class": custody_class,

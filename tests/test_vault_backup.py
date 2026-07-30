@@ -1,4 +1,5 @@
 import io
+import hashlib
 import json
 import os
 import shutil
@@ -10,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from artifact_memory.backup import create_backup, create_git_bundle, restore_isolated
+from artifact_memory.canonical import canonical_bytes
 from artifact_memory.vault import register_bytes
 from artifact_memory.validator import validate
 
@@ -113,6 +115,15 @@ class VaultBackupTests(unittest.TestCase):
             schema = json.loads((ROOT / "artifact_memory/schemas/core/git-bundle-receipt.v1.schema.json").read_text(encoding="utf-8"))
             validate(receipt, schema)
             subprocess.run(["git", "bundle", "verify", str(bundle)], check=True, stdout=subprocess.DEVNULL)
+
+    def test_git_bundle_failure_receipt_has_digest_backed_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            receipt = create_git_bundle(root / "missing", root / "missing.bundle", "git-ref://synthetic/missing")
+            body = {key: value for key, value in receipt.items() if key not in {"schema_id", "receipt_id"}}
+            expected = hashlib.sha256(canonical_bytes(body)).hexdigest()
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertEqual(receipt["receipt_id"], "git-bundle-receipt://" + expected)
 
 
 if __name__ == "__main__":

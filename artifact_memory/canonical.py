@@ -39,6 +39,9 @@ def sha256_path(path: Path) -> str:
 
 def receipt_with_digest(schema_id: str, id_prefix: str, body: dict[str, Any]) -> dict[str, Any]:
     """Build a receipt whose identifier is the canonical digest of its body."""
+    reserved = {"schema_id", "receipt_id"} & body.keys()
+    if reserved:
+        raise ValueError(f"receipt body contains reserved identity field: {sorted(reserved)[0]}")
     return {
         "schema_id": schema_id,
         "receipt_id": id_prefix + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:"),

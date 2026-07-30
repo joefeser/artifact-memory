@@ -246,7 +246,8 @@ def restore_isolated(backup_file: Path, target_dir: Path, passphrase: str, backu
 def create_git_bundle(repo: Path, output_file: Path, source_ref: str) -> dict[str, Any]:
     result = subprocess.run(["git", "-C", str(repo), "bundle", "create", str(output_file), "--all"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
     if result.returncode != 0:
-        return {"schema_id": "artifact-memory/git-bundle-receipt/v1", "receipt_id": "git-bundle-receipt://" + "0" * 64, "outcome": "failed", "bundle_digest": "sha-256:" + "0" * 64, "source_ref": source_ref, "authority_boundary": AUTHORITY_BOUNDARY}
+        body = {"outcome": "failed", "bundle_digest": ZERO_DIGEST, "source_ref": source_ref, "authority_boundary": AUTHORITY_BOUNDARY}
+        return receipt_with_digest("artifact-memory/git-bundle-receipt/v1", "git-bundle-receipt://", body)
     bundle_digest = sha256_path(output_file)
     body = {"outcome": "created", "bundle_digest": bundle_digest, "source_ref": source_ref, "authority_boundary": AUTHORITY_BOUNDARY}
     return receipt_with_digest("artifact-memory/git-bundle-receipt/v1", "git-bundle-receipt://", body)
