@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any
 
-from .canonical import canonical_bytes
+from .canonical import receipt_with_digest
 
 AUTHORITY_BOUNDARY = "custody receipt does not copy, disclose, or authorize backup bytes"
-
-
-_canonical = canonical_bytes
 
 
 def record_custody(
@@ -39,4 +35,4 @@ def record_custody(
             "key recovery is external to the backup payload",
         ],
     }
-    return {**body, "receipt_id": "custody-receipt://" + hashlib.sha256(_canonical(body)).hexdigest()}
+    return receipt_with_digest("artifact-memory/custody-receipt/v1", "custody-receipt://", body)

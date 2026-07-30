@@ -75,10 +75,14 @@ def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
             if key not in value:
                 _fail("required-field-missing", f"required field is missing: {key}", path)
         properties = schema.get("properties", {})
-        if schema.get("additionalProperties") is False:
-            unknown_fields = set(value) - set(properties)
+        unknown_fields = set(value) - set(properties)
+        additional = schema.get("additionalProperties")
+        if additional is False:
             if unknown_fields:
                 _fail("unknown-field", "unknown field is not allowed", f"{path}.{sorted(unknown_fields)[0]}")
+        elif isinstance(additional, dict):
+            for key in sorted(unknown_fields):
+                validate(value[key], additional, f"{path}.{key}")
         for key, child_schema in properties.items():
             if key in value:
                 validate(value[key], child_schema, f"{path}.{key}")

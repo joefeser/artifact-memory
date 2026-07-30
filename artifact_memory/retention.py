@@ -5,16 +5,12 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from .canonical import canonical_bytes
+from .canonical import canonical_bytes, receipt_with_digest
 
 DELETION_OUTCOMES = ("requested", "attempted", "removed-observed", "verified-absent-at-endpoint", "retained-until-expiry", "not-authorized", "endpoint-unavailable", "scope-unknown", "failed", "partially-complete")
 
 
 _canonical = canonical_bytes
-
-
-def _receipt_id(body: dict[str, Any]) -> str:
-    return "deletion-receipt://reference-cli/" + hashlib.sha256(_canonical(body)).hexdigest()
 
 
 def deletion_request(target_ref: str, scope: str, authorized: bool = False, endpoint_ref: str | None = None, generation_ref: str | None = None) -> dict[str, Any]:
@@ -26,7 +22,7 @@ def deletion_request(target_ref: str, scope: str, authorized: bool = False, endp
     if generation_ref:
         body["generation_ref"] = generation_ref
     body["limitations"] = ["destructive execution is separately authorized", "absence from one endpoint does not prove global erasure"]
-    return {"schema_id": "artifact-memory/deletion-receipt/v1", "receipt_id": _receipt_id(body), **body}
+    return receipt_with_digest("artifact-memory/deletion-receipt/v1", "deletion-receipt://reference-cli/", body)
 
 
 def tombstone(target_ref: str, reason: str, content_status: str, deletion_receipt_ref: str, superseded_by_ref: str | None = None) -> dict[str, Any]:

@@ -2,21 +2,17 @@
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any
 
-from .canonical import canonical_bytes
+from .canonical import receipt_with_digest
 
 AUTHORITY_BOUNDARY = "record contents do not authorize adapter execution"
-
-
-_canonical = canonical_bytes
 
 
 def receipt(manifest: dict[str, Any], outcome: str, diagnostics: list[dict[str, str]] | None = None) -> dict[str, Any]:
     adapter_ref = manifest.get("adapter_id", "adapter://unknown/unknown")
     body = {"adapter_ref": adapter_ref, "outcome": outcome, "authority_boundary": AUTHORITY_BOUNDARY, "diagnostics": diagnostics or []}
-    return {"schema_id": "artifact-memory/adapter-receipt/v1", "receipt_id": "adapter-receipt://" + hashlib.sha256(_canonical(body)).hexdigest(), **body}
+    return receipt_with_digest("artifact-memory/adapter-receipt/v1", "adapter-receipt://", body)
 
 
 def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:

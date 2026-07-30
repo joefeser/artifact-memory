@@ -8,12 +8,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .canonical import canonical_bytes
+from .canonical import receipt_with_digest
 
 AUTHORITY_BOUNDARY = "registration does not grant execution, disclosure, or mutation authority"
-
-
-_canonical = canonical_bytes
 
 
 def register_bytes(vault_root: Path, data: bytes, media_type: str = "application/octet-stream") -> dict[str, Any]:
@@ -38,4 +35,5 @@ def register_bytes(vault_root: Path, data: bytes, media_type: str = "application
     content_ref = f"content://vault/{digest_hex}"
     artifact_version_ref = f"artifact-version://vault/{digest_hex}/1"
     body = {"outcome": outcome, "content_ref": content_ref, "artifact_version_ref": artifact_version_ref, "byte_size": len(data), "digest": digest, "authority_boundary": AUTHORITY_BOUNDARY}
-    return {"schema_id": "artifact-memory/content-registration-receipt/v1", "receipt_id": "registration-receipt://" + hashlib.sha256(_canonical(body)).hexdigest(), **body, "media_type": media_type, "diagnostics": []}
+    receipt = receipt_with_digest("artifact-memory/content-registration-receipt/v1", "registration-receipt://", body)
+    return {**receipt, "media_type": media_type, "diagnostics": []}

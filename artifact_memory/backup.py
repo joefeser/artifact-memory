@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .canonical import CHUNK_SIZE, canonical_bytes, sha256_path
+from .canonical import CHUNK_SIZE, canonical_bytes, receipt_with_digest, sha256_path
 
 
 AUTHORITY_BOUNDARY = "backup and restore do not grant execution, disclosure, or mutation authority"
@@ -107,7 +107,7 @@ def _backup_receipt(
         "authority_boundary": AUTHORITY_BOUNDARY,
         "limitations": limitations,
     }
-    return {"schema_id": "artifact-memory/backup-receipt/v1", "receipt_id": "backup-receipt://" + hashlib.sha256(_canonical(body)).hexdigest(), **body}
+    return receipt_with_digest("artifact-memory/backup-receipt/v1", "backup-receipt://", body)
 
 
 def _restore_receipt(outcome: str, backup_ref: str, manifest_digest: str, limitations: list[str]) -> dict[str, Any]:
@@ -119,7 +119,7 @@ def _restore_receipt(outcome: str, backup_ref: str, manifest_digest: str, limita
         "authority_boundary": AUTHORITY_BOUNDARY,
         "limitations": limitations,
     }
-    return {"schema_id": "artifact-memory/restore-receipt/v1", "receipt_id": "restore-receipt://" + hashlib.sha256(_canonical(body)).hexdigest(), **body}
+    return receipt_with_digest("artifact-memory/restore-receipt/v1", "restore-receipt://", body)
 
 
 def create_backup(sources: dict[str, Path], output_dir: Path, passphrase: str, endpoint_ref: str = "endpoint://synthetic/local-backup", generation_ref: str = "generation-0001") -> dict[str, Any]:
@@ -249,4 +249,4 @@ def create_git_bundle(repo: Path, output_file: Path, source_ref: str) -> dict[st
         return {"schema_id": "artifact-memory/git-bundle-receipt/v1", "receipt_id": "git-bundle-receipt://" + "0" * 64, "outcome": "failed", "bundle_digest": "sha-256:" + "0" * 64, "source_ref": source_ref, "authority_boundary": AUTHORITY_BOUNDARY}
     bundle_digest = sha256_path(output_file)
     body = {"outcome": "created", "bundle_digest": bundle_digest, "source_ref": source_ref, "authority_boundary": AUTHORITY_BOUNDARY}
-    return {"schema_id": "artifact-memory/git-bundle-receipt/v1", "receipt_id": "git-bundle-receipt://" + hashlib.sha256(_canonical(body)).hexdigest(), **body}
+    return receipt_with_digest("artifact-memory/git-bundle-receipt/v1", "git-bundle-receipt://", body)

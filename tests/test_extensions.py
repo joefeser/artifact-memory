@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from artifact_memory.extensions import ExtensionFailure, extension_digest, preserve_extensions
-from artifact_memory.validator import validate
+from artifact_memory.validator import ValidationFailure, validate
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +22,16 @@ class ExtensionTests(unittest.TestCase):
         bundle = json.loads((ROOT / "fixtures/synthetic/extensions/v1/required-extension.json").read_text(encoding="utf-8"))
         with self.assertRaisesRegex(ExtensionFailure, "unsupported"):
             preserve_extensions(record, bundle)
+
+    def test_extension_entries_are_validated_by_additional_properties_schema(self):
+        schema = json.loads((ROOT / "artifact_memory/schemas/core/extension-bundle.v1.schema.json").read_text(encoding="utf-8"))
+        for invalid_entry in ("scalar", {"version": "v1", "required": False}):
+            bundle = {
+                "schema_id": "artifact-memory/extension-bundle/v1",
+                "extensions": {"https://synthetic.example/extensions/invalid": invalid_entry},
+            }
+            with self.assertRaises(ValidationFailure):
+                validate(bundle, schema)
 
 
 if __name__ == "__main__":

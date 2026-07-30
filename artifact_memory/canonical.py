@@ -35,3 +35,12 @@ def sha256_stream(stream: BinaryIO) -> str:
 def sha256_path(path: Path) -> str:
     with path.open("rb") as stream:
         return sha256_stream(stream)
+
+
+def receipt_with_digest(schema_id: str, id_prefix: str, body: dict[str, Any]) -> dict[str, Any]:
+    """Build a receipt whose identifier is the canonical digest of its body."""
+    return {
+        "schema_id": schema_id,
+        "receipt_id": id_prefix + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:"),
+        **body,
+    }

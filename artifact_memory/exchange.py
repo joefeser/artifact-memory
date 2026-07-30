@@ -6,7 +6,7 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Any
 
-from .canonical import canonical_bytes
+from .canonical import canonical_bytes, receipt_with_digest
 
 AUTHORITY_BOUNDARY = "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"
 
@@ -42,4 +42,4 @@ def admit(envelope: dict[str, Any], seen_envelope_ids: set[str] | None = None, s
             outcome, diagnostics = "rejected", [{"code": "invalid-envelope", "message": "expiry or required envelope field is invalid"}]
     accepted = [item["record_id"] for item in envelope.get("record_refs", [])] if outcome == "admitted" else []
     receipt_body = {"envelope_ref": envelope_id, "outcome": outcome, "accepted_record_ids": accepted, "diagnostics": diagnostics, "authority_boundary": AUTHORITY_BOUNDARY}
-    return {"schema_id": "artifact-memory/admission-receipt/v1", "receipt_id": "admission-receipt://" + hashlib.sha256(_canonical(receipt_body)).hexdigest(), **receipt_body}
+    return receipt_with_digest("artifact-memory/admission-receipt/v1", "admission-receipt://", receipt_body)

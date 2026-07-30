@@ -6,6 +6,7 @@ import hashlib
 import json
 from typing import Any
 
+from .canonical import receipt_with_digest
 from .projection import _canonical
 from .validator import validate
 
@@ -34,7 +35,7 @@ def bind_projection(records: list[dict[str, Any]], projection_kind: str, provide
     else:
         outcome, diagnostics = "admitted", []
     receipt_body = {"outcome": outcome, "source_record_ids": source_ids, "authority_boundary": AUTHORITY_BOUNDARY, "diagnostics": diagnostics}
-    receipt = {"schema_id": "artifact-memory/wits-admission-receipt/v1", "receipt_id": "wits-admission-receipt://" + _digest(receipt_body).removeprefix("sha-256:"), **receipt_body}
+    receipt = receipt_with_digest("artifact-memory/wits-admission-receipt/v1", "wits-admission-receipt://", receipt_body)
     if outcome != "admitted":
         return None, receipt
     projection = {"schema_id": "artifact-memory/wits-projection/v1", "projection_id": "wits-binding://" + _digest({"source_record_refs": source_refs, "projection": provider_response}).removeprefix("sha-256:"), "source_record_refs": source_refs, "external_evidence_refs": sorted(external_evidence_refs or []), "projection_kind": projection_kind, "wits_projection_ref": provider_response["projection_ref"], "wits_projection_schema_ref": provider_response["projection_schema_ref"], "projection_digest": provider_response["projection_digest"], "authority_boundary": AUTHORITY_BOUNDARY}

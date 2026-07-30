@@ -31,8 +31,9 @@ def core_schemas() -> dict[str, dict[str, Any]]:
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise ValidationFailure("invalid-schema", "packaged schema is unavailable or invalid") from exc
         if not isinstance(schema, dict) or not isinstance(schema.get("properties"), dict):
-            continue
-        schema_id = schema["properties"].get("schema_id", {}).get("const")
-        if isinstance(schema_id, str):
-            result[schema_id] = schema
+            raise ValidationFailure("invalid-schema", f"packaged core schema is structurally invalid: {resource.name}")
+        schema_id_property = schema["properties"].get("schema_id")
+        if not isinstance(schema_id_property, dict) or not isinstance(schema_id_property.get("const"), str):
+            raise ValidationFailure("invalid-schema", f"packaged core schema has no constant schema_id: {resource.name}")
+        result[schema_id_property["const"]] = schema
     return result
