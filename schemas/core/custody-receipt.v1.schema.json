@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/custody-receipt/v1",
+  "title": "Artifact Memory custody model receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "backup_ref", "endpoint_ref", "custody_class", "authorization_state", "key_recovery_state", "restore_test_cadence", "outcome", "transfer", "authority_boundary", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/custody-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^custody-receipt://[0-9a-f]{64}$"},
+    "backup_ref": {"type": "string", "minLength": 1},
+    "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "custody_class": {"enum": ["local", "off-machine"]},
+    "authorization_state": {"enum": ["authorized", "not-authorized"]},
+    "key_recovery_state": {"enum": ["external-not-recorded", "recorded"]},
+    "restore_test_cadence": {"type": "string", "minLength": 1},
+    "outcome": {"enum": ["recorded", "not-authorized", "endpoint-unavailable"]},
+    "transfer": {"const": "not-performed-by-receipt"},
+    "authority_boundary": {"const": "custody receipt does not copy, disclose, or authorize backup bytes"},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+  }
+}
