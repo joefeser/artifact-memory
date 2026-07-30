@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/deletion-receipt/v1",
+  "title": "Artifact Memory deletion receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "target_ref", "scope", "outcome", "global_erasure_claim", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/deletion-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^deletion-receipt://[A-Za-z0-9._~-]+/[0-9a-f]{64}$"},
+    "target_ref": {"type": "string", "minLength": 1},
+    "scope": {"enum": ["active-vault", "generated-index", "managed-backup", "git-history", "endpoint"]},
+    "endpoint_ref": {"type": "string", "minLength": 1},
+    "generation_ref": {"type": "string", "minLength": 1},
+    "outcome": {"enum": ["requested", "attempted", "removed-observed", "verified-absent-at-endpoint", "retained-until-expiry", "not-authorized", "endpoint-unavailable", "scope-unknown", "failed", "partially-complete"]},
+    "global_erasure_claim": {"const": false},
+    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

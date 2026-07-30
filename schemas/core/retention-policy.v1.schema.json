@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/retention-policy/v1",
+  "title": "Artifact Memory retention policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "policy_id", "retention_class", "owner_ref", "legal_hold", "backup_expiry_behavior"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/retention-policy/v1"},
+    "policy_id": {"type": "string", "pattern": "^retention-policy://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "retention_class": {"enum": ["ephemeral", "standard", "deferred-expiry", "legal-hold"]},
+    "owner_ref": {"type": "string", "minLength": 1},
+    "legal_hold": {"type": "boolean"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "backup_expiry_behavior": {"enum": ["managed-expiry", "retain-until-owner-release", "unknown" ]},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}
