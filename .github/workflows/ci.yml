@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev, 'integration/**']
+  pull_request:
+    branches: [main, dev, 'integration/**']
+
+permissions:
+  contents: read
+
+jobs:
+  public-safety-and-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check public-safe history and paths
+        run: python3 scripts/public_safety_check.py
+
+      - name: Check whitespace
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git diff --check "$BASE_SHA" "$HEAD_SHA"
+          elif [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            git show --check --pretty=format: "$WORKFLOW_SHA"
+          else
+            git diff --check "$BEFORE_SHA" "$WORKFLOW_SHA"
+          fi
+
+      - name: Validate public JSON syntax
+        run: python3 scripts/validate_public_json.py
+
+      - name: Run contract validation when provided
+        shell: bash
+        run: |
+          if [[ -x scripts/validate_contracts.sh ]]; then
+            scripts/validate_contracts.sh
+          else
+            echo "No contract runner is present yet; issue #32 checks JSON syntax only."
+          fi
+
+      - name: Run conformance vectors when provided
+        shell: bash
+        run: |
+          if [[ -x scripts/run_conformance.sh ]]; then
+            scripts/run_conformance.sh
+          else
+            echo "No conformance runner is present yet; issue #12 will add it."
+          fi
