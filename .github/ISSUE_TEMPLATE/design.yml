@@ -1,0 +1,25 @@
+name: Design question
+description: Record a bounded design decision that may begin in Discussions.
+title: "[Design] "
+labels:
+  - design
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Options and tradeoffs
+    validations:
+      required: true
+  - type: textarea
+    id: consequences
+    attributes:
+      label: Compatibility, security, and authority consequences
+    validations:
+      required: true
+

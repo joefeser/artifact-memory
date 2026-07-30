@@ -1,0 +1,34 @@
+# Local vaults and real records never belong in this repository.
+vault/
+private/
+records/private/
+artifacts/
+objects/
+quarantine/
+
+# Credentials and machine-local resolver configuration.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+resolver.local.*
+endpoints.local.*
+
+# Generated and local state.
+node_modules/
+dist/
+build/
+coverage/
+.cache/
+.tmp/
+tmp/
+*.sqlite
+*.sqlite3
+*.db
+*.db3
+*.log
+.DS_Store
+

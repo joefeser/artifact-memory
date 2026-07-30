@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Open design discussion
+    url: https://github.com/joefeser/artifact-memory/discussions
+    about: Explore terminology, tradeoffs, and interoperability before implementation.
+
