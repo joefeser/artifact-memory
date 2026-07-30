@@ -91,7 +91,7 @@ def scan_path(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         entries.append(entry)
     entries.sort(key=lambda entry: entry["path"])
     outcome = "complete" if not diagnostics else "partial"
-    payload = {"schema_id": "artifact-memory/manifest/v1", "policy_ref": POLICY_REF, "completeness": outcome, "entries": entries}
+    payload = {"schema_id": "artifact-memory/manifest/v1", "policy_ref": POLICY_REF, "comparison_profile": "v0-case-sensitive-unicode-codepoint", "completeness": outcome, "entries": entries}
     manifest_ref = _manifest_id(payload)
     manifest = {**payload, "manifest_id": manifest_ref, "tree_digest": _tree_digest(entries)}
     receipt = {"schema_id": "artifact-memory/scan-receipt/v1", "receipt_id": f"scan-receipt://reference-cli/{manifest_ref.removeprefix('manifest://')}", "policy_ref": POLICY_REF, "manifest_ref": manifest_ref, "outcome": outcome, "accounted_entry_count": len(entries), "diagnostics": diagnostics}

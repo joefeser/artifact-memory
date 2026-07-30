@@ -1,0 +1,11 @@
+{
+  "schema_id": "artifact-memory/adapter-manifest/v1",
+  "adapter_id": "adapter://synthetic/reference-reader",
+  "adapter_version": "v1.0",
+  "supported_contract_versions": ["artifact-memory/content-object/v1"],
+  "capabilities": {"filesystem": "read", "network": "none", "credentials": "none", "mutation": "none", "read_capabilities": ["synthetic-local-reference"]},
+  "input_schema_refs": ["artifact-memory/content-object/v1"],
+  "output_schema_refs": ["artifact-memory/adapter-receipt/v1"],
+  "determinism": "observation-metadata-nondeterministic",
+  "record_contents_authorize_execution": false
+}

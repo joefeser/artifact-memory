@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/extension-bundle/v1",
+  "title": "Artifact Memory extension bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "extensions"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/extension-bundle/v1"},
+    "extensions": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["version", "required", "value"], "properties": {"version": {"type": "string", "pattern": "^v[0-9]+$"}, "required": {"type": "boolean"}, "value": {"type": "object", "additionalProperties": true}}}},
+    "extensions_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+  }
+}

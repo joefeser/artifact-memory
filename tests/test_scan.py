@@ -1,11 +1,20 @@
 import tempfile
 import unittest
 from pathlib import Path
+import hashlib
+import json
 
 from artifact_memory.scan import diff_manifests, scan_path, verify_path
 
 
 class ScanTests(unittest.TestCase):
+    def test_cross_platform_ordinary_tree_vector_is_path_layout_independent(self):
+        vector = json.loads((Path(__file__).resolve().parents[1] / "fixtures/synthetic/manifests/v0-ordinary-tree.json").read_text(encoding="utf-8"))
+        lines = "".join(f"file\t{entry['path']}\t{entry['content_digest']}\t{entry['byte_size']}\n" for entry in vector["logical_entries"])
+        self.assertEqual("sha-256:" + hashlib.sha256(lines.encode()).hexdigest(), vector["tree_digest"])
+        self.assertNotEqual(vector["container_digest"], vector["extracted_tree_digest"])
+        self.assertEqual(len(set(vector["platform_layouts"].values())), 3)
+
     def test_deterministic_scan_and_verification(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
