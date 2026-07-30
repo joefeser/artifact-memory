@@ -97,6 +97,25 @@ class ExchangeTests(unittest.TestCase):
         self.assertEqual(receipt["diagnostics"][0]["code"], "invalid-envelope")
         self.assertTrue(receipt["envelope_ref"].startswith("exchange://"))
 
+    def test_admission_rejection_receipt_normalizes_uppercase_claimed_id(self):
+        envelope = make_envelope("system://synthetic-reader", "uppercase-id", "2099-01-01T00:00:00Z", [], ["artifact://synthetic/item"])
+        uppercase_id = "exchange://" + envelope["envelope_id"].removeprefix("exchange://").upper()
+        receipt = admit({**envelope, "envelope_id": uppercase_id})
+        receipt_schema = json.loads((ROOT / "artifact_memory/schemas/core/admission-receipt.v1.schema.json").read_text(encoding="utf-8"))
+        validate(receipt, receipt_schema)
+        self.assertEqual(receipt["outcome"], "rejected")
+        self.assertEqual(receipt["envelope_ref"], envelope["envelope_id"])
+
+    def test_admission_rejects_content_identity_mismatch_before_replay(self):
+        envelope = make_envelope("system://synthetic-reader", "content-bound", "2099-01-01T00:00:00Z", [], ["artifact://synthetic/item"])
+        tampered = {**envelope, "correlation_id": "different-valid-body"}
+        receipt = admit(tampered, {envelope["envelope_id"]})
+        receipt_schema = json.loads((ROOT / "artifact_memory/schemas/core/admission-receipt.v1.schema.json").read_text(encoding="utf-8"))
+        validate(receipt, receipt_schema)
+        self.assertEqual(receipt["outcome"], "rejected")
+        self.assertEqual(receipt["diagnostics"][0]["code"], "envelope-id-mismatch")
+        self.assertNotEqual(receipt["envelope_ref"], envelope["envelope_id"])
+
     def test_timezone_naive_expiry_is_rejected(self):
         envelope = make_envelope("system://synthetic-reader", "synthetic-exchange-naive", "2099-01-01T00:00:00", [], [])
         schema = json.loads((ROOT / "artifact_memory/schemas/core/exchange-envelope.v1.schema.json").read_text(encoding="utf-8"))

@@ -25,16 +25,9 @@ def make_envelope(audience_ref: str, correlation_id: str, expires_at: str, recor
 
 def _safe_envelope_ref(envelope: Any) -> str:
     if isinstance(envelope, dict):
-        candidate = envelope.get("envelope_id")
-        if isinstance(candidate, str) and candidate.startswith("exchange://") and len(candidate) == 75:
-            try:
-                int(candidate.removeprefix("exchange://"), 16)
-            except ValueError:
-                pass
-            else:
-                return candidate
         try:
-            return "exchange://" + hashlib.sha256(_canonical(envelope)).hexdigest()
+            body = {key: value for key, value in envelope.items() if key != "envelope_id"}
+            return "exchange://" + hashlib.sha256(_canonical(body)).hexdigest()
         except (TypeError, ValueError):
             pass
     return "exchange://" + "0" * 64
@@ -48,11 +41,12 @@ def admit(envelope: dict[str, Any], seen_envelope_ids: set[str] | None = None, s
     else:
         try:
             validate(envelope, load_schema("core", "exchange-envelope.v1.schema.json"))
-            envelope_id = envelope["envelope_id"]
         except (ValidationFailure, KeyError, TypeError):
             outcome, diagnostics = "rejected", [{"code": "invalid-envelope", "message": "exchange envelope does not satisfy the v1 contract"}]
         else:
-            if envelope_id in seen_envelope_ids:
+            if envelope["envelope_id"] != envelope_id:
+                outcome, diagnostics = "rejected", [{"code": "envelope-id-mismatch", "message": "exchange envelope identity does not match its canonical body"}]
+            elif envelope_id in seen_envelope_ids:
                 outcome, diagnostics = "duplicate", [{"code": "replay", "message": "envelope was already admitted or rejected"}]
             else:
                 try:
