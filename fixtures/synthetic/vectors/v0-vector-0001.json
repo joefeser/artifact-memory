@@ -1,0 +1,11 @@
+{
+  "vector_id": "artifact-memory/vector/v0-0001",
+  "algorithm": "sha-256",
+  "relative_path": "orders.txt",
+  "content_utf8": "Artifact Memory synthetic order v0\n",
+  "byte_size": 35,
+  "content_digest": "sha-256:86ac52d837b21ab05630a340b71d49bdd265d76551106e977aa1510862ddc78b",
+  "leaf_serialization": "file\torders.txt\tsha-256:86ac52d837b21ab05630a340b71d49bdd265d76551106e977aa1510862ddc78b\t35\n",
+  "tree_digest": "sha-256:8ce3660460255ae5677f8bdf14e373ad967b17e83d03256cee524be0aad3bf90",
+  "synthetic_only": true
+}
