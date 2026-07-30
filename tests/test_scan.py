@@ -1,0 +1,49 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from artifact_memory.scan import diff_manifests, scan_path, verify_path
+
+
+class ScanTests(unittest.TestCase):
+    def test_deterministic_scan_and_verification(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "src").mkdir()
+            (root / "src" / "orders.txt").write_bytes(b"synthetic orders\n")
+            first, receipt = scan_path(root)
+            second, _ = scan_path(root)
+            self.assertEqual(first, second)
+            self.assertEqual(receipt["outcome"], "complete")
+            self.assertEqual(verify_path(root, first)["outcome"], "verified")
+
+    def test_diff_reports_content_changes_and_move_candidates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "old.txt").write_text("same", encoding="utf-8")
+            before, _ = scan_path(root)
+            (root / "old.txt").rename(root / "new.txt")
+            (root / "changed.txt").write_text("new", encoding="utf-8")
+            after, _ = scan_path(root)
+            result = diff_manifests(before, after)
+            self.assertEqual(result["added"], ["changed.txt", "new.txt"])
+            self.assertEqual(result["removed"], ["old.txt"])
+            self.assertEqual(result["changed"], [])
+            self.assertEqual(result["moved_candidates"][0]["from"], "old.txt")
+            self.assertEqual(result["moved_candidates"][0]["to"], "new.txt")
+
+    def test_symlink_is_explicitly_unsupported(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "target").write_text("synthetic", encoding="utf-8")
+            try:
+                (root / "link").symlink_to(root / "target")
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable on this platform")
+            _, receipt = scan_path(root)
+            self.assertEqual(receipt["outcome"], "partial")
+            self.assertEqual(receipt["diagnostics"][0]["code"], "unsupported")
+
+
+if __name__ == "__main__":
+    unittest.main()

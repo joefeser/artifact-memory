@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/manifest/v1",
+  "title": "Artifact Memory normalized manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "manifest_id", "policy_ref", "completeness", "entries", "tree_digest"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/manifest/v1"},
+    "manifest_id": {"type": "string", "pattern": "^manifest://[0-9a-f]{64}$"},
+    "policy_ref": {"type": "string", "pattern": "^scan-policy://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "completeness": {"type": "string", "enum": ["complete", "partial", "failed", "cancelled"]},
+    "entries": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "kind"], "properties": {"path": {"type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(?:/|$)).+$"}, "kind": {"enum": ["file", "directory"]}, "byte_size": {"type": "integer", "minimum": 0}, "content_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}}}},
+    "tree_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

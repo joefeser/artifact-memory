@@ -98,7 +98,8 @@ def _validate_provider_packet(packet_dir: Path, expected_repo: str, expected_com
 def _verify_index(packet_dir: Path, manifest: dict[str, Any], facts: list[dict[str, Any]]) -> None:
     try:
         uri = (packet_dir / "index.sqlite").resolve().as_uri()
-        with sqlite3.connect(f"{uri}?mode=ro", uri=True) as connection:
+        connection = sqlite3.connect(f"{uri}?mode=ro", uri=True)
+        try:
             tables = {row[0] for row in connection.execute("select name from sqlite_master where type='table'")}
             if not {"scan_manifest", "facts"}.issubset(tables):
                 raise AdapterFailure("trace-output-invalid", "provider index lacks required tables")
@@ -108,6 +109,8 @@ def _verify_index(packet_dir: Path, manifest: dict[str, Any], facts: list[dict[s
             indexed_ids = {row[0] for row in connection.execute("select fact_id from facts")}
             if indexed_ids != {fact["factId"] for fact in facts}:
                 raise AdapterFailure("digest-mismatch", "provider index fact parity failed")
+        finally:
+            connection.close()
     except sqlite3.Error as exc:
         raise AdapterFailure("trace-output-invalid", "provider index cannot be opened read-only") from exc
 
