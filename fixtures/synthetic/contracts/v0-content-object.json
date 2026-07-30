@@ -1,0 +1,7 @@
+{
+  "schema_id": "artifact-memory/content-object/v1",
+  "content_id": "content://synthetic/order-sample/sha256",
+  "digest": "sha-256:86ac52d837b21ab05630a340b71d49bdd265d76551106e977aa1510862ddc78b",
+  "byte_size": 35,
+  "media_type": "text/plain"
+}

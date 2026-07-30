@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/location-observation/v1",
+  "title": "Artifact Memory location observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "observation_id", "content_ref", "endpoint_ref", "relative_path", "presence", "observed_at"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/location-observation/v1"},
+    "observation_id": {"type": "string", "pattern": "^location-observation://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "content_ref": {"type": "string", "pattern": "^content://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "relative_path": {"type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(?:/|$))[A-Za-z0-9._~/-]+$"},
+    "presence": {"type": "string", "enum": ["present", "absent", "removal-observed", "unavailable", "verified-absent-at-endpoint"]},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

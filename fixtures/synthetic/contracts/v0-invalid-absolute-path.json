@@ -1,0 +1,9 @@
+{
+  "schema_id": "artifact-memory/location-observation/v1",
+  "observation_id": "location-observation://synthetic/invalid-0001",
+  "content_ref": "content://synthetic/order-sample/sha256",
+  "endpoint_ref": "endpoint://synthetic/vault",
+  "relative_path": "/Users/example/private/order.txt",
+  "presence": "present",
+  "observed_at": "2026-07-30T00:00:00Z"
+}
