@@ -26,7 +26,19 @@ class ScanTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(receipt["outcome"], "complete")
             self.assertEqual(verify_path(root, first)["outcome"], "verified")
-            self.assertEqual(verify_path(root / "missing", {"tree_digest": "sha-256:" + hashlib.sha256(b"").hexdigest(), "completeness": "complete"})["outcome"], "incomplete")
+            self.assertEqual(verify_path(root / "missing", first)["outcome"], "incomplete")
+
+    def test_verification_rejects_malformed_manifest_before_digest_comparison(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            malformed = {
+                "schema_id": "artifact-memory/manifest/v1",
+                "completeness": "complete",
+                "tree_digest": "sha-256:" + hashlib.sha256(b"").hexdigest(),
+            }
+            result = verify_path(root, malformed)
+            self.assertEqual(result["outcome"], "rejected")
+            self.assertEqual(result["diagnostics"][0]["code"], "required-field-missing")
 
     def test_diff_reports_content_changes_and_move_candidates(self):
         with tempfile.TemporaryDirectory() as temporary:

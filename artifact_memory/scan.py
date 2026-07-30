@@ -9,6 +9,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterator
 
 from .canonical import canonical_bytes, sha256_path
+from .schema_resources import load_schema
+from .validator import ValidationFailure, validate
 
 POLICY_REF = "scan-policy://reference-cli/v0"
 
@@ -113,6 +115,14 @@ def scan_path(root: Path, limits: ScanLimits | None = None) -> tuple[dict[str, A
 
 
 def verify_path(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    try:
+        validate(manifest, load_schema("core", "manifest.v1.schema.json"))
+    except ValidationFailure as exc:
+        return {
+            "outcome": "rejected",
+            "manifest_ref": manifest.get("manifest_id") if isinstance(manifest, dict) else None,
+            "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}],
+        }
     actual, receipt = scan_path(root)
     if manifest.get("completeness") != "complete" or actual["completeness"] != "complete":
         return {
