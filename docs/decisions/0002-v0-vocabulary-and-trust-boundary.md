@@ -48,10 +48,24 @@ Canonical records are versioned JSON text. NDJSON, SQLite, HTML, graphs, search
 indexes, and context packs are generated projections and never the only copy of
 durable knowledge.
 
-Lifecycle states are explicit: `draft`, `accepted`, `sealed`, `superseded`,
-and `rejected`. A draft may be revised; a sealed record is immutable; a
-superseded record remains evidence of its former state; a rejected record is
-retained only when policy requires an auditable outcome.
+Lifecycle states apply to versioned knowledge and protocol records, not to
+immutable operation receipts. Only `draft` may be edited in place. The allowed
+v0 transitions are:
+
+| Current state | Allowed next state |
+| --- | --- |
+| `draft` | `accepted` or `rejected` |
+| `accepted` | `sealed` or `superseded` |
+| `sealed` | `superseded` |
+| `superseded` | none |
+| `rejected` | none |
+
+Every transition out of `draft` creates durable history rather than replacing
+the prior accepted or sealed record. A superseding record names what it
+supersedes; rejection does not authorize a later state transition. Individual
+record schemas decide whether a lifecycle field is required. Until those
+schemas exist, consumers must not infer edit or transition authority from a
+missing lifecycle field.
 
 ## Rationale
 
