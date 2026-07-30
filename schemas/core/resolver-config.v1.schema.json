@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/resolver-config/v1",
+  "title": "Artifact Memory local resolver configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "endpoint_ref", "platform", "root", "authorized"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/resolver-config/v1"},
+    "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "platform": {"enum": ["windows", "macos", "linux", "test-double"]},
+    "root": {"type": "string", "minLength": 1},
+    "authorized": {"type": "boolean"},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

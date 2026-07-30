@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/dogfood-receipt/v1",
+  "title": "Artifact Memory sanitized dogfood receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "scope", "records_validated", "content_registered", "projection_rebuilt", "context_pack_verified", "backup_restored_isolated", "private_material_committed"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/dogfood-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^dogfood-receipt://[0-9a-f]{64}$"},
+    "scope": {"const": "synthetic-conformance-only"},
+    "records_validated": {"type": "integer", "minimum": 1},
+    "content_registered": {"type": "integer", "minimum": 1},
+    "projection_rebuilt": {"const": true},
+    "context_pack_verified": {"const": true},
+    "backup_restored_isolated": {"const": true},
+    "private_material_committed": {"const": false},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  }
+}

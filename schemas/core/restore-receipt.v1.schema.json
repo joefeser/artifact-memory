@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/restore-receipt/v1",
+  "title": "Artifact Memory isolated restore receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "backup_ref", "isolated", "restored_manifest_digest", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/restore-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^restore-receipt://[0-9a-f]{64}$"},
+    "outcome": {"enum": ["restored", "rejected", "failed"]},
+    "backup_ref": {"type": "string", "pattern": "^backup://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "isolated": {"const": true},
+    "restored_manifest_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "authority_boundary": {"const": "backup and restore do not grant execution, disclosure, or mutation authority"},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  }
+}
