@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, 'integration/**']
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, 'integration/**']
 
 permissions:
   contents: read
@@ -22,7 +22,21 @@ jobs:
         run: python3 scripts/public_safety_check.py
 
       - name: Check whitespace
-        run: git diff --check HEAD^ HEAD
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git diff --check "$BASE_SHA" "$HEAD_SHA"
+          elif [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            git show --check --pretty=format: "$WORKFLOW_SHA"
+          else
+            git diff --check "$BEFORE_SHA" "$WORKFLOW_SHA"
+          fi
 
       - name: Validate public JSON syntax
         run: python3 scripts/validate_public_json.py

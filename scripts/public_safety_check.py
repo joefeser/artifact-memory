@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 
 FORBIDDEN_PATH = re.compile(
@@ -32,9 +33,13 @@ def run(*args: str) -> str:
     return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT)
 
 
-def history_paths() -> list[str]:
-    lines = run("git", "rev-list", "--objects", "--all").splitlines()
-    return [line.split(" ", 1)[1] for line in lines if " " in line]
+def history_entries() -> dict[str, set[str]]:
+    entries: dict[str, set[str]] = {}
+    for line in run("git", "rev-list", "--objects", "--all").splitlines():
+        parts = line.split(" ", 1)
+        if len(parts) == 2:
+            entries.setdefault(parts[0], set()).add(parts[1])
+    return entries
 
 
 def commits() -> list[str]:
@@ -45,55 +50,93 @@ def current_paths() -> list[str]:
     return run("git", "ls-files", "--cached", "--others", "--exclude-standard").splitlines()
 
 
-def check_paths() -> list[str]:
+def check_paths(history: dict[str, set[str]], current: list[str]) -> list[str]:
     findings = []
-    for path in history_paths() + current_paths():
+    for path in [path for paths in history.values() for path in paths] + current:
         if FORBIDDEN_PATH.search(path):
             findings.append(f"forbidden repository path: {path}")
+    return sorted(set(findings))
+
+
+def check_historical_content(history: dict[str, set[str]]) -> list[str]:
+    """Scan each reachable blob once and never print matching content."""
+
+    object_ids = "\n".join(history) + "\n"
+    process = subprocess.Popen(
+        ["git", "cat-file", "--batch"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    output, error = process.communicate(object_ids.encode("ascii"))
+    if process.returncode:
+        raise RuntimeError(error.decode("utf-8", errors="replace").strip())
+
+    findings = []
+    offset = 0
+    for object_id, paths in history.items():
+        header_end = output.find(b"\n", offset)
+        if header_end < 0:
+            raise RuntimeError("git cat-file returned an incomplete header")
+        header = output[offset:header_end].decode("ascii", errors="replace").split()
+        offset = header_end + 1
+        if len(header) != 3:
+            raise RuntimeError("git cat-file returned an invalid header")
+        _, object_type, size_text = header
+        size = int(size_text)
+        content = output[offset : offset + size]
+        offset += size + 1  # cat-file terminates each response with a newline.
+        if object_type != "blob" or all(path == SCANNER_PATH for path in paths):
+            continue
+        text = content.decode("utf-8", errors="replace")
+        if SECRET_LIKE.search(text):
+            path = sorted(path for path in paths if path != SCANNER_PATH)[0]
+            findings.append(f"secret-like historical content: object {object_id}, path {path}")
     return findings
 
 
-def check_content() -> list[str]:
+def check_current_content(paths: list[str]) -> list[str]:
+    """Scan staged and non-ignored worktree files without echoing content."""
+
+    tracked = set(run("git", "ls-files", "--cached").splitlines())
     findings = []
-    for commit in commits():
-        try:
-            output = subprocess.check_output(
-                [
-                    "git",
-                    "grep",
-                    "-I",
-                    "-n",
-                    "-E",
-                    "-e",
-                    SECRET_LIKE.pattern,
-                    commit,
-                    "--",
-                    ":(exclude)" + SCANNER_PATH,
-                ],
-                text=True,
-                stderr=subprocess.DEVNULL,
-            )
-        except subprocess.CalledProcessError as error:
-            if error.returncode == 1:
-                continue
-            findings.append(f"history scan failed at {commit}: exit {error.returncode}")
+    for path in paths:
+        if path == SCANNER_PATH:
             continue
-        for line in output.splitlines():
-            findings.append(f"secret-like historical content: {line}")
+        try:
+            content = (
+                subprocess.check_output(["git", "show", ":" + path])
+                if path in tracked
+                else Path(path).read_bytes()
+            )
+        except (OSError, subprocess.CalledProcessError) as error:
+            findings.append(f"current content scan failed: {path} ({error})")
+            continue
+        if b"\x00" in content[:8192]:
+            continue
+        text = content.decode("utf-8", errors="replace")
+        if SECRET_LIKE.search(text):
+            findings.append(f"secret-like current content: path {path}")
     return findings
 
 
 def main() -> int:
-    findings = check_paths() + check_content()
+    history = history_entries()
+    current = current_paths()
+    findings = (
+        check_paths(history, current)
+        + check_historical_content(history)
+        + check_current_content(current)
+    )
     if findings:
         print("PUBLIC SAFETY CHECK FAILED", file=sys.stderr)
-        for finding in findings:
+        for finding in sorted(set(findings)):
             print(f"- {finding}", file=sys.stderr)
         return 1
     print(
         "public safety check passed: "
-        f"{len(commits())} commits, {len(history_paths())} historical paths, "
-        f"{len(current_paths())} current paths"
+        f"{len(commits())} commits, {len(history)} historical objects, "
+        f"{len(current)} current paths"
     )
     return 0
 
