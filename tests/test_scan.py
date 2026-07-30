@@ -26,6 +26,7 @@ class ScanTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(receipt["outcome"], "complete")
             self.assertEqual(verify_path(root, first)["outcome"], "verified")
+            self.assertEqual(verify_path(root / "missing", {"tree_digest": "sha-256:" + hashlib.sha256(b"").hexdigest(), "completeness": "complete"})["outcome"], "incomplete")
 
     def test_diff_reports_content_changes_and_move_candidates(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -41,6 +42,19 @@ class ScanTests(unittest.TestCase):
             self.assertEqual(result["changed"], [])
             self.assertEqual(result["moved_candidates"][0]["from"], "old.txt")
             self.assertEqual(result["moved_candidates"][0]["to"], "new.txt")
+
+    def test_duplicate_content_move_candidates_are_not_collapsed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "old-a.txt").write_text("same", encoding="utf-8")
+            (root / "old-b.txt").write_text("same", encoding="utf-8")
+            before, _ = scan_path(root)
+            (root / "old-a.txt").unlink()
+            (root / "old-b.txt").unlink()
+            (root / "new.txt").write_text("same", encoding="utf-8")
+            after, _ = scan_path(root)
+            candidates = diff_manifests(before, after)["moved_candidates"]
+            self.assertEqual([item["from"] for item in candidates], ["old-a.txt", "old-b.txt"])
 
     def test_symlink_is_explicitly_unsupported(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -65,7 +79,7 @@ class ScanTests(unittest.TestCase):
             _, cancelled = scan_path(root, ScanLimits(cancellation_check=lambda: True))
             self.assertEqual(cancelled["outcome"], "cancelled")
             self.assertEqual(cancelled["diagnostics"][0]["code"], "cancelled")
-            schema = json.loads((Path(__file__).resolve().parents[1] / "schemas/core/scan-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            schema = json.loads((Path(__file__).resolve().parents[1] / "artifact_memory/schemas/core/scan-receipt.v1.schema.json").read_text(encoding="utf-8"))
             validate(limited, schema)
             validate(cancelled, schema)
 

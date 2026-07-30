@@ -17,3 +17,6 @@ artifact-memory = "artifact_memory.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["artifact_memory*"]
+
+[tool.setuptools.package-data]
+artifact_memory = ["schemas/**/*.json", "schemas/**/*.md"]

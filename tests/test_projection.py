@@ -38,6 +38,9 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual((first_out / "records.ndjson").read_bytes(), (second_out / "records.ndjson").read_bytes())
             self.assertEqual(search_records(first_out / "records.sqlite", "projection"), ["record://synthetic/record-0002"])
             self.assertEqual(related_records(first_out / "records.sqlite", "record://synthetic/record-0001"), [{"type": "related-to", "target_ref": "record://synthetic/record-0002"}])
+            rebuilt_receipt = project_records([one, two], first_out)
+            self.assertEqual(rebuilt_receipt, first_receipt)
+            self.assertEqual(search_records(first_out / "records.sqlite", "projection"), ["record://synthetic/record-0002"])
 
 
 if __name__ == "__main__":

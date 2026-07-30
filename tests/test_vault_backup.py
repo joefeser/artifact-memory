@@ -1,9 +1,13 @@
+import io
 import json
 import os
+import shutil
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from artifact_memory.backup import create_backup, create_git_bundle, restore_isolated
 from artifact_memory.vault import register_bytes
@@ -16,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class VaultBackupTests(unittest.TestCase):
     def test_sanitized_dogfood_receipt_is_public_safe(self):
         receipt = json.loads((ROOT / "fixtures/synthetic/dogfood/v1/receipt.json").read_text(encoding="utf-8"))
-        schema = json.loads((ROOT / "schemas/core/dogfood-receipt.v1.schema.json").read_text(encoding="utf-8"))
+        schema = json.loads((ROOT / "artifact_memory/schemas/core/dogfood-receipt.v1.schema.json").read_text(encoding="utf-8"))
         validate(receipt, schema)
         self.assertFalse(receipt["private_material_committed"])
 
@@ -25,7 +29,7 @@ class VaultBackupTests(unittest.TestCase):
             vault = Path(temporary) / "vault"
             first = register_bytes(vault, b"synthetic vault bytes\n", "text/plain")
             second = register_bytes(vault, b"synthetic vault bytes\n", "text/plain")
-            schema = json.loads((ROOT / "schemas/core/content-registration-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            schema = json.loads((ROOT / "artifact_memory/schemas/core/content-registration-receipt.v1.schema.json").read_text(encoding="utf-8"))
             validate(first, schema)
             validate(second, schema)
             self.assertEqual(first["outcome"], "registered")
@@ -40,17 +44,59 @@ class VaultBackupTests(unittest.TestCase):
             (source / "vault-object").write_bytes(b"synthetic bytes")
             backup_dir = root / "backup"
             backup = create_backup({"knowledge": source}, backup_dir, "synthetic-passphrase")
-            backup_schema = json.loads((ROOT / "schemas/core/backup-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            backup_schema = json.loads((ROOT / "artifact_memory/schemas/core/backup-receipt.v1.schema.json").read_text(encoding="utf-8"))
             validate(backup, backup_schema)
             encrypted = (backup_dir / "backup.enc").read_bytes()
             self.assertNotIn(b"synthetic bytes", encrypted)
             restored = root / "isolated-restore"
             receipt = restore_isolated(backup_dir / "backup.enc", restored, "synthetic-passphrase", backup["backup_ref"], backup["backup_digest"])
-            restore_schema = json.loads((ROOT / "schemas/core/restore-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            restore_schema = json.loads((ROOT / "artifact_memory/schemas/core/restore-receipt.v1.schema.json").read_text(encoding="utf-8"))
             validate(receipt, restore_schema)
             self.assertEqual(receipt["outcome"], "restored")
             self.assertEqual((restored / "knowledge" / "records.ndjson").read_text(encoding="utf-8"), '{"synthetic":true}\n')
             self.assertEqual(restore_isolated(backup_dir / "backup.enc", restored, "synthetic-passphrase", backup["backup_ref"], backup["backup_digest"])["outcome"], "rejected")
+
+    def test_missing_openssl_returns_schema_valid_failure_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source.txt"
+            source.write_text("synthetic", encoding="utf-8")
+            with patch("artifact_memory.backup.subprocess.run", side_effect=FileNotFoundError):
+                receipt = create_backup({"knowledge": source}, root / "backup", "synthetic-passphrase")
+            schema = json.loads((ROOT / "artifact_memory/schemas/core/backup-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            validate(receipt, schema)
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertIn("openssl-unavailable", receipt["limitations"])
+
+    def test_restore_rejects_nonregular_members_and_malformed_manifest_with_receipts(self):
+        def copy_without_encryption(_args, _passphrase, input_path, output_path):
+            shutil.copyfile(input_path, output_path)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            malformed = root / "malformed.tar"
+            with tarfile.open(malformed, "w") as archive:
+                manifest = b"[]"
+                info = tarfile.TarInfo("backup-manifest.json")
+                info.size = len(manifest)
+                archive.addfile(info, io.BytesIO(manifest))
+            with patch("artifact_memory.backup._run_openssl", side_effect=copy_without_encryption):
+                receipt = restore_isolated(malformed, root / "malformed-restore", "unused", "backup://synthetic/test")
+            schema = json.loads((ROOT / "artifact_memory/schemas/core/restore-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            validate(receipt, schema)
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertIn("backup-manifest-invalid", receipt["limitations"])
+
+            unsafe = root / "unsafe.tar"
+            with tarfile.open(unsafe, "w") as archive:
+                fifo = tarfile.TarInfo("unsafe-fifo")
+                fifo.type = tarfile.FIFOTYPE
+                archive.addfile(fifo)
+            with patch("artifact_memory.backup._run_openssl", side_effect=copy_without_encryption):
+                receipt = restore_isolated(unsafe, root / "unsafe-restore", "unused", "backup://synthetic/test")
+            validate(receipt, schema)
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertIn("unsafe-backup-member", receipt["limitations"])
 
     def test_synthetic_git_bundle_verifies(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -64,7 +110,7 @@ class VaultBackupTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "synthetic"], check=True)
             bundle = Path(temporary) / "knowledge.bundle"
             receipt = create_git_bundle(repo, bundle, "git://synthetic/knowledge")
-            schema = json.loads((ROOT / "schemas/core/git-bundle-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            schema = json.loads((ROOT / "artifact_memory/schemas/core/git-bundle-receipt.v1.schema.json").read_text(encoding="utf-8"))
             validate(receipt, schema)
             subprocess.run(["git", "bundle", "verify", str(bundle)], check=True, stdout=subprocess.DEVNULL)
 

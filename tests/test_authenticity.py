@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class AuthenticityTests(unittest.TestCase):
     def test_unsigned_trace_evidence_is_labeled_without_authority(self):
         receipt = evaluate("artifact-version://synthetic/orders/1", True, True)
-        schema = json.loads((ROOT / "schemas/core/authenticity-receipt.v1.schema.json").read_text(encoding="utf-8"))
+        schema = json.loads((ROOT / "artifact_memory/schemas/core/authenticity-receipt.v1.schema.json").read_text(encoding="utf-8"))
         validate(receipt, schema)
         self.assertEqual(receipt["integrity_state"], UNSIGNED_STATE)
         self.assertEqual(receipt["authenticity_state"], "issuer-unverified")

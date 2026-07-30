@@ -16,8 +16,8 @@ class WitsAdapterTests(unittest.TestCase):
 
     def test_projection_stops_before_authority_and_validates(self):
         projection, receipt = bind_projection([self.record], "owner-meaning", self.response, authorized=True, external_evidence_refs=["artifact-version://tracemap/evidence/" + "a" * 64 + "/1"])
-        projection_schema = json.loads((ROOT / "schemas/adapters/wits-projection.v1.schema.json").read_text(encoding="utf-8"))
-        receipt_schema = json.loads((ROOT / "schemas/adapters/wits-admission-receipt.v1.schema.json").read_text(encoding="utf-8"))
+        projection_schema = json.loads((ROOT / "artifact_memory/schemas/adapters/wits-projection.v1.schema.json").read_text(encoding="utf-8"))
+        receipt_schema = json.loads((ROOT / "artifact_memory/schemas/adapters/wits-admission-receipt.v1.schema.json").read_text(encoding="utf-8"))
         validate(projection, projection_schema)
         validate(receipt, receipt_schema)
         self.assertEqual(receipt["outcome"], "admitted")

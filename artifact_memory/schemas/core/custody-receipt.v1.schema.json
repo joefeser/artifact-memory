@@ -9,7 +9,7 @@
     "schema_id": {"const": "artifact-memory/custody-receipt/v1"},
     "receipt_id": {"type": "string", "pattern": "^custody-receipt://[0-9a-f]{64}$"},
     "backup_ref": {"type": "string", "minLength": 1},
-    "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$"},
     "custody_class": {"enum": ["local", "off-machine"]},
     "authorization_state": {"enum": ["authorized", "not-authorized"]},
     "key_recovery_state": {"enum": ["external-not-recorded", "recorded"]},

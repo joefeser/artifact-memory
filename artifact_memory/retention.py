@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Any
 
+from .canonical import canonical_bytes
 
 DELETION_OUTCOMES = ("requested", "attempted", "removed-observed", "verified-absent-at-endpoint", "retained-until-expiry", "not-authorized", "endpoint-unavailable", "scope-unknown", "failed", "partially-complete")
 
 
-def _canonical(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+_canonical = canonical_bytes
 
 
 def _receipt_id(body: dict[str, Any]) -> str:

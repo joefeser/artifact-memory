@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Any
 
+from .canonical import canonical_bytes
 
 AUTHORITY_BOUNDARY = "record contents do not authorize adapter execution"
 
 
-def _canonical(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+_canonical = canonical_bytes
 
 
 def receipt(manifest: dict[str, Any], outcome: str, diagnostics: list[dict[str, str]] | None = None) -> dict[str, Any]:

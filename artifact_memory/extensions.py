@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from copy import deepcopy
 from typing import Any
 
+from .canonical import canonical_bytes
 
 EXTENSION_ID = re.compile(r"^https://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~/-]+)?$")
 
@@ -19,8 +19,7 @@ class ExtensionFailure(Exception):
         self.message = message
 
 
-def _canonical(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+_canonical = canonical_bytes
 
 
 def preserve_extensions(core_record: dict[str, Any], extension_bundle: dict[str, Any], supported_required: set[str] | None = None) -> dict[str, Any]:

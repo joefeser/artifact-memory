@@ -9,8 +9,10 @@ import sqlite3
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .canonical import canonical_bytes, sha256_path
+
 TRACE_MAP_CONTRACT_ANCHOR = "9a252f12f781ae2a0aab52b5faa53601440a2a3b"
-REQUIRED_ARTIFACTS = ("scan-manifest.json", "facts.ndjson", "index.sqlite", "report.md", "logs/analyzer.log")
+REQUIRED_ARTIFACTS = ("scan-manifest.json", "facts.ndjson", "index.sqlite", "report.md")
 FACT_SCHEMA_ID = "https://tracemap.tools/contracts/code-fact.v1.schema.json"
 MANIFEST_SCHEMA_ID = "https://tracemap.tools/contracts/scan-manifest.v1.schema.json"
 INTEGRITY_STATE = "integrity-verified / issuer-unverified"
@@ -23,8 +25,7 @@ class AdapterFailure(Exception):
         self.message = message
 
 
-def _canonical(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+_canonical = canonical_bytes
 
 
 def _digest(value: bytes) -> str:
@@ -85,7 +86,7 @@ def _validate_provider_packet(packet_dir: Path, expected_repo: str, expected_com
     facts = _read_facts(packet_dir / "facts.ndjson")
     for fact in facts:
         required = ("factId", "scanId", "repo", "commitSha", "factType", "ruleId", "evidenceTier", "evidence", "properties")
-        if any(key not in fact for key in required) or fact["scanId"] != manifest["scanId"] or fact["commitSha"] != expected_commit:
+        if any(key not in fact for key in required) or fact["scanId"] != manifest["scanId"] or fact["commitSha"] != expected_commit or fact["repo"] != expected_repo:
             raise AdapterFailure("trace-output-invalid", "provider fact provenance is incomplete")
         evidence = fact["evidence"]
         if not isinstance(evidence, dict) or not _safe_relative(evidence.get("filePath")):
@@ -106,8 +107,8 @@ def _verify_index(packet_dir: Path, manifest: dict[str, Any], facts: list[dict[s
             rows = connection.execute("select scan_id, commit_sha from scan_manifest").fetchall()
             if rows != [(manifest["scanId"], manifest["commitSha"])]:
                 raise AdapterFailure("digest-mismatch", "provider index manifest parity failed")
-            indexed_ids = {row[0] for row in connection.execute("select fact_id from facts")}
-            if indexed_ids != {fact["factId"] for fact in facts}:
+            indexed_facts = set(connection.execute("select fact_id, repo from facts"))
+            if indexed_facts != {(fact["factId"], fact["repo"]) for fact in facts}:
                 raise AdapterFailure("digest-mismatch", "provider index fact parity failed")
         finally:
             connection.close()
@@ -128,10 +129,10 @@ def bind_trace_map_evidence(source_version_ref: str, packet_dir: Path, expected_
 
     file_digests = []
     for name in REQUIRED_ARTIFACTS:
-        file_digests.append({"name": name, "digest": _digest((packet_dir / name).read_bytes())})
+        file_digests.append({"name": name, "digest": sha256_path(packet_dir / name)})
     packet_body = {"provider": "tracemap", "contract_anchor": TRACE_MAP_CONTRACT_ANCHOR, "files": file_digests}
     packet_digest = _digest(_canonical(packet_body))
-    binding_body = {"source_version_ref": source_version_ref, "packet_digest": packet_digest, "selected_provider_record_ids": sorted(selected), "provider_commit": TRACE_MAP_CONTRACT_ANCHOR}
+    binding_body = {"source_version_ref": source_version_ref, "packet_digest": packet_digest, "selected_provider_record_ids": sorted(selected), "provider_contract_anchor": TRACE_MAP_CONTRACT_ANCHOR}
     binding_digest = hashlib.sha256(_canonical(binding_body)).hexdigest()
     receipt_body = {"outcome": "complete", "provider": "tracemap", "packet_digest": packet_digest, "selected_provider_record_ids": sorted(selected), "integrity_state": INTEGRITY_STATE}
     return {

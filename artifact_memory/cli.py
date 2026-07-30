@@ -11,23 +11,16 @@ from . import CONTRACT_VERSION, __version__
 from .context import ContextFailure, export_context
 from .projection import project_records, related_records, search_records
 from .scan import diff_manifests, scan_path, verify_path
-from .validator import ValidationFailure, load_json, validate_file
+from .schema_resources import core_schemas
+from .validator import ValidationFailure, load_json, validate
 
 EXIT_OK = 0
 EXIT_INVALID = 2
 EXIT_UNSUPPORTED = 3
 
 
-def _schemas() -> dict[str, Path]:
-    root = Path(__file__).resolve().parents[1] / "schemas" / "core"
-    result: dict[str, Path] = {}
-    for schema_path in sorted(root.glob("*.schema.json")):
-        schema = load_json(schema_path)
-        if isinstance(schema, dict) and isinstance(schema.get("properties"), dict):
-            schema_id = schema["properties"].get("schema_id", {}).get("const")
-            if isinstance(schema_id, str):
-                result[schema_id] = schema_path
-    return result
+def _schemas() -> dict[str, dict[str, object]]:
+    return core_schemas()
 
 
 def _receipt(payload: dict[str, object], as_json: bool) -> None:
@@ -147,14 +140,25 @@ def main(argv: list[str] | None = None) -> int:
         _receipt({"valid": False, "outcome": "rejected", "diagnostics": [{"code": "invalid-input", "path": "$", "message": "record must be a JSON object"}]}, args.as_json)
         return EXIT_INVALID
     schema_id = record.get("schema_id")
-    schema_path = args.schema or _schemas().get(schema_id)
-    if schema_path is None:
+    try:
+        schema = load_json(args.schema) if args.schema else _schemas().get(schema_id)
+    except ValidationFailure as exc:
+        _receipt({"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}, args.as_json)
+        return EXIT_INVALID
+    if schema is None:
         _receipt({"valid": False, "outcome": "unsupported", "schema_id": schema_id, "diagnostics": [{"code": "schema-unsupported", "path": "$.schema_id", "message": "no supported v0 schema"}]}, args.as_json)
         return EXIT_UNSUPPORTED
     if args.command == "inspect":
         _receipt({"outcome": "inspected", "schema_id": schema_id, "field_names": sorted(record)}, args.as_json)
         return EXIT_OK
-    result = validate_file(args.record, schema_path)
+    try:
+        if not isinstance(schema, dict):
+            raise ValidationFailure("invalid-input", "schema must be a JSON object")
+        validate(record, schema)
+    except ValidationFailure as exc:
+        result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}
+    else:
+        result = {"valid": True, "outcome": "accepted", "diagnostics": []}
     result["schema_id"] = schema_id
     _receipt(result, args.as_json)
     return EXIT_OK if result["valid"] else EXIT_INVALID

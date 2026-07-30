@@ -17,7 +17,7 @@ class PlatformMatrixTests(unittest.TestCase):
 
     def test_committed_receipts_validate_without_machine_paths(self):
         root = Path(__file__).resolve().parents[1]
-        schema = json.loads((root / "schemas/core/platform-matrix-receipt.v1.schema.json").read_text(encoding="utf-8"))
+        schema = json.loads((root / "artifact_memory/schemas/core/platform-matrix-receipt.v1.schema.json").read_text(encoding="utf-8"))
         for path in sorted((root / "fixtures/synthetic/platform/receipts").glob("*.json")):
             receipt = json.loads(path.read_text(encoding="utf-8"))
             validate(receipt, schema)

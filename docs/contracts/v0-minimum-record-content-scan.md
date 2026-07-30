@@ -21,7 +21,7 @@ complete manifest, index, adapter, retention policy, or authenticity protocol.
 - A scan receipt describes the scope and completeness of an observation. It is
   not proof that omitted or unreadable entries do not exist.
 
-The JSON Schemas in `schemas/core/` are normative for field names, types,
+The JSON Schemas in `artifact_memory/schemas/core/` are normative for field names, types,
 required fields, and closed top-level vocabularies. Unknown top-level fields
 are rejected. Optional namespaced extensions belong under `extensions` and are
 preserved without interpretation; a future required-extension mechanism is

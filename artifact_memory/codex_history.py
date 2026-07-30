@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from typing import Any
 
+from .canonical import canonical_bytes
 
 ALLOWED_FIELDS = ("task_id", "title", "summary", "decisions", "open_questions")
 EXCLUDED_CATEGORIES = ("raw-transcript", "raw-attachments", "credentials", "browser-state", "absolute-paths", "unrelated-task-content")
 
 
-def _canonical(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+_canonical = canonical_bytes
 
 
 def _digest(value: Any) -> str:

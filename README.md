@@ -86,7 +86,7 @@ and [the readiness audit](docs/release/public-readiness-audit.md).
 - [Initial roadmap](docs/roadmap/initial-roadmap.md)
 - [Decision log](docs/decisions/README.md)
 - [Extension and adapter boundary](adapters/README.md)
-- [Schema work area](schemas/README.md)
+- [Schema work area](artifact_memory/schemas/README.md)
 - [Synthetic fixture policy](fixtures/synthetic/README.md)
 
 ## Lineage

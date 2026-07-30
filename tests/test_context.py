@@ -19,7 +19,7 @@ class ContextTests(unittest.TestCase):
         private["sensitivity"] = "private"
         evidence = [{"provider_id": "tracemap", "provider_schema_id": "https://tracemap.tools/contracts/code-fact.v1.schema.json", "provider_record_id": "fact-synthetic-status-access", "evidence_packet_ref": "artifact-version://tracemap/evidence/" + "a" * 64 + "/1", "adapter_receipt_digest": "sha-256:" + "b" * 64, "integrity_state": "integrity-verified / issuer-unverified", "coverage": "one synthetic property access", "limitations": ["static evidence only"]}]
         pack = export_context([private, public], evidence)
-        schema = json.loads((ROOT / "schemas/core/context-pack.v1.schema.json").read_text(encoding="utf-8"))
+        schema = json.loads((ROOT / "artifact_memory/schemas/core/context-pack.v1.schema.json").read_text(encoding="utf-8"))
         validate(pack, schema)
         self.assertEqual(pack["authority_boundary"], AUTHORITY_BOUNDARY)
         self.assertEqual(pack["selection_receipt"]["redacted_record_ids"], ["record://synthetic/private-0001"])

@@ -18,7 +18,7 @@ class ArchiveTests(unittest.TestCase):
             with zipfile.ZipFile(archive_path, "w") as archive:
                 archive.writestr("orders.txt", b"synthetic archive\n")
             receipt = inspect_zip(archive_path)
-            schema = json.loads((ROOT / "schemas/core/archive-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            schema = json.loads((ROOT / "artifact_memory/schemas/core/archive-receipt.v1.schema.json").read_text(encoding="utf-8"))
             validate(receipt, schema)
             self.assertEqual(receipt["outcome"], "supported")
             self.assertNotEqual(receipt["container_digest"], receipt["extracted_tree_digest"])
@@ -36,6 +36,12 @@ class ArchiveTests(unittest.TestCase):
             codes = {item["code"] for item in receipt["diagnostics"]}
             self.assertIn("path-traversal", codes)
             self.assertIn("decompression-limit", codes)
+
+    def test_missing_archive_returns_a_failed_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            receipt = inspect_zip(Path(temporary) / "missing.zip")
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertEqual(receipt["container_digest"], "sha-256:" + "0" * 64)
 
 
 if __name__ == "__main__":

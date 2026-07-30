@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import tempfile
 from pathlib import Path
 from typing import Any
 
+from .canonical import canonical_bytes
 
 AUTHORITY_BOUNDARY = "registration does not grant execution, disclosure, or mutation authority"
 
 
-def _canonical(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+_canonical = canonical_bytes
 
 
 def register_bytes(vault_root: Path, data: bytes, media_type: str = "application/octet-stream") -> dict[str, Any]:

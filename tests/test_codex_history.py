@@ -14,8 +14,8 @@ class CodexHistoryTests(unittest.TestCase):
         task = json.loads((ROOT / "fixtures/synthetic/codex-history/v1/task-export.json").read_text(encoding="utf-8"))
         result = import_selected_task(task, authorized=True, selected_task_id="synthetic-task-0001")
         record = result["records"][0]
-        record_schema = json.loads((ROOT / "schemas/core/knowledge-record.v1.schema.json").read_text(encoding="utf-8"))
-        receipt_schema = json.loads((ROOT / "schemas/core/declassification-receipt.v1.schema.json").read_text(encoding="utf-8"))
+        record_schema = json.loads((ROOT / "artifact_memory/schemas/core/knowledge-record.v1.schema.json").read_text(encoding="utf-8"))
+        receipt_schema = json.loads((ROOT / "artifact_memory/schemas/core/declassification-receipt.v1.schema.json").read_text(encoding="utf-8"))
         validate(record, record_schema)
         validate(result["declassification_receipt"], receipt_schema)
         encoded = json.dumps(result)

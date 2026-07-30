@@ -23,6 +23,10 @@ unsupported schema constructs as a typed outcome. It does not resolve files,
 execute adapters, infer authority, or make authenticity claims. Generated
 indexes and private-vault configuration are outside this package.
 
+The single canonical schema tree lives under `artifact_memory/schemas/` so the
+same versioned text is available in a source checkout and as installed package
+resources. The package does not maintain a second generated schema copy.
+
 ## Alternatives considered
 
 - Node.js: strong ecosystem support, but would add a package-manager/runtime
@@ -44,10 +48,10 @@ future contract work.
 
 ```text
 artifact_memory/                 reference runtime and CLI
-schemas/core/                    runtime-neutral versioned schemas
+artifact_memory/schemas/         runtime-neutral versioned schemas
 fixtures/synthetic/              public synthetic conformance inputs
 docs/contracts/                  normative contract notes and vectors
 docs/decisions/                  consequential implementation decisions
-adapters/                        future declared adapter machinery
+adapters/                        declared adapter machinery
 generated/                       intentionally absent; views are replaceable
 ```

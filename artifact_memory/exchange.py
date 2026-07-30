@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import hashlib
-import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
+from .canonical import canonical_bytes
 
 AUTHORITY_BOUNDARY = "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"
 
 
-def _canonical(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+_canonical = canonical_bytes
 
 
 def make_envelope(audience_ref: str, correlation_id: str, expires_at: str, record_refs: list[dict[str, str]], artifact_refs: list[str], sensitivity: str = "public", record_bundle: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -32,7 +31,7 @@ def admit(envelope: dict[str, Any], seen_envelope_ids: set[str] | None = None, s
     else:
         try:
             expiry = datetime.fromisoformat(str(envelope["expires_at"]).replace("Z", "+00:00"))
-            current = datetime.fromisoformat((now or envelope["expires_at"]).replace("Z", "+00:00"))
+            current = datetime.fromisoformat(now.replace("Z", "+00:00")) if now else datetime.now(timezone.utc)
             if expiry <= current:
                 outcome, diagnostics = "rejected", [{"code": "expired", "message": "exchange envelope is expired"}]
             elif not envelope.get("record_refs") and not envelope.get("artifact_refs"):

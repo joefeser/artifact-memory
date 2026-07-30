@@ -28,3 +28,4 @@ jobs:
         run: |
           python -m pip install --no-deps .
           artifact-memory version --json
+          python tests/smoke_installed_package.py

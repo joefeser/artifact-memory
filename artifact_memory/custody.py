@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Any
 
+from .canonical import canonical_bytes
 
 AUTHORITY_BOUNDARY = "custody receipt does not copy, disclose, or authorize backup bytes"
 
 
-def _canonical(value: Any) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+_canonical = canonical_bytes
 
 
 def record_custody(

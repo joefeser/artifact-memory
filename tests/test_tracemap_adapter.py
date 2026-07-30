@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from artifact_memory.tracemap_adapter import INTEGRITY_STATE, bind_trace_map_evidence
+from artifact_memory.tracemap_adapter import AdapterFailure, INTEGRITY_STATE, bind_trace_map_evidence
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +46,28 @@ class TraceMapAdapterTests(unittest.TestCase):
             (packet / "report.md").unlink()
             with self.assertRaisesRegex(Exception, "required provider artifact"):
                 bind_trace_map_evidence(SOURCE_REF, packet, "SyntheticOrders", COMMIT)
+
+    def test_foreign_repo_fact_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            packet = materialize_packet(Path(temporary))
+            facts_path = packet / "facts.ndjson"
+            facts = [json.loads(line) for line in facts_path.read_text(encoding="utf-8").splitlines()]
+            facts[0]["repo"] = "ForeignRepository"
+            facts_path.write_text("\n".join(json.dumps(fact, sort_keys=True) for fact in facts) + "\n", encoding="utf-8")
+            with self.assertRaises(AdapterFailure) as raised:
+                bind_trace_map_evidence(SOURCE_REF, packet, "SyntheticOrders", COMMIT)
+            self.assertEqual(raised.exception.outcome, "trace-output-invalid")
+
+    def test_sqlite_repo_parity_is_verified(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            packet = materialize_packet(Path(temporary))
+            connection = sqlite3.connect(packet / "index.sqlite")
+            connection.execute("update facts set repo = 'ForeignRepository' where fact_id = 'fact-synthetic-status-declaration'")
+            connection.commit()
+            connection.close()
+            with self.assertRaises(AdapterFailure) as raised:
+                bind_trace_map_evidence(SOURCE_REF, packet, "SyntheticOrders", COMMIT)
+            self.assertEqual(raised.exception.outcome, "digest-mismatch")
 
 
 if __name__ == "__main__":

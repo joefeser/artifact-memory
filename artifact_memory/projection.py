@@ -4,19 +4,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
+import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
+from .canonical import canonical_bytes
+from .schema_resources import load_schema
 from .validator import ValidationFailure, load_json, validate
 
 
-def _canonical(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+_canonical = canonical_bytes
 
 
 def _knowledge_schema() -> dict[str, Any]:
-    return load_json(Path(__file__).resolve().parents[1] / "schemas/core/knowledge-record.v1.schema.json")
+    return load_schema("core", "knowledge-record.v1.schema.json")
 
 
 def canonical_records(record_paths: Iterable[Path]) -> list[dict[str, Any]]:
@@ -75,10 +78,17 @@ def project_records(record_paths: Iterable[Path], output_dir: Path) -> dict[str,
     lines = _record_lines(records)
     source_digest = "sha-256:" + hashlib.sha256(lines).hexdigest()
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "records.ndjson").write_bytes(lines)
-    _create_sqlite(output_dir / "records.sqlite", records, source_digest)
     receipt = {"schema_id": "artifact-memory/projection-receipt/v1", "outcome": "complete", "record_count": len(records), "source_record_set_digest": source_digest, "generated_views": ["ndjson", "sqlite", "fts", "relationships"], "diagnostics": []}
-    (output_dir / "projection-receipt.json").write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    with tempfile.TemporaryDirectory(prefix=".projection-", dir=output_dir) as temporary:
+        staging = Path(temporary)
+        (staging / "records.ndjson").write_bytes(lines)
+        _create_sqlite(staging / "records.sqlite", records, source_digest)
+        (staging / "projection-receipt.json").write_text(
+            json.dumps(receipt, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        for name in ("records.ndjson", "records.sqlite", "projection-receipt.json"):
+            os.replace(staging / name, output_dir / name)
     return receipt
 
 

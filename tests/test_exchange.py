@@ -25,21 +25,43 @@ class ExchangeTests(unittest.TestCase):
 
     def test_admission_and_replay_are_explicit(self):
         envelope = make_envelope("system://synthetic-reader", "synthetic-exchange-0001", "2099-01-01T00:00:00Z", [{"record_id": "record://synthetic/record-0001", "revision_digest": "sha-256:" + "a" * 64}], ["artifact://synthetic/order-sample"])
-        schema = json.loads((ROOT / "schemas/core/exchange-envelope.v1.schema.json").read_text(encoding="utf-8"))
+        schema = json.loads((ROOT / "artifact_memory/schemas/core/exchange-envelope.v1.schema.json").read_text(encoding="utf-8"))
         validate(envelope, schema)
         receipt = admit(envelope, now="2026-07-30T00:00:00Z")
-        receipt_schema = json.loads((ROOT / "schemas/core/admission-receipt.v1.schema.json").read_text(encoding="utf-8"))
+        receipt_schema = json.loads((ROOT / "artifact_memory/schemas/core/admission-receipt.v1.schema.json").read_text(encoding="utf-8"))
         validate(receipt, receipt_schema)
         self.assertEqual(receipt["outcome"], "admitted")
         self.assertEqual(receipt["authority_boundary"], AUTHORITY_BOUNDARY)
         replay = admit(envelope, {envelope["envelope_id"]}, now="2026-07-30T00:00:00Z")
         self.assertEqual(replay["outcome"], "duplicate")
+        self.assertEqual(admit(envelope)["outcome"], "admitted")
 
     def test_expired_input_rejects_without_authority(self):
         envelope = make_envelope("system://synthetic-reader", "synthetic-exchange-0002", "2020-01-01T00:00:00Z", [{"record_id": "record://synthetic/record-0001", "revision_digest": "sha-256:" + "a" * 64}], [])
         receipt = admit(envelope, now="2026-07-30T00:00:00Z")
         self.assertEqual(receipt["outcome"], "rejected")
         self.assertEqual(receipt["diagnostics"][0]["code"], "expired")
+
+    def test_independent_reader_rejects_malformed_shapes_at_its_boundary(self):
+        for value in ([], 1, "scalar"):
+            with self.assertRaises(ReaderFailure):
+                read_bundle(json.dumps(value).encode())
+        malformed = {
+            "schema_id": "artifact-memory/exchange-envelope/v1",
+            "record_bundle": [
+                {
+                    "schema_id": "artifact-memory/knowledge-record/v1",
+                    "record_id": "record://synthetic/malformed",
+                    "extensions": [],
+                }
+            ],
+            "artifact_refs": [],
+        }
+        with self.assertRaisesRegex(ReaderFailure, "extensions"):
+            read_bundle(json.dumps(malformed).encode())
+        malformed["record_bundle"][0]["extensions"] = {"https://synthetic.example/extension": []}
+        with self.assertRaisesRegex(ReaderFailure, "declaration"):
+            read_bundle(json.dumps(malformed).encode())
 
 
 if __name__ == "__main__":
