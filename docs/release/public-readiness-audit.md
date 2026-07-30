@@ -7,8 +7,8 @@ does not itself change repository visibility or grant publication authority.
 
 - Reachable branches were reviewed: `main`, `dev`, and the three open feature
   branches for PRs #34, #38, and #40. No tags exist yet.
-- The governance history scanner reported a pass over 27 commits, 403
-  historical objects, and 148 current paths.
+- The governance history scanner reported a pass over 29 commits, 411
+  historical objects, and 149 current paths.
 - Public JSON syntax validation reported a pass for 59 schema and synthetic
   fixture files.
 - The platform matrix completed successfully on real macOS, Linux, and
