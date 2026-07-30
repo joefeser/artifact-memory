@@ -1,0 +1,18 @@
+{
+  "schema_id": "artifact-memory/platform-matrix-receipt/v1",
+  "profile": "v0-case-sensitive-unicode-codepoint",
+  "runtime": {"family": "darwin", "python": "3.14.3"},
+  "observations": {
+    "case_sensitivity": false,
+    "unicode_name_behavior": "normalized-or-reported-differently",
+    "symlink_behavior": "created-but-v0-scan-unsupported",
+    "timestamps": "ignored-by-v0-profile",
+    "mount_layout": "logical-relative-paths-only"
+  },
+  "diagnostics": [],
+  "limitations": [
+    "probe observations describe this runner only",
+    "v0 does not infer Unicode normalization equivalence",
+    "v0 scan treats symlinks as explicitly unsupported"
+  ]
+}

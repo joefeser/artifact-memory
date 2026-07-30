@@ -1,0 +1,14 @@
+{
+  "fixture_id": "artifact-memory/platform-matrix-fixture/v0",
+  "synthetic_only": true,
+  "cases": [
+    "ordinary-relative-tree",
+    "unicode-nfc-and-nfd-names",
+    "case-folded-name-collision",
+    "symlink-explicitly-unsupported",
+    "timestamps-not-part-of-v0-tree-identity",
+    "mount-layout-not-part-of-v0-tree-identity"
+  ],
+  "required_runtime_families": ["darwin", "linux", "windows"],
+  "comparison_profile": "v0-case-sensitive-unicode-codepoint"
+}
