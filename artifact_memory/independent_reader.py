@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from typing import Any
@@ -75,6 +76,11 @@ def _validate_record(record: dict[str, Any]) -> None:
         raise ReaderFailure("canonical record sensitivity is invalid")
 
 
+def _revision_digest(record: dict[str, Any]) -> str:
+    canonical = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha-256:" + hashlib.sha256(canonical).hexdigest()
+
+
 def read_bundle(envelope_json: bytes, supported_required_extensions: set[str] | None = None) -> dict[str, Any]:
     supported_required_extensions = supported_required_extensions or set()
     try:
@@ -85,15 +91,37 @@ def read_bundle(envelope_json: bytes, supported_required_extensions: set[str] | 
         raise ReaderFailure("exchange envelope must be an object")
     if envelope.get("schema_id") != "artifact-memory/exchange-envelope/v1":
         raise ReaderFailure("unsupported exchange schema")
+    bundle_present = "record_bundle" in envelope
     record_bundle = envelope.get("record_bundle", [])
+    record_refs = envelope.get("record_refs", [])
     artifact_refs = envelope.get("artifact_refs", [])
-    if not isinstance(record_bundle, list) or not isinstance(artifact_refs, list) or not all(isinstance(item, str) for item in artifact_refs):
+    if not isinstance(record_bundle, list) or not isinstance(record_refs, list) or not isinstance(artifact_refs, list) or not all(isinstance(item, str) for item in artifact_refs):
         raise ReaderFailure("exchange bundle fields have invalid shapes")
+    declared_revisions: dict[str, str] = {}
+    for item in record_refs:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"record_id", "revision_digest"}
+            or not isinstance(item.get("record_id"), str)
+            or re.fullmatch(r"record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+", item["record_id"]) is None
+            or not isinstance(item.get("revision_digest"), str)
+            or re.fullmatch(r"sha-256:[0-9a-f]{64}", item["revision_digest"]) is None
+            or item["record_id"] in declared_revisions
+        ):
+            raise ReaderFailure("record references are invalid")
+        declared_revisions[item["record_id"]] = item["revision_digest"]
     accepted = []
+    bundled_ids: set[str] = set()
     for record in record_bundle:
         if not isinstance(record, dict):
             raise ReaderFailure("canonical record must be an object")
         _validate_record(record)
+        record_id = record["record_id"]
+        if record_id in bundled_ids or record_id not in declared_revisions:
+            raise ReaderFailure("record bundle does not match declared record references")
+        if _revision_digest(record) != declared_revisions[record_id]:
+            raise ReaderFailure("record revision digest does not match bundled record")
+        bundled_ids.add(record_id)
         extensions = record.get("extensions", {})
         if not isinstance(extensions, dict):
             raise ReaderFailure("record extensions must be an object")
@@ -103,4 +131,6 @@ def read_bundle(envelope_json: bytes, supported_required_extensions: set[str] | 
             if declaration.get("required") and identifier not in supported_required_extensions:
                 raise ReaderFailure("required extension unsupported")
         accepted.append({"record_id": record["record_id"], "extensions": extensions})
+    if bundle_present and bundled_ids != set(declared_revisions):
+        raise ReaderFailure("record bundle does not match declared record references")
     return {"outcome": "accepted", "record_ids": [item["record_id"] for item in accepted], "preserved_extensions": [item["extensions"] for item in accepted], "artifact_refs": list(artifact_refs), "artifact_retrieval": "separately-authorized"}

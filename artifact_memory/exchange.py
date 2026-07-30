@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .canonical import canonical_bytes, receipt_with_digest
+from .schema_resources import load_schema
+from .validator import ValidationFailure, validate
 
 AUTHORITY_BOUNDARY = "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"
 
@@ -21,25 +23,49 @@ def make_envelope(audience_ref: str, correlation_id: str, expires_at: str, recor
     return {**body, "envelope_id": "exchange://" + hashlib.sha256(_canonical(body)).hexdigest()}
 
 
+def _safe_envelope_ref(envelope: Any) -> str:
+    if isinstance(envelope, dict):
+        candidate = envelope.get("envelope_id")
+        if isinstance(candidate, str) and candidate.startswith("exchange://") and len(candidate) == 75:
+            try:
+                int(candidate.removeprefix("exchange://"), 16)
+            except ValueError:
+                pass
+            else:
+                return candidate
+        try:
+            return "exchange://" + hashlib.sha256(_canonical(envelope)).hexdigest()
+        except (TypeError, ValueError):
+            pass
+    return "exchange://" + "0" * 64
+
+
 def admit(envelope: dict[str, Any], seen_envelope_ids: set[str] | None = None, supported_schema: bool = True, now: str | None = None) -> dict[str, Any]:
     seen_envelope_ids = seen_envelope_ids or set()
-    envelope_id = envelope.get("envelope_id", "")
+    envelope_id = _safe_envelope_ref(envelope)
     if not supported_schema:
         outcome, diagnostics = "unsupported", [{"code": "schema-unsupported", "message": "exchange schema is unsupported"}]
-    elif envelope_id in seen_envelope_ids:
-        outcome, diagnostics = "duplicate", [{"code": "replay", "message": "envelope was already admitted or rejected"}]
     else:
         try:
-            expiry = datetime.fromisoformat(str(envelope["expires_at"]).replace("Z", "+00:00"))
-            current = datetime.fromisoformat(now.replace("Z", "+00:00")) if now else datetime.now(timezone.utc)
-            if expiry <= current:
-                outcome, diagnostics = "rejected", [{"code": "expired", "message": "exchange envelope is expired"}]
-            elif not envelope.get("record_refs") and not envelope.get("artifact_refs"):
-                outcome, diagnostics = "quarantined", [{"code": "empty-bundle", "message": "envelope contains no admitted references"}]
+            validate(envelope, load_schema("core", "exchange-envelope.v1.schema.json"))
+            envelope_id = envelope["envelope_id"]
+        except (ValidationFailure, KeyError, TypeError):
+            outcome, diagnostics = "rejected", [{"code": "invalid-envelope", "message": "exchange envelope does not satisfy the v1 contract"}]
+        else:
+            if envelope_id in seen_envelope_ids:
+                outcome, diagnostics = "duplicate", [{"code": "replay", "message": "envelope was already admitted or rejected"}]
             else:
-                outcome, diagnostics = "admitted", []
-        except (KeyError, ValueError, TypeError):
-            outcome, diagnostics = "rejected", [{"code": "invalid-envelope", "message": "expiry or required envelope field is invalid"}]
-    accepted = [item["record_id"] for item in envelope.get("record_refs", [])] if outcome == "admitted" else []
+                try:
+                    expiry = datetime.fromisoformat(envelope["expires_at"].replace("Z", "+00:00"))
+                    current = datetime.fromisoformat(now.replace("Z", "+00:00")) if now else datetime.now(timezone.utc)
+                    if expiry <= current:
+                        outcome, diagnostics = "rejected", [{"code": "expired", "message": "exchange envelope is expired"}]
+                    elif not envelope["record_refs"] and not envelope["artifact_refs"]:
+                        outcome, diagnostics = "quarantined", [{"code": "empty-bundle", "message": "envelope contains no admitted references"}]
+                    else:
+                        outcome, diagnostics = "admitted", []
+                except (ValueError, TypeError):
+                    outcome, diagnostics = "rejected", [{"code": "invalid-envelope", "message": "expiry is invalid"}]
+    accepted = [item["record_id"] for item in envelope["record_refs"]] if outcome == "admitted" else []
     receipt_body = {"envelope_ref": envelope_id, "outcome": outcome, "accepted_record_ids": accepted, "diagnostics": diagnostics, "authority_boundary": AUTHORITY_BOUNDARY}
     return receipt_with_digest("artifact-memory/admission-receipt/v1", "admission-receipt://", receipt_body)

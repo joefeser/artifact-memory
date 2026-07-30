@@ -1,4 +1,5 @@
 import json
+import hashlib
 import unittest
 from pathlib import Path
 
@@ -25,18 +26,44 @@ def canonical_record(**overrides):
     return record
 
 
+def revision_ref(record):
+    encoded = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return {"record_id": record["record_id"], "revision_digest": "sha-256:" + hashlib.sha256(encoded).hexdigest()}
+
+
 class ExchangeTests(unittest.TestCase):
     def test_independent_reader_preserves_optional_and_rejects_required_extensions(self):
         record = canonical_record(extensions={"https://synthetic.example/optional": {"version": "v1", "required": False, "value": {"opaque": True}}})
-        envelope = make_envelope("system://independent-reader", "synthetic-exchange-reader", "2099-01-01T00:00:00Z", [{"record_id": record["record_id"], "revision_digest": "sha-256:" + "a" * 64}], ["artifact://synthetic/order"], record_bundle=[record])
+        envelope = make_envelope("system://independent-reader", "synthetic-exchange-reader", "2099-01-01T00:00:00Z", [revision_ref(record)], ["artifact://synthetic/order"], record_bundle=[record])
         result = read_bundle(json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode())
         self.assertEqual(result["outcome"], "accepted")
         self.assertEqual(result["artifact_retrieval"], "separately-authorized")
         required = dict(record)
         required["extensions"] = {"https://synthetic.example/required": {"version": "v1", "required": True, "value": {}}}
-        required_envelope = make_envelope("system://independent-reader", "synthetic-exchange-required", "2099-01-01T00:00:00Z", [], [], record_bundle=[required])
+        required_envelope = make_envelope("system://independent-reader", "synthetic-exchange-required", "2099-01-01T00:00:00Z", [revision_ref(required)], [], record_bundle=[required])
         with self.assertRaisesRegex(ReaderFailure, "required extension"):
             read_bundle(json.dumps(required_envelope).encode())
+
+    def test_independent_reader_binds_bundle_ids_and_revision_digests(self):
+        record = canonical_record()
+        envelope = make_envelope("system://independent-reader", "synthetic-exchange-binding", "2099-01-01T00:00:00Z", [revision_ref(record)], [], record_bundle=[record])
+
+        substituted = {**envelope, "record_bundle": [canonical_record(meaning={"summary": "Substituted record."})]}
+        with self.assertRaisesRegex(ReaderFailure, "revision digest"):
+            read_bundle(json.dumps(substituted).encode())
+
+        wrong_id = {**envelope, "record_refs": [{**revision_ref(record), "record_id": "record://synthetic/other"}]}
+        with self.assertRaisesRegex(ReaderFailure, "does not match"):
+            read_bundle(json.dumps(wrong_id).encode())
+
+        extra_ref = revision_ref(canonical_record(record_id="record://synthetic/extra"))
+        missing_bundle_entry = {**envelope, "record_refs": [revision_ref(record), extra_ref]}
+        with self.assertRaisesRegex(ReaderFailure, "does not match"):
+            read_bundle(json.dumps(missing_bundle_entry).encode())
+
+        empty_bundle = {**envelope, "record_bundle": []}
+        with self.assertRaisesRegex(ReaderFailure, "does not match"):
+            read_bundle(json.dumps(empty_bundle).encode())
 
     def test_admission_and_replay_are_explicit(self):
         envelope = make_envelope("system://synthetic-reader", "synthetic-exchange-0001", "2099-01-01T00:00:00Z", [{"record_id": "record://synthetic/record-0001", "revision_digest": "sha-256:" + "a" * 64}], ["artifact://synthetic/order-sample"])
@@ -56,6 +83,19 @@ class ExchangeTests(unittest.TestCase):
         receipt = admit(envelope, now="2026-07-30T00:00:00Z")
         self.assertEqual(receipt["outcome"], "rejected")
         self.assertEqual(receipt["diagnostics"][0]["code"], "expired")
+
+    def test_admission_rejects_schema_invalid_envelopes_with_valid_receipts(self):
+        receipt_schema = json.loads((ROOT / "artifact_memory/schemas/core/admission-receipt.v1.schema.json").read_text(encoding="utf-8"))
+        malformed = {
+            "schema_id": "artifact-memory/exchange-envelope/v1",
+            "envelope_id": "not-an-envelope-id",
+            "record_refs": [{"revision_digest": "sha-256:" + "a" * 64}],
+        }
+        receipt = admit(malformed)
+        validate(receipt, receipt_schema)
+        self.assertEqual(receipt["outcome"], "rejected")
+        self.assertEqual(receipt["diagnostics"][0]["code"], "invalid-envelope")
+        self.assertTrue(receipt["envelope_ref"].startswith("exchange://"))
 
     def test_timezone_naive_expiry_is_rejected(self):
         envelope = make_envelope("system://synthetic-reader", "synthetic-exchange-naive", "2099-01-01T00:00:00", [], [])
@@ -104,10 +144,12 @@ class ExchangeTests(unittest.TestCase):
         for value in ([], 1, "scalar"):
             with self.assertRaises(ReaderFailure):
                 read_bundle(json.dumps(value).encode())
-        malformed = {"schema_id": "artifact-memory/exchange-envelope/v1", "record_bundle": [canonical_record(extensions=[])], "artifact_refs": []}
+        malformed_record = canonical_record(extensions=[])
+        malformed = make_envelope("system://independent-reader", "malformed-extensions", "2099-01-01T00:00:00Z", [revision_ref(malformed_record)], [], record_bundle=[malformed_record])
         with self.assertRaisesRegex(ReaderFailure, "extensions"):
             read_bundle(json.dumps(malformed).encode())
-        malformed["record_bundle"][0] = canonical_record(extensions={"https://synthetic.example/extension": []})
+        malformed_record = canonical_record(extensions={"https://synthetic.example/extension": []})
+        malformed = make_envelope("system://independent-reader", "malformed-declaration", "2099-01-01T00:00:00Z", [revision_ref(malformed_record)], [], record_bundle=[malformed_record])
         with self.assertRaisesRegex(ReaderFailure, "declaration"):
             read_bundle(json.dumps(malformed).encode())
         malformed["record_bundle"][0] = {"schema_id": "artifact-memory/knowledge-record/v1", "record_id": "record://synthetic/incomplete"}

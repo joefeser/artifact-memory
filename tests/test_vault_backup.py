@@ -37,6 +37,22 @@ class VaultBackupTests(unittest.TestCase):
             self.assertEqual(first["outcome"], "registered")
             self.assertEqual(second["outcome"], "duplicate")
 
+    def test_content_registration_fails_when_existing_object_is_corrupt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary) / "vault"
+            data = b"synthetic vault bytes\n"
+            first = register_bytes(vault, data, "text/plain")
+            digest_hex = first["digest"].removeprefix("sha-256:")
+            stored = vault / "objects" / "sha256" / digest_hex[:2] / digest_hex[2:]
+            stored.write_bytes(b"corrupt")
+
+            receipt = register_bytes(vault, data, "text/plain")
+            schema = json.loads((ROOT / "artifact_memory/schemas/core/content-registration-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            validate(receipt, schema)
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertEqual(receipt["diagnostics"], ["existing-object-integrity-failed"])
+            self.assertEqual(stored.read_bytes(), b"corrupt")
+
     def test_encrypted_backup_and_isolated_restore(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

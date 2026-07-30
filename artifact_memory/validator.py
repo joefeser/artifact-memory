@@ -57,14 +57,29 @@ def _fail(code: str, message: str, path: str) -> None:
     raise ValidationFailure(code, message, path)
 
 
+def _json_equal(left: Any, right: Any) -> bool:
+    """Compare JSON values without Python's bool/int equality coercion."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return isinstance(left, bool) and isinstance(right, bool) and left == right
+    if left is None or right is None:
+        return left is None and right is None
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return left == right
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(_json_equal(a, b) for a, b in zip(left, right))
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(_json_equal(left[key], right[key]) for key in left)
+    return type(left) is type(right) and left == right
+
+
 def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
     supported = {"$schema", "$id", "title", "type", "additionalProperties", "required", "properties", "const", "enum", "pattern", "minLength", "minItems", "minimum", "format", "items"}
     unknown = set(schema) - supported
     if unknown:
         _fail("unsupported-schema-keyword", "unsupported schema keyword", path)
-    if "const" in schema and value != schema["const"]:
+    if "const" in schema and not _json_equal(value, schema["const"]):
         _fail("constraint-failed", "value does not match const", path)
-    if "enum" in schema and value not in schema["enum"]:
+    if "enum" in schema and not any(_json_equal(value, candidate) for candidate in schema["enum"]):
         _fail("constraint-failed", "value is not in enum", path)
     expected = schema.get("type")
     if expected and _kind(value) != expected and not (expected == "number" and _kind(value) == "integer"):

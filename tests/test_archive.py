@@ -37,6 +37,18 @@ class ArchiveTests(unittest.TestCase):
             self.assertIn("path-traversal", codes)
             self.assertIn("decompression-limit", codes)
 
+    def test_drive_qualified_paths_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive_path = Path(temporary) / "drive-paths.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("C:/escape.txt", b"absolute")
+                archive.writestr("d:relative.txt", b"drive-relative")
+                archive.writestr("safe.txt", b"safe")
+            receipt = inspect_zip(archive_path)
+            self.assertEqual(receipt["outcome"], "partial")
+            self.assertEqual([entry["path"] for entry in receipt["entries"]], ["safe.txt"])
+            self.assertEqual([item["code"] for item in receipt["diagnostics"]], ["path-traversal", "path-traversal"])
+
     def test_missing_archive_returns_a_failed_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             receipt = inspect_zip(Path(temporary) / "missing.zip")

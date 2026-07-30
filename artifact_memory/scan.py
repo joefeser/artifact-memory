@@ -42,25 +42,38 @@ def _manifest_id(payload: dict[str, Any]) -> str:
     return "manifest://" + hashlib.sha256(_canonical(payload)).hexdigest()
 
 
-def _walk(root: Path) -> Iterator[tuple[Path, str]]:
+def _walk(root: Path, limits: ScanLimits | None = None) -> Iterator[tuple[Path, str]]:
     pending = [root]
+    enumerated = 0
     while pending:
         current = pending.pop()
         try:
-            entries = sorted(os.scandir(current), key=lambda item: item.name)
+            entries: list[tuple[str, Path, str]] = []
+            with os.scandir(current) as directory:
+                for item in directory:
+                    if limits and limits.cancellation_check and limits.cancellation_check():
+                        yield current, "cancelled"
+                        return
+                    if limits and limits.max_entries is not None and enumerated + len(entries) >= limits.max_entries:
+                        yield current, "resource-limit"
+                        return
+                    if item.is_symlink():
+                        kind = "unsupported"
+                    elif item.is_dir(follow_symlinks=False):
+                        kind = "directory"
+                    elif item.is_file(follow_symlinks=False):
+                        kind = "file"
+                    else:
+                        kind = "unsupported"
+                    entries.append((item.name, Path(item.path), kind))
         except OSError:
             yield current, "unreadable"
             continue
-        for entry in entries:
-            if entry.is_symlink():
-                yield Path(entry.path), "unsupported"
-            elif entry.is_dir(follow_symlinks=False):
-                yield Path(entry.path), "directory"
-                pending.append(Path(entry.path))
-            elif entry.is_file(follow_symlinks=False):
-                yield Path(entry.path), "file"
-            else:
-                yield Path(entry.path), "unsupported"
+        for _, path, kind in sorted(entries, key=lambda entry: entry[0]):
+            enumerated += 1
+            yield path, kind
+            if kind == "directory":
+                pending.append(path)
 
 
 def scan_path(root: Path, limits: ScanLimits | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -71,12 +84,12 @@ def scan_path(root: Path, limits: ScanLimits | None = None) -> tuple[dict[str, A
     casefold_paths: dict[str, str] = {}
     total_bytes = 0
     cancelled = False
-    for path, kind in _walk(root):
-        if limits and limits.cancellation_check and limits.cancellation_check():
+    for path, kind in _walk(root, limits):
+        if kind == "cancelled":
             diagnostics.append({"code": "cancelled", "message": "scan cancelled by caller"})
             cancelled = True
             break
-        if limits and limits.max_entries is not None and len(entries) >= limits.max_entries:
+        if kind == "resource-limit":
             diagnostics.append({"code": "resource-limit", "message": "scan entry limit reached"})
             break
         try:

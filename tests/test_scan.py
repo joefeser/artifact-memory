@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 import hashlib
 import json
+import os
+from unittest.mock import patch
 
 from artifact_memory.scan import ScanLimits, diff_manifests, scan_path, verify_path
 from artifact_memory.validator import validate
@@ -110,6 +112,47 @@ class ScanTests(unittest.TestCase):
             schema = json.loads((Path(__file__).resolve().parents[1] / "artifact_memory/schemas/core/scan-receipt.v1.schema.json").read_text(encoding="utf-8"))
             validate(limited, schema)
             validate(cancelled, schema)
+
+    def test_entry_limit_bounds_directory_enumeration_before_sorting(self):
+        real_scandir = os.scandir
+
+        class CountingScandir:
+            def __init__(self, path):
+                self._inner = real_scandir(path)
+                self.next_calls = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self._inner.close()
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                self.next_calls += 1
+                if self.next_calls > 3:
+                    raise AssertionError("directory enumeration exceeded max_entries + 1")
+                return next(self._inner)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for index in range(20):
+                (root / f"{index:02d}.txt").write_text("synthetic", encoding="utf-8")
+            wrappers = []
+
+            def bounded_scandir(path):
+                wrapper = CountingScandir(path)
+                wrappers.append(wrapper)
+                return wrapper
+
+            with patch("artifact_memory.scan.os.scandir", side_effect=bounded_scandir):
+                manifest, receipt = scan_path(root, ScanLimits(max_entries=2))
+            self.assertEqual(receipt["outcome"], "partial")
+            self.assertEqual(receipt["diagnostics"][0]["code"], "resource-limit")
+            self.assertEqual(manifest["entries"], [])
+            self.assertEqual(wrappers[0].next_calls, 3)
 
 
 if __name__ == "__main__":

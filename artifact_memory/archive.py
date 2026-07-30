@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import zipfile
 from pathlib import PurePosixPath
 from pathlib import Path
@@ -25,7 +26,7 @@ def inspect_zip(path: Path, max_uncompressed_bytes: int = 16 * 1024 * 1024) -> d
             for info in archive.infolist():
                 normalized = info.filename.replace("\\", "/")
                 parsed = PurePosixPath(normalized)
-                if parsed.is_absolute() or ".." in parsed.parts:
+                if parsed.is_absolute() or ".." in parsed.parts or re.match(r"^[A-Za-z]:", normalized):
                     diagnostics.append({"code": "path-traversal", "message": "archive entry path is unsafe"})
                     continue
                 folded = normalized.casefold()
