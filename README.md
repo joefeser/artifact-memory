@@ -76,6 +76,10 @@ This repository must not contain:
 See [Security](SECURITY.md) and the
 [repository operating rules](AGENTS.md) before contributing.
 
+Start with the [quickstart](docs/quickstart.md). Versioning and public launch
+requirements are in [the release policy](docs/release/versioning-and-launch.md)
+and [the readiness audit](docs/release/public-readiness-audit.md).
+
 ## Design
 
 - [Foundation and rewrite concept](docs/architecture/foundation.md)
@@ -96,4 +100,3 @@ identity must survive changing paths and storage devices.
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
-

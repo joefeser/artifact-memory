@@ -24,3 +24,7 @@ jobs:
         run: python -c "import json; from artifact_memory.platform_matrix import probe_platform; print(json.dumps(probe_platform(), sort_keys=True))"
       - name: Run conformance tests
         run: python -m unittest discover -s tests -p 'test_platform_matrix.py' -v
+      - name: Install and smoke the package
+        run: |
+          python -m pip install --no-deps .
+          artifact-memory version --json
