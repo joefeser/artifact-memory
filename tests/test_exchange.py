@@ -64,6 +64,42 @@ class ExchangeTests(unittest.TestCase):
             validate(envelope, schema)
         self.assertEqual(admit(envelope)["outcome"], "rejected")
 
+    def test_all_date_time_contract_fields_require_offsets(self):
+        cases = [
+            (
+                "retention-policy.v1.schema.json",
+                {
+                    "schema_id": "artifact-memory/retention-policy/v1",
+                    "policy_id": "retention-policy://synthetic/standard",
+                    "retention_class": "standard",
+                    "owner_ref": "actor://synthetic/owner",
+                    "legal_hold": False,
+                    "expires_at": "2099-01-01T00:00:00Z",
+                    "backup_expiry_behavior": "managed-expiry",
+                },
+                "expires_at",
+            ),
+            (
+                "location-observation.v1.schema.json",
+                {
+                    "schema_id": "artifact-memory/location-observation/v1",
+                    "observation_id": "location-observation://synthetic/record",
+                    "content_ref": "content://synthetic/object",
+                    "endpoint_ref": "endpoint://synthetic/store",
+                    "relative_path": "records/object.json",
+                    "presence": "present",
+                    "observed_at": "2099-01-01T00:00:00Z",
+                },
+                "observed_at",
+            ),
+        ]
+        for schema_name, record, field in cases:
+            schema = json.loads((ROOT / "artifact_memory/schemas/core" / schema_name).read_text(encoding="utf-8"))
+            validate(record, schema)
+            naive = {**record, field: "2099-01-01T00:00:00"}
+            with self.assertRaisesRegex(ValidationFailure, "timezone offset"):
+                validate(naive, schema)
+
     def test_independent_reader_rejects_malformed_shapes_at_its_boundary(self):
         for value in ([], 1, "scalar"):
             with self.assertRaises(ReaderFailure):

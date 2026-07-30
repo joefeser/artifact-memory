@@ -113,6 +113,39 @@ class VaultBackupTests(unittest.TestCase):
                 self.assertEqual(receipt["outcome"], "failed")
                 self.assertIn("unsafe-backup-member", receipt["limitations"])
 
+            alias_collision = root / "alias-collision.tar"
+            with tarfile.open(alias_collision, "w") as archive:
+                for name in ("knowledge/./record", "knowledge/record"):
+                    payload = b"synthetic"
+                    entry = tarfile.TarInfo(name)
+                    entry.size = len(payload)
+                    archive.addfile(entry, io.BytesIO(payload))
+            with patch("artifact_memory.backup._run_openssl", side_effect=copy_without_encryption):
+                receipt = restore_isolated(alias_collision, root / "alias-collision-restore", "unused", "backup://synthetic/test")
+            validate(receipt, schema)
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertIn("unsafe-backup-member", receipt["limitations"])
+
+            boolean_size = root / "boolean-size.tar"
+            payload = b"x"
+            manifest = {
+                "schema_id": "artifact-memory/backup-manifest/v1",
+                "entries": [{"path": "knowledge/record", "digest": "sha-256:" + hashlib.sha256(payload).hexdigest(), "byte_size": True}],
+            }
+            manifest_bytes = json.dumps(manifest).encode("utf-8")
+            with tarfile.open(boolean_size, "w") as archive:
+                entry = tarfile.TarInfo("knowledge/record")
+                entry.size = len(payload)
+                archive.addfile(entry, io.BytesIO(payload))
+                manifest_entry = tarfile.TarInfo("backup-manifest.json")
+                manifest_entry.size = len(manifest_bytes)
+                archive.addfile(manifest_entry, io.BytesIO(manifest_bytes))
+            with patch("artifact_memory.backup._run_openssl", side_effect=copy_without_encryption):
+                receipt = restore_isolated(boolean_size, root / "boolean-size-restore", "unused", "backup://synthetic/test")
+            validate(receipt, schema)
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertIn("backup-manifest-invalid", receipt["limitations"])
+
     def test_synthetic_git_bundle_verifies(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary) / "repo"

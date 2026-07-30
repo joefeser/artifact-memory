@@ -197,12 +197,13 @@ def restore_isolated(backup_file: Path, target_dir: Path, passphrase: str, backu
                 staging_root = staging.resolve()
                 for member in archive.getmembers():
                     member_path = _safe_archive_relative_path(member.name)
+                    normalized_member = member_path.as_posix()
                     if (
-                        member.name in seen
+                        normalized_member in seen
                         or not (member.isdir() or member.isreg())
                     ):
                         raise BackupFailure("unsafe-backup-member")
-                    seen.add(member.name)
+                    seen.add(normalized_member)
                     destination = staging / member_path
                     if not destination.resolve().is_relative_to(staging_root):
                         raise BackupFailure("unsafe-backup-member")
@@ -213,8 +214,11 @@ def restore_isolated(backup_file: Path, target_dir: Path, passphrase: str, backu
                     source = archive.extractfile(member)
                     if source is None:
                         raise BackupFailure("backup-member-unreadable")
-                    with source, destination.open("xb") as output_stream:
-                        shutil.copyfileobj(source, output_stream, CHUNK_SIZE)
+                    try:
+                        with source, destination.open("xb") as output_stream:
+                            shutil.copyfileobj(source, output_stream, CHUNK_SIZE)
+                    except FileExistsError as exc:
+                        raise BackupFailure("unsafe-backup-member") from exc
             manifest_path = staging / "backup-manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if not isinstance(manifest, dict) or manifest.get("schema_id") != "artifact-memory/backup-manifest/v1" or not isinstance(manifest.get("entries"), list):
@@ -232,6 +236,7 @@ def restore_isolated(backup_file: Path, target_dir: Path, passphrase: str, backu
                 if (
                     not isinstance(digest, str)
                     or not isinstance(byte_size, int)
+                    or isinstance(byte_size, bool)
                     or byte_size < 0
                 ):
                     raise BackupFailure("backup-manifest-invalid")
