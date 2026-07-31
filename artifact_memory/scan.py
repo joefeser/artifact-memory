@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterator
 
-from .canonical import canonical_bytes, receipt_with_digest, sha256_stream
+from .canonical import CHUNK_SIZE, canonical_bytes, receipt_with_digest
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -85,12 +85,26 @@ def _reject_linked_path(root: Path, path: Path) -> None:
             raise _ObservationFailure("unsupported", "entry path contains a link or reparse point")
 
 
-def _hash_regular_file(path: Path, root: Path) -> tuple[int, str]:
+def _hash_exact_size(stream: Any, byte_size: int) -> str:
+    digest = hashlib.sha256()
+    remaining = byte_size
+    while remaining:
+        chunk = stream.read(min(CHUNK_SIZE, remaining))
+        if not chunk:
+            raise _ObservationFailure("unstable", "file changed while it was being admitted")
+        digest.update(chunk)
+        remaining -= len(chunk)
+    return "sha-256:" + digest.hexdigest()
+
+
+def _hash_regular_file(path: Path, root: Path, remaining_budget: int | None = None) -> tuple[int, str]:
     try:
         _reject_linked_path(root, path)
         before = path.stat(follow_symlinks=False)
         if _is_link_or_reparse(before) or not stat.S_ISREG(before.st_mode):
             raise _ObservationFailure("unsupported", "entry changed to a non-regular file")
+        if remaining_budget is not None and before.st_size > remaining_budget:
+            raise _ObservationFailure("resource-limit", "scan byte limit reached")
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
         descriptor = os.open(path, flags)
         try:
@@ -100,7 +114,7 @@ def _hash_regular_file(path: Path, root: Path) -> tuple[int, str]:
             if not _same_file_observation(before, opened):
                 raise _ObservationFailure("unstable", "file changed while it was being admitted")
             with os.fdopen(descriptor, "rb", closefd=False) as stream:
-                digest = sha256_stream(stream)
+                digest = _hash_exact_size(stream, opened.st_size)
             after = os.fstat(descriptor)
         finally:
             os.close(descriptor)
@@ -247,14 +261,14 @@ def scan_path(root: Path, limits: ScanLimits | None = None) -> tuple[dict[str, A
             entry = {"path": relative, "kind": "directory"}
         elif kind == "file":
             try:
-                byte_size, content_digest = _hash_regular_file(path, root)
-                if limits and limits.max_bytes is not None and total_bytes + byte_size > limits.max_bytes:
-                    diagnostics.append({"code": "resource-limit", "message": "scan byte limit reached"})
-                    break
+                remaining_budget = None if limits is None or limits.max_bytes is None else limits.max_bytes - total_bytes
+                byte_size, content_digest = _hash_regular_file(path, root, remaining_budget)
                 entry = {"path": relative, "kind": "file", "byte_size": byte_size, "content_digest": content_digest}
                 total_bytes += byte_size
             except _ObservationFailure as exc:
                 diagnostics.append({"code": exc.code, "message": exc.message})
+                if exc.code == "resource-limit":
+                    break
                 continue
         folded = relative.casefold()
         if folded in casefold_paths and casefold_paths[folded] != relative:

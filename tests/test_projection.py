@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -96,6 +97,75 @@ class ProjectionTests(unittest.TestCase):
                 search_records(missing, "synthetic")
             self.assertEqual(raised.exception.code, "projection-unavailable")
             self.assertFalse(missing.exists())
+
+    def test_projection_queries_reject_wrong_version_and_malformed_schema(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            wrong_version_output = root / "wrong-version"
+            project_records([FIXTURE], wrong_version_output)
+            wrong_version = wrong_version_output / "records.sqlite"
+            connection = sqlite3.connect(wrong_version)
+            connection.execute("PRAGMA user_version = 999")
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(wrong_version, "synthetic")
+            self.assertEqual(raised.exception.code, "projection-schema-mismatch")
+
+            malformed = root / "malformed.sqlite"
+            connection = sqlite3.connect(malformed)
+            connection.execute("PRAGMA user_version = 1")
+            connection.execute("CREATE VIRTUAL TABLE records_fts USING fts5(record_id, summary, labels)")
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(malformed, "synthetic")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_projection_queries_reject_metadata_and_derived_row_tampering(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+
+            schema_output = root / "schema"
+            project_records([FIXTURE], schema_output)
+            connection = sqlite3.connect(schema_output / "records.sqlite")
+            connection.execute("UPDATE projection_metadata SET projection_schema_id = 'artifact-memory/sqlite-projection/v999'")
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                related_records(schema_output / "records.sqlite", "record://synthetic/record-0001")
+            self.assertEqual(raised.exception.code, "projection-schema-mismatch")
+
+            count_output = root / "count"
+            project_records([FIXTURE], count_output)
+            connection = sqlite3.connect(count_output / "records.sqlite")
+            connection.execute("UPDATE projection_metadata SET record_count = 99")
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                projection_metadata(count_output / "records.sqlite")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+
+            provenance_output = root / "provenance"
+            project_records([FIXTURE], provenance_output)
+            connection = sqlite3.connect(provenance_output / "records.sqlite")
+            connection.execute("PRAGMA ignore_check_constraints = ON")
+            connection.execute("UPDATE provenance SET ordinal = -1")
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                records_with_provenance(provenance_output / "records.sqlite", "fixture://synthetic/contracts/v0")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+
+            search_output = root / "search"
+            project_records([FIXTURE], search_output)
+            connection = sqlite3.connect(search_output / "records.sqlite")
+            connection.execute("UPDATE records_fts SET summary = 'forged stale summary'")
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(search_output / "records.sqlite", "forged")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
 
 
 if __name__ == "__main__":

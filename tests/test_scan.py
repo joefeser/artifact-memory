@@ -8,8 +8,9 @@ import stat
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import artifact_memory.scan as scan_module
 from artifact_memory.canonical import canonical_bytes
-from artifact_memory.scan import ScanLimits, _is_link_or_reparse, diff_manifests, scan_path, validate_manifest_identity, verify_path
+from artifact_memory.scan import ScanLimits, diff_manifests, scan_path, validate_manifest_identity, verify_path
 from artifact_memory.validator import ValidationFailure, validate
 
 
@@ -184,10 +185,38 @@ class ScanTests(unittest.TestCase):
             self.assertEqual(receipt["outcome"], "failed")
             self.assertEqual(receipt["diagnostics"][0]["code"], "unsupported")
 
-    def test_windows_reparse_attribute_is_platform_independently_unsupported(self):
-        regular_mode = stat.S_IFREG | 0o644
-        metadata = SimpleNamespace(st_mode=regular_mode, st_file_attributes=0x400)
-        self.assertTrue(_is_link_or_reparse(metadata))
+    def test_mocked_windows_reparse_entry_is_rejected_before_hashing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            root_metadata = os.lstat(root)
+            reparse_metadata = SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_file_attributes=0x400)
+
+            class ReparseEntry:
+                name = "junction"
+                path = str(root / name)
+
+                @staticmethod
+                def stat(*, follow_symlinks):
+                    self.assertFalse(follow_symlinks)
+                    return reparse_metadata
+
+            class Scandir:
+                def __enter__(self):
+                    return iter([ReparseEntry()])
+
+                def __exit__(self, *_args):
+                    return False
+
+            with (
+                patch("artifact_memory.scan.os.lstat", return_value=root_metadata),
+                patch("artifact_memory.scan.os.scandir", return_value=Scandir()),
+                patch("artifact_memory.scan._hash_regular_file") as hash_file,
+            ):
+                manifest, receipt = scan_path(root)
+            hash_file.assert_not_called()
+            self.assertEqual(manifest["entries"], [])
+            self.assertEqual(receipt["outcome"], "partial")
+            self.assertEqual(receipt["diagnostics"][0]["code"], "unsupported")
 
     def test_unavailable_root_is_failed_not_partial(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -215,15 +244,28 @@ class ScanTests(unittest.TestCase):
             root = Path(temporary)
             (root / "a.txt").write_bytes(b"1234")
             (root / "b.txt").write_bytes(b"5678")
-            _, limited = scan_path(root, ScanLimits(max_bytes=4))
+            with patch("artifact_memory.scan._hash_exact_size", wraps=scan_module._hash_exact_size) as hash_stream:
+                _, limited = scan_path(root, ScanLimits(max_bytes=4))
             self.assertEqual(limited["outcome"], "partial")
             self.assertEqual(limited["diagnostics"][0]["code"], "resource-limit")
+            self.assertEqual(hash_stream.call_count, 1)
             _, cancelled = scan_path(root, ScanLimits(cancellation_check=lambda: True))
             self.assertEqual(cancelled["outcome"], "cancelled")
             self.assertEqual(cancelled["diagnostics"][0]["code"], "cancelled")
             schema = json.loads((Path(__file__).resolve().parents[1] / "artifact_memory/schemas/core/scan-receipt.v1.schema.json").read_text(encoding="utf-8"))
             validate(limited, schema)
             validate(cancelled, schema)
+
+    def test_oversized_file_is_rejected_before_content_streaming(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "oversized.bin").write_bytes(b"x" * 64)
+            with patch("artifact_memory.scan._hash_exact_size", side_effect=AssertionError("content stream must not be read")) as hash_stream:
+                manifest, receipt = scan_path(root, ScanLimits(max_bytes=8))
+            hash_stream.assert_not_called()
+            self.assertEqual(manifest["entries"], [])
+            self.assertEqual(receipt["outcome"], "partial")
+            self.assertEqual(receipt["diagnostics"][0]["code"], "resource-limit")
 
     @unittest.skipIf(os.name == "nt", "backslash is a separator rather than a legal filename on Windows")
     def test_nonportable_backslash_filename_is_explicitly_unsupported(self):

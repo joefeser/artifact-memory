@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import tempfile
 from contextlib import contextmanager
@@ -19,19 +20,133 @@ from .validator import ValidationFailure, load_json, validate
 _canonical = canonical_bytes
 PROJECTION_SCHEMA_ID = "artifact-memory/sqlite-projection/v1"
 PROJECTION_USER_VERSION = 1
+CANONICAL_JSON_PROFILE = "artifact-memory/canonical-json/v0"
+_DIGEST_PATTERN = re.compile(r"^sha-256:[0-9a-f]{64}$")
+_REQUIRED_COLUMNS = {
+    "projection_metadata": ["singleton_id", "projection_schema_id", "canonical_json_profile", "source_record_set_digest", "record_count"],
+    "records": ["record_id", "record_type", "lifecycle", "sensitivity", "record_json", "source_record_set_digest"],
+    "provenance": ["record_id", "ordinal", "provenance_kind", "source_ref"],
+    "relationships": ["source_record_id", "relationship_type", "target_ref"],
+    "records_fts": ["record_id", "summary", "labels"],
+}
+_REQUIRED_INDEXES = {
+    "records_type_idx": ["record_type", "record_id"],
+    "records_lifecycle_idx": ["lifecycle", "record_id"],
+    "provenance_source_idx": ["source_ref", "record_id"],
+    "relationships_target_idx": ["target_ref", "source_record_id"],
+}
 
 
 def _knowledge_schema() -> dict[str, Any]:
     return load_schema("core", "knowledge-record.v1.schema.json")
 
 
+def _validate_projection_contract(connection: sqlite3.Connection) -> None:
+    user_version = connection.execute("PRAGMA user_version").fetchone()[0]
+    if type(user_version) is not int or user_version != PROJECTION_USER_VERSION:
+        raise ValidationFailure("projection-schema-mismatch", "generated index uses an unsupported SQLite projection version")
+    for table, expected_columns in _REQUIRED_COLUMNS.items():
+        actual_columns = [row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')]
+        if actual_columns != expected_columns:
+            raise ValidationFailure("projection-unavailable", "generated SQLite projection schema is incomplete or invalid")
+    actual_indexes = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_autoindex_%'"
+        )
+    }
+    if not set(_REQUIRED_INDEXES).issubset(actual_indexes):
+        raise ValidationFailure("projection-unavailable", "generated SQLite projection indexes are incomplete")
+    for index, expected_columns in _REQUIRED_INDEXES.items():
+        actual_columns = [row[2] for row in connection.execute(f'PRAGMA index_info("{index}")')]
+        if actual_columns != expected_columns:
+            raise ValidationFailure("projection-unavailable", "generated SQLite projection index definition is invalid")
+    metadata_rows = connection.execute(
+        "SELECT projection_schema_id, canonical_json_profile, source_record_set_digest, record_count FROM projection_metadata WHERE singleton_id = 1"
+    ).fetchall()
+    metadata_count = connection.execute("SELECT COUNT(*) FROM projection_metadata").fetchone()[0]
+    if len(metadata_rows) != 1 or metadata_count != 1:
+        raise ValidationFailure("projection-unavailable", "generated SQLite projection metadata is missing or ambiguous")
+    schema_id, canonical_profile, source_digest, record_count = metadata_rows[0]
+    if schema_id != PROJECTION_SCHEMA_ID or canonical_profile != CANONICAL_JSON_PROFILE:
+        raise ValidationFailure("projection-schema-mismatch", "generated index metadata does not match the supported projection contract")
+    if not isinstance(source_digest, str) or _DIGEST_PATTERN.fullmatch(source_digest) is None:
+        raise ValidationFailure("projection-unavailable", "generated index source-record-set digest is invalid")
+    if type(record_count) is not int or record_count < 0:
+        raise ValidationFailure("projection-unavailable", "generated index record count is invalid")
+    record_rows = connection.execute(
+        "SELECT record_id, record_type, lifecycle, sensitivity, record_json, source_record_set_digest FROM records ORDER BY record_id"
+    ).fetchall()
+    if len(record_rows) != record_count:
+        raise ValidationFailure("projection-unavailable", "generated index record count does not match its rows")
+    canonical_lines: list[bytes] = []
+    expected_provenance: list[tuple[str, int, str, str]] = []
+    expected_relationships: list[tuple[str, str, str]] = []
+    expected_search_rows: list[tuple[str, str, str]] = []
+    for record_id, record_type, lifecycle, sensitivity, record_json, row_source_digest in record_rows:
+        if not isinstance(record_json, str) or row_source_digest != source_digest:
+            raise ValidationFailure("projection-unavailable", "generated index rows do not match the declared source record set")
+        try:
+            record = json.loads(record_json)
+            if not isinstance(record, dict):
+                raise ValueError
+            validate(record, _knowledge_schema())
+            canonical = _canonical(record)
+        except (json.JSONDecodeError, UnicodeError, ValueError, ValidationFailure) as exc:
+            raise ValidationFailure("projection-unavailable", "generated index contains an invalid canonical record") from exc
+        if canonical.decode("utf-8") != record_json:
+            raise ValidationFailure("projection-unavailable", "generated index record JSON is not canonical")
+        if (
+            record["record_id"] != record_id
+            or record["record_type"] != record_type
+            or record["lifecycle"] != lifecycle
+            or record.get("sensitivity") != sensitivity
+        ):
+            raise ValidationFailure("projection-unavailable", "generated index record columns disagree with canonical record JSON")
+        canonical_lines.append(canonical + b"\n")
+        expected_provenance.extend(
+            (record_id, ordinal, item["kind"], item["source_ref"])
+            for ordinal, item in enumerate(record["provenance"])
+        )
+        expected_relationships.extend(
+            (record_id, item["type"], item["target_ref"])
+            for item in record.get("relationships", [])
+        )
+        meaning = record["meaning"]
+        expected_search_rows.append((record_id, meaning["summary"], " ".join(meaning.get("labels", []))))
+    calculated_source_digest = "sha-256:" + hashlib.sha256(b"".join(canonical_lines)).hexdigest()
+    if calculated_source_digest != source_digest:
+        raise ValidationFailure("projection-unavailable", "generated index source-record-set digest does not match canonical rows")
+    actual_provenance = connection.execute(
+        "SELECT record_id, ordinal, provenance_kind, source_ref FROM provenance ORDER BY record_id, ordinal"
+    ).fetchall()
+    if actual_provenance != expected_provenance:
+        raise ValidationFailure("projection-unavailable", "generated index provenance rows disagree with canonical records")
+    actual_relationships = connection.execute(
+        "SELECT source_record_id, relationship_type, target_ref FROM relationships ORDER BY source_record_id, relationship_type, target_ref"
+    ).fetchall()
+    if actual_relationships != sorted(expected_relationships):
+        raise ValidationFailure("projection-unavailable", "generated index relationship rows disagree with canonical records")
+    actual_search_rows = connection.execute(
+        "SELECT record_id, summary, labels FROM records_fts ORDER BY record_id"
+    ).fetchall()
+    if actual_search_rows != expected_search_rows:
+        raise ValidationFailure("projection-unavailable", "generated index search rows disagree with canonical records")
+
+
 @contextmanager
 def _read_index(index_path: Path) -> Iterator[sqlite3.Connection]:
+    if Path(str(index_path) + "-wal").exists() or Path(str(index_path) + "-shm").exists():
+        raise ValidationFailure("projection-unavailable", "generated SQLite projection has uncheckpointed sidecars")
     try:
         connection = sqlite3.connect(index_path.resolve().as_uri() + "?mode=ro", uri=True)
     except (OSError, ValueError, sqlite3.Error) as exc:
         raise ValidationFailure("projection-unavailable", "generated SQLite projection is unavailable or invalid") from exc
     try:
+        try:
+            _validate_projection_contract(connection)
+        except sqlite3.Error as exc:
+            raise ValidationFailure("projection-unavailable", "generated SQLite projection is unavailable or invalid") from exc
         yield connection
     finally:
         connection.close()
@@ -67,7 +182,7 @@ def _create_sqlite(path: Path, records: list[dict[str, Any]], source_digest: str
             raise ValidationFailure("projection-schema-mismatch", "packaged SQLite projection contract has an unsupported version")
         connection.execute(
             "INSERT INTO projection_metadata VALUES (1, ?, ?, ?, ?)",
-            (PROJECTION_SCHEMA_ID, "artifact-memory/canonical-json/v0", source_digest, len(records)),
+            (PROJECTION_SCHEMA_ID, CANONICAL_JSON_PROFILE, source_digest, len(records)),
         )
         for record in records:
             connection.execute(
@@ -133,7 +248,10 @@ def search_records(index_path: Path, query: str) -> list[str]:
         with _read_index(index_path) as connection:
             return [row[0] for row in connection.execute("SELECT record_id FROM records_fts WHERE records_fts MATCH ? ORDER BY record_id", (query,))]
     except sqlite3.Error as exc:
-        raise ValidationFailure("query-invalid", "full-text query is invalid or unsupported") from exc
+        message = str(exc).lower()
+        if "fts5: syntax error" in message or "unterminated string" in message or "malformed match expression" in message:
+            raise ValidationFailure("query-invalid", "full-text query is invalid or unsupported") from exc
+        raise ValidationFailure("projection-unavailable", "generated SQLite projection is unavailable or invalid") from exc
 
 
 def related_records(index_path: Path, record_id: str) -> list[dict[str, str]]:
