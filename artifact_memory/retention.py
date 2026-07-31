@@ -3,41 +3,184 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from typing import Any
 
 from .canonical import canonical_bytes, receipt_with_digest
+from .schema_resources import load_schema
+from .validator import ValidationFailure, validate
 
-DELETION_OUTCOMES = ("requested", "attempted", "removed-observed", "verified-absent-at-endpoint", "retained-until-expiry", "not-authorized", "endpoint-unavailable", "scope-unknown", "failed", "partially-complete")
+DELETION_OUTCOMES = (
+    "requested",
+    "attempted",
+    "removed-observed",
+    "verified-absent-at-endpoint",
+    "retained-until-expiry",
+    "not-authorized",
+    "endpoint-unavailable",
+    "scope-unknown",
+    "failed",
+    "partially-complete",
+)
+ENDPOINT_SCOPED_OUTCOMES = {
+    "attempted",
+    "removed-observed",
+    "verified-absent-at-endpoint",
+    "retained-until-expiry",
+    "endpoint-unavailable",
+    "failed",
+}
 
 
 _canonical = canonical_bytes
 
 
-def deletion_request(target_ref: str, scope: str, authorized: bool = False, endpoint_ref: str | None = None, generation_ref: str | None = None) -> dict[str, Any]:
-    """Create a receipt; never remove bytes or mutate an endpoint."""
-    outcome = "requested" if authorized else "not-authorized"
-    body: dict[str, Any] = {"target_ref": target_ref, "scope": scope, "outcome": outcome, "global_erasure_claim": False}
-    if endpoint_ref:
+def _instant(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, ValueError) as exc:
+        raise ValidationFailure("invalid-retention-policy", "retention time is invalid") from exc
+    if parsed.utcoffset() is None:
+        raise ValidationFailure("invalid-retention-policy", "retention time requires a timezone offset")
+    return parsed
+
+
+def retention_disposition(policy: dict[str, Any], *, now: str) -> str:
+    """Evaluate policy timing and holds without authorizing or executing deletion."""
+    validate(policy, load_schema("core", "retention-policy.v1.schema.json"))
+    if policy["retention_class"] == "deferred-expiry" and "expires_at" not in policy:
+        raise ValidationFailure("invalid-retention-policy", "deferred-expiry policy requires expires_at")
+    if policy["retention_class"] == "legal-hold" and not policy["legal_hold"]:
+        raise ValidationFailure("invalid-retention-policy", "legal-hold retention class requires legal_hold")
+    if policy["owner_hold"] or policy["legal_hold"]:
+        return "retained-under-hold"
+    if "expires_at" not in policy:
+        return "retained-by-policy"
+    return "eligible-for-separately-authorized-deletion" if _instant(now) >= _instant(policy["expires_at"]) else "retained-until-expiry"
+
+
+def deletion_receipt(
+    target_ref: str,
+    scope: str,
+    outcome: str,
+    *,
+    observed_at: str,
+    managed_scope: bool,
+    endpoint_ref: str | None = None,
+    generation_ref: str | None = None,
+    authority_ref: str | None = None,
+    evidence_refs: list[str] | None = None,
+    limitations: list[str] | None = None,
+    issuer: str = "reference-cli",
+) -> dict[str, Any]:
+    """Describe one scoped lifecycle observation; never mutate the target."""
+    if outcome not in DELETION_OUTCOMES:
+        raise ValueError("unsupported deletion outcome")
+    if outcome in ENDPOINT_SCOPED_OUTCOMES and endpoint_ref is None:
+        raise ValueError("endpoint-scoped deletion outcome requires endpoint_ref")
+    if generation_ref is not None and endpoint_ref is None:
+        raise ValueError("generation_ref requires endpoint_ref")
+    if scope == "managed-backup" and generation_ref is None:
+        raise ValueError("managed-backup receipt requires generation_ref")
+    if scope == "unknown-replica" and managed_scope:
+        raise ValueError("unknown-replica scope cannot be managed")
+    body: dict[str, Any] = {
+        "target_ref": target_ref,
+        "scope": scope,
+        "outcome": outcome,
+        "observed_at": observed_at,
+        "managed_scope": managed_scope,
+        "global_erasure_claim": False,
+        "destructive_execution": "separately-authorized",
+        "limitations": limitations
+        or [
+            "absence from one endpoint does not prove global erasure",
+            "unknown or unmanaged replicas are outside this receipt",
+        ],
+    }
+    if endpoint_ref is not None:
         body["endpoint_ref"] = endpoint_ref
-    if generation_ref:
+    if generation_ref is not None:
         body["generation_ref"] = generation_ref
-    body["limitations"] = ["destructive execution is separately authorized", "absence from one endpoint does not prove global erasure"]
-    return receipt_with_digest("artifact-memory/deletion-receipt/v1", "deletion-receipt://reference-cli/", body)
+    if authority_ref is not None:
+        body["authority_ref"] = authority_ref
+    if evidence_refs:
+        body["evidence_refs"] = evidence_refs
+    result = receipt_with_digest("artifact-memory/deletion-receipt/v1", f"deletion-receipt://{issuer}/", body)
+    validate(result, load_schema("core", "deletion-receipt.v1.schema.json"))
+    return result
 
 
-def tombstone(target_ref: str, reason: str, content_status: str, deletion_receipt_ref: str, superseded_by_ref: str | None = None) -> dict[str, Any]:
-    body: dict[str, Any] = {"target_ref": target_ref, "reason": reason, "content_status": content_status, "deletion_receipt_ref": deletion_receipt_ref}
+def deletion_request(
+    target_ref: str,
+    scope: str,
+    authorized: bool = False,
+    endpoint_ref: str | None = None,
+    generation_ref: str | None = None,
+    *,
+    observed_at: str = "1970-01-01T00:00:00Z",
+) -> dict[str, Any]:
+    """Create a request receipt; authorization still does not execute deletion."""
+    return deletion_receipt(
+        target_ref,
+        scope,
+        "requested" if authorized else "not-authorized",
+        observed_at=observed_at,
+        managed_scope=scope != "unknown-replica",
+        endpoint_ref=endpoint_ref,
+        generation_ref=generation_ref,
+        authority_ref="authority://owner/deletion-request" if authorized else None,
+        limitations=[
+            "request recording does not execute deletion",
+            "absence from one endpoint does not prove global erasure",
+        ],
+    )
+
+
+def tombstone(
+    target_ref: str,
+    reason: str,
+    content_status: str,
+    deletion_receipt_ref: str,
+    *,
+    created_at: str,
+    superseded_by_ref: str | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "target_ref": target_ref,
+        "reason": reason,
+        "content_status": content_status,
+        "deletion_receipt_ref": deletion_receipt_ref,
+        "created_at": created_at,
+        "sensitive_payload_retained": False,
+    }
     if superseded_by_ref:
         body["superseded_by_ref"] = superseded_by_ref
-    return {"schema_id": "artifact-memory/tombstone/v1", "tombstone_id": "tombstone://" + hashlib.sha256(_canonical(body)).hexdigest(), **body}
+    result = {"schema_id": "artifact-memory/tombstone/v1", "tombstone_id": "tombstone://" + hashlib.sha256(_canonical(body)).hexdigest(), **body}
+    validate(result, load_schema("core", "tombstone.v1.schema.json"))
+    return result
 
 
-def overall_deletion_status(receipts: list[dict[str, Any]]) -> str:
+def content_retrievability(observations: list[dict[str, Any]]) -> str:
+    """Summarize current evidence without converting absence into erasure."""
+    schema = load_schema("core", "location-observation.v1.schema.json")
+    for observation in observations:
+        validate(observation, schema)
+    if any(observation["presence"] == "present" for observation in observations):
+        return "verified-retrievable-location-observed"
+    return "zero-currently-verified-retrievable-locations"
+
+
+def overall_deletion_status(receipts: list[dict[str, Any]], *, unknown_replicas: bool = True) -> str:
+    if not receipts:
+        return "scope-unknown"
     outcomes = {receipt["outcome"] for receipt in receipts}
     if "not-authorized" in outcomes:
         return "not-authorized"
-    if "retained-until-expiry" in outcomes or "endpoint-unavailable" in outcomes or "scope-unknown" in outcomes:
+    if outcomes & {"retained-until-expiry", "endpoint-unavailable", "scope-unknown", "failed", "partially-complete"}:
         return "partially-complete"
-    if outcomes and outcomes.issubset({"removed-observed", "verified-absent-at-endpoint"}):
-        return "partially-complete" if len(receipts) > 1 else "verified-absent-at-endpoint"
+    if outcomes.issubset({"removed-observed", "verified-absent-at-endpoint"}):
+        return "partially-complete" if unknown_replicas else "verified-absent-at-endpoint"
+    if "attempted" in outcomes:
+        return "attempted"
     return "requested"

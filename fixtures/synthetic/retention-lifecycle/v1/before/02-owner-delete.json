@@ -1,0 +1,10 @@
+{
+  "schema_id": "artifact-memory/knowledge-record/v1",
+  "record_id": "record://synthetic/owner-delete-0001",
+  "record_type": "note",
+  "lifecycle": "accepted",
+  "meaning": {"summary": "SYNTHETIC-OWNER-DELETE-MARKER is removed after synthetic owner approval."},
+  "artifact_refs": ["artifact://synthetic/owner-delete-object"],
+  "provenance": [{"kind": "author", "source_ref": "actor://synthetic/owner"}],
+  "sensitivity": "private"
+}

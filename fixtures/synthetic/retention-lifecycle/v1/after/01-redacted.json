@@ -1,0 +1,16 @@
+{
+  "schema_id": "artifact-memory/knowledge-record/v1",
+  "record_id": "record://synthetic/redacted-0001",
+  "record_type": "note",
+  "lifecycle": "accepted",
+  "meaning": {"summary": "A safe synthetic derivative records that redaction occurred."},
+  "artifact_refs": [],
+  "provenance": [{"kind": "derivation", "source_ref": "tombstone://synthetic-placeholder"}],
+  "relationships": [{"type": "redacted-from", "target_ref": "record://synthetic/accidental-0001"}],
+  "derivative": {
+    "source_task_ref": "task://synthetic/redaction-0001",
+    "transformation_ref": "transformation://synthetic/remove-sensitive-content/v1",
+    "uncertainty": "The derivative preserves only the fact of redaction and no removed payload."
+  },
+  "sensitivity": "public"
+}

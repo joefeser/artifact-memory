@@ -4,7 +4,7 @@
   "title": "Artifact Memory non-sensitive tombstone v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_id", "tombstone_id", "target_ref", "reason", "content_status", "deletion_receipt_ref"],
+  "required": ["schema_id", "tombstone_id", "target_ref", "reason", "content_status", "deletion_receipt_ref", "created_at", "sensitive_payload_retained"],
   "properties": {
     "schema_id": {"const": "artifact-memory/tombstone/v1"},
     "tombstone_id": {"type": "string", "pattern": "^tombstone://[0-9a-f]{64}$"},
@@ -13,6 +13,8 @@
     "content_status": {"enum": ["bytes-removed-from-scope", "bytes-retained-under-hold", "bytes-location-unknown", "derivative-replaced"]},
     "superseded_by_ref": {"type": "string", "minLength": 1},
     "deletion_receipt_ref": {"type": "string", "pattern": "^deletion-receipt://[A-Za-z0-9._~-]+/[0-9a-f]{64}$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "sensitive_payload_retained": {"const": false},
     "extensions": {"type": "object", "additionalProperties": true}
   }
 }

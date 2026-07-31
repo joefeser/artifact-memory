@@ -4,18 +4,23 @@
   "title": "Artifact Memory deletion receipt v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_id", "receipt_id", "target_ref", "scope", "outcome", "global_erasure_claim", "limitations"],
+  "required": ["schema_id", "receipt_id", "target_ref", "scope", "outcome", "observed_at", "managed_scope", "global_erasure_claim", "destructive_execution", "limitations"],
+  "dependentRequired": {"generation_ref": ["endpoint_ref"]},
   "properties": {
     "schema_id": {"const": "artifact-memory/deletion-receipt/v1"},
     "receipt_id": {"type": "string", "pattern": "^deletion-receipt://[A-Za-z0-9._~-]+/[0-9a-f]{64}$"},
     "target_ref": {"type": "string", "minLength": 1},
-    "scope": {"enum": ["active-vault", "generated-index", "managed-backup", "git-history", "endpoint"]},
-    "endpoint_ref": {"type": "string", "minLength": 1},
+    "scope": {"enum": ["active-vault", "generated-index", "managed-backup", "git-history", "endpoint", "unknown-replica"]},
+    "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$"},
     "generation_ref": {"type": "string", "minLength": 1},
     "outcome": {"enum": ["requested", "attempted", "removed-observed", "verified-absent-at-endpoint", "retained-until-expiry", "not-authorized", "endpoint-unavailable", "scope-unknown", "failed", "partially-complete"]},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "managed_scope": {"type": "boolean"},
     "global_erasure_claim": {"const": false},
-    "evidence_refs": {"type": "array", "items": {"type": "string"}},
-    "limitations": {"type": "array", "items": {"type": "string"}},
+    "destructive_execution": {"const": "separately-authorized"},
+    "authority_ref": {"type": "string", "minLength": 1},
+    "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
     "extensions": {"type": "object", "additionalProperties": true}
   }
 }

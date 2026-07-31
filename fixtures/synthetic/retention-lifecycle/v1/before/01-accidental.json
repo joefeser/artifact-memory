@@ -1,0 +1,10 @@
+{
+  "schema_id": "artifact-memory/knowledge-record/v1",
+  "record_id": "record://synthetic/accidental-0001",
+  "record_type": "note",
+  "lifecycle": "accepted",
+  "meaning": {"summary": "SYNTHETIC-ACCIDENTAL-MARKER must disappear from rebuilt projections."},
+  "artifact_refs": ["artifact://synthetic/accidental-object"],
+  "provenance": [{"kind": "import", "source_ref": "fixture://synthetic/retention-lifecycle/v1"}],
+  "sensitivity": "restricted"
+}
