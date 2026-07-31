@@ -3,11 +3,14 @@ import json
 import os
 import shutil
 import sqlite3
+import stat
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from artifact_memory.tracemap_adapter import AdapterFailure, INTEGRITY_STATE, bind_trace_map_evidence
+from artifact_memory.tracemap_adapter import AdapterFailure, INTEGRITY_STATE, _is_link_or_reparse_point, bind_trace_map_evidence
 from artifact_memory.schema_resources import load_schema
 from artifact_memory.validator import validate
 
@@ -192,6 +195,19 @@ class TraceMapAdapterTests(unittest.TestCase):
             with self.assertRaises(AdapterFailure) as raised:
                 bind(packet)
             self.assertEqual(raised.exception.outcome, "trace-output-invalid")
+
+    def test_uncheckpointed_sqlite_sidecar_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            packet = materialize_packet(Path(temporary))
+            (packet / "index.sqlite-wal").write_bytes(b"synthetic-wal")
+            with self.assertRaises(AdapterFailure) as raised:
+                bind(packet)
+            self.assertEqual(raised.exception.outcome, "trace-output-invalid")
+
+    def test_windows_reparse_attribute_is_detected_portably(self):
+        fake_metadata = SimpleNamespace(st_mode=stat.S_IFREG, st_file_attributes=0x400)
+        with patch("artifact_memory.tracemap_adapter.os.lstat", return_value=fake_metadata):
+            self.assertTrue(_is_link_or_reparse_point(Path("synthetic")))
 
 
 if __name__ == "__main__":

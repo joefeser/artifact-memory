@@ -92,6 +92,8 @@ def _is_link_or_reparse_point(path: Path) -> bool:
 def _snapshot_required_artifacts(packet_dir: Path, snapshot_dir: Path) -> list[dict[str, str]]:
     if _is_link_or_reparse_point(packet_dir):
         raise AdapterFailure("unsafe-provenance-rejected", "provider packet root must not be a link or reparse point")
+    if any((packet_dir / name).exists() for name in ("index.sqlite-wal", "index.sqlite-shm")):
+        raise AdapterFailure("trace-output-invalid", "provider index must be checkpointed and closed without SQLite sidecars")
     for name in REQUIRED_ARTIFACTS:
         packet_path = packet_dir / name
         current = packet_dir
