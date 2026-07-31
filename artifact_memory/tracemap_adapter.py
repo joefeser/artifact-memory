@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sqlite3
+import stat
 import tempfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -77,11 +78,27 @@ def _require_digest(value: str, label: str) -> None:
         raise AdapterFailure("trace-output-invalid", f"{label} is not a SHA-256 content identity")
 
 
+def _is_link_or_reparse_point(path: Path) -> bool:
+    try:
+        metadata = os.lstat(path)
+    except OSError:
+        return False
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return stat.S_ISLNK(metadata.st_mode) or bool(
+        getattr(metadata, "st_file_attributes", 0) & reparse_flag
+    )
+
+
 def _snapshot_required_artifacts(packet_dir: Path, snapshot_dir: Path) -> list[dict[str, str]]:
+    if _is_link_or_reparse_point(packet_dir):
+        raise AdapterFailure("unsafe-provenance-rejected", "provider packet root must not be a link or reparse point")
     for name in REQUIRED_ARTIFACTS:
         packet_path = packet_dir / name
-        if packet_path.is_symlink():
-            raise AdapterFailure("unsafe-provenance-rejected", "required provider artifact must not be a symlink")
+        current = packet_dir
+        for part in PurePosixPath(name).parts:
+            current /= part
+            if _is_link_or_reparse_point(current):
+                raise AdapterFailure("unsafe-provenance-rejected", "required provider artifact path must not contain a link or reparse point")
         if not packet_path.is_file():
             raise AdapterFailure("required-artifact-missing", "required provider artifact is missing")
     inspected = []

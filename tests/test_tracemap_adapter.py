@@ -159,6 +159,18 @@ class TraceMapAdapterTests(unittest.TestCase):
                 bind(packet)
             self.assertEqual(raised.exception.outcome, "unsafe-provenance-rejected")
 
+    @unittest.skipIf(os.name == "nt", "symlink creation is not portable on Windows CI")
+    def test_required_packet_parent_symlink_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            packet = materialize_packet(Path(temporary))
+            logs = packet / "logs"
+            external_logs = packet / "external-logs"
+            logs.rename(external_logs)
+            logs.symlink_to(external_logs, target_is_directory=True)
+            with self.assertRaises(AdapterFailure) as raised:
+                bind(packet)
+            self.assertEqual(raised.exception.outcome, "unsafe-provenance-rejected")
+
     def test_malformed_manifest_scalar_is_typed(self):
         with tempfile.TemporaryDirectory() as temporary:
             packet = materialize_packet(Path(temporary))
