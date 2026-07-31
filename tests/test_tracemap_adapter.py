@@ -1,3 +1,4 @@
+import hashlib
 import json
 import shutil
 import sqlite3
@@ -110,13 +111,13 @@ class TraceMapAdapterTests(unittest.TestCase):
                 bind(packet)
             self.assertEqual(raised.exception.outcome, "trace-output-invalid")
 
-    def test_invalid_utf8_log_is_rejected_during_streamed_inspection(self):
+    def test_log_is_bound_as_opaque_bytes_without_new_encoding_requirement(self):
         with tempfile.TemporaryDirectory() as temporary:
             packet = materialize_packet(Path(temporary))
             (packet / "logs" / "analyzer.log").write_bytes(b"\xff")
-            with self.assertRaises(AdapterFailure) as raised:
-                bind(packet)
-            self.assertEqual(raised.exception.outcome, "trace-output-invalid")
+            binding = bind(packet)
+            log = next(item for item in binding["content_objects"] if item["name"] == "logs/analyzer.log")
+            self.assertEqual(log["digest"], "sha-256:" + hashlib.sha256(b"\xff").hexdigest())
 
     def test_legacy_v1_binding_shape_remains_schema_valid(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -126,6 +127,24 @@ class TraceMapAdapterTests(unittest.TestCase):
         binding["provider"].pop("configuration_digest")
         binding["provider"].pop("rule_catalog_digest")
         validate(binding, load_schema("adapters", "tracemap-evidence-binding.v1.schema.json"))
+
+    def test_known_gaps_produce_partial_evidence_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            binding = bind(materialize_packet(Path(temporary)))
+        self.assertEqual(binding["receipt"]["outcome"], "partial-evidence-admitted")
+
+    def test_sqlite_non_identity_fact_mismatch_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            packet = materialize_packet(Path(temporary))
+            connection = sqlite3.connect(packet / "index.sqlite")
+            connection.execute(
+                "update facts set evidence_tier = 'Tier4Unknown' where fact_id = 'fact-synthetic-status-declaration'"
+            )
+            connection.commit()
+            connection.close()
+            with self.assertRaises(AdapterFailure) as raised:
+                bind(packet)
+            self.assertEqual(raised.exception.outcome, "digest-mismatch")
 
 
 if __name__ == "__main__":

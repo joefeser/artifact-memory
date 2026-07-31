@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import codecs
 import hashlib
 import json
+import os
 import re
 import sqlite3
+import tempfile
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -75,24 +77,23 @@ def _require_digest(value: str, label: str) -> None:
         raise AdapterFailure("trace-output-invalid", f"{label} is not a SHA-256 content identity")
 
 
-def _inspect_required_artifacts(packet_dir: Path) -> list[dict[str, str]]:
+def _snapshot_required_artifacts(packet_dir: Path, snapshot_dir: Path) -> list[dict[str, str]]:
     missing = [name for name in REQUIRED_ARTIFACTS if not (packet_dir / name).is_file()]
     if missing:
         raise AdapterFailure("required-artifact-missing", "required provider artifact is missing")
-    text_artifacts = {"scan-manifest.json", "facts.ndjson", "report.md", "logs/analyzer.log"}
     inspected = []
     for name in REQUIRED_ARTIFACTS:
         digest = hashlib.sha256()
-        decoder = codecs.getincrementaldecoder("utf-8")("strict") if name in text_artifacts else None
+        target = snapshot_dir / name
+        target.parent.mkdir(parents=True, exist_ok=True)
         try:
-            with (packet_dir / name).open("rb") as stream:
+            with (packet_dir / name).open("rb") as stream, target.open("xb") as output:
                 while chunk := stream.read(CHUNK_SIZE):
                     digest.update(chunk)
-                    if decoder is not None:
-                        decoder.decode(chunk)
-                if decoder is not None:
-                    decoder.decode(b"", final=True)
-        except (OSError, UnicodeError) as exc:
+                    output.write(chunk)
+                output.flush()
+                os.fsync(output.fileno())
+        except OSError as exc:
             raise AdapterFailure("trace-output-invalid", "provider artifact is unavailable or invalid") from exc
         inspected.append({"name": name, "digest": "sha-256:" + digest.hexdigest()})
     return inspected
@@ -132,15 +133,65 @@ def _verify_index(packet_dir: Path, manifest: dict[str, Any], facts: list[dict[s
             tables = {row[0] for row in connection.execute("select name from sqlite_master where type='table'")}
             if not {"scan_manifest", "facts"}.issubset(tables):
                 raise AdapterFailure("trace-output-invalid", "provider index lacks required tables")
-            rows = connection.execute("select scan_id, commit_sha from scan_manifest").fetchall()
-            if rows != [(manifest["scanId"], manifest["commitSha"])]:
+            rows = connection.execute(
+                "select scan_id, repo, commit_sha, scanner_version, scanned_at, analysis_level, build_status, manifest_json from scan_manifest"
+            ).fetchall()
+            expected_manifest = (
+                manifest["scanId"],
+                manifest["repoName"],
+                manifest["commitSha"],
+                manifest["scannerVersion"],
+                datetime.fromisoformat(manifest["scannedAt"].replace("Z", "+00:00")),
+                manifest["analysisLevel"],
+                manifest["buildStatus"],
+                canonical_bytes(manifest),
+            )
+            normalized_manifests = [
+                (
+                    *row[:4],
+                    datetime.fromisoformat(row[4].replace("Z", "+00:00")),
+                    *row[5:-1],
+                    canonical_bytes(json.loads(row[-1])),
+                )
+                for row in rows
+            ]
+            if normalized_manifests != [expected_manifest]:
                 raise AdapterFailure("digest-mismatch", "provider index manifest parity failed")
-            indexed_facts = set(connection.execute("select fact_id, repo from facts"))
-            if indexed_facts != {(fact["factId"], fact["repo"]) for fact in facts}:
+            indexed_facts = []
+            for row in connection.execute(
+                "select fact_id, scan_id, repo, commit_sha, project_path, fact_type, rule_id, evidence_tier, source_symbol, target_symbol, contract_element, file_path, start_line, end_line, snippet_hash, extractor_id, extractor_version, properties_json from facts"
+            ):
+                indexed_facts.append((*row[:-1], canonical_bytes(json.loads(row[-1]))))
+            expected_facts = []
+            for fact in facts:
+                evidence = fact["evidence"]
+                expected_facts.append(
+                    (
+                        fact["factId"],
+                        fact["scanId"],
+                        fact["repo"],
+                        fact["commitSha"],
+                        fact.get("projectPath"),
+                        fact["factType"],
+                        fact["ruleId"],
+                        fact["evidenceTier"],
+                        fact.get("sourceSymbol"),
+                        fact.get("targetSymbol"),
+                        fact.get("contractElement"),
+                        evidence["filePath"],
+                        evidence["startLine"],
+                        evidence["endLine"],
+                        evidence.get("snippetHash"),
+                        evidence["extractorId"],
+                        evidence["extractorVersion"],
+                        canonical_bytes(fact["properties"]),
+                    )
+                )
+            if sorted(indexed_facts, key=lambda item: item[0]) != sorted(expected_facts, key=lambda item: item[0]):
                 raise AdapterFailure("digest-mismatch", "provider index fact parity failed")
         finally:
             connection.close()
-    except sqlite3.Error as exc:
+    except (sqlite3.Error, json.JSONDecodeError, ValueError) as exc:
         raise AdapterFailure("trace-output-invalid", "provider index cannot be opened read-only") from exc
 
 
@@ -163,9 +214,11 @@ def bind_trace_map_evidence(
     _require_digest(configuration_digest, "provider configuration digest")
     if rule_catalog_digest is not None:
         _require_digest(rule_catalog_digest, "provider rule catalog digest")
-    file_digests = _inspect_required_artifacts(packet_dir)
-    manifest, facts = _validate_provider_packet(packet_dir, expected_repo, expected_commit)
-    _verify_index(packet_dir, manifest, facts)
+    with tempfile.TemporaryDirectory(prefix="artifact-memory-tracemap-packet-") as temporary:
+        snapshot_dir = Path(temporary)
+        file_digests = _snapshot_required_artifacts(packet_dir, snapshot_dir)
+        manifest, facts = _validate_provider_packet(snapshot_dir, expected_repo, expected_commit)
+        _verify_index(snapshot_dir, manifest, facts)
     fact_by_id = {fact["factId"]: fact for fact in facts}
     selected = selected_fact_ids or sorted(fact_by_id)[:1]
     if not selected or any(fact_id not in fact_by_id for fact_id in selected):
@@ -211,8 +264,9 @@ def bind_trace_map_evidence(
         "provider_contract_anchor": TRACE_MAP_CONTRACT_ANCHOR,
     }
     binding_digest = hashlib.sha256(_canonical(binding_body)).hexdigest()
+    outcome = "partial-evidence-admitted" if manifest["knownGaps"] else "complete"
     receipt_body = {
-        "outcome": "complete",
+        "outcome": outcome,
         "provider": "tracemap",
         "packet_digest": packet_digest,
         "selected_provider_record_ids": sorted(selected),
@@ -233,7 +287,7 @@ def bind_trace_map_evidence(
         "integrity_state": INTEGRITY_STATE,
         "selected_provider_record_ids": sorted(selected),
         "selected_provider_records": selected_records,
-        "receipt": {"outcome": "complete", "deterministic_body_digest": _digest(_canonical(receipt_body)), "diagnostics": []},
+        "receipt": {"outcome": outcome, "deterministic_body_digest": _digest(_canonical(receipt_body)), "diagnostics": []},
         "content_objects": file_digests,
         "relations": [{"type": "produced-from", "source": f"artifact-version://tracemap/evidence/{packet_digest.removeprefix('sha-256:')}/1", "target": source_version_ref, "supports_claim": False}],
     }
