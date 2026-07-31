@@ -6,7 +6,7 @@
   "deletion_receipt_refs": [
     "deletion-receipt://synthetic/226035e75d8a5cd3945675cd180fc71a6741bb338acc5ae589b927291195efda",
     "deletion-receipt://synthetic/56fd852fad23d2e32c0b77156a8e4e7ded21ab2cd7f75aa98f42f833874dfd3d",
-    "deletion-receipt://synthetic/09d7d47c7b9e20a8ea4872335f7cb0d8e449774e6088f3f88fb6aa7644813d3a",
+    "deletion-receipt://synthetic/16c25ce9f0cbc62af2988d901439a5cdd0ed72f82a3fae69af499ab0de94f621",
     "deletion-receipt://synthetic/b1d83208b1f4d8a06f694b2cd3c2223cdd5a0ffb7c977c35c7461159ad308a40",
     "deletion-receipt://synthetic/26e923ae34b141993c14e2dba06214dc3f02f875b5e037e4998ae78303e55192"
   ],
@@ -22,7 +22,7 @@
   "outcome": "complete",
   "overall_deletion_outcome": "partially-complete",
   "policy_id": "retention-policy://synthetic/deferred-expiry",
-  "receipt_id": "retention-lifecycle-receipt://synthetic/3d205de50e0780544b6fa1ef29af28725ec32c7677e89bef4b7a958915333731",
+  "receipt_id": "retention-lifecycle-receipt://synthetic/b252e768eefc0752ff07a3a2390aba9a6ebdafb8a3e50a71d8b416520a8d41ef",
   "removed_record_ids": [
     "record://synthetic/accidental-0001",
     "record://synthetic/owner-delete-0001"

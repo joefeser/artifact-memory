@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .canonical import canonical_bytes, receipt_with_digest
-from .projection import project_records
+from .projection import logical_projection_snapshot, project_records
 from .retention import deletion_receipt, overall_deletion_status, retention_disposition, tombstone
 from .schema_resources import load_schema
 from .validator import validate
@@ -28,10 +28,6 @@ def _load(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RuntimeError(f"fixture must contain an object: {path.name}")
     return value
-
-
-def _digest(path: Path) -> str:
-    return "sha-256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _indexed_record_ids(index_path: Path) -> list[str]:
@@ -109,7 +105,13 @@ def run_retention_lifecycle_slice(fixture_root: Path) -> dict[str, Any]:
             observed_at=OBSERVED_AT,
             managed_scope=True,
             endpoint_ref=INDEX_ENDPOINT,
-            evidence_refs=[_digest(after_output / "records.ndjson"), _digest(after_output / "records.sqlite")],
+            evidence_refs=[
+                after_projection["source_record_set_digest"],
+                "sha-256:"
+                + hashlib.sha256(
+                    canonical_bytes(logical_projection_snapshot(after_output / "records.sqlite"))
+                ).hexdigest(),
+            ],
             issuer="synthetic",
         )
         backup_receipt = deletion_receipt(
