@@ -78,9 +78,12 @@ def _require_digest(value: str, label: str) -> None:
 
 
 def _snapshot_required_artifacts(packet_dir: Path, snapshot_dir: Path) -> list[dict[str, str]]:
-    missing = [name for name in REQUIRED_ARTIFACTS if not (packet_dir / name).is_file()]
-    if missing:
-        raise AdapterFailure("required-artifact-missing", "required provider artifact is missing")
+    for name in REQUIRED_ARTIFACTS:
+        packet_path = packet_dir / name
+        if packet_path.is_symlink():
+            raise AdapterFailure("unsafe-provenance-rejected", "required provider artifact must not be a symlink")
+        if not packet_path.is_file():
+            raise AdapterFailure("required-artifact-missing", "required provider artifact is missing")
     inspected = []
     for name in REQUIRED_ARTIFACTS:
         digest = hashlib.sha256()
@@ -102,10 +105,15 @@ def _snapshot_required_artifacts(packet_dir: Path, snapshot_dir: Path) -> list[d
 def _validate_provider_packet(packet_dir: Path, expected_repo: str, expected_commit: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     manifest = _load_object(packet_dir / "scan-manifest.json")
     required_manifest = ("scanId", "repoName", "commitSha", "scannerVersion", "scannedAt", "analysisLevel", "buildStatus", "knownGaps")
-    if any(key not in manifest or (key != "knownGaps" and not manifest.get(key)) for key in required_manifest):
+    scalar_manifest = required_manifest[:-1]
+    if any(not isinstance(manifest.get(key), str) or not manifest[key] for key in scalar_manifest):
         raise AdapterFailure("trace-output-invalid", "provider manifest is incomplete")
-    if not isinstance(manifest["knownGaps"], list) or any(not isinstance(gap, str) for gap in manifest["knownGaps"]):
+    if not isinstance(manifest.get("knownGaps"), list) or any(not isinstance(gap, str) for gap in manifest["knownGaps"]):
         raise AdapterFailure("trace-output-invalid", "provider known gaps must be an array of strings")
+    try:
+        datetime.fromisoformat(manifest["scannedAt"].replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise AdapterFailure("trace-output-invalid", "provider scan time is invalid") from exc
     if manifest["repoName"] != expected_repo:
         raise AdapterFailure("repository-binding-mismatch", "provider repository does not match expected repository")
     if manifest["commitSha"] != expected_commit:
@@ -114,12 +122,32 @@ def _validate_provider_packet(packet_dir: Path, expected_repo: str, expected_com
         raise AdapterFailure("trace-output-invalid", "expected commit is not a Git commit identity")
     facts = _read_facts(packet_dir / "facts.ndjson")
     for fact in facts:
-        required = ("factId", "scanId", "repo", "commitSha", "factType", "ruleId", "evidenceTier", "evidence", "properties")
-        if any(key not in fact for key in required) or fact["scanId"] != manifest["scanId"] or fact["commitSha"] != expected_commit or fact["repo"] != expected_repo:
+        scalar_fact = ("factId", "scanId", "repo", "commitSha", "factType", "ruleId", "evidenceTier")
+        if (
+            any(not isinstance(fact.get(key), str) or not fact[key] for key in scalar_fact)
+            or fact["scanId"] != manifest["scanId"]
+            or fact["commitSha"] != expected_commit
+            or fact["repo"] != expected_repo
+            or not isinstance(fact.get("properties"), dict)
+        ):
             raise AdapterFailure("trace-output-invalid", "provider fact provenance is incomplete")
-        evidence = fact["evidence"]
-        if not isinstance(evidence, dict) or not _safe_relative(evidence.get("filePath")):
+        evidence = fact.get("evidence")
+        if (
+            not isinstance(evidence, dict)
+            or not _safe_relative(evidence.get("filePath"))
+            or any(not isinstance(evidence.get(key), str) or not evidence[key] for key in ("extractorId", "extractorVersion"))
+            or any(not isinstance(evidence.get(key), int) or isinstance(evidence[key], bool) for key in ("startLine", "endLine"))
+        ):
             raise AdapterFailure("unsafe-provenance-rejected", "provider evidence path is not portable")
+        optional_strings = (
+            fact.get("projectPath"),
+            fact.get("sourceSymbol"),
+            fact.get("targetSymbol"),
+            fact.get("contractElement"),
+            evidence.get("snippetHash"),
+        )
+        if any(value is not None and not isinstance(value, str) for value in optional_strings):
+            raise AdapterFailure("trace-output-invalid", "provider fact contains an invalid optional scalar")
         if fact["evidenceTier"] not in {"Tier1Semantic", "Tier2Structural", "Tier3SyntaxOrTextual", "Tier4Unknown"}:
             raise AdapterFailure("schema-unsupported", "provider evidence tier is unsupported")
     return manifest, facts
@@ -191,7 +219,7 @@ def _verify_index(packet_dir: Path, manifest: dict[str, Any], facts: list[dict[s
                 raise AdapterFailure("digest-mismatch", "provider index fact parity failed")
         finally:
             connection.close()
-    except (sqlite3.Error, json.JSONDecodeError, ValueError) as exc:
+    except (sqlite3.Error, json.JSONDecodeError, ValueError, TypeError, AttributeError, KeyError, UnicodeError) as exc:
         raise AdapterFailure("trace-output-invalid", "provider index cannot be opened read-only") from exc
 
 

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import shutil
 import sqlite3
 import tempfile
@@ -145,6 +146,40 @@ class TraceMapAdapterTests(unittest.TestCase):
             with self.assertRaises(AdapterFailure) as raised:
                 bind(packet)
             self.assertEqual(raised.exception.outcome, "digest-mismatch")
+
+    @unittest.skipIf(os.name == "nt", "symlink creation is not portable on Windows CI")
+    def test_required_packet_symlink_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            packet = materialize_packet(Path(temporary))
+            report = packet / "report.md"
+            target = packet / "external-report.md"
+            report.rename(target)
+            report.symlink_to(target)
+            with self.assertRaises(AdapterFailure) as raised:
+                bind(packet)
+            self.assertEqual(raised.exception.outcome, "unsafe-provenance-rejected")
+
+    def test_malformed_manifest_scalar_is_typed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            packet = materialize_packet(Path(temporary))
+            manifest_path = packet / "scan-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["scannedAt"] = 7
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaises(AdapterFailure) as raised:
+                bind(packet)
+            self.assertEqual(raised.exception.outcome, "trace-output-invalid")
+
+    def test_malformed_index_scalar_is_typed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            packet = materialize_packet(Path(temporary))
+            connection = sqlite3.connect(packet / "index.sqlite")
+            connection.execute("update scan_manifest set scanned_at = 'not-a-date'")
+            connection.commit()
+            connection.close()
+            with self.assertRaises(AdapterFailure) as raised:
+                bind(packet)
+            self.assertEqual(raised.exception.outcome, "trace-output-invalid")
 
 
 if __name__ == "__main__":
