@@ -4,7 +4,7 @@
   "title": "Artifact Memory deletion receipt v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_id", "receipt_id", "target_ref", "scope", "outcome", "observed_at", "managed_scope", "global_erasure_claim", "destructive_execution", "limitations"],
+  "required": ["schema_id", "receipt_id", "target_ref", "scope", "outcome", "observed_at", "managed_scope", "global_erasure_claim", "destructive_execution_authorization", "limitations"],
   "dependentRequired": {"generation_ref": ["endpoint_ref"]},
   "allOf": [
     {"if": {"required": ["scope"], "properties": {"scope": {"const": "endpoint"}}}, "then": {"required": ["endpoint_ref"]}},
@@ -24,7 +24,7 @@
     "observed_at": {"type": "string", "format": "date-time"},
     "managed_scope": {"type": "boolean"},
     "global_erasure_claim": {"const": false},
-    "destructive_execution": {"const": "separately-authorized"},
+    "destructive_execution_authorization": {"const": "separate-owner-or-legal-authorization-required"},
     "authority_ref": {"type": "string", "minLength": 1},
     "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
     "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},

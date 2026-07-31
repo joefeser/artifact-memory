@@ -30,6 +30,13 @@ def _load(path: Path) -> dict[str, Any]:
     return value
 
 
+def _load_array(path: Path) -> list[dict[str, Any]]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise RuntimeError(f"fixture must contain an array of objects: {path.name}")
+    return value
+
+
 def _indexed_record_ids(index_path: Path) -> list[str]:
     connection = sqlite3.connect(index_path.resolve().as_uri() + "?mode=ro", uri=True)
     try:
@@ -160,6 +167,14 @@ def run_retention_lifecycle_slice(fixture_root: Path) -> dict[str, Any]:
     )
     for marker in (accidental_tombstone, owner_tombstone):
         validate(marker, load_schema("core", "tombstone.v2.schema.json"))
+    markers = [accidental_tombstone, owner_tombstone]
+    if receipts != _load_array(fixture_root / "deletion-receipts.json"):
+        raise RuntimeError("generated deletion receipts do not match checked evidence")
+    if markers != _load_array(fixture_root / "tombstones.json"):
+        raise RuntimeError("generated tombstones do not match checked evidence")
+    evidence_digest = "sha-256:" + hashlib.sha256(
+        canonical_bytes({"deletion_receipts": receipts, "tombstones": markers})
+    ).hexdigest()
 
     body = {
         "outcome": "complete",
@@ -172,9 +187,8 @@ def run_retention_lifecycle_slice(fixture_root: Path) -> dict[str, Any]:
         },
         "overall_deletion_outcome": overall,
         "deletion_receipt_refs": [item["receipt_id"] for item in receipts],
-        "deletion_receipts": receipts,
         "tombstone_refs": [accidental_tombstone["tombstone_id"], owner_tombstone["tombstone_id"]],
-        "tombstones": [accidental_tombstone, owner_tombstone],
+        "lifecycle_evidence_digest": evidence_digest,
         "before_record_set_digest": before_projection["source_record_set_digest"],
         "after_record_set_digest": after_projection["source_record_set_digest"],
         "before_record_count": before_projection["record_count"],

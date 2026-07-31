@@ -94,7 +94,7 @@ def deletion_receipt(
         "observed_at": observed_at,
         "managed_scope": managed_scope,
         "global_erasure_claim": False,
-        "destructive_execution": "separately-authorized",
+        "destructive_execution_authorization": "separate-owner-or-legal-authorization-required",
         "limitations": limitations
         or [
             "absence from one endpoint does not prove global erasure",

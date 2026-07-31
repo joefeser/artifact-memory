@@ -65,6 +65,7 @@ post-deletion rebuild must use the current authorized canonical set and prove
 that removed content is absent. The synthetic #36 fixture exercises accidental
 ingestion, a redacted derivative, deferred backup expiry, owner-approved
 deletion, and this rebuild invariant without touching any real endpoint. Its
-aggregate receipt embeds the validated deletion receipts and tombstones, so a
-reader can independently inspect every endpoint, generation, evidence
-reference, and limitation rather than receiving dangling hashes.
+fixture persists the validated deletion receipts and tombstones, and its
+aggregate receipt binds their canonical digest. A reader can independently
+inspect every endpoint, generation, evidence reference, and limitation rather
+than receiving dangling hashes.
