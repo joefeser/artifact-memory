@@ -160,6 +160,18 @@ class ContextTests(unittest.TestCase):
         malformed_record_id["selection_receipt"]["selected_record_ids"] = ["invalid"]
         with self.assertRaises(ContextReaderFailure):
             recall_context(json.dumps(repack(malformed_record_id)).encode())
+        malformed_source_digest = json.loads(json.dumps(pack))
+        malformed_source_digest["selection_receipt"]["source_record_set_digest"] = 1
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(malformed_source_digest)).encode())
+        malformed_revision_digest = json.loads(json.dumps(pack))
+        malformed_revision_digest["records"][0]["revision_digest"] = 1
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(malformed_revision_digest)).encode())
+        malformed_adapter_digest = json.loads(json.dumps(pack))
+        malformed_adapter_digest["external_evidence"][0]["adapter_receipt_digest"] = 1
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(malformed_adapter_digest)).encode())
 
 
 if __name__ == "__main__":

@@ -15,6 +15,18 @@ class ValidatorTests(unittest.TestCase):
         with self.assertRaises(ValidationFailure):
             validate({"nested": 1}, {"const": {"nested": True}})
 
+    def test_dependent_required_fields_are_paired(self):
+        schema = {
+            "type": "object",
+            "dependentRequired": {"rule_id": ["evidence_tier"], "evidence_tier": ["rule_id"]},
+        }
+        validate({}, schema)
+        validate({"rule_id": "rule", "evidence_tier": "tier"}, schema)
+        with self.assertRaises(ValidationFailure):
+            validate({"rule_id": "rule"}, schema)
+        with self.assertRaises(ValidationFailure):
+            validate({"evidence_tier": "tier"}, schema)
+
 
 if __name__ == "__main__":
     unittest.main()

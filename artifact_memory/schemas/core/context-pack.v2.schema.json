@@ -41,6 +41,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
+        "dependentRequired": {"rule_id": ["evidence_tier"], "evidence_tier": ["rule_id"]},
         "required": ["provider_id", "provider_schema_id", "provider_record_id", "binding_ref", "evidence_packet_ref", "adapter_receipt_digest", "integrity_state", "coverage", "limitations"],
         "properties": {
           "provider_id": {"type": "string", "minLength": 1},

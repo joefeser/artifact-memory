@@ -33,6 +33,10 @@ def _canonical(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def _matches(pattern: re.Pattern[str], value: Any) -> bool:
+    return isinstance(value, str) and pattern.fullmatch(value) is not None
+
+
 def _parse_utc(value: Any) -> datetime:
     if not isinstance(value, str) or UTC_INSTANT.fullmatch(value) is None:
         raise ContextReaderFailure("invalid whole-second UTC instant")
@@ -53,7 +57,7 @@ def _validate_selection(selection: Any) -> datetime:
         or set(selection) != fields
         or not isinstance(selection.get("policy_id"), str)
         or not selection["policy_id"]
-        or SHA256.fullmatch(selection.get("source_record_set_digest", "")) is None
+        or not _matches(SHA256, selection.get("source_record_set_digest"))
         or selection.get("freshness_policy") != "current-only/operator-asserted"
         or selection.get("redaction_policy") != "whole-record-exclusion/count-only-receipt"
         or selection.get("artifact_policy") != "references-only/separately-authorized-retrieval"
@@ -81,7 +85,7 @@ def _validate_evidence(item: Any) -> tuple[str, str, str]:
     strings = base - {"limitations"}
     if (
         any(not isinstance(item[key], str) or not item[key] for key in strings)
-        or SHA256.fullmatch(item["adapter_receipt_digest"]) is None
+        or not _matches(SHA256, item["adapter_receipt_digest"])
         or not isinstance(item["limitations"], list)
         or any(not isinstance(value, str) for value in item["limitations"])
         or item["limitations"] != sorted(item["limitations"])
@@ -146,7 +150,7 @@ def recall_context(pack_json: bytes) -> dict[str, Any]:
             or RECORD_ID.fullmatch(record["record_id"]) is None
             or not isinstance(record["summary"], str)
             or not record["summary"]
-            or SHA256.fullmatch(record.get("revision_digest", "")) is None
+            or not _matches(SHA256, record.get("revision_digest"))
             or not isinstance(record["labels"], list)
             or any(not isinstance(label, str) for label in record["labels"])
             or record["labels"] != sorted(record["labels"])
