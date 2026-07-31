@@ -7,7 +7,8 @@ history, or mutate a vault. Every destructive operation requires separate
 owner or legal authorization outside these informational contracts.
 
 The strict #36 fields are published as `retention-policy/v2`,
-`deletion-receipt/v2`, and `tombstone/v2`. Their v1 schemas remain unchanged so
+`deletion-receipt/v2`, `tombstone/v2`, and `knowledge-record/v2` for the
+`redacted-from` relationship. Their v1 schemas remain unchanged so
 previously valid records keep their original meaning. There is no implicit
 v1-to-v2 reinterpretation: producers create a new v2 object after an explicit
 policy decision, and v1-only readers reject the unknown v2 `schema_id`.

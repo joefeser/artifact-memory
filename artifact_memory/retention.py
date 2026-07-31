@@ -183,7 +183,9 @@ def overall_deletion_status(receipts: list[dict[str, Any]], *, unknown_replicas:
     if outcomes & {"retained-until-expiry", "endpoint-unavailable", "scope-unknown", "failed", "partially-complete"}:
         return "partially-complete"
     if outcomes.issubset({"removed-observed", "verified-absent-at-endpoint"}):
-        return "partially-complete" if unknown_replicas else "verified-absent-at-endpoint"
+        if unknown_replicas:
+            return "partially-complete"
+        return "verified-absent-at-endpoint" if outcomes == {"verified-absent-at-endpoint"} else "removed-observed"
     if "attempted" in outcomes:
         return "attempted"
     return "requested"

@@ -1,5 +1,5 @@
 {
-  "schema_id": "artifact-memory/knowledge-record/v1",
+  "schema_id": "artifact-memory/knowledge-record/v2",
   "record_id": "record://synthetic/redacted-0001",
   "record_type": "note",
   "lifecycle": "accepted",

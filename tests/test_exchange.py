@@ -67,6 +67,7 @@ class ExchangeTests(unittest.TestCase):
 
     def test_independent_reader_accepts_schema_valid_redacted_derivative(self):
         record = canonical_record(
+            schema_id="artifact-memory/knowledge-record/v2",
             record_id="record://synthetic/redacted-reader",
             relationships=[{"type": "redacted-from", "target_ref": "record://synthetic/source-reader"}],
         )
@@ -79,6 +80,17 @@ class ExchangeTests(unittest.TestCase):
             record_bundle=[record],
         )
         self.assertEqual(read_bundle(json.dumps(envelope).encode())["outcome"], "accepted")
+        legacy = {**record, "schema_id": "artifact-memory/knowledge-record/v1"}
+        legacy_envelope = make_envelope(
+            "system://independent-reader",
+            "synthetic-redacted-reader-v1-rejected",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(legacy)],
+            [],
+            record_bundle=[legacy],
+        )
+        with self.assertRaisesRegex(ReaderFailure, "relationship"):
+            read_bundle(json.dumps(legacy_envelope).encode())
 
     def test_admission_and_replay_are_explicit(self):
         envelope = make_envelope("system://synthetic-reader", "synthetic-exchange-0001", "2099-01-01T00:00:00Z", [{"record_id": "record://synthetic/record-0001", "revision_digest": "sha-256:" + "a" * 64}], ["artifact://synthetic/order-sample"])

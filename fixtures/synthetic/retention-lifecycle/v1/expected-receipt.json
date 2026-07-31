@@ -1,19 +1,19 @@
 {
   "after_record_count": 2,
-  "after_record_set_digest": "sha-256:0c2c6ce1015f59133ac59ae4c1f36e24f24e5cab28781eb4db4599da00a22d51",
+  "after_record_set_digest": "sha-256:d28bdfd6b86009daadb5d15332007ae52f28beb8c4f55b6981a8ee41aa258a30",
   "before_record_count": 3,
   "before_record_set_digest": "sha-256:a5f7d9a78eb371cf59bf7f07b17d235688c821b980d20cf55d2540bb64ec7bbb",
   "deletion_receipt_refs": [
-    "deletion-receipt://synthetic/764427f9a88ed060490cc9f4675208d4789351a687b10f3f48380bad33bab4c5",
-    "deletion-receipt://synthetic/b9ac4924cb303b3f360c234b201f2a17a63a74dcd100562158e75e27560be1d6",
-    "deletion-receipt://synthetic/c9eb3fd310b2f89707ae3b6f964ba46c8cf907238440bf6420753fe8ba082b3f",
+    "deletion-receipt://synthetic/0610003ebad15e53a8dc1abd74e829c5be48abd18584964e8ddbaa4e31bed68b",
+    "deletion-receipt://synthetic/586015b6772ae7a01fa9a7f56a7bcc85382a1170bc163946e0c1eefe7f19fc49",
+    "deletion-receipt://synthetic/a752622b0c042a40ace5430fe71108acf3f44cc059a0b6a2f993c021c327c2b4",
     "deletion-receipt://synthetic/81742d778352502a6ec38c78cd4eb109221d843803faaa7593214066389c5c24",
     "deletion-receipt://synthetic/b68b4dd0a7b6df314e3feaa60b56520eabb28f0bc8769569c1a105ec3ac7b45c"
   ],
   "destructive_execution_authority": "synthetic-fixture-only",
   "generated_index_rebuild": "deleted-content-absent",
   "global_erasure_claim": false,
-  "lifecycle_evidence_digest": "sha-256:8f7c4fc7803d8429ff22cf15939011d5fa3157456baaa9167b8d742b626889e7",
+  "lifecycle_evidence_digest": "sha-256:777de0a8f3ddb97da7a8b8641196e961a4c2b186249be539b3cc8228eebd9d79",
   "limitations": [
     "backup purge evidence applies only to a named endpoint and generation",
     "unknown and unmanaged replicas remain outside verified scope",
@@ -23,7 +23,7 @@
   "outcome": "complete",
   "overall_deletion_outcome": "partially-complete",
   "policy_id": "retention-policy://synthetic/deferred-expiry",
-  "receipt_id": "retention-lifecycle-receipt://synthetic/d4c4802a6329a3ca9d37921170d0094e43f1f946dec4b908e8048563ae1b1f40",
+  "receipt_id": "retention-lifecycle-receipt://synthetic/ffa921839c74c5b7845b352ebf4584c5771f367e8c3c0240782e9990224da2d4",
   "removed_record_ids": [
     "record://synthetic/accidental-0001",
     "record://synthetic/owner-delete-0001"
@@ -40,8 +40,8 @@
   },
   "schema_id": "artifact-memory/retention-lifecycle-slice-receipt/v1",
   "tombstone_refs": [
-    "tombstone://a3bf8bcdca2f36b0d5838fb6f8e82f2268b09b308840903b7a014823770825ae",
-    "tombstone://f1d3e9b2e9d2618030870f5bf27b3d46d74c60184cd35bbc8c4718f4364d6c85"
+    "tombstone://2dd246548998b83cacd6f2c186d83ad2c0bb207e69b742245425b3186461d319",
+    "tombstone://1d2d106c8e86fedee05b206ce40c416b25e507ea816b3c75b68cc4141f71c3cc"
   ],
   "unknown_replica_state": "scope-unknown"
 }

@@ -45,6 +45,10 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(overall_deletion_status([receipt]), "partially-complete")
         self.assertEqual(overall_deletion_status([receipt], unknown_replicas=False), "verified-absent-at-endpoint")
 
+    def test_removed_observation_is_not_upgraded_to_verified_absence(self):
+        receipts = [{"outcome": "removed-observed"}, {"outcome": "verified-absent-at-endpoint"}]
+        self.assertEqual(overall_deletion_status(receipts, unknown_replicas=False), "removed-observed")
+
     def test_endpoint_outcome_requires_named_endpoint(self):
         with self.assertRaisesRegex(ValueError, "endpoint_ref"):
             deletion_receipt(

@@ -3,7 +3,7 @@
     "authority_ref": "authority://synthetic/incident-response-0001",
     "destructive_execution_authorization": "separate-owner-or-legal-authorization-required",
     "endpoint_ref": "endpoint://synthetic/active-vault",
-    "evidence_refs": ["sha-256:0c2c6ce1015f59133ac59ae4c1f36e24f24e5cab28781eb4db4599da00a22d51"],
+    "evidence_refs": ["sha-256:d28bdfd6b86009daadb5d15332007ae52f28beb8c4f55b6981a8ee41aa258a30"],
     "global_erasure_claim": false,
     "limitations": [
       "absence from one endpoint does not prove global erasure",
@@ -12,7 +12,7 @@
     "managed_scope": true,
     "observed_at": "2026-07-31T00:00:00Z",
     "outcome": "verified-absent-at-endpoint",
-    "receipt_id": "deletion-receipt://synthetic/764427f9a88ed060490cc9f4675208d4789351a687b10f3f48380bad33bab4c5",
+    "receipt_id": "deletion-receipt://synthetic/0610003ebad15e53a8dc1abd74e829c5be48abd18584964e8ddbaa4e31bed68b",
     "schema_id": "artifact-memory/deletion-receipt/v2",
     "scope": "active-vault",
     "target_ref": "record://synthetic/accidental-0001"
@@ -21,7 +21,7 @@
     "authority_ref": "authority://synthetic/owner-approval-0001",
     "destructive_execution_authorization": "separate-owner-or-legal-authorization-required",
     "endpoint_ref": "endpoint://synthetic/active-vault",
-    "evidence_refs": ["sha-256:0c2c6ce1015f59133ac59ae4c1f36e24f24e5cab28781eb4db4599da00a22d51"],
+    "evidence_refs": ["sha-256:d28bdfd6b86009daadb5d15332007ae52f28beb8c4f55b6981a8ee41aa258a30"],
     "global_erasure_claim": false,
     "limitations": [
       "absence from one endpoint does not prove global erasure",
@@ -30,7 +30,7 @@
     "managed_scope": true,
     "observed_at": "2026-07-31T00:00:00Z",
     "outcome": "verified-absent-at-endpoint",
-    "receipt_id": "deletion-receipt://synthetic/b9ac4924cb303b3f360c234b201f2a17a63a74dcd100562158e75e27560be1d6",
+    "receipt_id": "deletion-receipt://synthetic/586015b6772ae7a01fa9a7f56a7bcc85382a1170bc163946e0c1eefe7f19fc49",
     "schema_id": "artifact-memory/deletion-receipt/v2",
     "scope": "active-vault",
     "target_ref": "record://synthetic/owner-delete-0001"
@@ -39,8 +39,8 @@
     "destructive_execution_authorization": "separate-owner-or-legal-authorization-required",
     "endpoint_ref": "endpoint://synthetic/generated-index",
     "evidence_refs": [
-      "sha-256:0c2c6ce1015f59133ac59ae4c1f36e24f24e5cab28781eb4db4599da00a22d51",
-      "sha-256:89e30249a5218fa5a076d9b8a6cddffaf6e9a276fec3a68a8a48379fc7470b07"
+      "sha-256:d28bdfd6b86009daadb5d15332007ae52f28beb8c4f55b6981a8ee41aa258a30",
+      "sha-256:3eba1d8f6680237827874bd802875d0406fd9c82ae19ddfb708d5f81b3f5fc85"
     ],
     "global_erasure_claim": false,
     "limitations": [
@@ -50,7 +50,7 @@
     "managed_scope": true,
     "observed_at": "2026-07-31T00:00:00Z",
     "outcome": "verified-absent-at-endpoint",
-    "receipt_id": "deletion-receipt://synthetic/c9eb3fd310b2f89707ae3b6f964ba46c8cf907238440bf6420753fe8ba082b3f",
+    "receipt_id": "deletion-receipt://synthetic/a752622b0c042a40ace5430fe71108acf3f44cc059a0b6a2f993c021c327c2b4",
     "schema_id": "artifact-memory/deletion-receipt/v2",
     "scope": "generated-index",
     "target_ref": "record-set://synthetic/deletion-targets"

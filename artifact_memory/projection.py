@@ -37,8 +37,14 @@ _REQUIRED_INDEXES = {
 }
 
 
-def _knowledge_schema() -> dict[str, Any]:
-    return load_schema("core", "knowledge-record.v1.schema.json")
+def _knowledge_schema(record: dict[str, Any]) -> dict[str, Any]:
+    schema_name = {
+        "artifact-memory/knowledge-record/v1": "knowledge-record.v1.schema.json",
+        "artifact-memory/knowledge-record/v2": "knowledge-record.v2.schema.json",
+    }.get(record.get("schema_id"))
+    if schema_name is None:
+        raise ValidationFailure("unsupported-record-schema", "canonical record uses an unsupported schema")
+    return load_schema("core", schema_name)
 
 
 def _validate_projection_contract(connection: sqlite3.Connection) -> None:
@@ -90,7 +96,7 @@ def _validate_projection_contract(connection: sqlite3.Connection) -> None:
             record = json.loads(record_json)
             if not isinstance(record, dict):
                 raise ValueError
-            validate(record, _knowledge_schema())
+            validate(record, _knowledge_schema(record))
             canonical = _canonical(record)
         except (json.JSONDecodeError, UnicodeError, ValueError, ValidationFailure) as exc:
             raise ValidationFailure("projection-unavailable", "generated index contains an invalid canonical record") from exc
@@ -159,7 +165,7 @@ def canonical_records(record_paths: Iterable[Path]) -> list[dict[str, Any]]:
             record = load_json(record_path)
             if not isinstance(record, dict):
                 raise ValidationFailure("invalid-input", "canonical record must be an object")
-            validate(record, _knowledge_schema())
+            validate(record, _knowledge_schema(record))
         except ValidationFailure as exc:
             raise ValidationFailure("record-rejected", "canonical record failed projection validation") from exc
         records.append(record)
