@@ -47,11 +47,7 @@ def _instant(value: str) -> datetime:
 
 def retention_disposition(policy: dict[str, Any], *, now: str) -> str:
     """Evaluate policy timing and holds without authorizing or executing deletion."""
-    validate(policy, load_schema("core", "retention-policy.v1.schema.json"))
-    if policy["retention_class"] == "deferred-expiry" and "expires_at" not in policy:
-        raise ValidationFailure("invalid-retention-policy", "deferred-expiry policy requires expires_at")
-    if policy["retention_class"] == "legal-hold" and not policy["legal_hold"]:
-        raise ValidationFailure("invalid-retention-policy", "legal-hold retention class requires legal_hold")
+    validate(policy, load_schema("core", "retention-policy.v2.schema.json"))
     if policy["owner_hold"] or policy["legal_hold"]:
         return "retained-under-hold"
     if "expires_at" not in policy:
@@ -78,12 +74,19 @@ def deletion_receipt(
         raise ValueError("unsupported deletion outcome")
     if outcome in ENDPOINT_SCOPED_OUTCOMES and endpoint_ref is None:
         raise ValueError("endpoint-scoped deletion outcome requires endpoint_ref")
+    if scope == "endpoint" and endpoint_ref is None:
+        raise ValueError("endpoint scope requires endpoint_ref")
     if generation_ref is not None and endpoint_ref is None:
         raise ValueError("generation_ref requires endpoint_ref")
     if scope == "managed-backup" and generation_ref is None:
         raise ValueError("managed-backup receipt requires generation_ref")
-    if scope == "unknown-replica" and managed_scope:
-        raise ValueError("unknown-replica scope cannot be managed")
+    if scope == "unknown-replica":
+        if managed_scope or outcome != "scope-unknown":
+            raise ValueError("unknown-replica scope requires unmanaged scope-unknown outcome")
+        if endpoint_ref is not None or generation_ref is not None:
+            raise ValueError("unknown-replica scope cannot name an endpoint or generation")
+    if outcome in {"removed-observed", "verified-absent-at-endpoint"} and not evidence_refs:
+        raise ValueError("observed or verified deletion outcome requires evidence_refs")
     body: dict[str, Any] = {
         "target_ref": target_ref,
         "scope": scope,
@@ -106,8 +109,8 @@ def deletion_receipt(
         body["authority_ref"] = authority_ref
     if evidence_refs:
         body["evidence_refs"] = evidence_refs
-    result = receipt_with_digest("artifact-memory/deletion-receipt/v1", f"deletion-receipt://{issuer}/", body)
-    validate(result, load_schema("core", "deletion-receipt.v1.schema.json"))
+    result = receipt_with_digest("artifact-memory/deletion-receipt/v2", f"deletion-receipt://{issuer}/", body)
+    validate(result, load_schema("core", "deletion-receipt.v2.schema.json"))
     return result
 
 
@@ -118,7 +121,7 @@ def deletion_request(
     endpoint_ref: str | None = None,
     generation_ref: str | None = None,
     *,
-    observed_at: str = "1970-01-01T00:00:00Z",
+    observed_at: str,
 ) -> dict[str, Any]:
     """Create a request receipt; authorization still does not execute deletion."""
     return deletion_receipt(
@@ -156,8 +159,8 @@ def tombstone(
     }
     if superseded_by_ref:
         body["superseded_by_ref"] = superseded_by_ref
-    result = {"schema_id": "artifact-memory/tombstone/v1", "tombstone_id": "tombstone://" + hashlib.sha256(_canonical(body)).hexdigest(), **body}
-    validate(result, load_schema("core", "tombstone.v1.schema.json"))
+    result = {"schema_id": "artifact-memory/tombstone/v2", "tombstone_id": "tombstone://" + hashlib.sha256(_canonical(body)).hexdigest(), **body}
+    validate(result, load_schema("core", "tombstone.v2.schema.json"))
     return result
 
 

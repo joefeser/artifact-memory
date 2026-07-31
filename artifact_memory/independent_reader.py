@@ -62,7 +62,7 @@ def _validate_record(record: dict[str, Any]) -> None:
         if (
             not isinstance(relationship, dict)
             or set(relationship) != {"type", "target_ref"}
-            or relationship.get("type") not in {"related-to", "produced-from", "supported-by-external-evidence"}
+            or relationship.get("type") not in {"related-to", "produced-from", "redacted-from", "supported-by-external-evidence"}
             or not isinstance(relationship.get("target_ref"), str)
             or not relationship["target_ref"]
         ):

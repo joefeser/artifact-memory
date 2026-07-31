@@ -6,6 +6,12 @@ non-sensitive tombstones. It does not delete bytes, purge backups, rewrite Git
 history, or mutate a vault. Every destructive operation requires separate
 owner or legal authorization outside these informational contracts.
 
+The strict #36 fields are published as `retention-policy/v2`,
+`deletion-receipt/v2`, and `tombstone/v2`. Their v1 schemas remain unchanged so
+previously valid records keep their original meaning. There is no implicit
+v1-to-v2 reinterpretation: producers create a new v2 object after an explicit
+policy decision, and v1-only readers reject the unknown v2 `schema_id`.
+
 ## Lifecycle distinctions
 
 - A draft may be discarded before admission. No accepted-record identity or
@@ -58,4 +64,7 @@ Generated NDJSON, SQLite, search, and relationship indexes are disposable. A
 post-deletion rebuild must use the current authorized canonical set and prove
 that removed content is absent. The synthetic #36 fixture exercises accidental
 ingestion, a redacted derivative, deferred backup expiry, owner-approved
-deletion, and this rebuild invariant without touching any real endpoint.
+deletion, and this rebuild invariant without touching any real endpoint. Its
+aggregate receipt embeds the validated deletion receipts and tombstones, so a
+reader can independently inspect every endpoint, generation, evidence
+reference, and limitation rather than receiving dangling hashes.

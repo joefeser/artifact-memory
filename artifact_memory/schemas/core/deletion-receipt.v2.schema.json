@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/deletion-receipt/v2",
+  "title": "Artifact Memory deletion receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "target_ref", "scope", "outcome", "observed_at", "managed_scope", "global_erasure_claim", "destructive_execution", "limitations"],
+  "dependentRequired": {"generation_ref": ["endpoint_ref"]},
+  "allOf": [
+    {"if": {"required": ["scope"], "properties": {"scope": {"const": "endpoint"}}}, "then": {"required": ["endpoint_ref"]}},
+    {"if": {"required": ["scope"], "properties": {"scope": {"const": "managed-backup"}}}, "then": {"required": ["endpoint_ref", "generation_ref"]}},
+    {"if": {"required": ["outcome"], "properties": {"outcome": {"enum": ["attempted", "removed-observed", "verified-absent-at-endpoint", "retained-until-expiry", "endpoint-unavailable", "failed"]}}}, "then": {"required": ["endpoint_ref"]}},
+    {"if": {"required": ["outcome"], "properties": {"outcome": {"enum": ["removed-observed", "verified-absent-at-endpoint"]}}}, "then": {"required": ["evidence_refs"]}},
+    {"if": {"required": ["scope"], "properties": {"scope": {"const": "unknown-replica"}}}, "then": {"properties": {"outcome": {"const": "scope-unknown"}, "managed_scope": {"const": false}}, "not": {"anyOf": [{"required": ["endpoint_ref"]}, {"required": ["generation_ref"]}]}}}
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/deletion-receipt/v2"},
+    "receipt_id": {"type": "string", "pattern": "^deletion-receipt://[A-Za-z0-9._~-]+/[0-9a-f]{64}$"},
+    "target_ref": {"type": "string", "minLength": 1},
+    "scope": {"enum": ["active-vault", "generated-index", "managed-backup", "git-history", "endpoint", "unknown-replica"]},
+    "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$"},
+    "generation_ref": {"type": "string", "minLength": 1},
+    "outcome": {"enum": ["requested", "attempted", "removed-observed", "verified-absent-at-endpoint", "retained-until-expiry", "not-authorized", "endpoint-unavailable", "scope-unknown", "failed", "partially-complete"]},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "managed_scope": {"type": "boolean"},
+    "global_erasure_claim": {"const": false},
+    "destructive_execution": {"const": "separately-authorized"},
+    "authority_ref": {"type": "string", "minLength": 1},
+    "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

@@ -7,8 +7,96 @@
     "deletion-receipt://synthetic/226035e75d8a5cd3945675cd180fc71a6741bb338acc5ae589b927291195efda",
     "deletion-receipt://synthetic/56fd852fad23d2e32c0b77156a8e4e7ded21ab2cd7f75aa98f42f833874dfd3d",
     "deletion-receipt://synthetic/16c25ce9f0cbc62af2988d901439a5cdd0ed72f82a3fae69af499ab0de94f621",
-    "deletion-receipt://synthetic/b1d83208b1f4d8a06f694b2cd3c2223cdd5a0ffb7c977c35c7461159ad308a40",
+    "deletion-receipt://synthetic/4864806a6739c41ba5e168c927a8d780b9431886d79acee98142441b0a4fb45f",
     "deletion-receipt://synthetic/26e923ae34b141993c14e2dba06214dc3f02f875b5e037e4998ae78303e55192"
+  ],
+  "deletion_receipts": [
+    {
+      "authority_ref": "authority://synthetic/incident-response-0001",
+      "destructive_execution": "separately-authorized",
+      "endpoint_ref": "endpoint://synthetic/active-vault",
+      "evidence_refs": ["sha-256:0c2c6ce1015f59133ac59ae4c1f36e24f24e5cab28781eb4db4599da00a22d51"],
+      "global_erasure_claim": false,
+      "limitations": [
+        "absence from one endpoint does not prove global erasure",
+        "unknown or unmanaged replicas are outside this receipt"
+      ],
+      "managed_scope": true,
+      "observed_at": "2026-07-31T00:00:00Z",
+      "outcome": "verified-absent-at-endpoint",
+      "receipt_id": "deletion-receipt://synthetic/226035e75d8a5cd3945675cd180fc71a6741bb338acc5ae589b927291195efda",
+      "schema_id": "artifact-memory/deletion-receipt/v2",
+      "scope": "active-vault",
+      "target_ref": "record://synthetic/accidental-0001"
+    },
+    {
+      "authority_ref": "authority://synthetic/owner-approval-0001",
+      "destructive_execution": "separately-authorized",
+      "endpoint_ref": "endpoint://synthetic/active-vault",
+      "evidence_refs": ["sha-256:0c2c6ce1015f59133ac59ae4c1f36e24f24e5cab28781eb4db4599da00a22d51"],
+      "global_erasure_claim": false,
+      "limitations": [
+        "absence from one endpoint does not prove global erasure",
+        "unknown or unmanaged replicas are outside this receipt"
+      ],
+      "managed_scope": true,
+      "observed_at": "2026-07-31T00:00:00Z",
+      "outcome": "verified-absent-at-endpoint",
+      "receipt_id": "deletion-receipt://synthetic/56fd852fad23d2e32c0b77156a8e4e7ded21ab2cd7f75aa98f42f833874dfd3d",
+      "schema_id": "artifact-memory/deletion-receipt/v2",
+      "scope": "active-vault",
+      "target_ref": "record://synthetic/owner-delete-0001"
+    },
+    {
+      "destructive_execution": "separately-authorized",
+      "endpoint_ref": "endpoint://synthetic/generated-index",
+      "evidence_refs": [
+        "sha-256:0c2c6ce1015f59133ac59ae4c1f36e24f24e5cab28781eb4db4599da00a22d51",
+        "sha-256:89e30249a5218fa5a076d9b8a6cddffaf6e9a276fec3a68a8a48379fc7470b07"
+      ],
+      "global_erasure_claim": false,
+      "limitations": [
+        "absence from one endpoint does not prove global erasure",
+        "unknown or unmanaged replicas are outside this receipt"
+      ],
+      "managed_scope": true,
+      "observed_at": "2026-07-31T00:00:00Z",
+      "outcome": "verified-absent-at-endpoint",
+      "receipt_id": "deletion-receipt://synthetic/16c25ce9f0cbc62af2988d901439a5cdd0ed72f82a3fae69af499ab0de94f621",
+      "schema_id": "artifact-memory/deletion-receipt/v2",
+      "scope": "generated-index",
+      "target_ref": "record-set://synthetic/deletion-targets"
+    },
+    {
+      "destructive_execution": "separately-authorized",
+      "endpoint_ref": "endpoint://artifact-memory/joe-home-proxmox-vault-1",
+      "evidence_refs": ["retention-policy://synthetic/deferred-expiry"],
+      "generation_ref": "snapshot-synthetic-0001",
+      "global_erasure_claim": false,
+      "limitations": [
+        "named backup generation remains until managed expiry",
+        "backup receipt says nothing about other generations or endpoints"
+      ],
+      "managed_scope": true,
+      "observed_at": "2026-07-31T00:00:00Z",
+      "outcome": "retained-until-expiry",
+      "receipt_id": "deletion-receipt://synthetic/4864806a6739c41ba5e168c927a8d780b9431886d79acee98142441b0a4fb45f",
+      "schema_id": "artifact-memory/deletion-receipt/v2",
+      "scope": "managed-backup",
+      "target_ref": "record-set://synthetic/deletion-targets"
+    },
+    {
+      "destructive_execution": "separately-authorized",
+      "global_erasure_claim": false,
+      "limitations": ["unknown or unmanaged replicas cannot be enumerated or verified"],
+      "managed_scope": false,
+      "observed_at": "2026-07-31T00:00:00Z",
+      "outcome": "scope-unknown",
+      "receipt_id": "deletion-receipt://synthetic/26e923ae34b141993c14e2dba06214dc3f02f875b5e037e4998ae78303e55192",
+      "schema_id": "artifact-memory/deletion-receipt/v2",
+      "scope": "unknown-replica",
+      "target_ref": "record-set://synthetic/deletion-targets"
+    }
   ],
   "destructive_execution_authority": "synthetic-fixture-only",
   "generated_index_rebuild": "deleted-content-absent",
@@ -22,7 +110,7 @@
   "outcome": "complete",
   "overall_deletion_outcome": "partially-complete",
   "policy_id": "retention-policy://synthetic/deferred-expiry",
-  "receipt_id": "retention-lifecycle-receipt://synthetic/b252e768eefc0752ff07a3a2390aba9a6ebdafb8a3e50a71d8b416520a8d41ef",
+  "receipt_id": "retention-lifecycle-receipt://synthetic/1b245ccef4e51e5dc421c91ecb599b085d1f790e213827a1e49c4ae3cbb0e778",
   "removed_record_ids": [
     "record://synthetic/accidental-0001",
     "record://synthetic/owner-delete-0001"
@@ -41,6 +129,29 @@
   "tombstone_refs": [
     "tombstone://190aa6c18a43b1697fd14f3b1f16043cac3fa53ff17166ed23d5a1f4b644926b",
     "tombstone://e00a233a7e44d67482a4d77e4e30ce6e7713af33fae3e0d302e7769c09c0660e"
+  ],
+  "tombstones": [
+    {
+      "content_status": "derivative-replaced",
+      "created_at": "2026-07-31T00:00:00Z",
+      "deletion_receipt_ref": "deletion-receipt://synthetic/226035e75d8a5cd3945675cd180fc71a6741bb338acc5ae589b927291195efda",
+      "reason": "redacted-derivative",
+      "schema_id": "artifact-memory/tombstone/v2",
+      "sensitive_payload_retained": false,
+      "superseded_by_ref": "record://synthetic/redacted-0001",
+      "target_ref": "record://synthetic/accidental-0001",
+      "tombstone_id": "tombstone://190aa6c18a43b1697fd14f3b1f16043cac3fa53ff17166ed23d5a1f4b644926b"
+    },
+    {
+      "content_status": "bytes-removed-from-scope",
+      "created_at": "2026-07-31T00:00:00Z",
+      "deletion_receipt_ref": "deletion-receipt://synthetic/56fd852fad23d2e32c0b77156a8e4e7ded21ab2cd7f75aa98f42f833874dfd3d",
+      "reason": "owner-approved-deletion",
+      "schema_id": "artifact-memory/tombstone/v2",
+      "sensitive_payload_retained": false,
+      "target_ref": "record://synthetic/owner-delete-0001",
+      "tombstone_id": "tombstone://e00a233a7e44d67482a4d77e4e30ce6e7713af33fae3e0d302e7769c09c0660e"
+    }
   ],
   "unknown_replica_state": "scope-unknown"
 }

@@ -1,5 +1,5 @@
 {
-  "schema_id": "artifact-memory/retention-policy/v1",
+  "schema_id": "artifact-memory/retention-policy/v2",
   "policy_id": "retention-policy://synthetic/deferred-expiry",
   "retention_class": "deferred-expiry",
   "owner_ref": "actor://synthetic/owner",

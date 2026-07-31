@@ -19,7 +19,7 @@ from .validator import validate
 OBSERVED_AT = "2026-07-31T00:00:00Z"
 ACTIVE_ENDPOINT = "endpoint://synthetic/active-vault"
 INDEX_ENDPOINT = "endpoint://synthetic/generated-index"
-BACKUP_ENDPOINT = "endpoint://joe-home-proxmox-vault-1/restic"
+BACKUP_ENDPOINT = "endpoint://artifact-memory/joe-home-proxmox-vault-1"
 BACKUP_GENERATION = "snapshot-synthetic-0001"
 
 
@@ -41,7 +41,7 @@ def _indexed_record_ids(index_path: Path) -> list[str]:
 def run_retention_lifecycle_slice(fixture_root: Path) -> dict[str, Any]:
     """Exercise four synthetic lifecycle cases without deleting external bytes."""
     policy = _load(fixture_root / "retention-policy.json")
-    validate(policy, load_schema("core", "retention-policy.v1.schema.json"))
+    validate(policy, load_schema("core", "retention-policy.v2.schema.json"))
     if retention_disposition(policy, now=OBSERVED_AT) != "retained-until-expiry":
         raise RuntimeError("synthetic backup generation must remain retained until expiry")
 
@@ -76,28 +76,24 @@ def run_retention_lifecycle_slice(fixture_root: Path) -> dict[str, Any]:
         if any(record_id in indexed_after for record_id in removed_ids):
             raise RuntimeError("rebuilt generated index retained a deleted record identity")
 
-        accidental_active = deletion_receipt(
-            removed_ids[0],
-            "active-vault",
-            "verified-absent-at-endpoint",
-            observed_at=OBSERVED_AT,
-            managed_scope=True,
-            endpoint_ref=ACTIVE_ENDPOINT,
-            authority_ref="authority://synthetic/incident-response-0001",
-            evidence_refs=[after_projection["source_record_set_digest"]],
-            issuer="synthetic",
-        )
-        owner_active = deletion_receipt(
-            removed_ids[1],
-            "active-vault",
-            "verified-absent-at-endpoint",
-            observed_at=OBSERVED_AT,
-            managed_scope=True,
-            endpoint_ref=ACTIVE_ENDPOINT,
-            authority_ref="authority://synthetic/owner-approval-0001",
-            evidence_refs=[after_projection["source_record_set_digest"]],
-            issuer="synthetic",
-        )
+        active_receipts = [
+            deletion_receipt(
+                target_ref,
+                "active-vault",
+                "verified-absent-at-endpoint",
+                observed_at=OBSERVED_AT,
+                managed_scope=True,
+                endpoint_ref=ACTIVE_ENDPOINT,
+                authority_ref=authority_ref,
+                evidence_refs=[after_projection["source_record_set_digest"]],
+                issuer="synthetic",
+            )
+            for target_ref, authority_ref in (
+                (removed_ids[0], "authority://synthetic/incident-response-0001"),
+                (removed_ids[1], "authority://synthetic/owner-approval-0001"),
+            )
+        ]
+        accidental_active, owner_active = active_receipts
         index_receipt = deletion_receipt(
             "record-set://synthetic/deletion-targets",
             "generated-index",
@@ -140,7 +136,7 @@ def run_retention_lifecycle_slice(fixture_root: Path) -> dict[str, Any]:
         )
 
     receipts = [accidental_active, owner_active, index_receipt, backup_receipt, unknown_receipt]
-    receipt_schema = load_schema("core", "deletion-receipt.v1.schema.json")
+    receipt_schema = load_schema("core", "deletion-receipt.v2.schema.json")
     for item in receipts:
         validate(item, receipt_schema)
     overall = overall_deletion_status(receipts)
@@ -163,7 +159,7 @@ def run_retention_lifecycle_slice(fixture_root: Path) -> dict[str, Any]:
         created_at=OBSERVED_AT,
     )
     for marker in (accidental_tombstone, owner_tombstone):
-        validate(marker, load_schema("core", "tombstone.v1.schema.json"))
+        validate(marker, load_schema("core", "tombstone.v2.schema.json"))
 
     body = {
         "outcome": "complete",
@@ -176,7 +172,9 @@ def run_retention_lifecycle_slice(fixture_root: Path) -> dict[str, Any]:
         },
         "overall_deletion_outcome": overall,
         "deletion_receipt_refs": [item["receipt_id"] for item in receipts],
+        "deletion_receipts": receipts,
         "tombstone_refs": [accidental_tombstone["tombstone_id"], owner_tombstone["tombstone_id"]],
+        "tombstones": [accidental_tombstone, owner_tombstone],
         "before_record_set_digest": before_projection["source_record_set_digest"],
         "after_record_set_digest": after_projection["source_record_set_digest"],
         "before_record_count": before_projection["record_count"],
