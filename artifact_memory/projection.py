@@ -37,7 +37,9 @@ _REQUIRED_INDEXES = {
 }
 
 
-def _knowledge_schema(record: dict[str, Any]) -> dict[str, Any]:
+def _knowledge_schema(record: Any) -> dict[str, Any]:
+    if not isinstance(record, dict):
+        raise ValidationFailure("invalid-input", "canonical record must be a JSON object")
     schema_name = {
         "artifact-memory/knowledge-record/v1": "knowledge-record.v1.schema.json",
         "artifact-memory/knowledge-record/v2": "knowledge-record.v2.schema.json",
