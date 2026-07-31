@@ -1,8 +1,11 @@
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+from artifact_memory.scan import ScanLimits, scan_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +35,38 @@ class CliTests(unittest.TestCase):
         result = self.run_cli("inspect", str(FIXTURES / "v0-valid-record.json"), "--json")
         self.assertEqual(result.returncode, 0)
         self.assertNotIn(str(ROOT), result.stdout)
+
+    def test_diff_rejects_tampered_manifest_and_marks_partial_input_nonzero(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            source.mkdir()
+            (source / "value.txt").write_text("synthetic", encoding="utf-8")
+            complete, _ = scan_path(source)
+            partial, _ = scan_path(source, ScanLimits(max_bytes=0))
+            complete_path = root / "complete.json"
+            partial_path = root / "partial.json"
+            tampered_path = root / "tampered.json"
+            complete_path.write_text(json.dumps(complete), encoding="utf-8")
+            partial_path.write_text(json.dumps(partial), encoding="utf-8")
+            tampered = json.loads(json.dumps(complete))
+            tampered["tree_digest"] = "sha-256:" + "0" * 64
+            tampered_path.write_text(json.dumps(tampered), encoding="utf-8")
+
+            rejected = self.run_cli("diff", str(complete_path), str(tampered_path), "--json")
+            self.assertEqual(rejected.returncode, 2)
+            self.assertEqual(json.loads(rejected.stdout)["outcome"], "rejected")
+            incomplete = self.run_cli("diff", str(partial_path), str(complete_path), "--json")
+            self.assertEqual(incomplete.returncode, 2)
+            self.assertEqual(json.loads(incomplete.stdout)["outcome"], "partial")
+
+    def test_missing_generated_index_query_fails_without_creating_it(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            missing = Path(temporary) / "missing.sqlite"
+            result = self.run_cli("search", str(missing), "synthetic", "--json")
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(json.loads(result.stdout)["diagnostics"][0]["code"], "projection-unavailable")
+            self.assertFalse(missing.exists())
 
 
 if __name__ == "__main__":

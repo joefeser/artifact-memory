@@ -4,11 +4,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from artifact_memory.schema_resources import core_schemas
+from artifact_memory.schema_resources import core_schemas, load_contract_text
 from artifact_memory.validator import ValidationFailure
 
 
 class SchemaResourceTests(unittest.TestCase):
+    def test_packaged_sqlite_contract_is_available(self):
+        contract = load_contract_text("core", "index-sqlite.v1.sql")
+        self.assertIn("PRAGMA user_version = 1", contract)
+        self.assertIn("CREATE TABLE provenance", contract)
+
     def test_malformed_packaged_core_schema_fails_closed(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

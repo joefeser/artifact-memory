@@ -9,7 +9,8 @@ From a clean clone:
 python3 -m pip install --no-deps .
 artifact-memory version --json
 python3 -m artifact_memory version --json
-python3 -m unittest discover -s tests -v
+scripts/validate_contracts.sh
+scripts/run_conformance.sh
 python3 -m artifact_memory validate fixtures/synthetic/contracts/v0-valid-record.json --json
 ```
 
