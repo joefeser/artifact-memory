@@ -125,8 +125,59 @@ class RetentionTests(unittest.TestCase):
             "presence": "unavailable",
         }
         self.assertEqual(content_retrievability([absent, unavailable]), "zero-currently-verified-retrievable-locations")
-        present = {**absent, "observation_id": "location-observation://synthetic/present", "presence": "present"}
+        present = {
+            **absent,
+            "observation_id": "location-observation://synthetic/present",
+            "presence": "present",
+            "observed_at": "2026-07-31T00:00:01Z",
+        }
         self.assertEqual(content_retrievability([absent, present]), "verified-retrievable-location-observed")
+
+    def test_retrievability_rejects_mixed_content_and_uses_latest_location_state(self):
+        present = {
+            "schema_id": "artifact-memory/location-observation/v1",
+            "observation_id": "location-observation://synthetic/present",
+            "content_ref": "content://synthetic/object-a",
+            "endpoint_ref": "endpoint://synthetic/active-vault",
+            "relative_path": "objects/object.bin",
+            "presence": "present",
+            "observed_at": "2026-07-31T00:00:00Z",
+        }
+        absent = {
+            **present,
+            "observation_id": "location-observation://synthetic/absent",
+            "presence": "verified-absent-at-endpoint",
+            "observed_at": "2026-07-31T00:00:01Z",
+        }
+        self.assertEqual(
+            content_retrievability([present, absent]),
+            "zero-currently-verified-retrievable-locations",
+        )
+        mixed = {
+            **present,
+            "observation_id": "location-observation://synthetic/other-content",
+            "content_ref": "content://synthetic/object-b",
+        }
+        with self.assertRaisesRegex(ValueError, "exactly one content_ref"):
+            content_retrievability([absent, mixed])
+
+    def test_retrievability_rejects_conflicting_latest_location_observations(self):
+        present = {
+            "schema_id": "artifact-memory/location-observation/v1",
+            "observation_id": "location-observation://synthetic/present",
+            "content_ref": "content://synthetic/object",
+            "endpoint_ref": "endpoint://synthetic/active-vault",
+            "relative_path": "objects/object.bin",
+            "presence": "present",
+            "observed_at": "2026-07-31T00:00:00Z",
+        }
+        absent = {
+            **present,
+            "observation_id": "location-observation://synthetic/absent",
+            "presence": "verified-absent-at-endpoint",
+        }
+        with self.assertRaisesRegex(ValueError, "conflicting latest observations"):
+            content_retrievability([present, absent])
 
     def test_unknown_replica_scope_rejects_contradictory_outcomes_and_locations(self):
         with self.assertRaisesRegex(ValueError, "scope-unknown"):

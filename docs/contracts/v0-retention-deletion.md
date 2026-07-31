@@ -53,6 +53,11 @@ named endpoint. Neither says anything about another endpoint or replica.
 Location observations use `absent`, `removal-observed`, `unavailable`, and
 `verified-absent-at-endpoint` for the same endpoint-scoped distinction.
 
+Retrievability summaries are content-specific and current-state projections.
+Each evaluation accepts observations for exactly one `content_ref`, selects the
+newest observation for each endpoint-relative-path location, and rejects
+conflicting states tied at the newest observation instant.
+
 Managed backup retention keeps the aggregate deletion result
 `partially-complete` while any named generation retains bytes. A later purge
 receipt can prove only the named endpoint and generation. Unknown and unmanaged

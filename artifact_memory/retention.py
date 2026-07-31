@@ -169,7 +169,21 @@ def content_retrievability(observations: list[dict[str, Any]]) -> str:
     schema = load_schema("core", "location-observation.v1.schema.json")
     for observation in observations:
         validate(observation, schema)
-    if any(observation["presence"] == "present" for observation in observations):
+    content_refs = {observation["content_ref"] for observation in observations}
+    if len(content_refs) != 1:
+        raise ValueError("retrievability requires observations for exactly one content_ref")
+
+    latest_by_location: dict[tuple[str, str], tuple[datetime, str]] = {}
+    for observation in observations:
+        location = (observation["endpoint_ref"], observation["relative_path"])
+        observed_at = datetime.fromisoformat(observation["observed_at"].replace("Z", "+00:00"))
+        previous = latest_by_location.get(location)
+        if previous is None or observed_at > previous[0]:
+            latest_by_location[location] = (observed_at, observation["presence"])
+        elif observed_at == previous[0] and observation["presence"] != previous[1]:
+            raise ValueError("retrievability has conflicting latest observations for one location")
+
+    if any(presence == "present" for _, presence in latest_by_location.values()):
         return "verified-retrievable-location-observed"
     return "zero-currently-verified-retrievable-locations"
 
