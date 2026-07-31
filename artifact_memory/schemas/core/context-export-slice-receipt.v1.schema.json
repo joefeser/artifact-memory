@@ -14,7 +14,7 @@
     "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
     "selected_record_ids": {"type": "array", "items": {"type": "string"}},
     "selected_external_evidence": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["provider_id", "provider_record_id"], "properties": {"provider_id": {"type": "string"}, "provider_record_id": {"type": "string"}}}},
-    "exclusion_counts": {"type": "object", "additionalProperties": false, "required": ["not-authorized", "sensitivity", "freshness"], "properties": {"not-authorized": {"type": "integer"}, "sensitivity": {"type": "integer"}, "freshness": {"type": "integer"}}},
+    "exclusion_counts": {"type": "object", "additionalProperties": false, "required": ["not-authorized", "sensitivity", "freshness"], "properties": {"not-authorized": {"type": "integer", "minimum": 0}, "sensitivity": {"type": "integer", "minimum": 0}, "freshness": {"type": "integer", "minimum": 0}}},
     "recall_receipt_id": {"type": "string", "pattern": "^context-recall-receipt://[0-9a-f]{64}$"},
     "artifact_retrieval": {"const": "not-attempted/separately-authorized"},
     "mutation_authority": {"const": "absent"},

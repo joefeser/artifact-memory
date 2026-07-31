@@ -19,6 +19,14 @@ def current(*record_ids):
     }
 
 
+def repack(pack):
+    import hashlib
+
+    body = {key: value for key, value in pack.items() if key != "pack_id"}
+    canonical = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    return {**body, "pack_id": "context-pack://" + hashlib.sha256(canonical).hexdigest()}
+
+
 class ContextTests(unittest.TestCase):
     def test_pack_is_authorized_bounded_reference_only_and_schema_valid(self):
         public = json.loads(FIXTURE.read_text(encoding="utf-8"))
@@ -36,7 +44,7 @@ class ContextTests(unittest.TestCase):
             freshness_by_record=current(*record_ids),
             selected_at=SELECTED_AT,
         )
-        schema = json.loads((ROOT / "artifact_memory/schemas/core/context-pack.v1.schema.json").read_text(encoding="utf-8"))
+        schema = json.loads((ROOT / "artifact_memory/schemas/core/context-pack.v2.schema.json").read_text(encoding="utf-8"))
         validate(pack, schema)
         self.assertEqual(pack["authority_boundary"], AUTHORITY_BOUNDARY)
         self.assertEqual(pack["selection_receipt"]["exclusion_counts"]["sensitivity"], 1)
@@ -80,6 +88,21 @@ class ContextTests(unittest.TestCase):
         )
         self.assertEqual(pack["external_evidence"], [])
 
+    def test_malformed_selection_and_evidence_fail_closed(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_id = record["record_id"]
+        kwargs = {"freshness_by_record": current(record_id), "selected_at": SELECTED_AT}
+        with self.assertRaises(ContextFailure) as records_error:
+            export_context([record], authorized_record_ids=[[]], **kwargs)
+        self.assertEqual(records_error.exception.code, "selection-policy-invalid")
+        with self.assertRaises(ContextFailure) as evidence_key_error:
+            export_context([record], authorized_record_ids=[record_id], authorized_evidence=[["provider", "row"]], **kwargs)
+        self.assertEqual(evidence_key_error.exception.code, "authorized-evidence-unavailable")
+        malformed = {"provider_id": 1}
+        with self.assertRaises(ContextFailure) as evidence_error:
+            export_context([record], [malformed], authorized_record_ids=[record_id], **kwargs)
+        self.assertEqual(evidence_error.exception.code, "external-evidence-invalid")
+
     def test_independent_reader_recalls_without_authority(self):
         record = json.loads(FIXTURE.read_text(encoding="utf-8"))
         pack = export_context(
@@ -94,6 +117,37 @@ class ContextTests(unittest.TestCase):
         tampered["records"] = []
         with self.assertRaises(ContextReaderFailure):
             recall_context(json.dumps(tampered).encode())
+
+    def test_independent_reader_rejects_invalid_time_and_evidence_contract(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record["relationships"] = [{"type": "supported-by-external-evidence", "target_ref": "binding://synthetic/one"}]
+        evidence = [{"provider_id": "synthetic", "provider_schema_id": "synthetic/v1", "provider_record_id": "row-1", "binding_ref": "binding://synthetic/one", "evidence_packet_ref": "artifact-version://synthetic/evidence/1", "adapter_receipt_digest": "sha-256:" + "a" * 64, "integrity_state": "unverified", "coverage": "bounded", "limitations": []}]
+        pack = export_context(
+            [record], evidence,
+            authorized_record_ids=[record["record_id"]],
+            authorized_evidence=[("synthetic", "row-1")],
+            freshness_by_record=current(record["record_id"]),
+            selected_at=SELECTED_AT,
+        )
+        later = json.loads(json.dumps(pack))
+        later["records"][0]["freshness"]["assessed_at"] = "2026-07-31T00:00:00Z"
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(later)).encode())
+        missing = json.loads(json.dumps(pack))
+        del missing["external_evidence"][0]["evidence_packet_ref"]
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(missing)).encode())
+        orphan = json.loads(json.dumps(pack))
+        orphan["external_evidence"][0]["binding_ref"] = "binding://synthetic/orphan"
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(orphan)).encode())
+        duplicate = json.loads(json.dumps(pack))
+        duplicate["external_evidence"].append(duplicate["external_evidence"][0])
+        duplicate["selection_receipt"]["selected_external_evidence"].append(
+            duplicate["selection_receipt"]["selected_external_evidence"][0]
+        )
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(duplicate)).encode())
 
 
 if __name__ == "__main__":

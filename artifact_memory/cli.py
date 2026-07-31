@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from . import CONTRACT_VERSION, __version__
-from .context import ContextFailure, export_context
+from .context import ContextFailure, build_selection_policy, export_context
 from .projection import project_records, records_with_provenance, related_records, search_records
 from .scan import diff_manifests, scan_path, verify_path
 from .schema_resources import core_schemas
@@ -150,20 +150,17 @@ def main(argv: list[str] | None = None) -> int:
             records = [load_json(path) for path in args.records]
             evidence = load_json(args.evidence) if args.evidence else []
             record_ids = [record.get("record_id") for record in records if isinstance(record, dict)]
-            freshness = {
-                record_id: {"status": "current", "assessed_at": args.selected_at, "basis": args.freshness_basis}
-                for record_id in record_ids
-                if isinstance(record_id, str)
-            }
             result = export_context(
                 records,
                 evidence,
                 args.allow_sensitivity,
                 args.max_bytes,
-                authorized_record_ids=record_ids,
-                authorized_evidence=[tuple(item) for item in args.authorized_evidence],
-                freshness_by_record=freshness,
-                selected_at=args.selected_at,
+                **build_selection_policy(
+                    record_ids,
+                    selected_at=args.selected_at,
+                    freshness_basis=args.freshness_basis,
+                    authorized_evidence=[tuple(item) for item in args.authorized_evidence],
+                ),
             )
         except (ValidationFailure, ContextFailure) as exc:
             _receipt({"outcome": "rejected", "diagnostics": [{"code": getattr(exc, "code", "invalid-input"), "message": getattr(exc, "message", str(exc))}]}, args.as_json)

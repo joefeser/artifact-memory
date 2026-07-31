@@ -1,7 +1,7 @@
 {
   "artifact_retrieval": "not-attempted/separately-authorized",
-  "context_pack_digest": "sha-256:5ec9cde9588c1109ef528ca191468020b1245bb92ad3b6716e1e3f5b6d079105",
-  "context_pack_id": "context-pack://48b660887430d36d097e3509559962937b8a1b3dc9655f191072ecff97821a6d",
+  "context_pack_digest": "sha-256:935e039c4ec75894f3fe94e854f1a00f230a759c2047e8b906487c5e9519b8ad",
+  "context_pack_id": "context-pack://3ffd6379ee648016a930715166a7adb13f833d550a4338d746c2bff3991e7c5c",
   "disclosure_authority": "absent",
   "exclusion_counts": {
     "freshness": 1,
@@ -16,8 +16,8 @@
   "mutation_authority": "absent",
   "outcome": "complete",
   "provider_boundary": "generic references only; provider internal model not copied",
-  "recall_receipt_id": "context-recall-receipt://9f3e9b39599fe203f4f846d8d0830f5e52069489136998349b3566b094acfbe3",
-  "receipt_id": "context-export-receipt://synthetic/8dec8c012f3339add8568306236025c57375baf6562d712039275d234deec0cd",
+  "recall_receipt_id": "context-recall-receipt://9418dd0533ea591e66fdf7e4a28b73b2baa9c4bb1b8a6c86e12360b966e2232e",
+  "receipt_id": "context-export-receipt://synthetic/1443390ad810f8e800dda1a1c9eecdc5eb08a5042ba77d426f2cf01982100063",
   "schema_id": "artifact-memory/context-export-slice-receipt/v1",
   "selected_external_evidence": [
     {

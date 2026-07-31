@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .canonical import canonical_bytes, receipt_with_digest
-from .context import export_context
+from .context import build_selection_policy, export_context
 from .independent_context_reader import recall_context
 from .schema_resources import load_schema
 from .validator import validate
@@ -25,25 +25,20 @@ def run_context_export_slice(fixture_root: Path) -> dict[str, Any]:
     records = [_load(path) for path in sorted((fixture_root / "records").glob("*.json"))]
     evidence = _load(fixture_root / "external-evidence.json")
     authorized_ids = [record["record_id"] for record in records]
-    freshness = {
-        record_id: {
-            "status": "stale" if record_id.endswith("stale-0001") else "current",
-            "assessed_at": SELECTED_AT,
-            "basis": "synthetic-fixture-selection-receipt",
-        }
-        for record_id in authorized_ids
-    }
     pack = export_context(
         reversed(records),
         reversed(evidence),
-        authorized_record_ids=authorized_ids,
-        authorized_evidence=[("tracemap", "fact-synthetic-status-access")],
-        freshness_by_record=freshness,
-        selected_at=SELECTED_AT,
+        **build_selection_policy(
+            authorized_ids,
+            selected_at=SELECTED_AT,
+            freshness_basis="synthetic-fixture-selection-receipt",
+            authorized_evidence=[("tracemap", "fact-synthetic-status-access")],
+            stale_record_ids=["record://synthetic/context-stale-0001"],
+        ),
         max_bytes=16_384,
     )
     recall = recall_context(canonical_bytes(pack))
-    validate(pack, load_schema("core", "context-pack.v1.schema.json"))
+    validate(pack, load_schema("core", "context-pack.v2.schema.json"))
     validate(recall, load_schema("core", "context-recall-receipt.v1.schema.json"))
     serialized = canonical_bytes(pack)
     if b"private-0001" in serialized or b"stale-0001" in serialized:

@@ -3,7 +3,7 @@
   "backup_outcome": "created",
   "binding_id": "binding://tracemap/3a77794aae6fe4a63aab49946d17be05158cf8641bd50cfc4dd5c727076d11f1",
   "claim_record_id": "record://synthetic/orders-status-static-read",
-  "context_pack_id": "context-pack://f61123b84b333651ebeff5d4836eba173a14f6cf59b80df1e5912081d7b2d738",
+  "context_pack_id": "context-pack://2a1353a6458c4e917fe7d092cf23829ac79a5e8d490497feef06640bafd34b38",
   "evidence_packet_ref": "artifact-version://tracemap/evidence/e87f7818c78020ad62813dce5f48043d08ec640f11bed7c1b74ee252b8158c83/1",
   "integrity_state": "integrity-verified / issuer-unverified",
   "limitations": [
@@ -14,7 +14,7 @@
   "projection_source_digest": "sha-256:cf1c829207d98efc46f6d1e6d49cc40404df4f16d3a5fdc9df084a6511e66def",
   "provider_contract_anchor": "9a252f12f781ae2a0aab52b5faa53601440a2a3b",
   "provider_tool_source_commit": "9a252f12f781ae2a0aab52b5faa53601440a2a3b",
-  "receipt_id": "vertical-slice-receipt://e94071faf3211b47cb738ba663071063997e83d65a214de45daae4efbd33a56e",
+  "receipt_id": "vertical-slice-receipt://4ad31ce05bcdcd4e0328782e857b911a02f7dcad0edc5e52c86c4dc265d00bc3",
   "restore_outcome": "restored",
   "schema_id": "artifact-memory/tracemap-vertical-slice-receipt/v1",
   "selected_provider_record_ids": [

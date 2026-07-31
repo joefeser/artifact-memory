@@ -10,7 +10,7 @@ from typing import Any
 
 from .backup import create_backup, restore_isolated
 from .canonical import canonical_bytes
-from .context import export_context
+from .context import build_selection_policy, export_context
 from .projection import project_records, related_records
 from .scan import scan_path, verify_path
 from .schema_resources import load_schema
@@ -188,18 +188,14 @@ def run_vertical_slice(
         [claim],
         [external_evidence],
         allowed_sensitivity="public",
-        authorized_record_ids=[CLAIM_RECORD_ID],
-        authorized_evidence=[("tracemap", selected_access_fact_id)],
-        freshness_by_record={
-            CLAIM_RECORD_ID: {
-                "status": "current",
-                "assessed_at": "2026-07-30T00:00:00Z",
-                "basis": "synthetic-fixture-source-version",
-            }
-        },
-        selected_at="2026-07-30T00:00:00Z",
+        **build_selection_policy(
+            [CLAIM_RECORD_ID],
+            selected_at="2026-07-30T00:00:00Z",
+            freshness_basis="synthetic-fixture-source-version",
+            authorized_evidence=[("tracemap", selected_access_fact_id)],
+        ),
     )
-    validate(context, load_schema("core", "context-pack.v1.schema.json"))
+    validate(context, load_schema("core", "context-pack.v2.schema.json"))
     serialized_context = json.dumps(context, sort_keys=True)
     for forbidden in ("Order.cs", "analyzer.log", "filePath", "sourceSymbol", "targetSymbol"):
         if forbidden in serialized_context:
@@ -259,21 +255,17 @@ def run_vertical_slice(
     restored_context = json.loads(
         (restore_dir / "artifacts" / "context-pack.json").read_text(encoding="utf-8")
     )
-    validate(restored_context, load_schema("core", "context-pack.v1.schema.json"))
+    validate(restored_context, load_schema("core", "context-pack.v2.schema.json"))
     regenerated_context = export_context(
         [claim],
         [_external_evidence(restored_binding, selected_access_fact_id)],
         allowed_sensitivity="public",
-        authorized_record_ids=[CLAIM_RECORD_ID],
-        authorized_evidence=[("tracemap", selected_access_fact_id)],
-        freshness_by_record={
-            CLAIM_RECORD_ID: {
-                "status": "current",
-                "assessed_at": "2026-07-30T00:00:00Z",
-                "basis": "synthetic-fixture-source-version",
-            }
-        },
-        selected_at="2026-07-30T00:00:00Z",
+        **build_selection_policy(
+            [CLAIM_RECORD_ID],
+            selected_at="2026-07-30T00:00:00Z",
+            freshness_basis="synthetic-fixture-source-version",
+            authorized_evidence=[("tracemap", selected_access_fact_id)],
+        ),
     )
     if regenerated_context != restored_context:
         raise RuntimeError("restored context pack did not revalidate deterministically")

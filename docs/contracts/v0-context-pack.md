@@ -1,5 +1,10 @@
 # v0 informational context pack
 
+The completed #20 contract is `artifact-memory/context-pack/v2`. The earlier
+v1 schema remains available as a legacy read contract; its payload shape was
+not silently redefined. The reference exporter and independent reader emit and
+accept v2 only.
+
 Context packs are bounded selections of canonical Artifact Memory knowledge for
 an independent reader. They carry source record revisions, artifact references,
 sensitivity and redaction outcomes, generic external-evidence metadata, and
