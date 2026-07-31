@@ -150,6 +150,16 @@ class AuthenticityTests(unittest.TestCase):
             )
         with self.assertRaises(ValidationFailure):
             evaluate("artifact://synthetic/one", True, True, evaluated_at="not-a-time")
+        for evaluated_at in (None, 0, ""):
+            with self.subTest(evaluated_at=evaluated_at), self.assertRaisesRegex(
+                ValueError, "evaluated_at"
+            ):
+                evaluate(
+                    "artifact://synthetic/one",
+                    True,
+                    True,
+                    evaluated_at=evaluated_at,
+                )
 
     def test_v1_schema_remains_available_without_reinterpretation(self):
         schema = load_schema("core", "authenticity-receipt.v1.schema.json")
@@ -157,6 +167,30 @@ class AuthenticityTests(unittest.TestCase):
             schema["properties"]["schema_id"]["const"],
             "artifact-memory/authenticity-receipt/v1",
         )
+
+    def test_original_call_shape_preserves_the_v1_helper_contract(self):
+        receipt = evaluate("artifact-version://synthetic/orders/1", True, True)
+        validate(receipt, load_schema("core", "authenticity-receipt.v1.schema.json"))
+        self.assertEqual(receipt["schema_id"], "artifact-memory/authenticity-receipt/v1")
+        self.assertEqual(receipt["integrity_state"], INTEGRITY_VERIFIED_STATE)
+        self.assertNotIn("evaluated_at", receipt)
+
+        required = evaluate(
+            "artifact-version://synthetic/orders/1",
+            True,
+            True,
+            authenticity_required=True,
+        )
+        self.assertEqual(required["outcome"], "rejected")
+
+    def test_v2_only_fields_require_an_explicit_evaluation_time(self):
+        with self.assertRaisesRegex(ValueError, "evaluated_at"):
+            evaluate(
+                "artifact-version://synthetic/orders/1",
+                True,
+                True,
+                issuer_ref="actor://synthetic/exporter",
+            )
 
 
 if __name__ == "__main__":

@@ -96,8 +96,10 @@ a future signature verifier exists.
   no-authority boundary.
 
 The published v1 schema remains available unchanged. V2 tightens the contract
-without reinterpreting old v1 receipts. The reference evaluator emits v2 and
-validates its result against the packaged schema.
+without reinterpreting old v1 receipts. The reference evaluator emits and
+validates v2 when given an explicit evaluation time. Its original five-
+argument call shape remains a compatibility adapter that emits the unchanged
+v1 shape; v2-only fields fail closed unless an evaluation time is supplied.
 
 ## Security and compatibility consequences
 

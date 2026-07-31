@@ -14,6 +14,52 @@ INTEGRITY_VERIFIED_STATE = "integrity-verified / issuer-unverified"
 UNSIGNED_STATE = INTEGRITY_VERIFIED_STATE
 AUTHORITY_BOUNDARY = "assessment grants no execution, disclosure, authorization, or trust"
 REQUIREMENTS = {"integrity-only", "authenticity-optional", "authenticity-required"}
+_EVALUATED_AT_MISSING = object()
+
+
+def _evaluate_v1(
+    subject_ref: str,
+    integrity_verified: bool,
+    provenance_present: bool,
+    authenticity_required: bool,
+    signed_input: bool,
+) -> dict[str, Any]:
+    """Preserve the pre-v2 helper result for callers using the original signature."""
+    if not integrity_verified:
+        integrity_state = "integrity-failed"
+    elif not signed_input:
+        integrity_state = UNSIGNED_STATE
+    else:
+        integrity_state = "integrity-verified / issuer-unverified"
+    if signed_input:
+        authenticity_state = (
+            "authenticity-required-unmet"
+            if authenticity_required
+            else "signed-input-unsupported"
+        )
+        outcome = "rejected" if authenticity_required else "unsupported"
+    else:
+        authenticity_state = (
+            "authenticity-required-unmet" if authenticity_required else "issuer-unverified"
+        )
+        outcome = "rejected" if authenticity_required or not integrity_verified else "accepted"
+    return {
+        "schema_id": "artifact-memory/authenticity-receipt/v1",
+        "subject_ref": subject_ref,
+        "integrity_state": integrity_state,
+        "provenance_state": "provenance-present" if provenance_present else "provenance-absent",
+        "authenticity_state": authenticity_state,
+        "authorization_state": "not-granted",
+        "trust_state": "not-established",
+        "requirement": (
+            "authenticity-required" if authenticity_required else "authenticity-optional"
+        ),
+        "outcome": outcome,
+        "limitations": [
+            "provenance does not establish authenticity",
+            "authorization and trust are separate decisions",
+        ],
+    }
 
 
 def evaluate(
@@ -27,9 +73,9 @@ def evaluate(
     issuer_ref: str | None = None,
     audience_ref: str | None = None,
     transport_authenticated: bool | None = None,
-    evaluated_at: str,
+    evaluated_at: str | object = _EVALUATED_AT_MISSING,
 ) -> dict[str, Any]:
-    """Assess a subject without treating transport or provenance as authenticity."""
+    """Assess a subject, preserving the original v1 call shape when no time is supplied."""
     if integrity_verified is not None and type(integrity_verified) is not bool:
         raise ValueError("integrity_verified must be true, false, or null")
     if type(provenance_present) is not bool:
@@ -41,6 +87,24 @@ def evaluate(
     for field, value in (("issuer_ref", issuer_ref), ("audience_ref", audience_ref)):
         if value is not None and (not isinstance(value, str) or not value.strip()):
             raise ValueError(f"{field} must be a non-empty string or null")
+
+    if evaluated_at is _EVALUATED_AT_MISSING:
+        if any(
+            value is not None
+            for value in (requirement, issuer_ref, audience_ref, transport_authenticated)
+        ):
+            raise ValueError("evaluated_at is required when using v2 assessment fields")
+        if type(integrity_verified) is not bool:
+            raise ValueError("the v1 compatibility call requires boolean integrity_verified")
+        return _evaluate_v1(
+            subject_ref,
+            integrity_verified,
+            provenance_present,
+            authenticity_required,
+            signed_input,
+        )
+    if not isinstance(evaluated_at, str) or not evaluated_at.strip():
+        raise ValueError("evaluated_at must be a non-empty date-time string")
 
     selected_requirement = (
         "authenticity-required" if authenticity_required else "authenticity-optional"

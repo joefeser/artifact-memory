@@ -37,3 +37,8 @@ The executable synthetic matrix is
 `fixtures/synthetic/security/authenticity-v0-v2.json`. It contains newly
 authored synthetic references only and no private key, credential, bearer
 material, or real trust-store data.
+
+For source compatibility, the reference helper retains its original five-
+argument call shape. A call that omits `evaluated_at` and all v2-only fields
+returns the unchanged v1 receipt shape. Supplying any v2-only field requires an
+explicit `evaluated_at`; the conformance runner always exercises v2.
