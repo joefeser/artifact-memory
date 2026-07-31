@@ -73,7 +73,7 @@ def _json_equal(left: Any, right: Any) -> bool:
 
 
 def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
-    supported = {"$schema", "$id", "title", "type", "additionalProperties", "required", "properties", "const", "enum", "pattern", "minLength", "minItems", "minimum", "format", "items"}
+    supported = {"$schema", "$id", "title", "type", "additionalProperties", "required", "dependentRequired", "properties", "const", "enum", "pattern", "minLength", "minItems", "minimum", "format", "items"}
     unknown = set(schema) - supported
     if unknown:
         _fail("unsupported-schema-keyword", "unsupported schema keyword", path)
@@ -89,6 +89,11 @@ def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
         for key in required:
             if key not in value:
                 _fail("required-field-missing", f"required field is missing: {key}", path)
+        for key, dependencies in schema.get("dependentRequired", {}).items():
+            if key in value:
+                for dependency in dependencies:
+                    if dependency not in value:
+                        _fail("required-field-missing", f"field {dependency} is required with {key}", path)
         properties = schema.get("properties", {})
         unknown_fields = set(value) - set(properties)
         additional = schema.get("additionalProperties")

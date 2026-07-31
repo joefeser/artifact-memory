@@ -1,0 +1,26 @@
+[
+  {
+    "provider_id": "tracemap",
+    "provider_schema_id": "https://tracemap.tools/contracts/code-fact.v1.schema.json",
+    "provider_record_id": "fact-synthetic-status-access",
+    "binding_ref": "external-evidence-binding://synthetic/status",
+    "evidence_packet_ref": "artifact-version://synthetic/tracemap-packet/1",
+    "adapter_receipt_digest": "sha-256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "integrity_state": "integrity-verified / issuer-unverified",
+    "rule_id": "csharp.semantic.propertyaccess.v1",
+    "evidence_tier": "Tier1Semantic",
+    "coverage": {"analysis_level": "Level1SemanticAnalysis", "build_status": "Succeeded", "known_gaps": []},
+    "limitations": ["static evidence only"]
+  },
+  {
+    "provider_id": "synthetic-provider",
+    "provider_schema_id": "https://example.invalid/provider-internal/v1",
+    "provider_record_id": "provider-internal-row",
+    "binding_ref": "external-evidence-binding://synthetic/internal",
+    "evidence_packet_ref": "artifact-version://synthetic/provider-packet/1",
+    "adapter_receipt_digest": "sha-256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "integrity_state": "unverified",
+    "coverage": "synthetic bounded scan",
+    "limitations": []
+  }
+]

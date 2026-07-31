@@ -68,6 +68,23 @@ class CliTests(unittest.TestCase):
             self.assertEqual(json.loads(result.stdout)["diagnostics"][0]["code"], "projection-unavailable")
             self.assertFalse(missing.exists())
 
+    def test_context_command_records_explicit_selection_and_freshness(self):
+        record = FIXTURES / "v0-valid-record.json"
+        result = self.run_cli(
+            "context",
+            str(record),
+            "--selected-at",
+            "2026-07-30T00:00:00Z",
+            "--freshness-basis",
+            "synthetic-cli-test",
+            "--json",
+        )
+        self.assertEqual(result.returncode, 0)
+        receipt = json.loads(result.stdout)
+        self.assertEqual(receipt["selected_record_count"], 1)
+        self.assertEqual(receipt["excluded_record_count"], 0)
+        self.assertEqual(receipt["authority_boundary"], "informational-only; no execution, routing, disclosure, or mutation authority")
+
 
 if __name__ == "__main__":
     unittest.main()
