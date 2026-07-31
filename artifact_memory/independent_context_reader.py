@@ -12,6 +12,7 @@ from typing import Any
 AUTHORITY_BOUNDARY = "informational-only; no execution, routing, disclosure, or mutation authority"
 SHA256 = re.compile(r"^sha-256:[0-9a-f]{64}$")
 UTC_INSTANT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+ARTIFACT_REF = re.compile(r"^artifact://[A-Za-z0-9._~/-]+$")
 
 
 class ContextReaderFailure(Exception):
@@ -168,7 +169,10 @@ def recall_context(pack_json: bytes) -> dict[str, Any]:
     record_ids = [item["record_id"] for item in recalled]
     if record_ids != sorted(set(record_ids)) or selection.get("selected_record_ids") != record_ids:
         raise ContextReaderFailure("context record ordering or receipt binding is invalid")
-    if artifact_refs != sorted(set(artifact_refs)) or any(not isinstance(item, str) or not item.startswith("artifact://") for item in artifact_refs):
+    if artifact_refs != sorted(set(artifact_refs)) or any(
+        not isinstance(item, str) or ARTIFACT_REF.fullmatch(item) is None
+        for item in artifact_refs
+    ):
         raise ContextReaderFailure("artifact references are invalid")
 
     evidence_values = [_validate_evidence(item) for item in evidence]

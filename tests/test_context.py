@@ -148,6 +148,10 @@ class ContextTests(unittest.TestCase):
         )
         with self.assertRaises(ContextReaderFailure):
             recall_context(json.dumps(repack(duplicate)).encode())
+        malformed_artifact = json.loads(json.dumps(pack))
+        malformed_artifact["artifact_refs"] = ["artifact://synthetic/invalid ref"]
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(malformed_artifact)).encode())
 
 
 if __name__ == "__main__":
