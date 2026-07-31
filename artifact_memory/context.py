@@ -46,7 +46,20 @@ def export_context(records: Iterable[dict[str, Any]], external_evidence: Iterabl
         artifact_refs.update(record.get("artifact_refs", []))
     evidence = []
     for item in external_evidence:
-        evidence.append({"provider_id": item["provider_id"], "provider_schema_id": item["provider_schema_id"], "provider_record_id": item["provider_record_id"], "evidence_packet_ref": item["evidence_packet_ref"], "adapter_receipt_digest": item["adapter_receipt_digest"], "integrity_state": item["integrity_state"], "coverage": item["coverage"], "limitations": sorted(item["limitations"])})
+        evidence.append(
+            {
+                "provider_id": item["provider_id"],
+                "provider_schema_id": item["provider_schema_id"],
+                "provider_record_id": item["provider_record_id"],
+                "evidence_packet_ref": item["evidence_packet_ref"],
+                "adapter_receipt_digest": item["adapter_receipt_digest"],
+                "integrity_state": item["integrity_state"],
+                "rule_id": item["rule_id"],
+                "evidence_tier": item["evidence_tier"],
+                "coverage": item["coverage"],
+                "limitations": sorted(item["limitations"]),
+            }
+        )
     evidence.sort(key=lambda item: (item["provider_id"], item["provider_record_id"]))
     selection = {"selector_id": "artifact-memory/reference-cli/v0", "source_record_set_digest": source_digest, "selected_record_ids": [item["record_id"] for item in selected], "redacted_record_ids": redacted, "max_bytes": max_bytes, "freshness": freshness, "disclosure": "informational-only"}
     body = {"schema_id": "artifact-memory/context-pack/v1", "authority_boundary": AUTHORITY_BOUNDARY, "records": selected, "artifact_refs": sorted(artifact_refs), "external_evidence": evidence, "selection_receipt": selection}

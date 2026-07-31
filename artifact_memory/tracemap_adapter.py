@@ -12,7 +12,7 @@ from typing import Any
 from .canonical import canonical_bytes, sha256_path
 
 TRACE_MAP_CONTRACT_ANCHOR = "9a252f12f781ae2a0aab52b5faa53601440a2a3b"
-REQUIRED_ARTIFACTS = ("scan-manifest.json", "facts.ndjson", "index.sqlite", "report.md")
+REQUIRED_ARTIFACTS = ("scan-manifest.json", "facts.ndjson", "index.sqlite", "report.md", "logs/analyzer.log")
 FACT_SCHEMA_ID = "https://tracemap.tools/contracts/code-fact.v1.schema.json"
 MANIFEST_SCHEMA_ID = "https://tracemap.tools/contracts/scan-manifest.v1.schema.json"
 INTEGRITY_STATE = "integrity-verified / issuer-unverified"
@@ -69,6 +69,11 @@ def _safe_relative(value: Any) -> bool:
     return bool(normalized) and not re.match(r"^[A-Za-z]:/", normalized) and not path.is_absolute() and ".." not in path.parts
 
 
+def _require_digest(value: str, label: str) -> None:
+    if not re.fullmatch(r"sha-256:[0-9a-f]{64}", value):
+        raise AdapterFailure("trace-output-invalid", f"{label} is not a SHA-256 content identity")
+
+
 def _validate_provider_packet(packet_dir: Path, expected_repo: str, expected_commit: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     missing = [name for name in REQUIRED_ARTIFACTS if not (packet_dir / name).is_file()]
     if missing:
@@ -93,6 +98,11 @@ def _validate_provider_packet(packet_dir: Path, expected_repo: str, expected_com
             raise AdapterFailure("unsafe-provenance-rejected", "provider evidence path is not portable")
         if fact["evidenceTier"] not in {"Tier1Semantic", "Tier2Structural", "Tier3SyntaxOrTextual", "Tier4Unknown"}:
             raise AdapterFailure("schema-unsupported", "provider evidence tier is unsupported")
+    for name in ("report.md", "logs/analyzer.log"):
+        try:
+            (packet_dir / name).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise AdapterFailure("trace-output-invalid", "provider text artifact is unavailable or invalid") from exc
     return manifest, facts
 
 
@@ -116,10 +126,25 @@ def _verify_index(packet_dir: Path, manifest: dict[str, Any], facts: list[dict[s
         raise AdapterFailure("trace-output-invalid", "provider index cannot be opened read-only") from exc
 
 
-def bind_trace_map_evidence(source_version_ref: str, packet_dir: Path, expected_repo: str, expected_commit: str, selected_fact_ids: list[str] | None = None) -> dict[str, Any]:
+def bind_trace_map_evidence(
+    source_version_ref: str,
+    packet_dir: Path,
+    expected_repo: str,
+    expected_commit: str,
+    selected_fact_ids: list[str] | None = None,
+    *,
+    tool_source_commit: str,
+    configuration_digest: str,
+    rule_catalog_digest: str | None = None,
+) -> dict[str, Any]:
     """Validate and bind one existing TraceMap packet without interpreting it."""
     if not re.fullmatch(r"artifact-version://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+/[0-9]+", source_version_ref):
         raise AdapterFailure("source-version-unavailable", "source artifact-version reference is invalid")
+    if not re.fullmatch(r"[0-9a-f]{40}", tool_source_commit):
+        raise AdapterFailure("trace-output-invalid", "provider tool source commit is invalid")
+    _require_digest(configuration_digest, "provider configuration digest")
+    if rule_catalog_digest is not None:
+        _require_digest(rule_catalog_digest, "provider rule catalog digest")
     manifest, facts = _validate_provider_packet(packet_dir, expected_repo, expected_commit)
     _verify_index(packet_dir, manifest, facts)
     fact_by_id = {fact["factId"]: fact for fact in facts}
@@ -130,19 +155,68 @@ def bind_trace_map_evidence(source_version_ref: str, packet_dir: Path, expected_
     file_digests = []
     for name in REQUIRED_ARTIFACTS:
         file_digests.append({"name": name, "digest": sha256_path(packet_dir / name)})
-    packet_body = {"provider": "tracemap", "contract_anchor": TRACE_MAP_CONTRACT_ANCHOR, "files": file_digests}
+    provider_identity = {
+        "tool_source_commit": tool_source_commit,
+        "configuration_digest": configuration_digest,
+        **({"rule_catalog_digest": rule_catalog_digest} if rule_catalog_digest is not None else {}),
+    }
+    packet_body = {
+        "provider": "tracemap",
+        "contract_anchor": TRACE_MAP_CONTRACT_ANCHOR,
+        "provider_identity": provider_identity,
+        "files": file_digests,
+    }
     packet_digest = _digest(_canonical(packet_body))
-    binding_body = {"source_version_ref": source_version_ref, "packet_digest": packet_digest, "selected_provider_record_ids": sorted(selected), "provider_contract_anchor": TRACE_MAP_CONTRACT_ANCHOR}
+    selected_records = []
+    for fact_id in sorted(selected):
+        fact = fact_by_id[fact_id]
+        limitations = []
+        limitation = fact["properties"].get("limitation") if isinstance(fact["properties"], dict) else None
+        if isinstance(limitation, str) and limitation:
+            limitations.append(limitation)
+        selected_records.append(
+            {
+                "provider_record_id": fact_id,
+                "fact_type": fact["factType"],
+                "rule_id": fact["ruleId"],
+                "evidence_tier": fact["evidenceTier"],
+                "coverage": {
+                    "analysis_level": manifest["analysisLevel"],
+                    "build_status": manifest["buildStatus"],
+                    "known_gaps": sorted(manifest["knownGaps"]),
+                },
+                "limitations": sorted(limitations),
+            }
+        )
+    binding_body = {
+        "source_version_ref": source_version_ref,
+        "packet_digest": packet_digest,
+        "selected_provider_records": selected_records,
+        "provider_contract_anchor": TRACE_MAP_CONTRACT_ANCHOR,
+    }
     binding_digest = hashlib.sha256(_canonical(binding_body)).hexdigest()
-    receipt_body = {"outcome": "complete", "provider": "tracemap", "packet_digest": packet_digest, "selected_provider_record_ids": sorted(selected), "integrity_state": INTEGRITY_STATE}
+    receipt_body = {
+        "outcome": "complete",
+        "provider": "tracemap",
+        "packet_digest": packet_digest,
+        "selected_provider_record_ids": sorted(selected),
+        "provider_identity": provider_identity,
+        "integrity_state": INTEGRITY_STATE,
+    }
     return {
         "schema_id": "artifact-memory/tracemap-evidence-binding/v1",
         "binding_id": f"binding://tracemap/{binding_digest}",
         "source_version_ref": source_version_ref,
-        "provider": {"id": "tracemap", "contract_anchor": TRACE_MAP_CONTRACT_ANCHOR, "record_schema_ids": [MANIFEST_SCHEMA_ID, FACT_SCHEMA_ID]},
+        "provider": {
+            "id": "tracemap",
+            "contract_anchor": TRACE_MAP_CONTRACT_ANCHOR,
+            "record_schema_ids": [MANIFEST_SCHEMA_ID, FACT_SCHEMA_ID],
+            **provider_identity,
+        },
         "evidence_packet_ref": f"artifact-version://tracemap/evidence/{packet_digest.removeprefix('sha-256:')}/1",
         "integrity_state": INTEGRITY_STATE,
         "selected_provider_record_ids": sorted(selected),
+        "selected_provider_records": selected_records,
         "receipt": {"outcome": "complete", "deterministic_body_digest": _digest(_canonical(receipt_body)), "diagnostics": []},
         "content_objects": file_digests,
         "relations": [{"type": "produced-from", "source": f"artifact-version://tracemap/evidence/{packet_digest.removeprefix('sha-256:')}/1", "target": source_version_ref, "supports_claim": False}],

@@ -12,11 +12,37 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKET = ROOT / "fixtures" / "synthetic" / "tracemap-evidence" / "v1"
 SOURCE_REF = "artifact-version://synthetic/orders/1"
 COMMIT = "1111111111111111111111111111111111111111"
+TOOL_COMMIT = "2222222222222222222222222222222222222222"
+CONFIG_DIGEST = "sha-256:" + "3" * 64
+RULE_CATALOG_DIGEST = "sha-256:" + "4" * 64
+
+
+def bind(packet: Path, selected_fact_ids: list[str] | None = None) -> dict:
+    return bind_trace_map_evidence(
+        SOURCE_REF,
+        packet,
+        "SyntheticOrders",
+        COMMIT,
+        selected_fact_ids,
+        tool_source_commit=TOOL_COMMIT,
+        configuration_digest=CONFIG_DIGEST,
+        rule_catalog_digest=RULE_CATALOG_DIGEST,
+    )
 
 
 def materialize_packet(root: Path) -> Path:
     packet = root / "packet"
     shutil.copytree(PACKET, packet)
+    (packet / "logs").mkdir(exist_ok=True)
+    (packet / "logs" / "analyzer.log").write_text(
+        "scanId=scan-synthetic-orders-v1\n"
+        "repo=SyntheticOrders\n"
+        f"commitSha={COMMIT}\n"
+        "analysisLevel=Level1SemanticAnalysis\n"
+        "buildStatus=Succeeded\n"
+        "facts=2\n",
+        encoding="utf-8",
+    )
     connection = sqlite3.connect(packet / "index.sqlite")
     connection.executescript((packet / "index.sqlite.sql").read_text(encoding="utf-8"))
     manifest = json.loads((packet / "scan-manifest.json").read_text(encoding="utf-8"))
@@ -33,11 +59,13 @@ def materialize_packet(root: Path) -> Path:
 class TraceMapAdapterTests(unittest.TestCase):
     def test_binding_is_deterministic_and_preserves_boundary(self):
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
-            left = bind_trace_map_evidence(SOURCE_REF, materialize_packet(Path(first)), "SyntheticOrders", COMMIT, ["fact-synthetic-status-declaration"])
-            right = bind_trace_map_evidence(SOURCE_REF, materialize_packet(Path(second)), "SyntheticOrders", COMMIT, ["fact-synthetic-status-declaration"])
+            left = bind(materialize_packet(Path(first)), ["fact-synthetic-status-declaration"])
+            right = bind(materialize_packet(Path(second)), ["fact-synthetic-status-declaration"])
         self.assertEqual(left, right)
         self.assertEqual(left["integrity_state"], INTEGRITY_STATE)
         self.assertEqual(left["provider"]["id"], "tracemap")
+        self.assertEqual(left["provider"]["tool_source_commit"], TOOL_COMMIT)
+        self.assertEqual(left["selected_provider_records"][0]["rule_id"], "csharp.semantic.declaration.v1")
         self.assertFalse(left["relations"][0]["supports_claim"])
 
     def test_missing_packet_artifact_is_typed(self):
@@ -45,7 +73,7 @@ class TraceMapAdapterTests(unittest.TestCase):
             packet = materialize_packet(Path(temporary))
             (packet / "report.md").unlink()
             with self.assertRaisesRegex(Exception, "required provider artifact"):
-                bind_trace_map_evidence(SOURCE_REF, packet, "SyntheticOrders", COMMIT)
+                bind(packet)
 
     def test_foreign_repo_fact_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -55,7 +83,7 @@ class TraceMapAdapterTests(unittest.TestCase):
             facts[0]["repo"] = "ForeignRepository"
             facts_path.write_text("\n".join(json.dumps(fact, sort_keys=True) for fact in facts) + "\n", encoding="utf-8")
             with self.assertRaises(AdapterFailure) as raised:
-                bind_trace_map_evidence(SOURCE_REF, packet, "SyntheticOrders", COMMIT)
+                bind(packet)
             self.assertEqual(raised.exception.outcome, "trace-output-invalid")
 
     def test_sqlite_repo_parity_is_verified(self):
@@ -66,7 +94,7 @@ class TraceMapAdapterTests(unittest.TestCase):
             connection.commit()
             connection.close()
             with self.assertRaises(AdapterFailure) as raised:
-                bind_trace_map_evidence(SOURCE_REF, packet, "SyntheticOrders", COMMIT)
+                bind(packet)
             self.assertEqual(raised.exception.outcome, "digest-mismatch")
 
 

@@ -17,13 +17,14 @@ class ContextTests(unittest.TestCase):
         private = dict(public)
         private["record_id"] = "record://synthetic/private-0001"
         private["sensitivity"] = "private"
-        evidence = [{"provider_id": "tracemap", "provider_schema_id": "https://tracemap.tools/contracts/code-fact.v1.schema.json", "provider_record_id": "fact-synthetic-status-access", "evidence_packet_ref": "artifact-version://tracemap/evidence/" + "a" * 64 + "/1", "adapter_receipt_digest": "sha-256:" + "b" * 64, "integrity_state": "integrity-verified / issuer-unverified", "coverage": "one synthetic property access", "limitations": ["static evidence only"]}]
+        evidence = [{"provider_id": "tracemap", "provider_schema_id": "https://tracemap.tools/contracts/code-fact.v1.schema.json", "provider_record_id": "fact-synthetic-status-access", "evidence_packet_ref": "artifact-version://tracemap/evidence/" + "a" * 64 + "/1", "adapter_receipt_digest": "sha-256:" + "b" * 64, "integrity_state": "integrity-verified / issuer-unverified", "rule_id": "csharp.semantic.propertyaccess.v1", "evidence_tier": "Tier1Semantic", "coverage": {"analysis_level": "Level1SemanticAnalysis", "build_status": "Succeeded", "known_gaps": []}, "limitations": ["static evidence only"]}]
         pack = export_context([private, public], evidence)
         schema = json.loads((ROOT / "artifact_memory/schemas/core/context-pack.v1.schema.json").read_text(encoding="utf-8"))
         validate(pack, schema)
         self.assertEqual(pack["authority_boundary"], AUTHORITY_BOUNDARY)
         self.assertEqual(pack["selection_receipt"]["redacted_record_ids"], ["record://synthetic/private-0001"])
         self.assertEqual(pack["external_evidence"][0]["provider_id"], "tracemap")
+        self.assertEqual(pack["external_evidence"][0]["rule_id"], "csharp.semantic.propertyaccess.v1")
         self.assertNotIn("facts", json.dumps(pack))
 
     def test_size_bound_is_explicit(self):

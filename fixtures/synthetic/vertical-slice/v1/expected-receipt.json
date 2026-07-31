@@ -1,0 +1,41 @@
+{
+  "authority_boundary": "informational evidence only; no execution, routing, disclosure, approval, or mutation authority",
+  "backup_outcome": "created",
+  "binding_id": "binding://tracemap/d33619a89ea0140445bee7ec71674ace6e8b66177e3e2706c4880997e6a2f845",
+  "claim_record_id": "record://synthetic/orders-status-static-read",
+  "context_pack_id": "context-pack://74ad640436e1570822db115b7e185036735299fde425eff77795dff08784b20b",
+  "evidence_packet_ref": "artifact-version://tracemap/evidence/a9fd0927352e28931e9a2c6775acf6f1cdafe8d16e6ebb6050bb5cb68c9e1368/1",
+  "integrity_state": "integrity-verified / issuer-unverified",
+  "limitations": [
+    "synthetic fixture evidence does not establish runtime behavior or correctness",
+    "unsigned provider evidence does not establish issuer authenticity"
+  ],
+  "outcome": "complete",
+  "projection_source_digest": "sha-256:dc4f220e62a7ac5d0c63b49933f7d2b34b96dae3a344a8a1289d555f0a04f746",
+  "provider_contract_anchor": "9a252f12f781ae2a0aab52b5faa53601440a2a3b",
+  "provider_tool_source_commit": "9a252f12f781ae2a0aab52b5faa53601440a2a3b",
+  "receipt_id": "vertical-slice-receipt://a7c8e636b99a889d8d798c160117ed3a3ddd3fddf298ce98698fc695facad5ee",
+  "restore_outcome": "restored",
+  "schema_id": "artifact-memory/tracemap-vertical-slice-receipt/v1",
+  "selected_provider_record_ids": [
+    "fact-3f09d968f27b106ad5a4",
+    "fact-d59c2fb3a0f08be8e9e1"
+  ],
+  "source_git_commit": "78b4e1fe6b31195de8898a25e4ad7e2895987d83",
+  "source_manifest_ref": "manifest://928983695a8f8ab3e298c9e466a21af47a5b6b04601f4e910915131905553094",
+  "source_tree_digest": "sha-256:d4df3dc2813728335f37b5e7e77e320ba6d115dbd1189636d271d1433f2a4545",
+  "source_version_ref": "artifact-version://vault/88216cc494c6e7063bdb12784d61e5fd5f66761190115d387afaad5fd611e11d/1",
+  "stages": [
+    {"name": "validate-source", "outcome": "complete"},
+    {"name": "register-source", "outcome": "complete"},
+    {"name": "validate-and-register-tracemap-packet", "outcome": "complete"},
+    {"name": "bind-selected-facts", "outcome": "complete"},
+    {"name": "record-narrow-claim", "outcome": "complete"},
+    {"name": "build-generated-index", "outcome": "complete"},
+    {"name": "export-bounded-context", "outcome": "complete"},
+    {"name": "create-encrypted-backup", "outcome": "complete"},
+    {"name": "restore-isolated", "outcome": "complete"},
+    {"name": "rebuild-and-revalidate", "outcome": "complete"}
+  ],
+  "synthetic": true
+}
