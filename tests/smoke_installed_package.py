@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -40,6 +41,22 @@ def main() -> None:
         receipt = json.loads(completed.stdout)
         if receipt.get("valid") is not True or receipt.get("outcome") != "accepted":
             raise SystemExit(completed.stdout)
+        packaged_schema = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from artifact_memory.schema_resources import load_schema; "
+                "assert load_schema('core', 'authenticity-receipt.v2.schema.json')"
+                "['properties']['schema_id']['const'] == 'artifact-memory/authenticity-receipt/v2'",
+            ],
+            cwd=root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if packaged_schema.returncode != 0:
+            raise SystemExit(packaged_schema.stderr or packaged_schema.stdout)
 
 
 if __name__ == "__main__":
