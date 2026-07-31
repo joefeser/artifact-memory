@@ -203,11 +203,11 @@ def export_context(
             exclusions["freshness"] += 1
             continue
         freshness = _normalize_freshness(freshness_value, record_id, selected_at)
-        bindings = sorted(
+        bindings = sorted({
             relationship["target_ref"]
             for relationship in record.get("relationships", [])
             if relationship["type"] == "supported-by-external-evidence"
-        )
+        })
         selected.append({
             "record_id": record_id,
             "revision_digest": _digest(_canonical(record)),

@@ -13,6 +13,7 @@ AUTHORITY_BOUNDARY = "informational-only; no execution, routing, disclosure, or 
 SHA256 = re.compile(r"^sha-256:[0-9a-f]{64}$")
 UTC_INSTANT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 ARTIFACT_REF = re.compile(r"^artifact://[A-Za-z0-9._~/-]+$")
+RECORD_ID = re.compile(r"^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$")
 
 
 class ContextReaderFailure(Exception):
@@ -142,6 +143,7 @@ def recall_context(pack_json: bytes) -> dict[str, Any]:
         bindings = record["external_evidence_bindings"]
         if (
             not isinstance(record["record_id"], str)
+            or RECORD_ID.fullmatch(record["record_id"]) is None
             or not isinstance(record["summary"], str)
             or not record["summary"]
             or SHA256.fullmatch(record.get("revision_digest", "")) is None

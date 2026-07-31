@@ -120,7 +120,8 @@ class ContextTests(unittest.TestCase):
 
     def test_independent_reader_rejects_invalid_time_and_evidence_contract(self):
         record = json.loads(FIXTURE.read_text(encoding="utf-8"))
-        record["relationships"] = [{"type": "supported-by-external-evidence", "target_ref": "binding://synthetic/one"}]
+        relationship = {"type": "supported-by-external-evidence", "target_ref": "binding://synthetic/one"}
+        record["relationships"] = [relationship, relationship]
         evidence = [{"provider_id": "synthetic", "provider_schema_id": "synthetic/v1", "provider_record_id": "row-1", "binding_ref": "binding://synthetic/one", "evidence_packet_ref": "artifact-version://synthetic/evidence/1", "adapter_receipt_digest": "sha-256:" + "a" * 64, "integrity_state": "unverified", "coverage": "bounded", "limitations": []}]
         pack = export_context(
             [record], evidence,
@@ -129,6 +130,8 @@ class ContextTests(unittest.TestCase):
             freshness_by_record=current(record["record_id"]),
             selected_at=SELECTED_AT,
         )
+        self.assertEqual(pack["records"][0]["external_evidence_bindings"], ["binding://synthetic/one"])
+        recall_context(json.dumps(pack).encode())
         later = json.loads(json.dumps(pack))
         later["records"][0]["freshness"]["assessed_at"] = "2026-07-31T00:00:00Z"
         with self.assertRaises(ContextReaderFailure):
@@ -152,6 +155,11 @@ class ContextTests(unittest.TestCase):
         malformed_artifact["artifact_refs"] = ["artifact://synthetic/invalid ref"]
         with self.assertRaises(ContextReaderFailure):
             recall_context(json.dumps(repack(malformed_artifact)).encode())
+        malformed_record_id = json.loads(json.dumps(pack))
+        malformed_record_id["records"][0]["record_id"] = "invalid"
+        malformed_record_id["selection_receipt"]["selected_record_ids"] = ["invalid"]
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(malformed_record_id)).encode())
 
 
 if __name__ == "__main__":
