@@ -40,6 +40,8 @@ The receiver and operator are not assumed to be the same principal.
    digests.
 3. **Record validation / claim truth:** schema validity and digest integrity do
    not establish provenance truth, signer trust, authorization, or custody.
+   Authenticated transport is also separate from record-issuer authenticity;
+   v0 signed record input is unsupported and required authenticity fails closed.
 4. **Exchange / authority:** receiving a record or envelope does not authorize
    retrieval, execution, mutation, disclosure, spending, deployment, or
    approval.

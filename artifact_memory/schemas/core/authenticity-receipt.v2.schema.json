@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/authenticity-receipt/v2",
+  "title": "Artifact Memory v0 authenticity assessment receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "subject_ref", "subject_identity_state", "integrity_state", "provenance_state", "assertion_mode", "issuer_identity_state", "audience_state", "transport_state", "authenticity_state", "authorization_state", "trust_state", "requirement", "evaluated_at", "outcome", "authority_boundary", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/authenticity-receipt/v2"},
+    "receipt_id": {"type": "string", "pattern": "^authenticity-receipt://[0-9a-f]{64}$"},
+    "subject_ref": {"type": "string", "minLength": 1},
+    "subject_identity_state": {"const": "reference-declared / not-authenticated"},
+    "integrity_state": {"enum": ["integrity-verified / issuer-unverified", "integrity-unverified", "integrity-failed"]},
+    "provenance_state": {"enum": ["provenance-present", "provenance-absent"]},
+    "assertion_mode": {"enum": ["self-asserted-unsigned", "signed-input-unsupported"]},
+    "issuer_identity_state": {"enum": ["not-asserted", "self-asserted / unverified"]},
+    "issuer_ref": {"type": "string", "minLength": 1},
+    "audience_state": {"enum": ["not-asserted", "self-asserted / unverified"]},
+    "audience_ref": {"type": "string", "minLength": 1},
+    "transport_state": {"enum": ["not-evaluated", "channel-unverified", "channel-authenticated / subject-issuer-unverified"]},
+    "authenticity_state": {"enum": ["issuer-unverified", "authenticity-required-unmet", "signed-input-unsupported"]},
+    "authorization_state": {"const": "not-granted"},
+    "trust_state": {"const": "not-established"},
+    "requirement": {"enum": ["integrity-only", "authenticity-optional", "authenticity-required"]},
+    "evaluated_at": {"type": "string", "format": "date-time"},
+    "outcome": {"enum": ["accepted", "rejected", "unsupported"]},
+    "authority_boundary": {"const": "assessment grants no execution, disclosure, authorization, or trust"},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "extensions": {"type": "object", "additionalProperties": true}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"issuer_identity_state": {"const": "self-asserted / unverified"}}},
+      "then": {"required": ["issuer_ref"]},
+      "else": {"not": {"required": ["issuer_ref"]}}
+    },
+    {
+      "if": {"properties": {"audience_state": {"const": "self-asserted / unverified"}}},
+      "then": {"required": ["audience_ref"]},
+      "else": {"not": {"required": ["audience_ref"]}}
+    },
+    {
+      "if": {"properties": {"requirement": {"const": "authenticity-required"}}},
+      "then": {"properties": {"authenticity_state": {"const": "authenticity-required-unmet"}, "outcome": {"const": "rejected"}}}
+    },
+    {
+      "if": {"properties": {"integrity_state": {"enum": ["integrity-unverified", "integrity-failed"]}}},
+      "then": {"properties": {"outcome": {"const": "rejected"}}}
+    },
+    {
+      "if": {"allOf": [{"properties": {"assertion_mode": {"const": "self-asserted-unsigned"}}}, {"properties": {"integrity_state": {"const": "integrity-verified / issuer-unverified"}}}, {"properties": {"requirement": {"enum": ["integrity-only", "authenticity-optional"]}}}]},
+      "then": {"properties": {"authenticity_state": {"const": "issuer-unverified"}, "outcome": {"const": "accepted"}}}
+    },
+    {
+      "if": {"allOf": [{"properties": {"assertion_mode": {"const": "signed-input-unsupported"}}}, {"properties": {"integrity_state": {"const": "integrity-verified / issuer-unverified"}}}, {"properties": {"requirement": {"enum": ["integrity-only", "authenticity-optional"]}}}]},
+      "then": {"properties": {"authenticity_state": {"const": "signed-input-unsupported"}, "outcome": {"const": "unsupported"}}}
+    },
+    {
+      "if": {"properties": {"authenticity_state": {"const": "issuer-unverified"}}},
+      "then": {"properties": {"assertion_mode": {"const": "self-asserted-unsigned"}, "requirement": {"enum": ["integrity-only", "authenticity-optional"]}}}
+    },
+    {
+      "if": {"properties": {"authenticity_state": {"const": "signed-input-unsupported"}}},
+      "then": {"properties": {"assertion_mode": {"const": "signed-input-unsupported"}, "requirement": {"enum": ["integrity-only", "authenticity-optional"]}}}
+    },
+    {
+      "if": {"properties": {"authenticity_state": {"const": "authenticity-required-unmet"}}},
+      "then": {"properties": {"requirement": {"const": "authenticity-required"}, "outcome": {"const": "rejected"}}}
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "accepted"}}},
+      "then": {"properties": {"integrity_state": {"const": "integrity-verified / issuer-unverified"}, "assertion_mode": {"const": "self-asserted-unsigned"}, "authenticity_state": {"const": "issuer-unverified"}, "requirement": {"enum": ["integrity-only", "authenticity-optional"]}}}
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "unsupported"}}},
+      "then": {"properties": {"integrity_state": {"const": "integrity-verified / issuer-unverified"}, "assertion_mode": {"const": "signed-input-unsupported"}, "authenticity_state": {"const": "signed-input-unsupported"}, "requirement": {"enum": ["integrity-only", "authenticity-optional"]}}}
+    }
+  ]
+}
