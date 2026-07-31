@@ -1,0 +1,92 @@
+{
+  "after_manifest_ref": "manifest://9ba40dc37a9ee532f5e492ee21d117dd84aba3d04213c799f8bcbabc17311986",
+  "authority_boundary": "informational-only/no-execution-authority",
+  "before_manifest_ref": "manifest://bd9285d65d8e4eedd1672ac9f7410ad9cdac4c1afbb6960e230432b501e005fa",
+  "diff": {
+    "added": [
+      "archive",
+      "archive/status.txt",
+      "src/OrderReader.cs"
+    ],
+    "changed": [
+      "src/Order.cs"
+    ],
+    "moved_candidates": [
+      {
+        "content_digest": "sha-256:6c9abfe60c53740bbd7eb6007d9cde9dfe3a231f640ce7de762ad387bc0ed0a9",
+        "from": "notes/status.txt",
+        "to": "archive/status.txt"
+      }
+    ],
+    "outcome": "complete",
+    "removed": [
+      "notes",
+      "notes/status.txt"
+    ]
+  },
+  "limitations": [
+    "moved-candidate is content/tree evidence only and does not prove semantic continuity",
+    "SQLite file bytes are replaceable and are not canonical identity"
+  ],
+  "operations": [
+    {
+      "name": "scan-before",
+      "outcome": "complete"
+    },
+    {
+      "name": "scan-after",
+      "outcome": "complete"
+    },
+    {
+      "name": "verify-before",
+      "outcome": "verified"
+    },
+    {
+      "name": "verify-after",
+      "outcome": "verified"
+    },
+    {
+      "name": "content-tree-diff",
+      "outcome": "complete"
+    },
+    {
+      "name": "project-canonical-records",
+      "outcome": "complete"
+    },
+    {
+      "name": "query-full-text-relationships-provenance",
+      "outcome": "complete"
+    },
+    {
+      "name": "delete-generated-views",
+      "outcome": "complete"
+    },
+    {
+      "name": "rebuild-generated-views",
+      "outcome": "complete"
+    }
+  ],
+  "outcome": "complete",
+  "projection": {
+    "deleted_before_rebuild": true,
+    "full_text_record_ids": [
+      "record://synthetic/scan-projection-0002"
+    ],
+    "logical_rebuild_equivalent": true,
+    "order_independent": true,
+    "provenance_record_ids": [
+      "record://synthetic/scan-projection-0001",
+      "record://synthetic/scan-projection-0002"
+    ],
+    "record_count": 2,
+    "relationships": [
+      {
+        "target_ref": "record://synthetic/scan-projection-0002",
+        "type": "related-to"
+      }
+    ],
+    "source_record_set_digest": "sha-256:546e821c9e347ab3ec7194b9367ef4dc0f10a480e9e9b8d74ae2166a6aac5452"
+  },
+  "receipt_id": "scan-projection-receipt://synthetic/fde3af341b5c2c36690f6825de7d8d6d0319beddacbbfe544c4346ecdba13a88",
+  "schema_id": "artifact-memory/scan-projection-slice-receipt/v1"
+}

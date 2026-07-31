@@ -19,4 +19,4 @@ artifact-memory = "artifact_memory.cli:main"
 include = ["artifact_memory*"]
 
 [tool.setuptools.package-data]
-artifact_memory = ["schemas/**/*.json", "schemas/**/*.md"]
+artifact_memory = ["schemas/**/*.json", "schemas/**/*.md", "schemas/**/*.sql"]

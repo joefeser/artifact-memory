@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import CONTRACT_VERSION, __version__
 from .context import ContextFailure, export_context
-from .projection import project_records, related_records, search_records
+from .projection import project_records, records_with_provenance, related_records, search_records
 from .scan import diff_manifests, scan_path, verify_path
 from .schema_resources import core_schemas
 from .validator import ValidationFailure, load_json, validate
@@ -63,6 +63,10 @@ def main(argv: list[str] | None = None) -> int:
     related.add_argument("index", type=Path)
     related.add_argument("record_id")
     related.add_argument("--json", action="store_true", dest="as_json")
+    provenance = subparsers.add_parser("provenance")
+    provenance.add_argument("index", type=Path)
+    provenance.add_argument("source_ref")
+    provenance.add_argument("--json", action="store_true", dest="as_json")
     context = subparsers.add_parser("context")
     context.add_argument("records", type=Path, nargs="+")
     context.add_argument("--evidence", type=Path)
@@ -98,12 +102,14 @@ def main(argv: list[str] | None = None) -> int:
         try:
             before = load_json(args.before)
             after = load_json(args.after)
+            if not isinstance(before, dict) or not isinstance(after, dict):
+                raise ValidationFailure("invalid-input", "manifests must be JSON objects")
+            result = diff_manifests(before, after)
         except ValidationFailure as exc:
-            _receipt({"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]}, args.as_json)
+            _receipt({"outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}, args.as_json)
             return EXIT_INVALID
-        result = diff_manifests(before, after)
         _receipt(result, args.as_json)
-        return EXIT_OK
+        return EXIT_OK if result["outcome"] == "complete" else EXIT_INVALID
     if args.command == "project":
         try:
             result = project_records(args.records, args.out)
@@ -113,10 +119,28 @@ def main(argv: list[str] | None = None) -> int:
         _receipt(result, args.as_json)
         return EXIT_OK
     if args.command == "search":
-        _receipt({"outcome": "complete", "record_ids": search_records(args.index, args.query)}, args.as_json)
+        try:
+            record_ids = search_records(args.index, args.query)
+        except ValidationFailure as exc:
+            _receipt({"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]}, args.as_json)
+            return EXIT_INVALID
+        _receipt({"outcome": "complete", "record_ids": record_ids}, args.as_json)
         return EXIT_OK
     if args.command == "related":
-        _receipt({"outcome": "complete", "record_id": args.record_id, "relationships": related_records(args.index, args.record_id)}, args.as_json)
+        try:
+            relationships = related_records(args.index, args.record_id)
+        except ValidationFailure as exc:
+            _receipt({"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]}, args.as_json)
+            return EXIT_INVALID
+        _receipt({"outcome": "complete", "record_id": args.record_id, "relationships": relationships}, args.as_json)
+        return EXIT_OK
+    if args.command == "provenance":
+        try:
+            records = records_with_provenance(args.index, args.source_ref)
+        except ValidationFailure as exc:
+            _receipt({"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]}, args.as_json)
+            return EXIT_INVALID
+        _receipt({"outcome": "complete", "source_ref": args.source_ref, "records": records}, args.as_json)
         return EXIT_OK
     if args.command == "context":
         try:

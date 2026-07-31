@@ -4,15 +4,19 @@
   "title": "Artifact Memory content/tree diff receipt v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_id", "before_manifest_ref", "after_manifest_ref", "added", "removed", "changed", "moved_candidates", "limitations"],
+  "required": ["schema_id", "outcome", "before_manifest_ref", "before_completeness", "after_manifest_ref", "after_completeness", "added", "removed", "changed", "moved_candidates", "diagnostics", "limitations"],
   "properties": {
     "schema_id": {"const": "artifact-memory/diff-receipt/v1"},
+    "outcome": {"type": "string", "enum": ["complete", "partial"]},
     "before_manifest_ref": {"type": "string", "pattern": "^manifest://[0-9a-f]{64}$"},
+    "before_completeness": {"type": "string", "enum": ["complete", "partial", "failed", "cancelled"]},
     "after_manifest_ref": {"type": "string", "pattern": "^manifest://[0-9a-f]{64}$"},
+    "after_completeness": {"type": "string", "enum": ["complete", "partial", "failed", "cancelled"]},
     "added": {"type": "array", "items": {"type": "string"}},
     "removed": {"type": "array", "items": {"type": "string"}},
     "changed": {"type": "array", "items": {"type": "string"}},
     "moved_candidates": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["from", "to", "content_digest"], "properties": {"from": {"type": "string"}, "to": {"type": "string"}, "content_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}}}},
+    "diagnostics": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": {"code": {"const": "input-manifest-incomplete"}, "message": {"type": "string", "minLength": 1}}}},
     "limitations": {"type": "array", "items": {"type": "string"}},
     "extensions": {"type": "object", "additionalProperties": true}
   }

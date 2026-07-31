@@ -10,7 +10,7 @@
     "outcome": {"enum": ["complete", "rejected"]},
     "record_count": {"type": "integer", "minimum": 0},
     "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
-    "generated_views": {"type": "array", "items": {"type": "string", "enum": ["ndjson", "sqlite", "fts", "relationships"]}},
+    "generated_views": {"type": "array", "items": {"type": "string", "enum": ["ndjson", "sqlite", "metadata", "provenance", "fts", "relationships"]}},
     "diagnostics": {"type": "array", "items": {"type": "string"}},
     "extensions": {"type": "object", "additionalProperties": true}
   }
