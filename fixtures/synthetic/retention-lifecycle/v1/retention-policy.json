@@ -1,0 +1,13 @@
+{
+  "schema_id": "artifact-memory/retention-policy/v2",
+  "policy_id": "retention-policy://synthetic/deferred-expiry",
+  "retention_class": "deferred-expiry",
+  "owner_ref": "actor://synthetic/owner",
+  "owner_hold": false,
+  "legal_hold": false,
+  "expires_at": "2026-08-31T00:00:00Z",
+  "backup_expiry_behavior": "managed-expiry",
+  "unknown_replica_behavior": "report-scope-unknown",
+  "git_history_behavior": "separate-rewrite-authorization-required",
+  "deletion_authority": "separate-owner-or-legal-authorization-required"
+}

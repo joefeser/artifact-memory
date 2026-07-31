@@ -72,11 +72,31 @@ def _json_equal(left: Any, right: Any) -> bool:
     return type(left) is type(right) and left == right
 
 
+def _matches(value: Any, schema: dict[str, Any], path: str) -> bool:
+    try:
+        validate(value, schema, path)
+    except ValidationFailure as exc:
+        if exc.code == "unsupported-schema-keyword":
+            raise
+        return False
+    return True
+
+
 def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
-    supported = {"$schema", "$id", "title", "type", "additionalProperties", "required", "dependentRequired", "properties", "const", "enum", "pattern", "minLength", "minItems", "minimum", "format", "items"}
+    supported = {"$schema", "$id", "title", "type", "additionalProperties", "required", "dependentRequired", "properties", "const", "enum", "pattern", "minLength", "minItems", "minimum", "format", "items", "allOf", "anyOf", "not", "if", "then", "else"}
     unknown = set(schema) - supported
     if unknown:
         _fail("unsupported-schema-keyword", "unsupported schema keyword", path)
+    for child_schema in schema.get("allOf", []):
+        validate(value, child_schema, path)
+    if "anyOf" in schema and not any(_matches(value, child_schema, path) for child_schema in schema["anyOf"]):
+        _fail("constraint-failed", "value does not match any allowed schema", path)
+    if "not" in schema and _matches(value, schema["not"], path):
+        _fail("constraint-failed", "value matches a forbidden schema", path)
+    if "if" in schema:
+        branch = "then" if _matches(value, schema["if"], path) else "else"
+        if branch in schema:
+            validate(value, schema[branch], path)
     if "const" in schema and not _json_equal(value, schema["const"]):
         _fail("constraint-failed", "value does not match const", path)
     if "enum" in schema and not any(_json_equal(value, candidate) for candidate in schema["enum"]):

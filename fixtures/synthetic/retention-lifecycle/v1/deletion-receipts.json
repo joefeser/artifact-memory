@@ -1,0 +1,88 @@
+[
+  {
+    "authority_ref": "authority://synthetic/incident-response-0001",
+    "destructive_execution_authorization": "separate-owner-or-legal-authorization-required",
+    "endpoint_ref": "endpoint://synthetic/active-vault",
+    "evidence_refs": ["sha-256:d28bdfd6b86009daadb5d15332007ae52f28beb8c4f55b6981a8ee41aa258a30"],
+    "global_erasure_claim": false,
+    "limitations": [
+      "absence from one endpoint does not prove global erasure",
+      "unknown or unmanaged replicas are outside this receipt"
+    ],
+    "managed_scope": true,
+    "observed_at": "2026-07-31T00:00:00Z",
+    "outcome": "verified-absent-at-endpoint",
+    "receipt_id": "deletion-receipt://synthetic/0610003ebad15e53a8dc1abd74e829c5be48abd18584964e8ddbaa4e31bed68b",
+    "schema_id": "artifact-memory/deletion-receipt/v2",
+    "scope": "active-vault",
+    "target_ref": "record://synthetic/accidental-0001"
+  },
+  {
+    "authority_ref": "authority://synthetic/owner-approval-0001",
+    "destructive_execution_authorization": "separate-owner-or-legal-authorization-required",
+    "endpoint_ref": "endpoint://synthetic/active-vault",
+    "evidence_refs": ["sha-256:d28bdfd6b86009daadb5d15332007ae52f28beb8c4f55b6981a8ee41aa258a30"],
+    "global_erasure_claim": false,
+    "limitations": [
+      "absence from one endpoint does not prove global erasure",
+      "unknown or unmanaged replicas are outside this receipt"
+    ],
+    "managed_scope": true,
+    "observed_at": "2026-07-31T00:00:00Z",
+    "outcome": "verified-absent-at-endpoint",
+    "receipt_id": "deletion-receipt://synthetic/586015b6772ae7a01fa9a7f56a7bcc85382a1170bc163946e0c1eefe7f19fc49",
+    "schema_id": "artifact-memory/deletion-receipt/v2",
+    "scope": "active-vault",
+    "target_ref": "record://synthetic/owner-delete-0001"
+  },
+  {
+    "destructive_execution_authorization": "separate-owner-or-legal-authorization-required",
+    "endpoint_ref": "endpoint://synthetic/generated-index",
+    "evidence_refs": [
+      "sha-256:d28bdfd6b86009daadb5d15332007ae52f28beb8c4f55b6981a8ee41aa258a30",
+      "sha-256:3eba1d8f6680237827874bd802875d0406fd9c82ae19ddfb708d5f81b3f5fc85"
+    ],
+    "global_erasure_claim": false,
+    "limitations": [
+      "absence from one endpoint does not prove global erasure",
+      "unknown or unmanaged replicas are outside this receipt"
+    ],
+    "managed_scope": true,
+    "observed_at": "2026-07-31T00:00:00Z",
+    "outcome": "verified-absent-at-endpoint",
+    "receipt_id": "deletion-receipt://synthetic/a752622b0c042a40ace5430fe71108acf3f44cc059a0b6a2f993c021c327c2b4",
+    "schema_id": "artifact-memory/deletion-receipt/v2",
+    "scope": "generated-index",
+    "target_ref": "record-set://synthetic/deletion-targets"
+  },
+  {
+    "destructive_execution_authorization": "separate-owner-or-legal-authorization-required",
+    "endpoint_ref": "endpoint://artifact-memory/joe-home-proxmox-vault-1",
+    "evidence_refs": ["retention-policy://synthetic/deferred-expiry"],
+    "generation_ref": "snapshot-synthetic-0001",
+    "global_erasure_claim": false,
+    "limitations": [
+      "named backup generation remains until managed expiry",
+      "backup receipt says nothing about other generations or endpoints"
+    ],
+    "managed_scope": true,
+    "observed_at": "2026-07-31T00:00:00Z",
+    "outcome": "retained-until-expiry",
+    "receipt_id": "deletion-receipt://synthetic/81742d778352502a6ec38c78cd4eb109221d843803faaa7593214066389c5c24",
+    "schema_id": "artifact-memory/deletion-receipt/v2",
+    "scope": "managed-backup",
+    "target_ref": "record-set://synthetic/deletion-targets"
+  },
+  {
+    "destructive_execution_authorization": "separate-owner-or-legal-authorization-required",
+    "global_erasure_claim": false,
+    "limitations": ["unknown or unmanaged replicas cannot be enumerated or verified"],
+    "managed_scope": false,
+    "observed_at": "2026-07-31T00:00:00Z",
+    "outcome": "scope-unknown",
+    "receipt_id": "deletion-receipt://synthetic/b68b4dd0a7b6df314e3feaa60b56520eabb28f0bc8769569c1a105ec3ac7b45c",
+    "schema_id": "artifact-memory/deletion-receipt/v2",
+    "scope": "unknown-replica",
+    "target_ref": "record-set://synthetic/deletion-targets"
+  }
+]

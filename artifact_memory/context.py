@@ -175,7 +175,7 @@ def export_context(
 
     record_list = list(records)
     for record in record_list:
-        validate(record, _knowledge_schema())
+        validate(record, _knowledge_schema(record))
     ordered = sorted(record_list, key=lambda record: record["record_id"])
     record_ids = [record["record_id"] for record in ordered]
     if len(record_ids) != len(set(record_ids)):

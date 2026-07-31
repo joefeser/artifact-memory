@@ -1,0 +1,23 @@
+[
+  {
+    "content_status": "derivative-replaced",
+    "created_at": "2026-07-31T00:00:00Z",
+    "deletion_receipt_ref": "deletion-receipt://synthetic/0610003ebad15e53a8dc1abd74e829c5be48abd18584964e8ddbaa4e31bed68b",
+    "reason": "redacted-derivative",
+    "schema_id": "artifact-memory/tombstone/v2",
+    "sensitive_payload_retained": false,
+    "superseded_by_ref": "record://synthetic/redacted-0001",
+    "target_ref": "record://synthetic/accidental-0001",
+    "tombstone_id": "tombstone://2dd246548998b83cacd6f2c186d83ad2c0bb207e69b742245425b3186461d319"
+  },
+  {
+    "content_status": "bytes-removed-from-scope",
+    "created_at": "2026-07-31T00:00:00Z",
+    "deletion_receipt_ref": "deletion-receipt://synthetic/586015b6772ae7a01fa9a7f56a7bcc85382a1170bc163946e0c1eefe7f19fc49",
+    "reason": "owner-approved-deletion",
+    "schema_id": "artifact-memory/tombstone/v2",
+    "sensitive_payload_retained": false,
+    "target_ref": "record://synthetic/owner-delete-0001",
+    "tombstone_id": "tombstone://1d2d106c8e86fedee05b206ce40c416b25e507ea816b3c75b68cc4141f71c3cc"
+  }
+]

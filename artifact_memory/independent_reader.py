@@ -26,7 +26,8 @@ def _validate_record(record: dict[str, Any]) -> None:
     required = {"schema_id", "record_id", "record_type", "lifecycle", "meaning", "artifact_refs", "provenance"}
     if set(record) - allowed or required - set(record):
         raise ReaderFailure("canonical record fields are invalid")
-    if record.get("schema_id") != "artifact-memory/knowledge-record/v1":
+    schema_id = record.get("schema_id")
+    if schema_id not in {"artifact-memory/knowledge-record/v1", "artifact-memory/knowledge-record/v2"}:
         raise ReaderFailure("unsupported canonical record schema")
     record_id = record.get("record_id")
     if not isinstance(record_id, str) or re.fullmatch(r"record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+", record_id) is None:
@@ -62,7 +63,11 @@ def _validate_record(record: dict[str, Any]) -> None:
         if (
             not isinstance(relationship, dict)
             or set(relationship) != {"type", "target_ref"}
-            or relationship.get("type") not in {"related-to", "produced-from", "supported-by-external-evidence"}
+            or relationship.get("type") not in (
+                {"related-to", "produced-from", "supported-by-external-evidence"}
+                if schema_id == "artifact-memory/knowledge-record/v1"
+                else {"related-to", "produced-from", "redacted-from", "supported-by-external-evidence"}
+            )
             or not isinstance(relationship.get("target_ref"), str)
             or not relationship["target_ref"]
         ):

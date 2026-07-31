@@ -4,7 +4,7 @@ from pathlib import Path
 
 from artifact_memory.context import AUTHORITY_BOUNDARY, ContextFailure, export_context
 from artifact_memory.independent_context_reader import ContextReaderFailure, recall_context
-from artifact_memory.validator import validate
+from artifact_memory.validator import ValidationFailure, validate
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,6 +92,9 @@ class ContextTests(unittest.TestCase):
         record = json.loads(FIXTURE.read_text(encoding="utf-8"))
         record_id = record["record_id"]
         kwargs = {"freshness_by_record": current(record_id), "selected_at": SELECTED_AT}
+        with self.assertRaises(ValidationFailure) as record_error:
+            export_context([record, "not-an-object"], authorized_record_ids=[record_id], **kwargs)
+        self.assertEqual(record_error.exception.code, "invalid-input")
         with self.assertRaises(ContextFailure) as records_error:
             export_context([record], authorized_record_ids=[[]], **kwargs)
         self.assertEqual(records_error.exception.code, "selection-policy-invalid")
