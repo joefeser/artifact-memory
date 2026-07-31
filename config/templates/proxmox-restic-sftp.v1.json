@@ -1,0 +1,11 @@
+{
+  "schema_id": "artifact-memory/restic-sftp-config/v1",
+  "endpoint_ref": "endpoint://joe-home-proxmox-vault-1",
+  "transport": "restic-over-sftp",
+  "tailnet_boundary": {"required": true, "public_inbound": false},
+  "address_state": "owner-to-fill",
+  "account_state": "owner-to-fill",
+  "repository_state": "owner-to-fill",
+  "secret_state": "external-not-recorded",
+  "remote_write_state": "not-authorized"
+}

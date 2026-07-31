@@ -1,0 +1,20 @@
+{
+  "schema_id": "artifact-memory/legacy-observation/v1",
+  "source_ref": "https://github.com/joefeser/WhereAreMyFiles",
+  "read_only": true,
+  "historical_fields": {
+    "path_observed": "synthetic/legacy/file.bin",
+    "byte_size_observed": 1024,
+    "created_time_observed": "2010-01-01T00:00:00Z",
+    "modified_time_observed": "2010-01-02T00:00:00Z",
+    "legacy_hash": {"algorithm": "sha-1", "state": "none-recorded", "value": "NONE"}
+  },
+  "artifact_identity": "not-established",
+  "content_identity": "not-established",
+  "mutation": "none",
+  "limitations": [
+    "historical evidence is not a current filesystem observation",
+    "SHA-1 is preserved as historical evidence and never upgraded to SHA-256",
+    "legacy NONE values remain not-recorded"
+  ]
+}

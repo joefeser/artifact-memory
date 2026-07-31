@@ -1,0 +1,17 @@
+{
+  "schema_id": "artifact-memory/release-manifest/v1",
+  "release_id": "artifact-memory/v0.1.0-preview",
+  "status": "preview",
+  "source_commit": "9f16b6ac61e5ac708a4cf4f89ce619a880a6be71",
+  "source_tree_digest": "sha-256:3ac462b5eca422cebfc3e73b14843bc77156f2e1fe50d2b2c55b5cdfded3dc48",
+  "artifacts": [
+    {
+      "name": "artifact-memory-0.1.0-preview.tar",
+      "kind": "source-archive",
+      "format": "git-archive-tar",
+      "sha256": "sha-256:c8abb3526d4ddb2b9bd84b54883d37bf7fd8cb4a905f7b4b144fe7523cd2f4f3",
+      "provenance": "git archive --format=tar --prefix=artifact-memory-0.1.0-preview/ 9f16b6a"
+    }
+  ],
+  "signature": {"state": "not-signed", "requirement": "owner-controlled signing key required before public release"}
+}

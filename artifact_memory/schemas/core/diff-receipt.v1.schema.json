@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/diff-receipt/v1",
+  "title": "Artifact Memory content/tree diff receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "before_manifest_ref", "after_manifest_ref", "added", "removed", "changed", "moved_candidates", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/diff-receipt/v1"},
+    "before_manifest_ref": {"type": "string", "pattern": "^manifest://[0-9a-f]{64}$"},
+    "after_manifest_ref": {"type": "string", "pattern": "^manifest://[0-9a-f]{64}$"},
+    "added": {"type": "array", "items": {"type": "string"}},
+    "removed": {"type": "array", "items": {"type": "string"}},
+    "changed": {"type": "array", "items": {"type": "string"}},
+    "moved_candidates": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["from", "to", "content_digest"], "properties": {"from": {"type": "string"}, "to": {"type": "string"}, "content_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}}}},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

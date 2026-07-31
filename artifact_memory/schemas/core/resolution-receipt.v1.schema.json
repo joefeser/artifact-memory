@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/resolution-receipt/v1",
+  "title": "Artifact Memory logical resolution receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "endpoint_ref", "relative_path", "outcome", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/resolution-receipt/v1"},
+    "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$"},
+    "relative_path": {"type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(?:/|$)).+$"},
+    "resolved_path_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "outcome": {"enum": ["resolved", "unavailable-endpoint", "ambiguous", "not-authorized", "unsupported"]},
+    "authority_boundary": {"const": "local resolution does not bypass local authorization"},
+    "diagnostics": {"type": "array", "items": {"type": "string"}}
+  }
+}

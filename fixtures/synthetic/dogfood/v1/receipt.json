@@ -1,0 +1,12 @@
+{
+  "schema_id": "artifact-memory/dogfood-receipt/v1",
+  "receipt_id": "dogfood-receipt://dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "scope": "synthetic-conformance-only",
+  "records_validated": 1,
+  "content_registered": 1,
+  "projection_rebuilt": true,
+  "context_pack_verified": true,
+  "backup_restored_isolated": true,
+  "private_material_committed": false,
+  "limitations": ["Synthetic fixture does not claim private vault contents are public.", "Restore used an isolated target and an externally supplied passphrase."]
+}

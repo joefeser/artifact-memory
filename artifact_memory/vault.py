@@ -1,0 +1,48 @@
+"""Immutable content-addressed registration in a local private vault."""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from .canonical import receipt_with_digest, sha256_path
+
+AUTHORITY_BOUNDARY = "registration does not grant execution, disclosure, or mutation authority"
+
+
+def register_bytes(vault_root: Path, data: bytes, media_type: str = "application/octet-stream") -> dict[str, Any]:
+    digest_hex = hashlib.sha256(data).hexdigest()
+    digest = "sha-256:" + digest_hex
+    objects = vault_root / "objects" / "sha256"
+    objects.mkdir(parents=True, exist_ok=True)
+    target = objects / digest_hex[:2] / digest_hex[2:]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    outcome = "duplicate" if target.exists() else "registered"
+    diagnostics: list[str] = []
+    if outcome == "duplicate":
+        try:
+            existing_matches = not target.is_symlink() and target.is_file() and target.stat().st_size == len(data) and sha256_path(target) == digest
+        except OSError:
+            existing_matches = False
+        if not existing_matches:
+            outcome = "failed"
+            diagnostics.append("existing-object-integrity-failed")
+    if outcome == "registered":
+        fd, temporary = tempfile.mkstemp(prefix=".partial-", dir=target.parent)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+    content_ref = f"content://vault/{digest_hex}"
+    artifact_version_ref = f"artifact-version://vault/{digest_hex}/1"
+    body = {"outcome": outcome, "content_ref": content_ref, "artifact_version_ref": artifact_version_ref, "byte_size": len(data), "digest": digest, "authority_boundary": AUTHORITY_BOUNDARY}
+    receipt = receipt_with_digest("artifact-memory/content-registration-receipt/v1", "registration-receipt://", body)
+    return {**receipt, "media_type": media_type, "diagnostics": diagnostics}

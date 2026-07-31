@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/platform-matrix-receipt/v1",
+  "title": "Artifact Memory platform matrix receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "profile", "runtime", "observations", "diagnostics", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/platform-matrix-receipt/v1"},
+    "profile": {"const": "v0-case-sensitive-unicode-codepoint"},
+    "runtime": {"type": "object", "additionalProperties": false, "required": ["family", "python"], "properties": {"family": {"enum": ["darwin", "linux", "windows"]}, "python": {"type": "string"}}},
+    "observations": {"type": "object", "additionalProperties": false, "required": ["case_sensitivity", "unicode_name_behavior", "symlink_behavior", "timestamps", "mount_layout"], "properties": {"case_sensitivity": {"enum": [true, false, null]}, "unicode_name_behavior": {"type": "string"}, "symlink_behavior": {"type": "string"}, "timestamps": {"const": "ignored-by-v0-profile"}, "mount_layout": {"const": "logical-relative-paths-only"}}},
+    "diagnostics": {"type": "array", "items": {"type": "string"}},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/git-bundle-receipt/v1",
+  "title": "Artifact Memory Git bundle receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "bundle_digest", "source_ref", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/git-bundle-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^git-bundle-receipt://[0-9a-f]{64}$"},
+    "outcome": {"enum": ["created", "failed"]},
+    "bundle_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "source_ref": {"type": "string", "minLength": 1},
+    "authority_boundary": {"const": "backup and restore do not grant execution, disclosure, or mutation authority"}
+  }
+}

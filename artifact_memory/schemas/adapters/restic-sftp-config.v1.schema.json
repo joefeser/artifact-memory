@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/adapters/restic-sftp-config/v1",
+  "title": "Artifact Memory restic-over-SFTP owner configuration template v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "endpoint_ref", "transport", "tailnet_boundary", "address_state", "account_state", "repository_state", "secret_state", "remote_write_state"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/restic-sftp-config/v1"},
+    "endpoint_ref": {"const": "endpoint://joe-home-proxmox-vault-1"},
+    "transport": {"const": "restic-over-sftp"},
+    "tailnet_boundary": {"type": "object", "additionalProperties": false, "required": ["required", "public_inbound"], "properties": {"required": {"const": true}, "public_inbound": {"const": false}}},
+    "address_state": {"const": "owner-to-fill"},
+    "account_state": {"const": "owner-to-fill"},
+    "repository_state": {"const": "owner-to-fill"},
+    "secret_state": {"const": "external-not-recorded"},
+    "remote_write_state": {"const": "not-authorized"}
+  }
+}

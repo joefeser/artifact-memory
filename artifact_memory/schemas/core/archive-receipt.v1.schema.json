@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/archive-receipt/v1",
+  "title": "Artifact Memory archive inspection receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "outcome", "container_digest", "entries", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/archive-receipt/v1"},
+    "outcome": {"enum": ["supported", "partial", "unsupported", "failed"]},
+    "container_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "entries": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "byte_size", "content_digest"], "properties": {"path": {"type": "string"}, "byte_size": {"type": "integer", "minimum": 0}, "content_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}}}},
+    "extracted_tree_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "diagnostics": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": {"code": {"type": "string"}, "message": {"type": "string"}}}}
+  }
+}

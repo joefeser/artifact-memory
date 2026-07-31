@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/authenticity-receipt/v1",
+  "title": "Artifact Memory authenticity distinction receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "subject_ref", "integrity_state", "provenance_state", "authenticity_state", "authorization_state", "trust_state", "outcome"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/authenticity-receipt/v1"},
+    "subject_ref": {"type": "string", "minLength": 1},
+    "integrity_state": {"enum": ["integrity-verified / issuer-unverified", "integrity-unverified", "integrity-failed"]},
+    "provenance_state": {"enum": ["provenance-present", "provenance-incomplete", "provenance-absent"]},
+    "authenticity_state": {"enum": ["issuer-unverified", "authenticity-verified", "authenticity-required-unmet", "signed-input-unsupported", "authenticity-invalid", "authenticity-expired", "authenticity-unknown-key"]},
+    "authorization_state": {"enum": ["not-granted", "separately-authorized", "authorization-unknown"]},
+    "trust_state": {"enum": ["not-established", "locally-trusted-by-policy", "trust-unknown"]},
+    "requirement": {"enum": ["integrity-only", "authenticity-optional", "authenticity-required"]},
+    "issuer_ref": {"type": "string", "minLength": 1},
+    "audience_ref": {"type": "string", "minLength": 1},
+    "signer_key_ref": {"type": "string", "minLength": 1},
+    "algorithm": {"type": "string", "minLength": 1},
+    "outcome": {"enum": ["accepted", "rejected", "unsupported"]},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/release-manifest/v1",
+  "title": "Artifact Memory release manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "release_id", "status", "source_commit", "source_tree_digest", "artifacts", "signature"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/release-manifest/v1"},
+    "release_id": {"type": "string", "pattern": "^artifact-memory/v[0-9]+\\.[0-9]+\\.[0-9]+-[A-Za-z0-9.-]+$"},
+    "status": {"enum": ["preview", "release"]},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "source_tree_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "artifacts": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["name", "kind", "format", "sha256", "provenance"], "properties": {"name": {"type": "string"}, "kind": {"enum": ["source-archive", "checksum-file", "documentation"]}, "format": {"type": "string"}, "sha256": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}, "provenance": {"type": "string", "minLength": 1}}}},
+    "signature": {"type": "object", "additionalProperties": false, "required": ["state", "requirement"], "properties": {"state": {"enum": ["not-signed", "signed"]}, "requirement": {"type": "string", "minLength": 1}}}
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/adapters/adapter-receipt/v1",
+  "title": "Artifact Memory adapter receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "adapter_ref", "outcome", "authority_boundary", "diagnostics"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/adapter-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^adapter-receipt://[0-9a-f]{64}$"},
+    "adapter_ref": {"type": "string", "pattern": "^adapter://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "outcome": {"enum": ["succeeded", "failed", "unsupported", "not-authorized"]},
+    "authority_boundary": {"const": "record contents do not authorize adapter execution"},
+    "diagnostics": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": {"code": {"type": "string"}, "message": {"type": "string"}}}}
+  }
+}

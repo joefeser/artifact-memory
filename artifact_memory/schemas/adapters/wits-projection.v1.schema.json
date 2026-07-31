@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/adapters/wits-projection/v1",
+  "title": "Artifact Memory WITS projection reference v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "projection_id", "source_record_refs", "projection_kind", "wits_projection_ref", "wits_projection_schema_ref", "projection_digest", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/wits-projection/v1"},
+    "projection_id": {"type": "string", "pattern": "^wits-binding://[0-9a-f]{64}$"},
+    "source_record_refs": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["record_id", "revision_digest"], "properties": {"record_id": {"type": "string"}, "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}}}},
+    "external_evidence_refs": {"type": "array", "items": {"type": "string"}},
+    "projection_kind": {"enum": ["owner-meaning", "decision", "readiness", "ambiguity", "unsupported"]},
+    "wits_projection_ref": {"type": "string", "minLength": 1},
+    "wits_projection_schema_ref": {"type": "string", "minLength": 1},
+    "projection_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "authority_boundary": {"const": "informational projection only; no HACP task, route, continuation, or execution authority"},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

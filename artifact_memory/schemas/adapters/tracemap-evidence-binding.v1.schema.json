@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/adapters/tracemap-evidence-binding/v1",
+  "title": "Artifact Memory TraceMap evidence binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "binding_id", "source_version_ref", "provider", "evidence_packet_ref", "integrity_state", "selected_provider_record_ids", "receipt", "content_objects", "relations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/tracemap-evidence-binding/v1"},
+    "binding_id": {"type": "string", "pattern": "^binding://tracemap/[0-9a-f]{64}$"},
+    "source_version_ref": {"type": "string", "pattern": "^artifact-version://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+/[0-9]+$"},
+    "provider": {"type": "object", "additionalProperties": false, "required": ["id", "contract_anchor", "record_schema_ids"], "properties": {"id": {"const": "tracemap"}, "contract_anchor": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "record_schema_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}}}},
+    "evidence_packet_ref": {"type": "string", "pattern": "^artifact-version://tracemap/evidence/[0-9a-f]{64}/1$"},
+    "integrity_state": {"const": "integrity-verified / issuer-unverified"},
+    "selected_provider_record_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "content_objects": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["name", "digest"], "properties": {"name": {"type": "string", "minLength": 1}, "digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}}}},
+    "relations": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["type", "source", "target", "supports_claim"], "properties": {"type": {"const": "produced-from"}, "source": {"type": "string", "minLength": 1}, "target": {"type": "string", "minLength": 1}, "supports_claim": {"type": "boolean"}}}},
+    "receipt": {"type": "object", "additionalProperties": false, "required": ["outcome", "deterministic_body_digest", "diagnostics"], "properties": {"outcome": {"enum": ["complete", "partial-evidence-admitted"]}, "deterministic_body_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}, "diagnostics": {"type": "array", "items": {"type": "string"}}}}
+  }
+}

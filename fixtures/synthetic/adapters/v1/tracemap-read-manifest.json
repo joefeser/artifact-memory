@@ -1,0 +1,11 @@
+{
+  "schema_id": "artifact-memory/adapter-manifest/v1",
+  "adapter_id": "adapter://artifact-memory/tracemap-evidence",
+  "adapter_version": "v1.0",
+  "supported_contract_versions": ["artifact-memory/tracemap-evidence-binding/v1", "https://tracemap.tools/contracts/scan-manifest.v1.schema.json", "https://tracemap.tools/contracts/code-fact.v1.schema.json"],
+  "capabilities": {"filesystem": "read", "network": "none", "credentials": "none", "mutation": "none", "read_capabilities": ["trace-map-local-output"]},
+  "input_schema_refs": ["artifact-memory/artifact-version/v1"],
+  "output_schema_refs": ["artifact-memory/tracemap-evidence-binding/v1", "artifact-memory/adapter-receipt/v1"],
+  "determinism": "deterministic",
+  "record_contents_authorize_execution": false
+}

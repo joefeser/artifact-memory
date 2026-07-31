@@ -1,0 +1,11 @@
+{
+  "schema_id": "artifact-memory/exchange-envelope/v1",
+  "envelope_id": "exchange://0000000000000000000000000000000000000000000000000000000000000000",
+  "audience_ref": "system://synthetic-reader",
+  "correlation_id": "synthetic-exchange-0001",
+  "expires_at": "2099-01-01T00:00:00Z",
+  "record_refs": [{"record_id": "record://synthetic/record-0001", "revision_digest": "sha-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],
+  "artifact_refs": ["artifact://synthetic/order-sample"],
+  "handling": {"sensitivity": "public", "disclosure": "informational-only"},
+  "authority_boundary": "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"
+}
