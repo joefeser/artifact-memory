@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -13,7 +12,7 @@ from .canonical import canonical_bytes, receipt_with_digest
 from .projection import logical_projection_snapshot, project_records
 from .retention import deletion_receipt, overall_deletion_status, retention_disposition, tombstone
 from .schema_resources import load_schema
-from .validator import validate
+from .validator import load_json, validate
 
 
 OBSERVED_AT = "2026-07-31T00:00:00Z"
@@ -24,16 +23,19 @@ BACKUP_GENERATION = "snapshot-synthetic-0001"
 
 
 def _load(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
+    value = load_json(path)
     if not isinstance(value, dict):
         raise RuntimeError(f"fixture must contain an object: {path.name}")
     return value
 
 
-def _load_array(path: Path) -> list[dict[str, Any]]:
-    value = json.loads(path.read_text(encoding="utf-8"))
+def _load_array(path: Path, schema_name: str) -> list[dict[str, Any]]:
+    value = load_json(path)
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise RuntimeError(f"fixture must contain an array of objects: {path.name}")
+    schema = load_schema("core", schema_name)
+    for item in value:
+        validate(item, schema)
     return value
 
 
@@ -168,9 +170,9 @@ def run_retention_lifecycle_slice(fixture_root: Path) -> dict[str, Any]:
     for marker in (accidental_tombstone, owner_tombstone):
         validate(marker, load_schema("core", "tombstone.v2.schema.json"))
     markers = [accidental_tombstone, owner_tombstone]
-    if receipts != _load_array(fixture_root / "deletion-receipts.json"):
+    if receipts != _load_array(fixture_root / "deletion-receipts.json", "deletion-receipt.v2.schema.json"):
         raise RuntimeError("generated deletion receipts do not match checked evidence")
-    if markers != _load_array(fixture_root / "tombstones.json"):
+    if markers != _load_array(fixture_root / "tombstones.json", "tombstone.v2.schema.json"):
         raise RuntimeError("generated tombstones do not match checked evidence")
     evidence_digest = "sha-256:" + hashlib.sha256(
         canonical_bytes({"deletion_receipts": receipts, "tombstones": markers})
