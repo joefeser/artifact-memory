@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-from artifact_memory.authenticity import AUTHORITY_BOUNDARY, UNSIGNED_STATE, evaluate
+from artifact_memory.authenticity import AUTHORITY_BOUNDARY, INTEGRITY_VERIFIED_STATE, evaluate
 from artifact_memory.canonical import receipt_with_digest
 from artifact_memory.schema_resources import load_schema
 from artifact_memory.validator import ValidationFailure, validate
@@ -38,7 +38,7 @@ class AuthenticityTests(unittest.TestCase):
             evaluated_at=EVALUATED_AT,
         )
         self.assertEqual(receipt["schema_id"], "artifact-memory/authenticity-receipt/v2")
-        self.assertEqual(receipt["integrity_state"], UNSIGNED_STATE)
+        self.assertEqual(receipt["integrity_state"], INTEGRITY_VERIFIED_STATE)
         self.assertEqual(receipt["issuer_identity_state"], "self-asserted / unverified")
         self.assertEqual(receipt["authenticity_state"], "issuer-unverified")
         self.assertEqual(receipt["authorization_state"], "not-granted")
@@ -121,6 +121,24 @@ class AuthenticityTests(unittest.TestCase):
     def test_invalid_assessment_arguments_fail_closed(self):
         with self.assertRaisesRegex(ValueError, "integrity_verified"):
             evaluate("artifact://synthetic/one", 1, True, evaluated_at=EVALUATED_AT)
+        for requirement in ("", 0):
+            with self.subTest(requirement=requirement), self.assertRaisesRegex(ValueError, "unsupported"):
+                evaluate(
+                    "artifact://synthetic/one",
+                    True,
+                    True,
+                    requirement=requirement,
+                    evaluated_at=EVALUATED_AT,
+                )
+        for field in ("issuer_ref", "audience_ref"):
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, field):
+                evaluate(
+                    "artifact://synthetic/one",
+                    True,
+                    True,
+                    evaluated_at=EVALUATED_AT,
+                    **{field: "  "},
+                )
         with self.assertRaisesRegex(ValueError, "conflicts"):
             evaluate(
                 "artifact://synthetic/one",

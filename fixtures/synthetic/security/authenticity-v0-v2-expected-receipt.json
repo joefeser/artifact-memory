@@ -35,6 +35,14 @@
       "transport_state": "not-evaluated"
     },
     {
+      "assessment_receipt_id": "authenticity-receipt://6f07e72ca9c2fef6fdc6a210e65534b5fc36ab4c94f8b15e6c360b9d0a467f14",
+      "authenticity_state": "issuer-unverified",
+      "case": "unverified-integrity-fails-closed",
+      "integrity_state": "integrity-unverified",
+      "outcome": "rejected",
+      "transport_state": "not-evaluated"
+    },
+    {
       "assessment_receipt_id": "authenticity-receipt://1fa1d1d6fb9fcb50d840a9fd880550e9e7e38cd5535f7240a609337caaa6888c",
       "authenticity_state": "issuer-unverified",
       "case": "authenticated-transport-does-not-authenticate-issuer",
@@ -48,7 +56,7 @@
     "record-signature key, expiry, revocation, and delegation behavior is not implemented in v0"
   ],
   "outcome": "complete",
-  "receipt_id": "authenticity-conformance-receipt://synthetic/514d5a2b74cc0d78e9ada19ca5ff7dc06e020728e5898e4374a1886fc45fa3d2",
+  "receipt_id": "authenticity-conformance-receipt://synthetic/02e88faacdc0cd4f1acf65765b83cf63e7476269538a8315a22d0ca1e313b79d",
   "schema_id": "artifact-memory/authenticity-conformance-receipt/v1",
-  "vector_set_digest": "sha-256:1ba7fab9971ba669d0d01b70b1142e37d13a9fa68f97b3bc5c4acd886a63e3e6"
+  "vector_set_digest": "sha-256:e6561a9769cd70a174b0af960e6e0e67ef25789a6fc6ce5648dcb7d58dfd90a9"
 }

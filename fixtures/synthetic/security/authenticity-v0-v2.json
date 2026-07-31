@@ -62,6 +62,21 @@
     }
   },
   {
+    "case": "unverified-integrity-fails-closed",
+    "input": {
+      "subject_ref": "artifact-version://synthetic/orders/1",
+      "integrity_verified": null,
+      "provenance_present": true,
+      "evaluated_at": "2026-07-31T00:00:00Z"
+    },
+    "expected": {
+      "outcome": "rejected",
+      "integrity_state": "integrity-unverified",
+      "authenticity_state": "issuer-unverified",
+      "transport_state": "not-evaluated"
+    }
+  },
+  {
     "case": "authenticated-transport-does-not-authenticate-issuer",
     "input": {
       "subject_ref": "artifact-version://synthetic/orders/1",

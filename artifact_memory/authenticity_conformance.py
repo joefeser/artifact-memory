@@ -12,6 +12,15 @@ from .validator import ValidationFailure, load_json, validate
 
 
 EXPECTED_FIELDS = {"outcome", "integrity_state", "authenticity_state", "transport_state"}
+REQUIRED_INPUT_FIELDS = {"subject_ref", "integrity_verified", "provenance_present", "evaluated_at"}
+OPTIONAL_INPUT_FIELDS = {
+    "authenticity_required",
+    "signed_input",
+    "requirement",
+    "issuer_ref",
+    "audience_ref",
+    "transport_authenticated",
+}
 
 
 def run_authenticity_conformance(vector_path: Path) -> dict[str, Any]:
@@ -31,8 +40,15 @@ def run_authenticity_conformance(vector_path: Path) -> dict[str, Any]:
             raise ValidationFailure("invalid-vector", "authenticity vector identity is invalid or duplicated")
         if not isinstance(inputs, dict) or not isinstance(expected, dict) or set(expected) != EXPECTED_FIELDS:
             raise ValidationFailure("invalid-vector", "authenticity vector input or expectation is invalid")
+        missing_inputs = REQUIRED_INPUT_FIELDS - set(inputs)
+        unknown_inputs = set(inputs) - REQUIRED_INPUT_FIELDS - OPTIONAL_INPUT_FIELDS
+        if missing_inputs or unknown_inputs:
+            raise ValidationFailure("invalid-vector", f"authenticity vector input fields are invalid: {case}")
         seen_cases.add(case)
-        assessment = evaluate(**inputs)
+        try:
+            assessment = evaluate(**inputs)
+        except (TypeError, ValueError) as exc:
+            raise ValidationFailure("invalid-vector", f"authenticity vector input is invalid: {case}") from exc
         for field in sorted(EXPECTED_FIELDS):
             if assessment[field] != expected[field]:
                 raise ValidationFailure("vector-mismatch", f"authenticity vector expectation failed: {case}.{field}")

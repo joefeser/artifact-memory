@@ -9,7 +9,9 @@ from .schema_resources import load_schema
 from .validator import validate
 
 
-UNSIGNED_STATE = "integrity-verified / issuer-unverified"
+INTEGRITY_VERIFIED_STATE = "integrity-verified / issuer-unverified"
+# Compatibility alias for the pre-v2 reference helper API.
+UNSIGNED_STATE = INTEGRITY_VERIFIED_STATE
 AUTHORITY_BOUNDARY = "assessment grants no execution, disclosure, authorization, or trust"
 REQUIREMENTS = {"integrity-only", "authenticity-optional", "authenticity-required"}
 
@@ -36,17 +38,22 @@ def evaluate(
         raise ValueError("authenticity and signed-input flags must be boolean")
     if transport_authenticated is not None and type(transport_authenticated) is not bool:
         raise ValueError("transport_authenticated must be true, false, or null")
+    for field, value in (("issuer_ref", issuer_ref), ("audience_ref", audience_ref)):
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise ValueError(f"{field} must be a non-empty string or null")
 
-    selected_requirement = requirement or (
+    selected_requirement = (
         "authenticity-required" if authenticity_required else "authenticity-optional"
-    )
+    ) if requirement is None else requirement
+    if not isinstance(selected_requirement, str):
+        raise ValueError("unsupported authenticity requirement")
     if selected_requirement not in REQUIREMENTS:
         raise ValueError("unsupported authenticity requirement")
     if authenticity_required and selected_requirement != "authenticity-required":
         raise ValueError("authenticity_required conflicts with requirement")
 
     if integrity_verified is True:
-        integrity_state = UNSIGNED_STATE
+        integrity_state = INTEGRITY_VERIFIED_STATE
     elif integrity_verified is False:
         integrity_state = "integrity-failed"
     else:
@@ -79,8 +86,8 @@ def evaluate(
         "integrity_state": integrity_state,
         "provenance_state": "provenance-present" if provenance_present else "provenance-absent",
         "assertion_mode": "signed-input-unsupported" if signed_input else "self-asserted-unsigned",
-        "issuer_identity_state": "self-asserted / unverified" if issuer_ref else "not-asserted",
-        "audience_state": "self-asserted / unverified" if audience_ref else "not-asserted",
+        "issuer_identity_state": "self-asserted / unverified" if issuer_ref is not None else "not-asserted",
+        "audience_state": "self-asserted / unverified" if audience_ref is not None else "not-asserted",
         "transport_state": transport_state,
         "authenticity_state": authenticity_state,
         "authorization_state": "not-granted",

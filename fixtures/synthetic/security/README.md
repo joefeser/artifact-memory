@@ -18,11 +18,11 @@ human-readable receipt before claiming the input-to-outcome seam is complete.
 
 `authenticity-v0-v2.json` is executable conformance evidence for issue #35. It
 covers accepted unsigned integrity evidence, required-authenticity rejection,
-unsupported signed input, failed integrity, and authenticated transport that
-does not authenticate the subject issuer. Record-signature verification is
-deferred in v0, so unknown-key, expired-key, delegated-key, and signature-valid
-vectors are deliberately absent rather than simulated. No signing keys,
-credentials, or bearer material appear in the fixture.
+unsupported signed input, failed and unverified integrity, and authenticated
+transport that does not authenticate the subject issuer. Record-signature
+verification is deferred in v0, so unknown-key, expired-key, delegated-key, and
+signature-valid vectors are deliberately absent rather than simulated. No
+signing keys, credentials, or bearer material appear in the fixture.
 
 The earlier `authenticity-unsigned.json` and
 `authenticity-required-rejected.json` files are retained as v1 design examples;
