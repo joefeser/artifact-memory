@@ -51,6 +51,7 @@ def _external_evidence(binding: dict[str, Any], provider_record_id: str) -> dict
         "provider_id": "tracemap",
         "provider_schema_id": FACT_SCHEMA_ID,
         "provider_record_id": provider_record_id,
+        "binding_ref": binding["binding_id"],
         "evidence_packet_ref": binding["evidence_packet_ref"],
         "adapter_receipt_digest": binding["receipt"]["deterministic_body_digest"],
         "integrity_state": binding["integrity_state"],
@@ -183,7 +184,21 @@ def run_vertical_slice(
         raise RuntimeError("generated relationship index did not resolve the evidence binding")
 
     external_evidence = _external_evidence(binding, selected_access_fact_id)
-    context = export_context([claim], [external_evidence], allowed_sensitivity="public")
+    context = export_context(
+        [claim],
+        [external_evidence],
+        allowed_sensitivity="public",
+        authorized_record_ids=[CLAIM_RECORD_ID],
+        authorized_evidence=[("tracemap", selected_access_fact_id)],
+        freshness_by_record={
+            CLAIM_RECORD_ID: {
+                "status": "current",
+                "assessed_at": "2026-07-30T00:00:00Z",
+                "basis": "synthetic-fixture-source-version",
+            }
+        },
+        selected_at="2026-07-30T00:00:00Z",
+    )
     validate(context, load_schema("core", "context-pack.v1.schema.json"))
     serialized_context = json.dumps(context, sort_keys=True)
     for forbidden in ("Order.cs", "analyzer.log", "filePath", "sourceSymbol", "targetSymbol"):
@@ -249,6 +264,16 @@ def run_vertical_slice(
         [claim],
         [_external_evidence(restored_binding, selected_access_fact_id)],
         allowed_sensitivity="public",
+        authorized_record_ids=[CLAIM_RECORD_ID],
+        authorized_evidence=[("tracemap", selected_access_fact_id)],
+        freshness_by_record={
+            CLAIM_RECORD_ID: {
+                "status": "current",
+                "assessed_at": "2026-07-30T00:00:00Z",
+                "basis": "synthetic-fixture-source-version",
+            }
+        },
+        selected_at="2026-07-30T00:00:00Z",
     )
     if regenerated_context != restored_context:
         raise RuntimeError("restored context pack did not revalidate deterministically")

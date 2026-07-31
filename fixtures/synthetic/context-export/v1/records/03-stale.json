@@ -1,0 +1,10 @@
+{
+  "schema_id": "artifact-memory/knowledge-record/v1",
+  "record_id": "record://synthetic/context-stale-0001",
+  "record_type": "claim",
+  "lifecycle": "accepted",
+  "meaning": {"summary": "Synthetic stale detail must be wholly excluded."},
+  "artifact_refs": ["artifact://synthetic/stale-object"],
+  "provenance": [{"kind": "observation", "source_ref": "fixture://synthetic/context-export/v1"}],
+  "sensitivity": "public"
+}

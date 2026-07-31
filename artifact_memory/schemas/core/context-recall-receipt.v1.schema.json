@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/context-recall-receipt/v1",
+  "title": "Artifact Memory independent context recall receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "context_pack_id", "records", "artifact_refs", "external_evidence_refs", "artifact_retrieval", "mutation_authority", "disclosure_authority", "execution_authority"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/context-recall-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^context-recall-receipt://[0-9a-f]{64}$"},
+    "outcome": {"const": "recalled"},
+    "context_pack_id": {"type": "string", "pattern": "^context-pack://[0-9a-f]{64}$"},
+    "records": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["record_id", "revision_digest", "summary"], "properties": {"record_id": {"type": "string"}, "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}, "summary": {"type": "string", "minLength": 1}}}},
+    "artifact_refs": {"type": "array", "items": {"type": "string"}},
+    "external_evidence_refs": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["provider_id", "provider_record_id"], "properties": {"provider_id": {"type": "string"}, "provider_record_id": {"type": "string"}}}},
+    "artifact_retrieval": {"const": "not-attempted/separately-authorized"},
+    "mutation_authority": {"const": "absent"},
+    "disclosure_authority": {"const": "absent"},
+    "execution_authority": {"const": "absent"}
+  }
+}

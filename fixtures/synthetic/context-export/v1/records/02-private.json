@@ -1,0 +1,10 @@
+{
+  "schema_id": "artifact-memory/knowledge-record/v1",
+  "record_id": "record://synthetic/context-private-0001",
+  "record_type": "note",
+  "lifecycle": "accepted",
+  "meaning": {"summary": "Synthetic private detail must be wholly excluded."},
+  "artifact_refs": ["artifact://synthetic/private-object"],
+  "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/context-export/v1"}],
+  "sensitivity": "private"
+}

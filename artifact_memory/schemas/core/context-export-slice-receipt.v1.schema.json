@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/context-export-slice-receipt/v1",
+  "title": "Artifact Memory context export synthetic slice receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "context_pack_id", "context_pack_digest", "source_record_set_digest", "selected_record_ids", "selected_external_evidence", "exclusion_counts", "recall_receipt_id", "artifact_retrieval", "mutation_authority", "disclosure_authority", "execution_authority", "provider_boundary", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/context-export-slice-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^context-export-receipt://synthetic/[0-9a-f]{64}$"},
+    "outcome": {"const": "complete"},
+    "context_pack_id": {"type": "string", "pattern": "^context-pack://[0-9a-f]{64}$"},
+    "context_pack_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "selected_record_ids": {"type": "array", "items": {"type": "string"}},
+    "selected_external_evidence": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["provider_id", "provider_record_id"], "properties": {"provider_id": {"type": "string"}, "provider_record_id": {"type": "string"}}}},
+    "exclusion_counts": {"type": "object", "additionalProperties": false, "required": ["not-authorized", "sensitivity", "freshness"], "properties": {"not-authorized": {"type": "integer"}, "sensitivity": {"type": "integer"}, "freshness": {"type": "integer"}}},
+    "recall_receipt_id": {"type": "string", "pattern": "^context-recall-receipt://[0-9a-f]{64}$"},
+    "artifact_retrieval": {"const": "not-attempted/separately-authorized"},
+    "mutation_authority": {"const": "absent"},
+    "disclosure_authority": {"const": "absent"},
+    "execution_authority": {"const": "absent"},
+    "provider_boundary": {"const": "generic references only; provider internal model not copied"},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  }
+}
