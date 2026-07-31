@@ -76,6 +76,15 @@ def run_vertical_slice(
     passphrase: str,
 ) -> dict[str, Any]:
     """Exercise the synthetic slice without granting authority or invoking a provider."""
+    source_dir = source_dir.resolve()
+    output_dir = output_dir.resolve()
+    if (
+        output_dir.exists()
+        or output_dir == source_dir
+        or output_dir.is_relative_to(source_dir)
+        or source_dir.is_relative_to(output_dir)
+    ):
+        raise ValueError("output must be a new location that does not overlap the source")
     output_dir.mkdir(parents=True, exist_ok=True)
     vault = output_dir / "vault"
     canonical = output_dir / "canonical"

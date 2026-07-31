@@ -25,12 +25,27 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(pack["selection_receipt"]["redacted_record_ids"], ["record://synthetic/private-0001"])
         self.assertEqual(pack["external_evidence"][0]["provider_id"], "tracemap")
         self.assertEqual(pack["external_evidence"][0]["rule_id"], "csharp.semantic.propertyaccess.v1")
+        self.assertEqual(pack["external_evidence"][0]["coverage"], "Level1SemanticAnalysis")
+        self.assertEqual(pack["external_evidence"][0]["coverage_details"]["build_status"], "Succeeded")
         self.assertNotIn("facts", json.dumps(pack))
 
     def test_size_bound_is_explicit(self):
         record = json.loads(FIXTURE.read_text(encoding="utf-8"))
         with self.assertRaisesRegex(ContextFailure, "exceeds"):
             export_context([record], max_bytes=32)
+
+    def test_legacy_external_evidence_shape_remains_supported(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        evidence = [{"provider_id": "legacy", "provider_schema_id": "legacy/v1", "provider_record_id": "row-1", "evidence_packet_ref": "artifact-version://legacy/evidence/1", "adapter_receipt_digest": "sha-256:" + "a" * 64, "integrity_state": "unverified", "coverage": "legacy bounded scan", "limitations": []}]
+        pack = export_context([record], evidence)
+        self.assertEqual(pack["external_evidence"][0]["coverage"], "legacy bounded scan")
+        self.assertNotIn("rule_id", pack["external_evidence"][0])
+
+    def test_malformed_external_evidence_is_typed(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        with self.assertRaises(ContextFailure) as raised:
+            export_context([record], [{"provider_id": "tracemap"}])
+        self.assertEqual(raised.exception.code, "external-evidence-invalid")
 
 
 if __name__ == "__main__":

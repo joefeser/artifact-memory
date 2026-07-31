@@ -7,5 +7,10 @@
   "input_schema_refs": ["artifact-memory/artifact-version/v1"],
   "output_schema_refs": ["artifact-memory/tracemap-evidence-binding/v1", "artifact-memory/adapter-receipt/v1"],
   "determinism": "deterministic",
-  "record_contents_authorize_execution": false
+  "record_contents_authorize_execution": false,
+  "extensions": {
+    "artifact-memory/compatibility/v1": {
+      "legacy_binding_read": "Previously valid v1 bindings remain readable without the additive provider identity and selected-provider-record detail fields; the current writer emits those fields."
+    }
+  }
 }

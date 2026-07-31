@@ -102,15 +102,19 @@ def _select_status_facts(packet: Path) -> tuple[str, str]:
     declarations = [
         fact
         for fact in facts
-        if fact["contractElement"] == "Status"
-        and fact["factType"] in {"PropertyDeclared", "PropertyDeclaration"}
+        if fact.get("contractElement") == "Status"
+        and fact.get("factType") in {"PropertyDeclared", "PropertyDeclaration"}
+        and isinstance(fact.get("factId"), str)
+        and fact["factId"]
     ]
     accesses = [
         fact
         for fact in facts
-        if fact["contractElement"] == "Status"
-        and fact["factType"] in {"PropertyAccessed", "PropertyAccess"}
-        and fact["evidenceTier"] == "Tier1Semantic"
+        if fact.get("contractElement") == "Status"
+        and fact.get("factType") in {"PropertyAccessed", "PropertyAccess"}
+        and fact.get("evidenceTier") == "Tier1Semantic"
+        and isinstance(fact.get("factId"), str)
+        and fact["factId"]
     ]
     if len(declarations) != 1 or len(accesses) != 1:
         raise RuntimeError("TraceMap did not emit exactly one expected declaration and semantic access")

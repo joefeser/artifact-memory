@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 
 from artifact_memory.tracemap_adapter import AdapterFailure, INTEGRITY_STATE, bind_trace_map_evidence
+from artifact_memory.schema_resources import load_schema
+from artifact_memory.validator import validate
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,6 +98,34 @@ class TraceMapAdapterTests(unittest.TestCase):
             with self.assertRaises(AdapterFailure) as raised:
                 bind(packet)
             self.assertEqual(raised.exception.outcome, "digest-mismatch")
+
+    def test_non_array_known_gaps_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            packet = materialize_packet(Path(temporary))
+            manifest_path = packet / "scan-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["knownGaps"] = "none"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaises(AdapterFailure) as raised:
+                bind(packet)
+            self.assertEqual(raised.exception.outcome, "trace-output-invalid")
+
+    def test_invalid_utf8_log_is_rejected_during_streamed_inspection(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            packet = materialize_packet(Path(temporary))
+            (packet / "logs" / "analyzer.log").write_bytes(b"\xff")
+            with self.assertRaises(AdapterFailure) as raised:
+                bind(packet)
+            self.assertEqual(raised.exception.outcome, "trace-output-invalid")
+
+    def test_legacy_v1_binding_shape_remains_schema_valid(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            binding = bind(materialize_packet(Path(temporary)))
+        binding.pop("selected_provider_records")
+        binding["provider"].pop("tool_source_commit")
+        binding["provider"].pop("configuration_digest")
+        binding["provider"].pop("rule_catalog_digest")
+        validate(binding, load_schema("adapters", "tracemap-evidence-binding.v1.schema.json"))
 
 
 if __name__ == "__main__":

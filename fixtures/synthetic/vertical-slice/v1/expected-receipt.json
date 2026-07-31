@@ -1,20 +1,20 @@
 {
   "authority_boundary": "informational evidence only; no execution, routing, disclosure, approval, or mutation authority",
   "backup_outcome": "created",
-  "binding_id": "binding://tracemap/d33619a89ea0140445bee7ec71674ace6e8b66177e3e2706c4880997e6a2f845",
+  "binding_id": "binding://tracemap/c67faf8b6fe3160742afbe8ef81ca0542b341ec048027e342a87e9d5aba251ab",
   "claim_record_id": "record://synthetic/orders-status-static-read",
-  "context_pack_id": "context-pack://74ad640436e1570822db115b7e185036735299fde425eff77795dff08784b20b",
-  "evidence_packet_ref": "artifact-version://tracemap/evidence/a9fd0927352e28931e9a2c6775acf6f1cdafe8d16e6ebb6050bb5cb68c9e1368/1",
+  "context_pack_id": "context-pack://88a942e1d8628223434d6a981c1686922e291f2d2bbc9156190a86864133b4db",
+  "evidence_packet_ref": "artifact-version://tracemap/evidence/16410863d33f25fb175248bb69d25ab60832a951612fecca00c4590a5f785853/1",
   "integrity_state": "integrity-verified / issuer-unverified",
   "limitations": [
     "synthetic fixture evidence does not establish runtime behavior or correctness",
     "unsigned provider evidence does not establish issuer authenticity"
   ],
   "outcome": "complete",
-  "projection_source_digest": "sha-256:dc4f220e62a7ac5d0c63b49933f7d2b34b96dae3a344a8a1289d555f0a04f746",
+  "projection_source_digest": "sha-256:36bb9631f35519bb39b63b188dc43f7438e191e19515a5acf474abd4f8467985",
   "provider_contract_anchor": "9a252f12f781ae2a0aab52b5faa53601440a2a3b",
   "provider_tool_source_commit": "9a252f12f781ae2a0aab52b5faa53601440a2a3b",
-  "receipt_id": "vertical-slice-receipt://a7c8e636b99a889d8d798c160117ed3a3ddd3fddf298ce98698fc695facad5ee",
+  "receipt_id": "vertical-slice-receipt://78a797e74a5ff14923d34598c706a7412378ce79cf40bcd7ff08fec1f93df663",
   "restore_outcome": "restored",
   "schema_id": "artifact-memory/tracemap-vertical-slice-receipt/v1",
   "selected_provider_record_ids": [

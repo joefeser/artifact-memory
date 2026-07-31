@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import json
 import re
@@ -9,7 +10,7 @@ import sqlite3
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .canonical import canonical_bytes, sha256_path
+from .canonical import CHUNK_SIZE, canonical_bytes
 
 TRACE_MAP_CONTRACT_ANCHOR = "9a252f12f781ae2a0aab52b5faa53601440a2a3b"
 REQUIRED_ARTIFACTS = ("scan-manifest.json", "facts.ndjson", "index.sqlite", "report.md", "logs/analyzer.log")
@@ -74,14 +75,36 @@ def _require_digest(value: str, label: str) -> None:
         raise AdapterFailure("trace-output-invalid", f"{label} is not a SHA-256 content identity")
 
 
-def _validate_provider_packet(packet_dir: Path, expected_repo: str, expected_commit: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _inspect_required_artifacts(packet_dir: Path) -> list[dict[str, str]]:
     missing = [name for name in REQUIRED_ARTIFACTS if not (packet_dir / name).is_file()]
     if missing:
         raise AdapterFailure("required-artifact-missing", "required provider artifact is missing")
+    text_artifacts = {"scan-manifest.json", "facts.ndjson", "report.md", "logs/analyzer.log"}
+    inspected = []
+    for name in REQUIRED_ARTIFACTS:
+        digest = hashlib.sha256()
+        decoder = codecs.getincrementaldecoder("utf-8")("strict") if name in text_artifacts else None
+        try:
+            with (packet_dir / name).open("rb") as stream:
+                while chunk := stream.read(CHUNK_SIZE):
+                    digest.update(chunk)
+                    if decoder is not None:
+                        decoder.decode(chunk)
+                if decoder is not None:
+                    decoder.decode(b"", final=True)
+        except (OSError, UnicodeError) as exc:
+            raise AdapterFailure("trace-output-invalid", "provider artifact is unavailable or invalid") from exc
+        inspected.append({"name": name, "digest": "sha-256:" + digest.hexdigest()})
+    return inspected
+
+
+def _validate_provider_packet(packet_dir: Path, expected_repo: str, expected_commit: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     manifest = _load_object(packet_dir / "scan-manifest.json")
     required_manifest = ("scanId", "repoName", "commitSha", "scannerVersion", "scannedAt", "analysisLevel", "buildStatus", "knownGaps")
     if any(key not in manifest or (key != "knownGaps" and not manifest.get(key)) for key in required_manifest):
         raise AdapterFailure("trace-output-invalid", "provider manifest is incomplete")
+    if not isinstance(manifest["knownGaps"], list) or any(not isinstance(gap, str) for gap in manifest["knownGaps"]):
+        raise AdapterFailure("trace-output-invalid", "provider known gaps must be an array of strings")
     if manifest["repoName"] != expected_repo:
         raise AdapterFailure("repository-binding-mismatch", "provider repository does not match expected repository")
     if manifest["commitSha"] != expected_commit:
@@ -98,11 +121,6 @@ def _validate_provider_packet(packet_dir: Path, expected_repo: str, expected_com
             raise AdapterFailure("unsafe-provenance-rejected", "provider evidence path is not portable")
         if fact["evidenceTier"] not in {"Tier1Semantic", "Tier2Structural", "Tier3SyntaxOrTextual", "Tier4Unknown"}:
             raise AdapterFailure("schema-unsupported", "provider evidence tier is unsupported")
-    for name in ("report.md", "logs/analyzer.log"):
-        try:
-            (packet_dir / name).read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
-            raise AdapterFailure("trace-output-invalid", "provider text artifact is unavailable or invalid") from exc
     return manifest, facts
 
 
@@ -145,6 +163,7 @@ def bind_trace_map_evidence(
     _require_digest(configuration_digest, "provider configuration digest")
     if rule_catalog_digest is not None:
         _require_digest(rule_catalog_digest, "provider rule catalog digest")
+    file_digests = _inspect_required_artifacts(packet_dir)
     manifest, facts = _validate_provider_packet(packet_dir, expected_repo, expected_commit)
     _verify_index(packet_dir, manifest, facts)
     fact_by_id = {fact["factId"]: fact for fact in facts}
@@ -152,9 +171,6 @@ def bind_trace_map_evidence(
     if not selected or any(fact_id not in fact_by_id for fact_id in selected):
         raise AdapterFailure("provider-record-not-found", "selected provider record is unavailable")
 
-    file_digests = []
-    for name in REQUIRED_ARTIFACTS:
-        file_digests.append({"name": name, "digest": sha256_path(packet_dir / name)})
     provider_identity = {
         "tool_source_commit": tool_source_commit,
         "configuration_digest": configuration_digest,

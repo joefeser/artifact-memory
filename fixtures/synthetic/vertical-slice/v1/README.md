@@ -25,3 +25,8 @@ one successful exact-anchor run. TraceMap scan timestamps and encrypted-backup
 salts may change packet and receipt identities on later runs; the source commit,
 provider anchor, required stages, boundary labels, and successful outcomes are
 the stable conformance assertions.
+
+The binding and context contracts retain v1 read compatibility. Provider tool
+identity, selected-record detail, rule, tier, and structured
+`coverage_details` are additive; legacy v1 bindings and legacy string
+`coverage` remain valid.
