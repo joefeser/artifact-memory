@@ -1,0 +1,29 @@
+{
+  "canonical_vector_count": 4,
+  "identity_boundaries": [
+    "record-id-is-logical",
+    "revision-digest-is-canonical-bytes",
+    "content-id-is-location-neutral",
+    "git-id-is-not-protocol-identity"
+  ],
+  "invalid_vector_count": 5,
+  "large_object_byte_size": 5242880,
+  "large_object_outcome": "verified",
+  "limitations": [
+    "v0 canonical digest inputs exclude fractional numbers",
+    "fixture recipes contain synthetic bytes only"
+  ],
+  "outcome": "complete",
+  "receipt_id": "canonical-content-receipt://9ef9e869b3e2935aa69227d8c707aa21baa4c691c3db55aadb56f4f0cfb61f2e",
+  "revision_example_count": 4,
+  "schema_id": "artifact-memory/canonical-content-conformance-receipt/v1",
+  "synthetic": true,
+  "vector_set_digest": "sha-256:1d47caa7a2390e8b6e33ec5f0434e772456b2f149b038d6de50b72f64ab4c6f7",
+  "verification_outcomes": {
+    "mismatch": 1,
+    "unreadable": 1,
+    "unsupported": 1,
+    "verified": 2
+  },
+  "zero_byte_outcome": "verified"
+}

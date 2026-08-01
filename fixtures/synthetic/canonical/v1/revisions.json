@@ -1,0 +1,12 @@
+{
+  "schema_id": "artifact-memory/record-revision-example/v1",
+  "synthetic": true,
+  "record_id": "record://synthetic/canonical-revision",
+  "revisions": [
+    {"status": "mutable-draft", "durable": false, "revision_digest": "sha-256:b836d2fb5db921b24c8ae863b7a70038c5b0b6499b58a35e538e820dce873590", "record": {"schema_id": "artifact-memory/knowledge-record/v1", "record_id": "record://synthetic/canonical-revision", "record_type": "decision", "lifecycle": "draft", "meaning": {"summary": "Use SHA-256 revision digests.", "labels": ["canonical", "synthetic"]}, "artifact_refs": [], "provenance": [{"kind": "author", "source_ref": "actor://synthetic/author"}], "sensitivity": "public"}},
+    {"status": "immutable-sealed", "durable": true, "revision_digest": "sha-256:0ba8e063ea07e962491301cc65c58d66cc4faf66fc33fd5fdacaa28bbaeb49b3", "record": {"schema_id": "artifact-memory/knowledge-record/v1", "record_id": "record://synthetic/canonical-revision", "record_type": "decision", "lifecycle": "sealed", "meaning": {"summary": "Use SHA-256 revision digests.", "labels": ["canonical", "synthetic"]}, "artifact_refs": [], "provenance": [{"kind": "author", "source_ref": "actor://synthetic/author"}], "sensitivity": "public"}},
+    {"status": "immutable-superseded", "durable": true, "revision_digest": "sha-256:1e270714cc319d22cdbcb00e51da2fde044b43a702594d506e542e3fe095602f", "superseded_by": {"record_id": "record://synthetic/canonical-replacement", "revision_digest": "sha-256:83da92734cdd70fa7f47c9828746dc3bf90e2d5b2d8c7d19387bfa65648bf6c7"}, "record": {"schema_id": "artifact-memory/knowledge-record/v1", "record_id": "record://synthetic/canonical-revision", "record_type": "decision", "lifecycle": "superseded", "meaning": {"summary": "Use SHA-256 revision digests.", "labels": ["canonical", "synthetic"]}, "artifact_refs": [], "provenance": [{"kind": "author", "source_ref": "actor://synthetic/author"}], "sensitivity": "public"}}
+  ],
+  "replacement": {"revision_digest": "sha-256:83da92734cdd70fa7f47c9828746dc3bf90e2d5b2d8c7d19387bfa65648bf6c7", "record": {"schema_id": "artifact-memory/knowledge-record/v1", "record_id": "record://synthetic/canonical-replacement", "record_type": "decision", "lifecycle": "sealed", "meaning": {"summary": "Use named SHA-256 digests with algorithm agility.", "labels": ["canonical", "synthetic"]}, "artifact_refs": [], "provenance": [{"kind": "author", "source_ref": "actor://synthetic/author"}], "sensitivity": "public"}},
+  "git_identity_role": "not-protocol-identity"
+}

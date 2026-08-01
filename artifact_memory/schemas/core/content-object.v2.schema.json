@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/content-object/v2",
+  "title": "Artifact Memory content object v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "content_id", "digest", "byte_size", "media_type"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/content-object/v2"},
+    "content_id": {"type": "string", "pattern": "^content://[A-Za-z0-9._~-]+/[A-Za-z0-9._~/-]+$"},
+    "digest": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*:[0-9a-f]+$"},
+    "byte_size": {"type": "integer", "minimum": 0},
+    "media_type": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$"},
+    "secondary_digests": {"type": "array", "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*:[0-9a-f]+$"}},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

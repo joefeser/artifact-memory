@@ -10,5 +10,8 @@ Each schema requires:
 - sensitivity and authority implications;
 - deterministic conformance tests.
 
-No schema is normative merely because an implementation can parse it.
-
+No schema is normative merely because an implementation can parse it. The
+normative canonical serialization and exact-content rules are in
+`docs/contracts/v0-canonical-records.md` and
+`docs/contracts/v0-content-objects.md`; their checked vectors remain
+runtime-neutral even though the first runner is Python.

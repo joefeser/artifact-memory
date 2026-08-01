@@ -29,8 +29,15 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def load_json(path: Path) -> Any:
+    def reject_non_finite(token: str) -> None:
+        raise ValidationFailure("invalid-json", f"non-finite JSON number is not allowed: {token}")
+
     try:
-        return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys)
+        return json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=reject_non_finite,
+        )
     except ValidationFailure:
         raise
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
