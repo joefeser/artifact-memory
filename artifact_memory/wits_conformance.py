@@ -33,8 +33,14 @@ def _write(path: Path, value: dict[str, Any]) -> None:
     path.write_text(json.dumps(value, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 
-def _trace_evidence(binding: dict[str, Any]) -> dict[str, Any]:
-    selected = binding["selected_provider_records"][-1]
+def _trace_evidence(binding: dict[str, Any], provider_record_id: str) -> dict[str, Any]:
+    try:
+        selected = next(
+            item for item in binding["selected_provider_records"]
+            if item["provider_record_id"] == provider_record_id
+        )
+    except StopIteration as error:
+        raise RuntimeError("claim-supporting TraceMap evidence is unavailable") from error
     return {
         "provider_id": "tracemap",
         "provider_schema_id": binding["provider"]["record_schema_ids"][-1],
@@ -82,6 +88,8 @@ def run_wits_conformance(
     validate(admission, load_schema("adapters", "wits-admission-receipt.v2.schema.json"))
     projection_bytes = canonical_bytes(projection)
     registration = register_bytes(vault, projection_bytes, "application/vnd.artifact-memory.wits-projection+json")
+    if registration["outcome"] not in {"registered", "duplicate"}:
+        raise RuntimeError("WITS projection content registration failed")
     _write(artifacts / "wits-projection.json", projection)
     _write(artifacts / "wits-admission-receipt.json", admission)
 
@@ -116,7 +124,7 @@ def run_wits_conformance(
     paths = [canonical / "claim.json", canonical / "wits-projection-reference.json"]
     projection_receipt = project_records(paths, generated)
     snapshot = logical_projection_snapshot(generated / "records.sqlite")
-    evidence = _trace_evidence(trace_binding)
+    evidence = _trace_evidence(trace_binding, claim["provenance"][0]["source_ref"])
     context = export_context(
         [claim, projection_record], [evidence], allowed_sensitivity="public",
         **build_selection_policy(
@@ -173,8 +181,8 @@ def run_wits_conformance(
 
     stages = [
         "register-source-and-tracemap-evidence", "bind-exact-wits-projection",
-        "export-informational-context", "fresh-reader-recall", "rebuild-generated-index",
-        "create-encrypted-backup", "restore-isolated", "stop-before-hacp-task-creation",
+        "export-informational-context", "fresh-reader-recall", "create-encrypted-backup",
+        "restore-isolated", "rebuild-generated-index", "stop-before-hacp-task-creation",
     ]
     body = {
         "outcome": "complete",

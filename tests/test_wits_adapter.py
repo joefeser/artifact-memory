@@ -127,6 +127,16 @@ class WitsAdapterTests(unittest.TestCase):
         self.assertEqual(receipt["outcome"], "unsupported")
         self.assertEqual(receipt["diagnostics"][0]["code"], "unsupported-request")
 
+    def test_provider_location_urls_are_not_durable_projection_refs(self):
+        for field in ("projection_ref", "projection_schema_ref"):
+            response = self._strict_response()
+            response[field] = "https://provider.example/signed?token=secret"
+            projection, receipt = bind_projection_v2(
+                [self.record], "owner-meaning", response, True,
+            )
+            self.assertIsNone(projection)
+            self.assertEqual(receipt["outcome"], "unsupported")
+
 
 if __name__ == "__main__":
     unittest.main()

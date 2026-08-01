@@ -24,6 +24,8 @@ FORBIDDEN_AUTHORITY_KEYS = {
     "execute", "human_approval", "requested_actions", "route_task", "task_packet",
 }
 SHA256 = re.compile(r"^sha-256:[0-9a-f]{64}$")
+WITS_PROJECTION_REF = re.compile(r"^wits-projection://[A-Za-z0-9._~/-]+$")
+WITS_SCHEMA_REF = re.compile(r"^wits-contract://[A-Za-z0-9._~/-]+$")
 DIAGNOSTIC_MESSAGES = {
     "unsupported-record-schema": "source record schema is unsupported",
     "not-authorized": "explicit local authorization is required outside portable records",
@@ -203,6 +205,8 @@ def bind_projection_v2(
             or provider_response.get("request_digest") != request_digest
             or any(not isinstance(provider_response.get(key), str) or not provider_response[key] for key in required - {"admission"})
             or SHA256.fullmatch(provider_response.get("projection_digest", "")) is None
+            or WITS_PROJECTION_REF.fullmatch(provider_response.get("projection_ref", "")) is None
+            or WITS_SCHEMA_REF.fullmatch(provider_response.get("projection_schema_ref", "")) is None
         ):
             failure = ("unsupported", "provider-response-invalid")
     if failure:
@@ -249,6 +253,11 @@ def bind_projection(
         outcome, diagnostics = "stale", [{"code": "stale-source-revision", "message": "source record revision does not match the requested revision"}]
     elif projection_kind not in SUPPORTED_PROJECTION_KINDS:
         outcome, diagnostics = "unsupported", [{"code": "projection-unsupported", "message": "projection kind is unsupported"}]
+    elif (
+        WITS_PROJECTION_REF.fullmatch(provider_response.get("projection_ref", "")) is None
+        or WITS_SCHEMA_REF.fullmatch(provider_response.get("projection_schema_ref", "")) is None
+    ):
+        outcome, diagnostics = "unsupported", [{"code": "provider-response-invalid", "message": "provider response uses a non-durable projection reference"}]
     elif provider_response.get("admission") != "admitted":
         outcome, diagnostics = "rejected", [{"code": "wits-projection-rejected", "message": "provider projection was not admitted"}]
     else:

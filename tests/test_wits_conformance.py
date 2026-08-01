@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from artifact_memory.canonical import canonical_bytes
 from artifact_memory.vertical_slice import run_vertical_slice
@@ -43,7 +44,42 @@ class WitsConformanceTests(unittest.TestCase):
             self.assertEqual(receipt["fixture_end"], "before_hacp_task_creation_or_execution")
             self.assertEqual(receipt["wits_projection_ref"], response_template["projection_ref"])
             self.assertEqual(receipt["wits_artifact_version_ref"], "artifact-version://synthetic/wits-projection/1")
+            self.assertEqual(
+                [stage["name"] for stage in receipt["stages"]][-4:-1],
+                ["create-encrypted-backup", "restore-isolated", "rebuild-generated-index"],
+            )
+            context = json.loads((root / "wits/artifacts/context-pack.json").read_text())
+            self.assertEqual(
+                context["external_evidence"][0]["provider_record_id"],
+                "fact-synthetic-status-access",
+            )
             self.assertNotIn("destination", str(receipt))
+
+    def test_failed_projection_registration_stops_the_proof(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = root / "base"
+            run_vertical_slice(
+                SOURCE, materialize_packet(root), base,
+                expected_repo="SyntheticOrders", expected_commit=COMMIT,
+                tool_source_commit=TOOL_COMMIT, configuration_digest=CONFIG_DIGEST,
+                rule_catalog_digest=RULE_CATALOG_DIGEST,
+                selected_declaration_fact_id="fact-synthetic-status-declaration",
+                selected_access_fact_id="fact-synthetic-status-access",
+                passphrase="synthetic-base-passphrase",
+            )
+            response_template = json.loads((ROOT / "fixtures/synthetic/wits/v1/projection-response-v2.json").read_text())
+
+            def synthetic_provider(request):
+                return {
+                    **response_template,
+                    "request_digest": "sha-256:" + hashlib.sha256(canonical_bytes(request)).hexdigest(),
+                }
+
+            failed = {"outcome": "failed", "diagnostics": ["existing-object-integrity-failed"]}
+            with patch("artifact_memory.wits_conformance.register_bytes", return_value=failed):
+                with self.assertRaisesRegex(RuntimeError, "content registration failed"):
+                    run_wits_conformance(base, root / "wits", "synthetic-wits-passphrase", synthetic_provider)
 
 
 if __name__ == "__main__":
