@@ -31,8 +31,8 @@ digest until a later numeric profile defines their representation.
 
 An implementation must reject invalid UTF-8, duplicate keys, unpaired Unicode
 surrogates, unsupported numbers, non-string object keys, and non-JSON runtime
-values. The integer-zero normalization above is the only numeric lexical
-normalization in this profile.
+values, including cyclic containers. The integer-zero normalization above is
+the only numeric lexical normalization in this profile.
 
 ## Revision and supersession behavior
 

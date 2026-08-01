@@ -41,6 +41,10 @@ class CanonicalContentTests(unittest.TestCase):
         for name in ("fractional-number.json.invalid", "unsafe-integer.json.invalid", "unpaired-surrogate.json.invalid"):
             with self.subTest(name=name), self.assertRaises(CanonicalizationFailure):
                 canonical_bytes(load_json(invalid / name))
+        cyclic: list[object] = []
+        cyclic.append(cyclic)
+        with self.assertRaisesRegex(CanonicalizationFailure, "cyclic container"):
+            canonical_bytes(cyclic)
 
     def test_zero_and_large_content_recipes_stream_and_verify_all_digests(self):
         vectors = json.loads((FIXTURES / "content/v1/vectors.json").read_text(encoding="utf-8"))

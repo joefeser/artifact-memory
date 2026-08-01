@@ -17,7 +17,8 @@ class CanonicalizationFailure(ValueError):
     """Raised when a value is outside the portable v0 canonical profile."""
 
 
-def _check_canonical_value(value: Any, path: str = "$") -> None:
+def _check_canonical_value(value: Any, path: str = "$", ancestors: set[int] | None = None) -> None:
+    ancestors = set() if ancestors is None else ancestors
     if value is None or isinstance(value, bool):
         return
     if isinstance(value, int):
@@ -32,15 +33,29 @@ def _check_canonical_value(value: Any, path: str = "$") -> None:
             raise CanonicalizationFailure(f"unpaired Unicode surrogate is unsupported at {path}")
         return
     if isinstance(value, list):
-        for index, item in enumerate(value):
-            _check_canonical_value(item, f"{path}[{index}]")
+        identity = id(value)
+        if identity in ancestors:
+            raise CanonicalizationFailure(f"cyclic container is unsupported at {path}")
+        ancestors.add(identity)
+        try:
+            for index, item in enumerate(value):
+                _check_canonical_value(item, f"{path}[{index}]", ancestors)
+        finally:
+            ancestors.remove(identity)
         return
     if isinstance(value, dict):
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise CanonicalizationFailure(f"object key is not a string at {path}")
-            _check_canonical_value(key, f"{path}.<key>")
-            _check_canonical_value(item, f"{path}.{key}")
+        identity = id(value)
+        if identity in ancestors:
+            raise CanonicalizationFailure(f"cyclic container is unsupported at {path}")
+        ancestors.add(identity)
+        try:
+            for key, item in value.items():
+                if not isinstance(key, str):
+                    raise CanonicalizationFailure(f"object key is not a string at {path}")
+                _check_canonical_value(key, f"{path}.<key>", ancestors)
+                _check_canonical_value(item, f"{path}.{key}", ancestors)
+        finally:
+            ancestors.remove(identity)
         return
     raise CanonicalizationFailure(f"non-JSON value is unsupported at {path}")
 
