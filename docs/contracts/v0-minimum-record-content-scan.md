@@ -38,10 +38,14 @@ or trust decision.
 
 ## Honest scan outcomes
 
+The complete normative scan policy, exclusion, attempt, and receipt rules are
+in `v0-scan-policy-and-receipts.md`.
+
 `complete` means the declared scope was scanned and every in-scope entry was
 accounted for. `partial`, `failed`, and `cancelled` are explicit outcomes.
 Unreadable entries, exclusions, unsupported entry kinds, and collisions are
 reported in the receipt; they are not silently converted into absence.
 
-The synthetic conformance fixtures demonstrate one valid packet and one
-invalid packet containing a machine-local absolute path.
+The synthetic conformance fixtures demonstrate canonical record/content
+behavior, explicit scan completeness outcomes, and rejection of a
+machine-local absolute path in portable records.

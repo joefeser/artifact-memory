@@ -22,9 +22,12 @@ An unavailable, linked, or unsupported root is `failed`; an admitted root with
 one or more bounded omissions remains `partial`.
 Verification fails closed when the declared scan policy is not implemented by
 the verifier; matching tree bytes do not authorize policy substitution.
-The scan receipt identifier covers its policy, manifest reference, outcome,
-accounted-entry count, and diagnostics, so distinct incomplete observations do
-not collapse to one receipt identity.
+The v2 scan receipt identifier covers its digest-bound policy, logical scope,
+attempt bounds and times, implementation identity, manifest identity and tree
+digest, outcome, exclusions, warnings, failures, counts, and compatibility
+diagnostics, so distinct attempts and incomplete observations do not collapse
+to one receipt identity. The complete normative rules are in
+`v0-scan-policy-and-receipts.md`.
 
 A diff validates both manifest identities before comparison. A partial,
 failed, or cancelled input produces a partial diff whose diagnostic says that
