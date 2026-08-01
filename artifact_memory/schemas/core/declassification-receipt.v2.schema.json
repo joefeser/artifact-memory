@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": [
     "schema_id", "receipt_id", "source_task_ref", "import_policy_id", "authority_ref",
-    "outcome", "admitted_fields", "admitted_record_ids", "record_type_counts",
+    "outcome", "admitted_fields", "admitted_record_ids", "admitted_records", "record_type_counts",
     "excluded_categories", "raw_retention", "raw_retention_policy_ref",
     "raw_source_expires_at", "raw_source_canonical", "correction_route",
     "deletion_route", "owner_review_required", "authority_boundary", "limitations"
@@ -18,6 +18,7 @@
         "properties": {
           "admitted_fields": {"const": []},
           "admitted_record_ids": {"const": []},
+          "admitted_records": {"const": []},
           "record_type_counts": {"const": {"decision": 0, "research": 0, "workstream": 0, "question": 0}}
         }
       }
@@ -27,6 +28,7 @@
       "then": {
         "properties": {
           "admitted_record_ids": {"minItems": 3},
+          "admitted_records": {"minItems": 3},
           "record_type_counts": {
             "properties": {
               "decision": {"minimum": 1},
@@ -47,6 +49,18 @@
     "outcome": {"enum": ["admitted", "not-authorized", "rejected"]},
     "admitted_fields": {"type": "array", "items": {"enum": ["task_id", "title", "summary", "decisions", "research", "workstreams", "open_questions"]}},
     "admitted_record_ids": {"type": "array", "items": {"type": "string", "pattern": "^record://codex-derivative/[0-9a-f]{64}$"}},
+    "admitted_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["record_id", "record_type"],
+        "properties": {
+          "record_id": {"type": "string", "pattern": "^record://codex-derivative/[0-9a-f]{64}$"},
+          "record_type": {"enum": ["decision", "research", "workstream", "question"]}
+        }
+      }
+    },
     "record_type_counts": {
       "type": "object",
       "additionalProperties": false,

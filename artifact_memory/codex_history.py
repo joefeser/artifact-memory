@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
+import tempfile
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -43,7 +45,7 @@ MAX_ITEMS_PER_FIELD = 64
 
 _PORTABLE_ID = re.compile(r"^[A-Za-z0-9._~-]+$")
 _ABSOLUTE_PATH = re.compile(
-    r"(?<![A-Za-z0-9])/(?:[A-Za-z0-9._~-]+/)+[A-Za-z0-9._~-]+"
+    r"(?<![A-Za-z0-9])/[A-Za-z0-9._~-]+"
     r"|\b[A-Za-z]:[\\/]"
     r"|\\\\[A-Za-z0-9._~-]+[\\/]"
 )
@@ -212,16 +214,12 @@ def _record(
     sensitivity: str,
     record_type: str,
     label: str,
-    ordinal: int,
     summary: str,
 ) -> dict[str, Any]:
     record_key = {
-        "source_task_ref": source_ref,
         "record_type": record_type,
         "label": label,
-        "ordinal": ordinal,
         "summary": summary,
-        "transformation_ref": TRANSFORMATION_REF,
     }
     labels = ["codex-history-derivative", label]
     if source_scope == "synthetic":
@@ -266,6 +264,13 @@ def _receipt(
         "outcome": outcome,
         "admitted_fields": admitted_fields,
         "admitted_record_ids": [record["record_id"] for record in materialized],
+        "admitted_records": [
+            {
+                "record_id": record["record_id"],
+                "record_type": record["meaning"]["labels"][1],
+            }
+            for record in materialized
+        ],
         "record_type_counts": {
             "decision": counts["decision"],
             "research": counts["research"],
@@ -341,18 +346,20 @@ def import_task_export(task: dict[str, Any], policy: dict[str, Any]) -> dict[str
             "at least one curated decision and research item are required",
         )
     workstream_items = workstreams or [summary]
-    record_specs = (
-        [("decision", "decision", value) for value in decisions]
-        + [("note", "research", value) for value in research]
-        + [
-            (
-                "workstream",
-                "workstream",
-                f"{title}: {value}",
-            )
-            for value in workstream_items
-        ]
-        + [("question", "question", value) for value in questions]
+    record_specs = list(
+        dict.fromkeys(
+            [("decision", "decision", value) for value in decisions]
+            + [("note", "research", value) for value in research]
+            + [
+                (
+                    "workstream",
+                    "workstream",
+                    f"{title}: {value}",
+                )
+                for value in workstream_items
+            ]
+            + [("question", "question", value) for value in questions]
+        )
     )
     records = [
         _record(
@@ -361,10 +368,9 @@ def import_task_export(task: dict[str, Any], policy: dict[str, Any]) -> dict[str
             policy["record_sensitivity"],
             record_type,
             label,
-            ordinal,
             text,
         )
-        for ordinal, (record_type, label, text) in enumerate(record_specs)
+        for record_type, label, text in record_specs
     ]
     record_schema = load_schema("core", "knowledge-record.v2.schema.json")
     for record in records:
@@ -380,6 +386,20 @@ def sanitized_dogfood_receipt(
     record_type_counts: dict[str, int],
 ) -> dict[str, Any]:
     """Build a public-safe operational receipt without private refs or digests."""
+    expected_keys = {"decision", "research", "workstream", "question"}
+    if (
+        not isinstance(record_type_counts, dict)
+        or set(record_type_counts) != expected_keys
+        or any(type(value) is not int for value in record_type_counts.values())
+    ):
+        raise ValidationFailure(
+            "invalid-dogfood-counts",
+            "record type counts must contain exactly four integer counters",
+        )
+    normalized_counts = {
+        key: record_type_counts[key]
+        for key in ("decision", "research", "workstream", "question")
+    }
     body = {
         "scope": "authorized-private-single-task-import",
         "outcome": "complete",
@@ -387,8 +407,8 @@ def sanitized_dogfood_receipt(
         "performed_at": performed_at,
         "source_task_count": 1,
         "source_task_identity_disclosed": False,
-        "record_type_counts": record_type_counts,
-        "records_validated": sum(record_type_counts.values()),
+        "record_type_counts": normalized_counts,
+        "records_validated": sum(normalized_counts.values()),
         "raw_source_canonical": False,
         "excluded_material_committed": False,
         "private_record_material_committed": False,
@@ -420,6 +440,21 @@ def sanitize_private_import_receipt(
 ) -> dict[str, Any]:
     """Reduce one validated local import receipt to the public-safe dogfood shape."""
     validate(private_receipt, load_schema("core", "declassification-receipt.v2.schema.json"))
+    receipt_body = {
+        key: value
+        for key, value in private_receipt.items()
+        if key not in {"schema_id", "receipt_id"}
+    }
+    expected_receipt = receipt_with_digest(
+        "artifact-memory/declassification-receipt/v2",
+        "declassification-receipt://",
+        receipt_body,
+    )
+    if private_receipt["receipt_id"] != expected_receipt["receipt_id"]:
+        raise ValidationFailure(
+            "dogfood-receipt-integrity-failed",
+            "private import receipt identity does not match its canonical body",
+        )
     if private_receipt["outcome"] != "admitted":
         raise ValidationFailure(
             "dogfood-import-incomplete", "only an admitted import can produce dogfood evidence"
@@ -428,16 +463,29 @@ def sanitize_private_import_receipt(
         raise ValidationFailure(
             "dogfood-source-invalid", "dogfood evidence requires a selected local task"
         )
-    if len(private_receipt["admitted_record_ids"]) != sum(
-        private_receipt["record_type_counts"].values()
+    admitted_records = private_receipt["admitted_records"]
+    admitted_ids = [item["record_id"] for item in admitted_records]
+    if (
+        admitted_ids != private_receipt["admitted_record_ids"]
+        or len(set(admitted_ids)) != len(admitted_ids)
     ):
         raise ValidationFailure(
+            "dogfood-record-set-mismatch",
+            "private import record identities are not unique and aligned",
+        )
+    derived_counter = Counter(item["record_type"] for item in admitted_records)
+    derived_counts = {
+        key: derived_counter[key]
+        for key in ("decision", "research", "workstream", "question")
+    }
+    if derived_counts != private_receipt["record_type_counts"]:
+        raise ValidationFailure(
             "dogfood-count-mismatch",
-            "private import record counts do not match admitted identities",
+            "private import record counts do not match admitted record types",
         )
     return sanitized_dogfood_receipt(
         performed_at=performed_at,
-        record_type_counts=private_receipt["record_type_counts"],
+        record_type_counts=derived_counts,
     )
 
 
@@ -450,15 +498,30 @@ def write_import_bundle(result: dict[str, Any], output_root: Path) -> None:
     for record in records:
         validate(record, load_schema("core", "knowledge-record.v2.schema.json"))
     validate(receipt, load_schema("core", "declassification-receipt.v2.schema.json"))
-    output_root.mkdir(parents=True, exist_ok=False)
-    record_root = output_root / "records"
-    record_root.mkdir()
-    for index, record in enumerate(sorted(records, key=lambda item: item["record_id"]), start=1):
-        (record_root / f"{index:04d}.json").write_text(
-            json.dumps(record, sort_keys=True, indent=2) + "\n",
+    output_root.parent.mkdir(parents=True, exist_ok=True)
+    if output_root.exists() or output_root.is_symlink():
+        raise FileExistsError(output_root)
+    temporary_root = Path(
+        tempfile.mkdtemp(prefix=f".{output_root.name}.pending-", dir=output_root.parent)
+    )
+    try:
+        record_root = temporary_root / "records"
+        record_root.mkdir()
+        for index, record in enumerate(
+            sorted(records, key=lambda item: item["record_id"]), start=1
+        ):
+            (record_root / f"{index:04d}.json").write_text(
+                json.dumps(record, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        (temporary_root / "declassification-receipt.json").write_text(
+            json.dumps(receipt, sort_keys=True, indent=2) + "\n",
             encoding="utf-8",
         )
-    (output_root / "declassification-receipt.json").write_text(
-        json.dumps(receipt, sort_keys=True, indent=2) + "\n",
-        encoding="utf-8",
-    )
+        if output_root.exists() or output_root.is_symlink():
+            raise FileExistsError(output_root)
+        temporary_root.rename(output_root)
+    except BaseException:
+        if temporary_root.exists():
+            shutil.rmtree(temporary_root, ignore_errors=True)
+        raise

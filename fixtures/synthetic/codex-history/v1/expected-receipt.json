@@ -1,9 +1,9 @@
 {
   "authority_boundary": "derivative knowledge only; no execution, routing, disclosure, or mutation authority",
-  "context_pack_id": "context-pack://b833ee371fd6f0e2a94400dae68598251f69008d627024c3a59c9979b2f796c5",
+  "context_pack_id": "context-pack://0c6c0a6f921339ab44caf3bddd3c6a2f8c71f6beb031af99f68c68a4e6dd032b",
   "context_record_count": 4,
   "correction_route": "artifact-memory/record-supersession/v2",
-  "declassification_receipt_id": "declassification-receipt://cf7aa6d063871cd84161f64c6a3a4969514957e9d975517df61a685aabb5c79d",
+  "declassification_receipt_id": "declassification-receipt://09a3020d0ff63a610af1c8fd818678f01fe6f93c7ad5ffbddae9a91e1792bd4d",
   "deletion_request_outcome": "not-authorized",
   "deletion_route": "artifact-memory/retention-deletion/v2",
   "destructive_execution_performed": false,
@@ -16,10 +16,10 @@
     "deletion request receipt does not execute deletion"
   ],
   "outcome": "complete",
-  "projection_source_digest": "sha-256:46af289f1054272ecff48a3bdcd2be3a7bbee42d261dfa598e31db54a460c406",
+  "projection_source_digest": "sha-256:9c03698cd62f65006ed0965713b210ada085a6e4d59c66983a89a8b788c083d1",
   "raw_source_canonical": false,
-  "receipt_id": "codex-history-conformance-receipt://synthetic/0cc37533cbefde384153012f9c259ab602fff72a7014fa13daf897e4521652df",
-  "record_set_digest": "sha-256:46af289f1054272ecff48a3bdcd2be3a7bbee42d261dfa598e31db54a460c406",
+  "receipt_id": "codex-history-conformance-receipt://synthetic/ac30ee9cad50a1c3992e995dad453b6ac84c203708b098853723fde4c3f6783e",
+  "record_set_digest": "sha-256:9c03698cd62f65006ed0965713b210ada085a6e4d59c66983a89a8b788c083d1",
   "record_type_counts": {
     "decision": 1,
     "question": 1,

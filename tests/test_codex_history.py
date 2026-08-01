@@ -1,13 +1,16 @@
 import json
+import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 from artifact_memory.codex_history import (
     import_selected_task,
     import_task_export,
     sanitize_private_import_receipt,
     sanitized_dogfood_receipt,
+    write_import_bundle,
 )
 from artifact_memory.canonical import receipt_with_digest
 from artifact_memory.schema_resources import load_schema
@@ -67,6 +70,24 @@ class CodexHistoryTests(unittest.TestCase):
         ):
             self.assertNotIn(marker, encoded)
 
+    def test_v2_record_identity_is_independent_of_source_task_identity(self):
+        task = json.loads((FIXTURE / "task-export.json").read_text(encoding="utf-8"))
+        policy = json.loads((FIXTURE / "import-policy.json").read_text(encoding="utf-8"))
+        first = import_task_export(task, policy)
+        rekeyed_task = deepcopy(task)
+        rekeyed_task["task_id"] = "synthetic-task-rekeyed"
+        rekeyed_policy = deepcopy(policy)
+        rekeyed_policy["selected_task_id"] = rekeyed_task["task_id"]
+        second = import_task_export(rekeyed_task, rekeyed_policy)
+        self.assertEqual(
+            sorted(record["record_id"] for record in first["records"]),
+            sorted(record["record_id"] for record in second["records"]),
+        )
+        self.assertNotEqual(
+            first["records"][0]["derivative"]["source_task_ref"],
+            second["records"][0]["derivative"]["source_task_ref"],
+        )
+
     def test_v2_import_fails_closed_on_selection_and_authority(self):
         task = json.loads((FIXTURE / "task-export.json").read_text(encoding="utf-8"))
         policy = json.loads((FIXTURE / "import-policy.json").read_text(encoding="utf-8"))
@@ -86,6 +107,8 @@ class CodexHistoryTests(unittest.TestCase):
         policy = json.loads((FIXTURE / "import-policy.json").read_text(encoding="utf-8"))
         for summary in (
             "Read /local/private/value.txt next.",
+            "See /tmp for details.",
+            "Config in /etc.",
             "Author" + "ization: Bearer synthetic-value-that-must-not-pass",
             "x" * 4_097,
         ):
@@ -134,6 +157,20 @@ class CodexHistoryTests(unittest.TestCase):
         self.assertFalse(receipt["source_task_identity_disclosed"])
         self.assertEqual(receipt["owner_review_state"], "required")
 
+    def test_public_dogfood_receipt_rejects_untyped_counts(self):
+        valid = {"decision": 1, "research": 1, "workstream": 1, "question": 0}
+        for invalid in (
+            {**valid, "decision": "1"},
+            {**valid, "question": False},
+            {key: value for key, value in valid.items() if key != "question"},
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValidationFailure, "four integer counters"):
+                    sanitized_dogfood_receipt(
+                        performed_at="2026-08-01T00:00:00Z",
+                        record_type_counts=invalid,
+                    )
+
     def test_only_an_admitted_local_receipt_can_be_sanitized(self):
         task = json.loads((FIXTURE / "task-export.json").read_text(encoding="utf-8"))
         policy = json.loads((FIXTURE / "import-policy.json").read_text(encoding="utf-8"))
@@ -157,11 +194,84 @@ class CodexHistoryTests(unittest.TestCase):
             )
         mismatched = deepcopy(private_receipt)
         mismatched["record_type_counts"]["question"] = 0
+        mismatched_body = {
+            key: value
+            for key, value in mismatched.items()
+            if key not in {"schema_id", "receipt_id"}
+        }
+        mismatched = receipt_with_digest(
+            "artifact-memory/declassification-receipt/v2",
+            "declassification-receipt://",
+            mismatched_body,
+        )
         with self.assertRaisesRegex(ValidationFailure, "counts"):
             sanitize_private_import_receipt(
                 mismatched,
                 performed_at="2026-08-01T00:00:00Z",
             )
+
+        forged_id = deepcopy(private_receipt)
+        forged_id["receipt_id"] = "declassification-receipt://" + "0" * 64
+        with self.assertRaisesRegex(ValidationFailure, "canonical body"):
+            sanitize_private_import_receipt(
+                forged_id,
+                performed_at="2026-08-01T00:00:00Z",
+            )
+
+        fabricated_types = deepcopy(private_receipt)
+        fabricated_types["admitted_records"][-1]["record_type"] = "workstream"
+        fabricated_body = {
+            key: value
+            for key, value in fabricated_types.items()
+            if key not in {"schema_id", "receipt_id"}
+        }
+        fabricated_types = receipt_with_digest(
+            "artifact-memory/declassification-receipt/v2",
+            "declassification-receipt://",
+            fabricated_body,
+        )
+        with self.assertRaisesRegex(ValidationFailure, "counts"):
+            sanitize_private_import_receipt(
+                fabricated_types,
+                performed_at="2026-08-01T00:00:00Z",
+            )
+
+        duplicate_ids = deepcopy(private_receipt)
+        duplicate_id = duplicate_ids["admitted_record_ids"][0]
+        duplicate_ids["admitted_record_ids"][-1] = duplicate_id
+        duplicate_ids["admitted_records"][-1]["record_id"] = duplicate_id
+        duplicate_body = {
+            key: value
+            for key, value in duplicate_ids.items()
+            if key not in {"schema_id", "receipt_id"}
+        }
+        duplicate_ids = receipt_with_digest(
+            "artifact-memory/declassification-receipt/v2",
+            "declassification-receipt://",
+            duplicate_body,
+        )
+        with self.assertRaisesRegex(ValidationFailure, "unique and aligned"):
+            sanitize_private_import_receipt(
+                duplicate_ids,
+                performed_at="2026-08-01T00:00:00Z",
+            )
+
+    def test_import_bundle_is_not_published_after_a_write_failure(self):
+        task = json.loads((FIXTURE / "task-export.json").read_text(encoding="utf-8"))
+        policy = json.loads((FIXTURE / "import-policy.json").read_text(encoding="utf-8"))
+        result = import_task_export(task, policy)
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            output = parent / "bundle"
+            with patch.object(
+                Path,
+                "write_text",
+                side_effect=OSError("synthetic write failure"),
+            ):
+                with self.assertRaises(OSError):
+                    write_import_bundle(result, output)
+            self.assertFalse(output.exists())
+            self.assertEqual(list(parent.glob(".bundle.pending-*")), [])
 
     def test_checked_operational_receipt_is_schema_valid_and_digest_identified(self):
         receipt_path = (

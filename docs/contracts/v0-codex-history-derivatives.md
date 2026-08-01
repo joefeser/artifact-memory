@@ -56,11 +56,13 @@ provenance rather than canonical identity for the meaning itself. They remain
 draft until the owner reviews and accepts them.
 
 `artifact-memory/declassification-receipt/v2` identifies admitted fields and
-record identities without repeating excluded values. It records the raw-source
-retention policy and expiry, states that raw history is non-canonical, and
-routes correction through record supersession and deletion through the #36
-retention/deletion contract. A deletion request is informational and cannot
-execute deletion.
+records without repeating excluded values, aligns each unique record identity
+with its class, and records per-class counts. Consumers verify its digest-bound
+identity before using those claims; this proves integrity, not issuer
+authenticity or trust. It records the raw-source retention policy and expiry,
+states that raw history is non-canonical, and routes correction through record
+supersession and deletion through the #36 retention/deletion contract. A
+deletion request is informational and cannot execute deletion.
 
 ## Raw-source lifecycle
 
