@@ -15,8 +15,6 @@ from artifact_memory.canonical_content_conformance import render_receipt, run_co
 
 
 DEFAULT_FIXTURE = ROOT / "fixtures" / "synthetic"
-EXPECTED_JSON = DEFAULT_FIXTURE / "canonical-content" / "v1" / "expected-receipt.json"
-EXPECTED_MARKDOWN = DEFAULT_FIXTURE / "canonical-content" / "v1" / "receipt.md"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -27,8 +25,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     receipt = run_conformance(args.fixture)
     if args.check:
-        expected = json.loads(EXPECTED_JSON.read_text(encoding="utf-8"))
-        expected_markdown = EXPECTED_MARKDOWN.read_text(encoding="utf-8")
+        evidence_root = args.fixture / "canonical-content" / "v1"
+        expected = json.loads((evidence_root / "expected-receipt.json").read_text(encoding="utf-8"))
+        expected_markdown = (evidence_root / "receipt.md").read_text(encoding="utf-8")
         if receipt != expected or render_receipt(receipt) != expected_markdown:
             print("canonical/content conformance receipt does not match checked evidence", file=sys.stderr)
             return 1

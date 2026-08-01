@@ -59,6 +59,18 @@ def render_receipt(receipt: dict[str, Any]) -> str:
     )
 
 
+def _object_list(container: dict[str, Any], key: str, minimum: int = 0) -> list[dict[str, Any]]:
+    value = container.get(key)
+    if not isinstance(value, list) or len(value) < minimum or not all(isinstance(item, dict) for item in value):
+        raise ValidationFailure("invalid-vector", f"{key} must be a list of synthetic vector objects")
+    return value
+
+
+def _require_fields(value: dict[str, Any], fields: dict[str, type], label: str) -> None:
+    if any(field not in value or not isinstance(value[field], expected) for field, expected in fields.items()):
+        raise ValidationFailure("invalid-vector", f"{label} is malformed")
+
+
 def run_conformance(fixture_root: Path) -> dict[str, Any]:
     canonical_vectors = load_json(fixture_root / "canonical" / "v1" / "vectors.json")
     revisions = load_json(fixture_root / "canonical" / "v1" / "revisions.json")
@@ -66,17 +78,35 @@ def run_conformance(fixture_root: Path) -> dict[str, Any]:
     if not all(isinstance(value, dict) and value.get("synthetic") is True for value in (canonical_vectors, revisions, content_vectors)):
         raise ValidationFailure("invalid-vector", "all conformance inputs must declare synthetic provenance")
 
-    for vector in canonical_vectors["vectors"]:
+    canonical_items = _object_list(canonical_vectors, "vectors")
+    invalid_items = _object_list(canonical_vectors, "invalid")
+    revision_items = _object_list(revisions, "revisions")
+    replacement = revisions.get("replacement")
+    recipe_items = _object_list(content_vectors, "recipes", minimum=2)
+    if not isinstance(replacement, dict):
+        raise ValidationFailure("invalid-vector", "replacement is malformed")
+    for vector in canonical_items:
+        _require_fields(vector, {"id": str, "canonical_utf8": str, "digest": str}, "canonical vector")
+        if "input" not in vector:
+            raise ValidationFailure("invalid-vector", "canonical vector is malformed")
+    for vector in invalid_items:
+        _require_fields(vector, {"id": str, "path": str, "outcome": str}, "invalid canonical vector")
+    for item in [*revision_items, replacement]:
+        _require_fields(item, {"record": dict, "revision_digest": str}, "revision vector")
+    for vector in recipe_items:
+        _require_fields(vector, {"id": str, "recipe": dict, "content_object": dict, "expected_outcome": str}, "content vector")
+
+    for vector in canonical_items:
         encoded = canonical_bytes(vector["input"])
         if encoded.decode("utf-8") != vector["canonical_utf8"] or sha256_bytes(encoded) != vector["digest"]:
             raise ValidationFailure("vector-mismatch", f"canonical vector does not match: {vector['id']}")
     invalid_root = fixture_root / "canonical" / "v1"
-    for vector in canonical_vectors["invalid"]:
+    for vector in invalid_items:
         if _invalid_outcome(invalid_root / vector["path"]) != vector["outcome"]:
             raise ValidationFailure("vector-mismatch", f"invalid vector does not match: {vector['id']}")
 
     knowledge_schema = load_schema("core", "knowledge-record.v1.schema.json")
-    revision_items = [*revisions["revisions"], revisions["replacement"]]
+    revision_items = [*revision_items, replacement]
     for item in revision_items:
         validate(item["record"], knowledge_schema)
         if sha256_bytes(canonical_bytes(item["record"])) != item["revision_digest"]:
@@ -87,7 +117,7 @@ def run_conformance(fixture_root: Path) -> dict[str, Any]:
     receipts: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        for vector in content_vectors["recipes"]:
+        for vector in recipe_items:
             data = _recipe_bytes(vector["recipe"])
             path = root / vector["id"]
             path.write_bytes(data)
@@ -96,18 +126,12 @@ def run_conformance(fixture_root: Path) -> dict[str, Any]:
                 raise ValidationFailure("vector-mismatch", f"content vector does not match: {vector['id']}")
             receipts.append(receipt)
 
-        zero_object = content_vectors["recipes"][0]["content_object"]
+        zero_object = recipe_items[0]["content_object"]
         mismatch_path = root / "mismatch"
         mismatch_path.write_bytes(b"synthetic mismatch\n")
         receipts.append(verify_content(mismatch_path, zero_object))
         receipts.append(verify_content(root / "not-created", zero_object))
-        unsupported = {
-            "schema_id": "artifact-memory/content-object/v2",
-            "content_id": "content://blake3/abcd",
-            "digest": "blake3:abcd",
-            "byte_size": 0,
-            "media_type": "application/octet-stream",
-        }
+        unsupported = {**zero_object, "secondary_digests": ["blake3:abcd"]}
         receipts.append(verify_content(root / "not-needed", unsupported))
 
     outcomes = {name: sum(item["outcome"] == name for item in receipts) for name in ("verified", "mismatch", "unreadable", "unsupported")}
@@ -121,12 +145,12 @@ def run_conformance(fixture_root: Path) -> dict[str, Any]:
     body = {
         "outcome": "complete",
         "synthetic": True,
-        "canonical_vector_count": len(canonical_vectors["vectors"]),
-        "invalid_vector_count": len(canonical_vectors["invalid"]),
+        "canonical_vector_count": len(canonical_items),
+        "invalid_vector_count": len(invalid_items),
         "revision_example_count": len(revision_items),
         "zero_byte_outcome": receipts[0]["outcome"],
         "large_object_outcome": receipts[1]["outcome"],
-        "large_object_byte_size": content_vectors["recipes"][1]["content_object"]["byte_size"],
+        "large_object_byte_size": recipe_items[1]["content_object"]["byte_size"],
         "verification_outcomes": outcomes,
         "vector_set_digest": vector_set_digest,
         "identity_boundaries": ["record-id-is-logical", "revision-digest-is-canonical-bytes", "content-id-is-location-neutral", "git-id-is-not-protocol-identity"],

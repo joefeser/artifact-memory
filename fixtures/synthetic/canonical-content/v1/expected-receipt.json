@@ -14,11 +14,11 @@
     "fixture recipes contain synthetic bytes only"
   ],
   "outcome": "complete",
-  "receipt_id": "canonical-content-receipt://9ef9e869b3e2935aa69227d8c707aa21baa4c691c3db55aadb56f4f0cfb61f2e",
+  "receipt_id": "canonical-content-receipt://6957bbd694fbc674e8c6a74b00b5d66f741ebd278d1105520f77e802ee0d07fa",
   "revision_example_count": 4,
   "schema_id": "artifact-memory/canonical-content-conformance-receipt/v1",
   "synthetic": true,
-  "vector_set_digest": "sha-256:1d47caa7a2390e8b6e33ec5f0434e772456b2f149b038d6de50b72f64ab4c6f7",
+  "vector_set_digest": "sha-256:38eb24fc2fd72f7043ca904d347c8bf6cdb77d6c9e23896300f26286d71ab1f5",
   "verification_outcomes": {
     "mismatch": 1,
     "unreadable": 1,

@@ -57,7 +57,9 @@ def _kind(value: Any) -> str:
         return "string"
     if isinstance(value, list):
         return "array"
-    return "object"
+    if isinstance(value, dict):
+        return "object"
+    return "non-json"
 
 
 def _fail(code: str, message: str, path: str) -> None:

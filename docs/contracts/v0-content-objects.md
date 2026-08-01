@@ -15,6 +15,10 @@ SHA-512; an unknown declared algorithm produces `unsupported`, not success.
 Malformed known digests or a SHA-256 `content_id` that disagrees with `digest`
 are invalid contracts rather than byte mismatches.
 
+Namespaced optional extensions are preserved without interpretation. An
+unknown extension declared `required: true` is rejected before byte
+verification because a verifier cannot safely ignore required semantics.
+
 Verification streams bytes and returns one of:
 
 - `verified`: size and every declared digest match;

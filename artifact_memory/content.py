@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .canonical import CHUNK_SIZE, receipt_with_digest
+from .extensions import ExtensionFailure, preserve_extensions
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -27,6 +28,13 @@ def _split_digest(value: str) -> tuple[str, str]:
 
 def _validated_claims(content_object: dict[str, Any]) -> list[tuple[str, str]]:
     validate(content_object, load_schema("core", "content-object.v2.schema.json"))
+    try:
+        preserve_extensions({}, {
+            "schema_id": "artifact-memory/extension-bundle/v1",
+            "extensions": content_object.get("extensions", {}),
+        })
+    except ExtensionFailure as exc:
+        raise ValidationFailure(exc.code, exc.message, "$.extensions") from exc
     claims = [_split_digest(content_object["digest"])]
     claims.extend(_split_digest(item) for item in content_object.get("secondary_digests", []))
     algorithms = [algorithm for algorithm, _ in claims]
@@ -37,7 +45,9 @@ def _validated_claims(content_object: dict[str, Any]) -> list[tuple[str, str]]:
         if expected_length is not None and len(hexadecimal) != expected_length:
             raise ValidationFailure("invalid-digest", f"{algorithm} digest has the wrong length")
     primary_algorithm, primary_hex = claims[0]
-    if primary_algorithm == "sha-256" and content_object["content_id"] != f"content://sha-256/{primary_hex}":
+    if primary_algorithm != "sha-256":
+        raise ValidationFailure("unsupported-primary-digest", "the v0 primary identity digest must be SHA-256")
+    if content_object["content_id"] != f"content://sha-256/{primary_hex}":
         raise ValidationFailure("content-identity-mismatch", "content_id must be derived from the primary SHA-256 digest")
     return claims
 

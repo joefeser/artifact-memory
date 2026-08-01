@@ -1,5 +1,7 @@
 import hashlib
 import json
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -71,7 +73,8 @@ class CanonicalContentTests(unittest.TestCase):
             unreadable = verify_content(root / "missing", content_object)
             self.assertEqual(unreadable["outcome"], "unreadable")
             self.assertNotIn(str(root), json.dumps(unreadable))
-            unsupported = {"schema_id": "artifact-memory/content-object/v2", "content_id": "content://blake3/abcd", "digest": "blake3:abcd", "byte_size": 0, "media_type": "application/octet-stream"}
+            unsupported = json.loads(json.dumps(content_object))
+            unsupported["secondary_digests"] = ["blake3:abcd"]
             unsupported_receipt = verify_content(root / "unused", unsupported)
             self.assertEqual(unsupported_receipt["outcome"], "unsupported")
             validate(unsupported_receipt, load_schema("core", "content-verification-receipt.v1.schema.json"))
@@ -103,6 +106,42 @@ class CanonicalContentTests(unittest.TestCase):
             verify_content(Path("unused"), duplicate)
         self.assertEqual(repeated.exception.code, "duplicate-digest-algorithm")
 
+        non_sha_primary = json.loads(json.dumps(content_object))
+        non_sha_primary["digest"] = "sha-512:" + "0" * 128
+        with self.assertRaises(ValidationFailure):
+            verify_content(Path("unused"), non_sha_primary)
+
+        with self.assertRaises(ValidationFailure) as non_object:
+            verify_content(Path("unused"), ("not", "an", "object"))  # type: ignore[arg-type]
+        self.assertEqual(non_object.exception.code, "type-mismatch")
+
+    def test_required_content_extensions_fail_closed(self):
+        content_object = json.loads((FIXTURES / "content/v1/vectors.json").read_text(encoding="utf-8"))["recipes"][0]["content_object"]
+        optional = json.loads(json.dumps(content_object))
+        optional["extensions"] = {
+            "https://synthetic.example/extensions/optional": {
+                "version": "v1",
+                "required": False,
+                "value": {"opaque": True},
+            }
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "zero"
+            path.write_bytes(b"")
+            self.assertEqual(verify_content(path, optional)["outcome"], "verified")
+
+        required = json.loads(json.dumps(content_object))
+        required["extensions"] = {
+            "https://synthetic.example/extensions/required": {
+                "version": "v1",
+                "required": True,
+                "value": {"meaning": "synthetic"},
+            }
+        }
+        with self.assertRaises(ValidationFailure) as failure:
+            verify_content(Path("unused"), required)
+        self.assertEqual(failure.exception.code, "required-extension-unsupported")
+
     def test_receipt_schema_binds_observations_to_outcomes(self):
         schema = load_schema("core", "content-verification-receipt.v1.schema.json")
         content_object = json.loads((FIXTURES / "content/v1/vectors.json").read_text(encoding="utf-8"))["recipes"][0]["content_object"]
@@ -118,6 +157,41 @@ class CanonicalContentTests(unittest.TestCase):
         unreadable_with_observation["observed_byte_size"] = 0
         with self.assertRaises(ValidationFailure):
             validate(unreadable_with_observation, schema)
+
+        contradictory = json.loads(json.dumps(verified))
+        contradictory["digest_results"][0]["outcome"] = "mismatch"
+        with self.assertRaises(ValidationFailure):
+            validate(contradictory, schema)
+
+        malformed_digest = json.loads(json.dumps(verified))
+        malformed_digest["digest_results"][0]["expected"] = "sha-256:NOT-HEX"
+        with self.assertRaises(ValidationFailure):
+            validate(malformed_digest, schema)
+
+    def test_malformed_conformance_fixture_fails_with_typed_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary)
+            for relative in ("canonical/v1", "content/v1"):
+                (fixture / relative).mkdir(parents=True, exist_ok=True)
+            (fixture / "canonical/v1/vectors.json").write_text('{"synthetic":true}', encoding="utf-8")
+            (fixture / "canonical/v1/revisions.json").write_text('{"synthetic":true}', encoding="utf-8")
+            (fixture / "content/v1/vectors.json").write_text('{"synthetic":true}', encoding="utf-8")
+            with self.assertRaises(ValidationFailure) as failure:
+                run_conformance(fixture)
+            self.assertEqual(failure.exception.code, "invalid-vector")
+
+    def test_check_reads_expected_evidence_from_selected_fixture(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary) / "synthetic"
+            shutil.copytree(FIXTURES, fixture)
+            result = subprocess.run(
+                ["python3", str(ROOT / "scripts/run_canonical_content_conformance.py"), "--fixture", str(fixture), "--check"],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_checked_machine_and_human_receipts_replay(self):
         receipt = run_conformance(FIXTURES)
