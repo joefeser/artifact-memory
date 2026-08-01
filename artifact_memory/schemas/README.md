@@ -13,5 +13,6 @@ Each schema requires:
 No schema is normative merely because an implementation can parse it. The
 normative canonical serialization and exact-content rules are in
 `docs/contracts/v0-canonical-records.md` and
-`docs/contracts/v0-content-objects.md`; their checked vectors remain
+`docs/contracts/v0-content-objects.md`. Normative scan completeness behavior is
+in `docs/contracts/v0-scan-policy-and-receipts.md`; their checked vectors remain
 runtime-neutral even though the first runner is Python.

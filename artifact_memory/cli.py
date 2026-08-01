@@ -51,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     verify = subparsers.add_parser("verify")
     verify.add_argument("root", type=Path)
     verify.add_argument("manifest", type=Path)
+    verify.add_argument("--policy", type=Path, help="exact digest-bound scan policy used by the manifest")
     verify.add_argument("--json", action="store_true", dest="as_json")
     diff = subparsers.add_parser("diff")
     diff.add_argument("before", type=Path)
@@ -109,12 +110,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "verify":
         try:
             manifest = load_json(args.manifest)
+            policy = load_json(args.policy) if args.policy else None
+            if not isinstance(manifest, dict) or (policy is not None and not isinstance(policy, dict)):
+                raise ValidationFailure("invalid-input", "manifest and policy must be JSON objects")
         except ValidationFailure as exc:
             _receipt({"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]}, args.as_json)
             return EXIT_INVALID
-        result = verify_path(args.root, manifest)
+        result = verify_path(args.root, manifest, policy=policy)
         _receipt(result, args.as_json)
-        return EXIT_OK if result["outcome"] == "verified" else EXIT_INVALID
+        if result["outcome"] == "verified":
+            return EXIT_OK
+        return EXIT_UNSUPPORTED if result["outcome"] in {"policy-required", "unsupported"} else EXIT_INVALID
     if args.command == "diff":
         try:
             before = load_json(args.before)

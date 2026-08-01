@@ -1,0 +1,27 @@
+{
+  "case_count": 7,
+  "cases": [
+    {"excluded_entry_count": 0, "failure_codes": [], "id": "complete-file", "manifest_ref": "manifest://f8a73f74fe531b11edff773cb2e60aafc428726fc92234fd9f50968212b43e1f", "manifest_tree_digest": "sha-256:12d95ba17f4e886845a16f47cbd9baf3e15daab3a5ee264148a37f5e661051c2", "outcome": "complete", "receipt_ref": "scan-receipt://sha-256/c7fcbb8a1e7b39d31792de292a7e7ba46cced1ae290a197b3393a07433cc8dfa", "warning_codes": []},
+    {"excluded_entry_count": 1, "failure_codes": [], "id": "declared-exclusion", "manifest_ref": "manifest://734c54a61fd7eca22f63ad72b707b8093559bade29ac9e75a23191452e3a6b76", "manifest_tree_digest": "sha-256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "outcome": "complete", "receipt_ref": "scan-receipt://sha-256/ecc983542da8119204a00e3500231be6cbe62d8c7ac91b790f0aeff42683ffc3", "warning_codes": []},
+    {"excluded_entry_count": 0, "failure_codes": ["unreadable"], "id": "inaccessible-entry", "manifest_ref": "manifest://d027f409de045584140f1c667cc5c12f33d9d1f908623e00718967f3bfb5654a", "manifest_tree_digest": "sha-256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "outcome": "partial", "receipt_ref": "scan-receipt://sha-256/8c4db6e55cf1b52422ec41bbaa4a99c552ce47022948c1820b015da178a8a1fa", "warning_codes": []},
+    {"excluded_entry_count": 0, "failure_codes": ["unstable"], "id": "changing-file", "manifest_ref": "manifest://fe08626dca8aaab25919e0964123e77bcce0e6ee2ee7a91d348e0c9f1bc4320c", "manifest_tree_digest": "sha-256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "outcome": "partial", "receipt_ref": "scan-receipt://sha-256/a7af555dcc5f8f3153895904a2beabe64193b95e051a6f081361180388e13e4d", "warning_codes": []},
+    {"excluded_entry_count": 0, "failure_codes": [], "id": "byte-budget", "manifest_ref": "manifest://5cf0b959f636529c1b5ba20196882618cc896c291d1399d5d4806f299a2b263e", "manifest_tree_digest": "sha-256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "outcome": "partial", "receipt_ref": "scan-receipt://sha-256/07f8cdc15b2d87db3af722f6b064e6d1da5fea01352b196ec40f4343d3e2e791", "warning_codes": ["resource-limit"]},
+    {"excluded_entry_count": 0, "failure_codes": ["unreadable"], "id": "unavailable-root", "manifest_ref": "manifest://f705a1b2eead1bbfcf342eab20af596ed18061af6f5c6e07346d3c5dc3b722b5", "manifest_tree_digest": "sha-256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "outcome": "failed", "receipt_ref": "scan-receipt://sha-256/c01cfa52fc5cab4d026ce56a1cae26ec5c6f14caabc1714ffb1a284c95306189", "warning_codes": []},
+    {"excluded_entry_count": 0, "failure_codes": [], "id": "caller-cancelled", "manifest_ref": "manifest://fc7e07358e2f065681468f8336da90525ddfa3298336bf116c8f233a34c74289", "manifest_tree_digest": "sha-256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "outcome": "cancelled", "receipt_ref": "scan-receipt://sha-256/1ecc39e8c4518e113d01fafb25e949697587e8f718d43542dffdad3e3cbd480a", "warning_codes": ["cancelled"]}
+  ],
+  "claims": [
+    "declared exclusions remain separately accounted without weakening a complete outcome",
+    "scan receipts bind canonical policy identity, logical scope, attempt times, implementation identity, and manifest digests",
+    "inaccessible and changing entries cannot produce a complete outcome",
+    "complete, partial, failed, and cancelled remain distinct outcomes"
+  ],
+  "limitations": [
+    "synthetic observer events do not prove host filesystem behavior",
+    "v0 does not follow links and reports unsupported entry semantics explicitly"
+  ],
+  "outcome": "complete",
+  "outcomes": {"cancelled": 1, "complete": 2, "failed": 1, "partial": 3},
+  "receipt_id": "scan-conformance-receipt://1d067da5c482a7551fad4b1776ab5f4b0b9998c06a270fc35b34759d7839977c",
+  "schema_id": "artifact-memory/scan-conformance-receipt/v1",
+  "synthetic": true
+}
