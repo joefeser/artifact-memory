@@ -293,8 +293,10 @@ def bind_projection(
     elif any(
         not isinstance(provider_response.get(field), str) or not provider_response[field]
         for field in ("projection_ref", "projection_schema_ref")
-    ):
-        outcome, diagnostics = "unsupported", [{"code": "provider-response-invalid", "message": "provider response projection references must be non-empty strings"}]
+    ) or not isinstance(provider_response.get("projection_digest"), str) or SHA256.fullmatch(
+        provider_response.get("projection_digest", "")
+    ) is None:
+        outcome, diagnostics = "unsupported", [{"code": "provider-response-invalid", "message": "provider response projection references and digest are invalid"}]
     elif provider_response.get("admission") != "admitted":
         outcome, diagnostics = "rejected", [{"code": "wits-projection-rejected", "message": "provider projection was not admitted"}]
     else:

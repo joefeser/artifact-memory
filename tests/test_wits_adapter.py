@@ -208,6 +208,19 @@ class WitsAdapterTests(unittest.TestCase):
             self.assertIsNone(projection)
             self.assertEqual(receipt["outcome"], "unsupported")
 
+    def test_v1_rejects_missing_or_malformed_projection_digest(self):
+        malformed_responses = [
+            {key: value for key, value in self.response.items() if key != "projection_digest"},
+            {**self.response, "projection_digest": "not-a-digest"},
+        ]
+        for response in malformed_responses:
+            projection, receipt = bind_projection(
+                [self.record], "owner-meaning", response, authorized=True,
+            )
+            self.assertIsNone(projection)
+            self.assertEqual(receipt["outcome"], "unsupported")
+            self.assertEqual(receipt["diagnostics"][0]["code"], "provider-response-invalid")
+
 
 if __name__ == "__main__":
     unittest.main()
