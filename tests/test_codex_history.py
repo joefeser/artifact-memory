@@ -204,7 +204,7 @@ class CodexHistoryTests(unittest.TestCase):
             "declassification-receipt://",
             mismatched_body,
         )
-        with self.assertRaisesRegex(ValidationFailure, "counts"):
+        with self.assertRaisesRegex(ValidationFailure, "admitted record set"):
             sanitize_private_import_receipt(
                 mismatched,
                 performed_at="2026-08-01T00:00:00Z",
@@ -230,7 +230,7 @@ class CodexHistoryTests(unittest.TestCase):
             "declassification-receipt://",
             fabricated_body,
         )
-        with self.assertRaisesRegex(ValidationFailure, "counts"):
+        with self.assertRaisesRegex(ValidationFailure, "admitted record set"):
             sanitize_private_import_receipt(
                 fabricated_types,
                 performed_at="2026-08-01T00:00:00Z",
@@ -250,7 +250,7 @@ class CodexHistoryTests(unittest.TestCase):
             "declassification-receipt://",
             duplicate_body,
         )
-        with self.assertRaisesRegex(ValidationFailure, "unique and aligned"):
+        with self.assertRaisesRegex(ValidationFailure, "admitted record set"):
             sanitize_private_import_receipt(
                 duplicate_ids,
                 performed_at="2026-08-01T00:00:00Z",

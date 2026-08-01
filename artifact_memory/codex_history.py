@@ -398,6 +398,31 @@ def _require_receipt_integrity(receipt: dict[str, Any]) -> None:
         )
 
 
+def _require_receipt_record_summary(
+    receipt: dict[str, Any], admitted_records: list[dict[str, str]]
+) -> dict[str, int]:
+    receipt_records = receipt["admitted_records"]
+    receipt_ids = [item["record_id"] for item in receipt_records]
+    counts = Counter(item["record_type"] for item in receipt_records)
+    record_type_counts = {
+        key: counts[key]
+        for key in ("decision", "research", "workstream", "question")
+    }
+    if (
+        receipt["outcome"] != "admitted"
+        or receipt["admitted_record_ids"] != receipt_ids
+        or len(set(receipt_ids)) != len(receipt_ids)
+        or sorted(receipt_records, key=lambda item: item["record_id"])
+        != sorted(admitted_records, key=lambda item: item["record_id"])
+        or receipt["record_type_counts"] != record_type_counts
+    ):
+        raise ValidationFailure(
+            "import-receipt-mismatch",
+            "declassification receipt does not match the admitted record set",
+        )
+    return record_type_counts
+
+
 def sanitized_dogfood_receipt(
     *,
     performed_at: str,
@@ -467,26 +492,9 @@ def sanitize_private_import_receipt(
         raise ValidationFailure(
             "dogfood-source-invalid", "dogfood evidence requires a selected local task"
         )
-    admitted_records = private_receipt["admitted_records"]
-    admitted_ids = [item["record_id"] for item in admitted_records]
-    if (
-        admitted_ids != private_receipt["admitted_record_ids"]
-        or len(set(admitted_ids)) != len(admitted_ids)
-    ):
-        raise ValidationFailure(
-            "dogfood-record-set-mismatch",
-            "private import record identities are not unique and aligned",
-        )
-    derived_counter = Counter(item["record_type"] for item in admitted_records)
-    derived_counts = {
-        key: derived_counter[key]
-        for key in ("decision", "research", "workstream", "question")
-    }
-    if derived_counts != private_receipt["record_type_counts"]:
-        raise ValidationFailure(
-            "dogfood-count-mismatch",
-            "private import record counts do not match admitted record types",
-        )
+    derived_counts = _require_receipt_record_summary(
+        private_receipt, private_receipt["admitted_records"]
+    )
     return sanitized_dogfood_receipt(
         performed_at=performed_at,
         record_type_counts=derived_counts,
@@ -510,24 +518,7 @@ def write_import_bundle(result: dict[str, Any], output_root: Path) -> None:
         }
         for record in records
     ]
-    record_ids = [item["record_id"] for item in admitted_records]
-    counts = Counter(item["record_type"] for item in admitted_records)
-    record_type_counts = {
-        key: counts[key]
-        for key in ("decision", "research", "workstream", "question")
-    }
-    if (
-        receipt["outcome"] != "admitted"
-        or len(set(record_ids)) != len(record_ids)
-        or set(receipt["admitted_record_ids"]) != set(record_ids)
-        or sorted(receipt["admitted_records"], key=lambda item: item["record_id"])
-        != sorted(admitted_records, key=lambda item: item["record_id"])
-        or receipt["record_type_counts"] != record_type_counts
-    ):
-        raise ValidationFailure(
-            "import-receipt-mismatch",
-            "declassification receipt does not match the admitted record set",
-        )
+    _require_receipt_record_summary(receipt, admitted_records)
     output_root.parent.mkdir(parents=True, exist_ok=True)
     if output_root.exists() or output_root.is_symlink():
         raise FileExistsError(output_root)
