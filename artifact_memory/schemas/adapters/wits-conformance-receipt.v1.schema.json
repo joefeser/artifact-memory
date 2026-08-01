@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/adapters/wits-conformance-receipt/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "synthetic", "stages", "source_record_refs", "tracemap_binding_ref", "wits_projection_ref", "wits_contract_commit", "wits_license", "context_pack_id", "projection_source_digest", "registered_projection_content_ref", "backup_outcome", "restore_outcome", "fixture_end", "authority_boundary", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/wits-conformance-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^wits-conformance-receipt://[0-9a-f]{64}$"},
+    "outcome": {"const": "complete"}, "synthetic": {"const": true},
+    "stages": {"type": "array", "minItems": 8, "items": {"type": "object", "additionalProperties": false, "required": ["name", "outcome"], "properties": {"name": {"type": "string"}, "outcome": {"const": "complete"}}}},
+    "source_record_refs": {"type": "array", "minItems": 1},
+    "tracemap_binding_ref": {"type": "string"}, "wits_projection_ref": {"type": "string"},
+    "wits_contract_commit": {"const": "d675ba6d632dc03826f27940014d4cd672f7d910"},
+    "wits_license": {"const": "BSL-1.1"},
+    "context_pack_id": {"type": "string", "pattern": "^context-pack://[0-9a-f]{64}$"},
+    "projection_source_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "registered_projection_content_ref": {"type": "string"},
+    "backup_outcome": {"const": "created"}, "restore_outcome": {"const": "restored"},
+    "fixture_end": {"const": "before_hacp_task_creation_or_execution"},
+    "authority_boundary": {"const": "informational projection only; no HACP task, route, continuation, or execution authority"},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  }
+}
