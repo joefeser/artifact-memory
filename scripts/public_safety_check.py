@@ -141,9 +141,9 @@ def check_current_content(paths: list[str]) -> list[str]:
                 worktree_content = worktree_path.read_bytes()
             except OSError as error:
                 findings.append(f"current content scan failed: {path} ({error})")
-                continue
-            if worktree_content not in candidates:
-                candidates.append(worktree_content)
+            else:
+                if worktree_content not in candidates:
+                    candidates.append(worktree_content)
         if not candidates:
             findings.append(f"current content scan failed: {path} (content unavailable)")
             continue

@@ -49,6 +49,30 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
                 os.chdir(previous)
         self.assertEqual(findings, ["secret-like current content: path tracked.txt"])
 
+    def test_staged_content_is_scanned_when_worktree_read_fails(self):
+        marker = (("pass" + "word") + "=synthetic-sensitive-value").encode()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "tracked.txt"
+            path.write_text("safe", encoding="utf-8")
+            previous = Path.cwd()
+            os.chdir(temporary)
+            try:
+                with (
+                    patch.object(public_safety_check, "staged_objects", return_value={"tracked.txt": "index"}),
+                    patch.object(public_safety_check, "read_blobs", return_value={"index": marker}),
+                    patch.object(Path, "read_bytes", side_effect=OSError("synthetic read failure")),
+                ):
+                    findings = public_safety_check.check_current_content(["tracked.txt"])
+            finally:
+                os.chdir(previous)
+        self.assertEqual(
+            findings,
+            [
+                "current content scan failed: tracked.txt (synthetic read failure)",
+                "secret-like current content: path tracked.txt",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
