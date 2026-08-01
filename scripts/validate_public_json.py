@@ -8,7 +8,11 @@ from pathlib import Path
 import sys
 
 
-ROOTS = (Path("artifact_memory/schemas"), Path("fixtures/synthetic"))
+ROOTS = (
+    Path("artifact_memory/schemas"),
+    Path("fixtures/synthetic"),
+    Path("evidence/sanitized"),
+)
 
 
 def main() -> int:

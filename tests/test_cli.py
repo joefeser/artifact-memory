@@ -85,6 +85,77 @@ class CliTests(unittest.TestCase):
         self.assertEqual(receipt["excluded_record_count"], 0)
         self.assertEqual(receipt["authority_boundary"], "informational-only; no execution, routing, disclosure, or mutation authority")
 
+    def test_codex_history_import_writes_only_admitted_derivatives(self):
+        fixture = ROOT / "fixtures" / "synthetic" / "codex-history" / "v1"
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "single-task-import"
+            result = self.run_cli(
+                "import-codex-history",
+                str(fixture / "task-export.json"),
+                str(fixture / "import-policy.json"),
+                "--out",
+                str(output),
+                "--json",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            summary = json.loads(result.stdout)
+            self.assertEqual(summary["records_written"], 4)
+            self.assertTrue(summary["owner_review_required"])
+            self.assertNotIn("synthetic-task-0001", result.stdout)
+            self.assertNotIn(str(output), result.stdout)
+            self.assertEqual(len(list((output / "records").glob("*.json"))), 4)
+            self.assertTrue((output / "declassification-receipt.json").is_file())
+
+            repeated = self.run_cli(
+                "import-codex-history",
+                str(fixture / "task-export.json"),
+                str(fixture / "import-policy.json"),
+                "--out",
+                str(output),
+                "--json",
+            )
+            self.assertEqual(repeated.returncode, 2)
+            self.assertEqual(json.loads(repeated.stdout)["outcome"], "rejected")
+
+    def test_dogfood_receipt_command_never_echoes_private_import_identity(self):
+        fixture = ROOT / "fixtures" / "synthetic" / "codex-history" / "v1"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            task = json.loads((fixture / "task-export.json").read_text(encoding="utf-8"))
+            policy = json.loads((fixture / "import-policy.json").read_text(encoding="utf-8"))
+            policy.update(
+                source_scope="local",
+                authority_ref="authority://owner/codex-task-selection",
+                record_sensitivity="private",
+            )
+            task_path = root / "task.json"
+            policy_path = root / "policy.json"
+            task_path.write_text(json.dumps(task), encoding="utf-8")
+            policy_path.write_text(json.dumps(policy), encoding="utf-8")
+            private_output = root / "private-output"
+            imported = self.run_cli(
+                "import-codex-history",
+                str(task_path),
+                str(policy_path),
+                "--out",
+                str(private_output),
+                "--json",
+            )
+            self.assertEqual(imported.returncode, 0, imported.stderr)
+            result = self.run_cli(
+                "codex-history-dogfood-receipt",
+                str(private_output / "declassification-receipt.json"),
+                "--performed-at",
+                "2026-08-01T00:00:00Z",
+                "--json",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            receipt = json.loads(result.stdout)
+            self.assertEqual(receipt["scope"], "authorized-private-single-task-import")
+            self.assertNotIn("synthetic-task-0001", result.stdout)
+            self.assertNotIn("source_task_ref", result.stdout)
+            self.assertNotIn(str(private_output), result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -57,6 +57,26 @@ def main() -> None:
         )
         if packaged_schema.returncode != 0:
             raise SystemExit(packaged_schema.stderr or packaged_schema.stdout)
+        codex_history_schemas = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from artifact_memory.schema_resources import load_schema; "
+                "assert load_schema('adapters', 'codex-history-import-policy.v1.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/codex-history-import-policy/v1'; "
+                "assert load_schema('core', 'declassification-receipt.v2.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/declassification-receipt/v2'",
+            ],
+            cwd=root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if codex_history_schemas.returncode != 0:
+            raise SystemExit(codex_history_schemas.stderr or codex_history_schemas.stdout)
 
 
 if __name__ == "__main__":

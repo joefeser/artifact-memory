@@ -124,7 +124,7 @@ def staged_objects() -> dict[str, str]:
 
 
 def check_current_content(paths: list[str]) -> list[str]:
-    """Scan staged and non-ignored worktree files without echoing content."""
+    """Scan both index and worktree forms without echoing content."""
 
     staged = staged_objects()
     staged_content = read_blobs(list(staged.values()))
@@ -132,16 +132,28 @@ def check_current_content(paths: list[str]) -> list[str]:
     for path in paths:
         if path == SCANNER_PATH:
             continue
-        try:
-            content = staged_content[staged[path]] if path in staged else Path(path).read_bytes()
-        except (OSError, subprocess.CalledProcessError) as error:
-            findings.append(f"current content scan failed: {path} ({error})")
+        candidates = []
+        if path in staged and staged[path] in staged_content:
+            candidates.append(staged_content[staged[path]])
+        worktree_path = Path(path)
+        if worktree_path.exists():
+            try:
+                worktree_content = worktree_path.read_bytes()
+            except OSError as error:
+                findings.append(f"current content scan failed: {path} ({error})")
+            else:
+                if worktree_content not in candidates:
+                    candidates.append(worktree_content)
+        if not candidates:
+            findings.append(f"current content scan failed: {path} (content unavailable)")
             continue
-        if b"\x00" in content[:8192]:
-            continue
-        text = content.decode("utf-8", errors="replace")
-        if SECRET_LIKE.search(text):
-            findings.append(f"secret-like current content: path {path}")
+        for content in candidates:
+            if b"\x00" in content[:8192]:
+                continue
+            text = content.decode("utf-8", errors="replace")
+            if SECRET_LIKE.search(text):
+                findings.append(f"secret-like current content: path {path}")
+                break
     return findings
 
 
