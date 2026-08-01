@@ -273,6 +273,31 @@ class CodexHistoryTests(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertEqual(list(parent.glob(".bundle.pending-*")), [])
 
+    def test_import_bundle_rejects_a_receipt_for_a_different_record_set(self):
+        task = json.loads((FIXTURE / "task-export.json").read_text(encoding="utf-8"))
+        policy = json.loads((FIXTURE / "import-policy.json").read_text(encoding="utf-8"))
+        result = import_task_export(task, policy)
+        mismatched = deepcopy(result)
+        replacement_id = "record://codex-derivative/" + "0" * 64
+        receipt = mismatched["declassification_receipt"]
+        receipt["admitted_record_ids"][0] = replacement_id
+        receipt["admitted_records"][0]["record_id"] = replacement_id
+        receipt_body = {
+            key: value
+            for key, value in receipt.items()
+            if key not in {"schema_id", "receipt_id"}
+        }
+        mismatched["declassification_receipt"] = receipt_with_digest(
+            "artifact-memory/declassification-receipt/v2",
+            "declassification-receipt://",
+            receipt_body,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "bundle"
+            with self.assertRaisesRegex(ValidationFailure, "admitted record set"):
+                write_import_bundle(mismatched, output)
+            self.assertFalse(output.exists())
+
     def test_checked_operational_receipt_is_schema_valid_and_digest_identified(self):
         receipt_path = (
             ROOT / "evidence" / "sanitized" / "codex-history" / "v1" / "receipt.json"

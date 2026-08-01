@@ -380,6 +380,24 @@ def import_task_export(task: dict[str, Any], policy: dict[str, Any]) -> dict[str
     return {"records": records, "declassification_receipt": receipt}
 
 
+def _require_receipt_integrity(receipt: dict[str, Any]) -> None:
+    receipt_body = {
+        key: value
+        for key, value in receipt.items()
+        if key not in {"schema_id", "receipt_id"}
+    }
+    expected_receipt = receipt_with_digest(
+        "artifact-memory/declassification-receipt/v2",
+        "declassification-receipt://",
+        receipt_body,
+    )
+    if receipt["receipt_id"] != expected_receipt["receipt_id"]:
+        raise ValidationFailure(
+            "declassification-receipt-integrity-failed",
+            "declassification receipt identity does not match its canonical body",
+        )
+
+
 def sanitized_dogfood_receipt(
     *,
     performed_at: str,
@@ -440,21 +458,7 @@ def sanitize_private_import_receipt(
 ) -> dict[str, Any]:
     """Reduce one validated local import receipt to the public-safe dogfood shape."""
     validate(private_receipt, load_schema("core", "declassification-receipt.v2.schema.json"))
-    receipt_body = {
-        key: value
-        for key, value in private_receipt.items()
-        if key not in {"schema_id", "receipt_id"}
-    }
-    expected_receipt = receipt_with_digest(
-        "artifact-memory/declassification-receipt/v2",
-        "declassification-receipt://",
-        receipt_body,
-    )
-    if private_receipt["receipt_id"] != expected_receipt["receipt_id"]:
-        raise ValidationFailure(
-            "dogfood-receipt-integrity-failed",
-            "private import receipt identity does not match its canonical body",
-        )
+    _require_receipt_integrity(private_receipt)
     if private_receipt["outcome"] != "admitted":
         raise ValidationFailure(
             "dogfood-import-incomplete", "only an admitted import can produce dogfood evidence"
@@ -498,6 +502,32 @@ def write_import_bundle(result: dict[str, Any], output_root: Path) -> None:
     for record in records:
         validate(record, load_schema("core", "knowledge-record.v2.schema.json"))
     validate(receipt, load_schema("core", "declassification-receipt.v2.schema.json"))
+    _require_receipt_integrity(receipt)
+    admitted_records = [
+        {
+            "record_id": record["record_id"],
+            "record_type": record["meaning"]["labels"][1],
+        }
+        for record in records
+    ]
+    record_ids = [item["record_id"] for item in admitted_records]
+    counts = Counter(item["record_type"] for item in admitted_records)
+    record_type_counts = {
+        key: counts[key]
+        for key in ("decision", "research", "workstream", "question")
+    }
+    if (
+        receipt["outcome"] != "admitted"
+        or len(set(record_ids)) != len(record_ids)
+        or set(receipt["admitted_record_ids"]) != set(record_ids)
+        or sorted(receipt["admitted_records"], key=lambda item: item["record_id"])
+        != sorted(admitted_records, key=lambda item: item["record_id"])
+        or receipt["record_type_counts"] != record_type_counts
+    ):
+        raise ValidationFailure(
+            "import-receipt-mismatch",
+            "declassification receipt does not match the admitted record set",
+        )
     output_root.parent.mkdir(parents=True, exist_ok=True)
     if output_root.exists() or output_root.is_symlink():
         raise FileExistsError(output_root)
