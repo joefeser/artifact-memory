@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterator
 
-from .canonical import CHUNK_SIZE, canonical_bytes, receipt_with_digest
+from .canonical import CHUNK_SIZE, CanonicalizationFailure, canonical_bytes, receipt_with_digest
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -46,8 +46,12 @@ def _tree_digest(entries: list[dict[str, Any]]) -> str:
     return "sha-256:" + digest.hexdigest()
 
 
-def _manifest_id(payload: dict[str, Any]) -> str:
-    return "manifest://" + hashlib.sha256(_canonical(payload)).hexdigest()
+def _manifest_id(payload: dict[str, Any], path: str = "$") -> str:
+    try:
+        canonical = _canonical(payload)
+    except CanonicalizationFailure as exc:
+        raise ValidationFailure("canonicalization-failed", str(exc), path) from exc
+    return "manifest://" + hashlib.sha256(canonical).hexdigest()
 
 
 def _same_file_observation(left: os.stat_result, right: os.stat_result) -> bool:
@@ -183,7 +187,7 @@ def validate_manifest_identity(manifest: dict[str, Any], path: str = "$") -> Non
         if entry["kind"] == "directory":
             directory_paths.add(entry_path)
     identity_payload = {key: value for key, value in manifest.items() if key not in {"manifest_id", "tree_digest"}}
-    if manifest["tree_digest"] != _tree_digest(entries) or manifest["manifest_id"] != _manifest_id(identity_payload):
+    if manifest["tree_digest"] != _tree_digest(entries) or manifest["manifest_id"] != _manifest_id(identity_payload, path):
         raise ValidationFailure("manifest-identity-invalid", "manifest identity does not match its canonical body", path)
 
 

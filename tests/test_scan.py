@@ -157,6 +157,14 @@ class ScanTests(unittest.TestCase):
                 validate_manifest_identity(missing_content)
             self.assertEqual(raised.exception.code, "manifest-entry-invalid")
 
+    def test_manifest_canonicalization_failures_are_typed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest, _ = scan_path(Path(temporary))
+        manifest["extensions"] = {"synthetic": 9_007_199_254_740_992}
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_manifest_identity(manifest)
+        self.assertEqual(failure.exception.code, "canonicalization-failed")
+
     def test_symlink_is_explicitly_unsupported(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

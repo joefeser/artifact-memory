@@ -1,0 +1,10 @@
+{
+  "schema_id": "artifact-memory/content-vector-set/v1",
+  "synthetic": true,
+  "recipes": [
+    {"id": "zero-byte", "recipe": {"kind": "repeat-byte", "byte_hex": "00", "count": 0}, "content_object": {"schema_id": "artifact-memory/content-object/v2", "content_id": "content://sha-256/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "digest": "sha-256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "byte_size": 0, "media_type": "application/octet-stream", "secondary_digests": ["sha-512:cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"]}, "expected_outcome": "verified"},
+    {"id": "large-object", "recipe": {"kind": "repeat-byte", "byte_hex": "a5", "count": 5242880}, "content_object": {"schema_id": "artifact-memory/content-object/v2", "content_id": "content://sha-256/97c7107777f8faa2c897d476ed4f81ee74a7795e22487c91ca98473c14f1636d", "digest": "sha-256:97c7107777f8faa2c897d476ed4f81ee74a7795e22487c91ca98473c14f1636d", "byte_size": 5242880, "media_type": "application/octet-stream", "secondary_digests": ["sha-512:132e9d7f2e2d893d635851b629c02ef932c4db92cc4e92ac925240cb34dd1125ae9701d00355dc0f79f0af36c9b4e3e281b5342274c680705e642471e284a968"]}, "expected_outcome": "verified"}
+  ],
+  "negative_outcomes": ["mismatch", "unreadable", "unsupported"],
+  "provenance": "newly-authored-synthetic-recipes"
+}

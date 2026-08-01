@@ -24,18 +24,17 @@ complete manifest, index, adapter, retention policy, or authenticity protocol.
 The JSON Schemas in `artifact_memory/schemas/core/` are normative for field names, types,
 required fields, and closed top-level vocabularies. Unknown top-level fields
 are rejected. Optional namespaced extensions belong under `extensions` and are
-preserved without interpretation; a future required-extension mechanism is
-fail-closed and is not implemented by this packet.
+preserved without interpretation. Required extensions fail closed under the
+completed v0 extension contract.
 
 ## Canonical serialization and identifiers
 
-The v0 canonical JSON profile is UTF-8 JSON with object keys sorted by Unicode
-code point, arrays kept in declared order, no insignificant whitespace, and
-no duplicate object keys. A canonical record's digest is SHA-256 over those
-canonical bytes and is represented as `sha-256:<lowercase-hex>`. Timestamps
-are metadata and never identity inputs unless a later contract explicitly
-says so. The schemas do not authorize a resolver, execution, mutation,
-declassification, or trust decision.
+The complete numeric, encoding, revision, and supersession rules are normative
+in `v0-canonical-records.md`. A canonical record's digest is SHA-256 over its
+canonical bytes and is represented as `sha-256:<lowercase-hex>`. Timestamps are
+metadata and never identity inputs unless a later contract explicitly says so.
+The schemas do not authorize a resolver, execution, mutation, declassification,
+or trust decision.
 
 ## Honest scan outcomes
 

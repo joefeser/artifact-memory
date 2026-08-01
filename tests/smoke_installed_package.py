@@ -47,7 +47,11 @@ def main() -> None:
                 "-c",
                 "from artifact_memory.schema_resources import load_schema; "
                 "assert load_schema('core', 'authenticity-receipt.v2.schema.json')"
-                "['properties']['schema_id']['const'] == 'artifact-memory/authenticity-receipt/v2'",
+                "['properties']['schema_id']['const'] == 'artifact-memory/authenticity-receipt/v2'; "
+                "assert load_schema('core', 'content-object.v2.schema.json')"
+                "['properties']['schema_id']['const'] == 'artifact-memory/content-object/v2'; "
+                "assert load_schema('core', 'content-verification-receipt.v1.schema.json')"
+                "['properties']['schema_id']['const'] == 'artifact-memory/content-verification-receipt/v1'",
             ],
             cwd=root,
             text=True,
