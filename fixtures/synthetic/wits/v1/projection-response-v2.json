@@ -1,0 +1,6 @@
+{
+  "admission": "admitted",
+  "projection_ref": "wits-projection://synthetic/meaning-0001",
+  "projection_schema_ref": "wits-contract://opaque/memory-card-projection",
+  "projection_digest": "sha-256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}
