@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/artifact-version/v2",
+  "title": "Artifact Memory artifact version v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "artifact_id", "version_id", "revision", "role", "content_refs", "lifecycle", "created_at", "provenance", "relationships", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/artifact-version/v2"},
+    "artifact_id": {"type": "string", "pattern": "^artifact://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "version_id": {"type": "string", "pattern": "^artifact-version://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+/[1-9][0-9]*$"},
+    "revision": {"type": "integer", "minimum": 1},
+    "role": {"enum": ["original", "normalized", "redacted", "derived", "released"]},
+    "content_refs": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^content://sha-256/[0-9a-f]{64}$"}},
+    "lifecycle": {"enum": ["draft", "accepted", "sealed", "superseded", "rejected"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "provenance": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["kind", "source_ref"], "properties": {"kind": {"enum": ["author", "observation", "import", "derivation", "normalization", "redaction", "release"]}, "source_ref": {"type": "string", "pattern": "^[a-z][a-z0-9+.-]*://[^\\s]+$"}}}},
+    "relationships": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["type", "target_ref"], "properties": {"type": {"enum": ["derived-from", "normalized-from", "redacted-from", "released-from", "supersedes", "related-to"]}, "target_ref": {"type": "string", "pattern": "^artifact-version://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+/[1-9][0-9]*$"}}}},
+    "authority_boundary": {"const": "artifact version lineage grants no content access, execution, disclosure, mutation, authenticity, trust, or authorization"},
+    "extensions": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["version", "required", "value"], "properties": {"version": {"type": "string", "pattern": "^v[0-9]+$"}, "required": {"type": "boolean"}, "value": {"type": "object", "additionalProperties": true}}}}
+  }
+}

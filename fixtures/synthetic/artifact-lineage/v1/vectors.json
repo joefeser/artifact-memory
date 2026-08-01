@@ -1,0 +1,92 @@
+{
+  "schema_id": "artifact-memory/artifact-lineage-vectors/v1",
+  "synthetic": true,
+  "artifact": {
+    "schema_id": "artifact-memory/artifact/v1",
+    "artifact_id": "artifact://synthetic/design-note",
+    "artifact_kind": "document",
+    "title": "Synthetic portable design note",
+    "created_at": "2099-01-01T00:00:00Z",
+    "authority_boundary": "artifact identity grants no content access, execution, disclosure, mutation, authenticity, trust, or authorization"
+  },
+  "versions": [
+    {
+      "schema_id": "artifact-memory/artifact-version/v2",
+      "artifact_id": "artifact://synthetic/design-note",
+      "version_id": "artifact-version://synthetic/design-note/1",
+      "revision": 1,
+      "role": "original",
+      "content_refs": ["content://sha-256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+      "lifecycle": "sealed",
+      "created_at": "2099-01-01T00:00:01Z",
+      "provenance": [{"kind": "author", "source_ref": "actor://synthetic/author"}],
+      "relationships": [],
+      "authority_boundary": "artifact version lineage grants no content access, execution, disclosure, mutation, authenticity, trust, or authorization"
+    },
+    {
+      "schema_id": "artifact-memory/artifact-version/v2",
+      "artifact_id": "artifact://synthetic/design-note",
+      "version_id": "artifact-version://synthetic/design-note/2",
+      "revision": 2,
+      "role": "normalized",
+      "content_refs": ["content://sha-256/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "content://sha-256/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"],
+      "lifecycle": "sealed",
+      "created_at": "2099-01-01T00:00:02Z",
+      "provenance": [{"kind": "normalization", "source_ref": "transformation://synthetic/normalize-v1"}],
+      "relationships": [{"type": "normalized-from", "target_ref": "artifact-version://synthetic/design-note/1"}],
+      "authority_boundary": "artifact version lineage grants no content access, execution, disclosure, mutation, authenticity, trust, or authorization"
+    },
+    {
+      "schema_id": "artifact-memory/artifact-version/v2",
+      "artifact_id": "artifact://synthetic/design-note",
+      "version_id": "artifact-version://synthetic/design-note/3",
+      "revision": 3,
+      "role": "derived",
+      "content_refs": ["content://sha-256/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"],
+      "lifecycle": "accepted",
+      "created_at": "2099-01-01T00:00:03Z",
+      "provenance": [{"kind": "derivation", "source_ref": "transformation://synthetic/summary-v1"}],
+      "relationships": [{"type": "derived-from", "target_ref": "artifact-version://synthetic/design-note/2"}],
+      "authority_boundary": "artifact version lineage grants no content access, execution, disclosure, mutation, authenticity, trust, or authorization"
+    },
+    {
+      "schema_id": "artifact-memory/artifact-version/v2",
+      "artifact_id": "artifact://synthetic/design-note",
+      "version_id": "artifact-version://synthetic/design-note/4",
+      "revision": 4,
+      "role": "redacted",
+      "content_refs": ["content://sha-256/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"],
+      "lifecycle": "sealed",
+      "created_at": "2099-01-01T00:00:04Z",
+      "provenance": [{"kind": "redaction", "source_ref": "transformation://synthetic/redact-v1"}],
+      "relationships": [{"type": "redacted-from", "target_ref": "artifact-version://synthetic/design-note/3"}],
+      "authority_boundary": "artifact version lineage grants no content access, execution, disclosure, mutation, authenticity, trust, or authorization"
+    },
+    {
+      "schema_id": "artifact-memory/artifact-version/v2",
+      "artifact_id": "artifact://synthetic/design-note",
+      "version_id": "artifact-version://synthetic/design-note/5",
+      "revision": 5,
+      "role": "released",
+      "content_refs": ["content://sha-256/9999999999999999999999999999999999999999999999999999999999999999", "content://sha-256/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"],
+      "lifecycle": "sealed",
+      "created_at": "2099-01-01T00:00:05Z",
+      "provenance": [{"kind": "release", "source_ref": "release://synthetic/preview-1"}],
+      "relationships": [{"type": "released-from", "target_ref": "artifact-version://synthetic/design-note/4"}],
+      "authority_boundary": "artifact version lineage grants no content access, execution, disclosure, mutation, authenticity, trust, or authorization"
+    },
+    {
+      "schema_id": "artifact-memory/artifact-version/v2",
+      "artifact_id": "artifact://synthetic/design-note",
+      "version_id": "artifact-version://synthetic/design-note/6",
+      "revision": 6,
+      "role": "normalized",
+      "content_refs": ["content://sha-256/8888888888888888888888888888888888888888888888888888888888888888"],
+      "lifecycle": "accepted",
+      "created_at": "2099-01-01T00:00:06Z",
+      "provenance": [{"kind": "normalization", "source_ref": "transformation://synthetic/normalize-v2"}],
+      "relationships": [{"type": "normalized-from", "target_ref": "artifact-version://synthetic/design-note/1"}, {"type": "supersedes", "target_ref": "artifact-version://synthetic/design-note/2"}],
+      "authority_boundary": "artifact version lineage grants no content access, execution, disclosure, mutation, authenticity, trust, or authorization"
+    }
+  ]
+}

@@ -8,4 +8,5 @@ python3 scripts/run_authenticity_conformance.py --check >/dev/null
 python3 scripts/run_canonical_content_conformance.py --check >/dev/null
 python3 scripts/run_codex_history_conformance.py --check >/dev/null
 python3 scripts/run_scan_conformance.py --check >/dev/null
+python3 scripts/run_artifact_lineage_conformance.py --check >/dev/null
 python3 -m unittest tests.test_wits_conformance >/dev/null
