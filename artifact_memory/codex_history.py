@@ -42,6 +42,12 @@ AUTHORITY_BOUNDARY = (
 MAX_TITLE_CHARS = 240
 MAX_TEXT_CHARS = 4_096
 MAX_ITEMS_PER_FIELD = 64
+IMPORT_RECORD_TYPES = {
+    "decision": "decision",
+    "research": "note",
+    "workstream": "workstream",
+    "question": "question",
+}
 
 _PORTABLE_ID = re.compile(r"^[A-Za-z0-9._~-]+$")
 _ABSOLUTE_PATH = re.compile(
@@ -305,6 +311,8 @@ def import_task_export(task: dict[str, Any], policy: dict[str, Any]) -> dict[str
     """Transform one explicitly selected export into draft vendor-neutral records."""
     if not isinstance(task, dict):
         raise ValidationFailure("invalid-task-export", "one task export object is required")
+    if not isinstance(policy, dict):
+        raise ValidationFailure("invalid-import-policy", "one import policy object is required")
     validate(policy, load_schema("adapters", "codex-history-import-policy.v1.schema.json"))
     authorized_at = datetime.fromisoformat(policy["authorized_at"].replace("Z", "+00:00"))
     expires_at = datetime.fromisoformat(policy["raw_source_expires_at"].replace("Z", "+00:00"))
@@ -423,6 +431,30 @@ def _require_receipt_record_summary(
     return record_type_counts
 
 
+def _import_record_summary(record: dict[str, Any]) -> dict[str, str]:
+    meaning = record.get("meaning")
+    labels = meaning.get("labels") if isinstance(meaning, dict) else None
+    if (
+        not isinstance(labels, list)
+        or len(labels) < 2
+        or labels[1] not in IMPORT_RECORD_TYPES
+    ):
+        raise ValidationFailure(
+            "invalid-import-record",
+            "an admitted record must carry a recognized Codex-history record type label",
+        )
+    import_record_type = labels[1]
+    if record.get("record_type") != IMPORT_RECORD_TYPES[import_record_type]:
+        raise ValidationFailure(
+            "invalid-import-record",
+            "the Codex-history record type label does not match the canonical record type",
+        )
+    return {
+        "record_id": record["record_id"],
+        "record_type": import_record_type,
+    }
+
+
 def sanitized_dogfood_receipt(
     *,
     performed_at: str,
@@ -511,13 +543,7 @@ def write_import_bundle(result: dict[str, Any], output_root: Path) -> None:
         validate(record, load_schema("core", "knowledge-record.v2.schema.json"))
     validate(receipt, load_schema("core", "declassification-receipt.v2.schema.json"))
     _require_receipt_integrity(receipt)
-    admitted_records = [
-        {
-            "record_id": record["record_id"],
-            "record_type": record["meaning"]["labels"][1],
-        }
-        for record in records
-    ]
+    admitted_records = [_import_record_summary(record) for record in records]
     _require_receipt_record_summary(receipt, admitted_records)
     output_root.parent.mkdir(parents=True, exist_ok=True)
     if output_root.exists() or output_root.is_symlink():

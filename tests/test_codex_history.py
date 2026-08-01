@@ -145,6 +145,11 @@ class CodexHistoryTests(unittest.TestCase):
                 with self.assertRaises(ValidationFailure):
                     import_task_export(task, changed)
 
+    def test_v2_import_rejects_non_object_policy_with_typed_failure(self):
+        task = json.loads((FIXTURE / "task-export.json").read_text(encoding="utf-8"))
+        with self.assertRaisesRegex(ValidationFailure, "one import policy object"):
+            import_task_export(task, [])  # type: ignore[arg-type]
+
     def test_public_dogfood_receipt_discloses_only_counts_and_outcome(self):
         receipt = sanitized_dogfood_receipt(
             performed_at="2026-08-01T00:00:00Z",
@@ -296,6 +301,34 @@ class CodexHistoryTests(unittest.TestCase):
             output = Path(temporary) / "bundle"
             with self.assertRaisesRegex(ValidationFailure, "admitted record set"):
                 write_import_bundle(mismatched, output)
+            self.assertFalse(output.exists())
+
+    def test_import_bundle_rejects_records_without_adapter_type_labels(self):
+        task = json.loads((FIXTURE / "task-export.json").read_text(encoding="utf-8"))
+        policy = json.loads((FIXTURE / "import-policy.json").read_text(encoding="utf-8"))
+        result = import_task_export(task, policy)
+        for labels in (None, ["codex-history-derivative"]):
+            with self.subTest(labels=labels), tempfile.TemporaryDirectory() as temporary:
+                changed = deepcopy(result)
+                if labels is None:
+                    changed["records"][0]["meaning"].pop("labels")
+                else:
+                    changed["records"][0]["meaning"]["labels"] = labels
+                output = Path(temporary) / "bundle"
+                with self.assertRaisesRegex(ValidationFailure, "record type label"):
+                    write_import_bundle(changed, output)
+                self.assertFalse(output.exists())
+
+    def test_import_bundle_rejects_adapter_type_label_mismatch(self):
+        task = json.loads((FIXTURE / "task-export.json").read_text(encoding="utf-8"))
+        policy = json.loads((FIXTURE / "import-policy.json").read_text(encoding="utf-8"))
+        result = import_task_export(task, policy)
+        changed = deepcopy(result)
+        changed["records"][0]["meaning"]["labels"][1] = "research"
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "bundle"
+            with self.assertRaisesRegex(ValidationFailure, "canonical record type"):
+                write_import_bundle(changed, output)
             self.assertFalse(output.exists())
 
     def test_checked_operational_receipt_is_schema_valid_and_digest_identified(self):
