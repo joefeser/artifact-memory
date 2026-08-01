@@ -1,0 +1,32 @@
+{
+  "authority_boundary": "derivative knowledge only; no execution, routing, disclosure, or mutation authority",
+  "context_pack_id": "context-pack://b833ee371fd6f0e2a94400dae68598251f69008d627024c3a59c9979b2f796c5",
+  "context_record_count": 4,
+  "correction_route": "artifact-memory/record-supersession/v2",
+  "declassification_receipt_id": "declassification-receipt://cf7aa6d063871cd84161f64c6a3a4969514957e9d975517df61a685aabb5c79d",
+  "deletion_request_outcome": "not-authorized",
+  "deletion_route": "artifact-memory/retention-deletion/v2",
+  "destructive_execution_performed": false,
+  "excluded_source_field_count": 6,
+  "excluded_source_material_admitted": false,
+  "import_policy_id": "codex-history-import-policy://synthetic/single-task-0001",
+  "limitations": [
+    "fixture is newly authored synthetic data, not redacted task history",
+    "owner review remains required before accepting derivative meaning",
+    "deletion request receipt does not execute deletion"
+  ],
+  "outcome": "complete",
+  "projection_source_digest": "sha-256:46af289f1054272ecff48a3bdcd2be3a7bbee42d261dfa598e31db54a460c406",
+  "raw_source_canonical": false,
+  "receipt_id": "codex-history-conformance-receipt://synthetic/0cc37533cbefde384153012f9c259ab602fff72a7014fa13daf897e4521652df",
+  "record_set_digest": "sha-256:46af289f1054272ecff48a3bdcd2be3a7bbee42d261dfa598e31db54a460c406",
+  "record_type_counts": {
+    "decision": 1,
+    "question": 1,
+    "research": 1,
+    "workstream": 1
+  },
+  "records_validated": 4,
+  "schema_id": "artifact-memory/codex-history-conformance-receipt/v1",
+  "source_fixture_digest": "sha-256:c44f982dd27b2bef088a674983cdee288ae304348354c6520bef730cf07b52c5"
+}

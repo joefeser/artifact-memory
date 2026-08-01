@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/adapters/codex-history-import-policy/v1",
+  "title": "Artifact Memory local Codex history import policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "policy_id", "selected_task_id", "source_scope", "authority_ref",
+    "authorization_state", "authorized_at", "allowed_fields", "record_sensitivity",
+    "raw_retention_policy_ref", "raw_retention_mode", "raw_source_expires_at", "raw_source_canonical",
+    "bulk_ingestion", "network_access", "owner_review_required", "correction_route",
+    "deletion_route"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/codex-history-import-policy/v1"},
+    "policy_id": {"type": "string", "pattern": "^codex-history-import-policy://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "selected_task_id": {"type": "string", "pattern": "^[A-Za-z0-9._~-]+$"},
+    "source_scope": {"enum": ["synthetic", "local"]},
+    "authority_ref": {"type": "string", "minLength": 1},
+    "authorization_state": {"enum": ["granted", "withheld"]},
+    "authorized_at": {"type": "string", "format": "date-time"},
+    "allowed_fields": {"const": ["task_id", "title", "summary", "decisions", "research", "workstreams", "open_questions"]},
+    "record_sensitivity": {"enum": ["public", "private", "restricted"]},
+    "raw_retention_policy_ref": {"type": "string", "pattern": "^retention-policy://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "raw_retention_mode": {"enum": ["source-system-managed-until-expiry", "encrypted-recovery-only"]},
+    "raw_source_expires_at": {"type": "string", "format": "date-time"},
+    "raw_source_canonical": {"const": false},
+    "bulk_ingestion": {"const": false},
+    "network_access": {"const": false},
+    "owner_review_required": {"const": true},
+    "correction_route": {"const": "artifact-memory/record-supersession/v2"},
+    "deletion_route": {"const": "artifact-memory/retention-deletion/v2"}
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/codex-history-conformance-receipt/v1",
+  "title": "Artifact Memory Codex history synthetic conformance receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "receipt_id", "outcome", "import_policy_id", "source_fixture_digest",
+    "declassification_receipt_id", "record_set_digest", "record_type_counts",
+    "records_validated", "projection_source_digest", "context_pack_id",
+    "context_record_count", "excluded_source_field_count",
+    "excluded_source_material_admitted", "raw_source_canonical", "correction_route",
+    "deletion_route", "deletion_request_outcome", "destructive_execution_performed",
+    "authority_boundary", "limitations"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/codex-history-conformance-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^codex-history-conformance-receipt://synthetic/[0-9a-f]{64}$"},
+    "outcome": {"const": "complete"},
+    "import_policy_id": {"type": "string", "pattern": "^codex-history-import-policy://synthetic/[A-Za-z0-9._~-]+$"},
+    "source_fixture_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "declassification_receipt_id": {"type": "string", "pattern": "^declassification-receipt://[0-9a-f]{64}$"},
+    "record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "record_type_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "research", "workstream", "question"],
+      "properties": {
+        "decision": {"type": "integer", "minimum": 1},
+        "research": {"type": "integer", "minimum": 1},
+        "workstream": {"type": "integer", "minimum": 1},
+        "question": {"type": "integer", "minimum": 0}
+      }
+    },
+    "records_validated": {"type": "integer", "minimum": 3},
+    "projection_source_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "context_pack_id": {"type": "string", "pattern": "^context-pack://[0-9a-f]{64}$"},
+    "context_record_count": {"type": "integer", "minimum": 3},
+    "excluded_source_field_count": {"type": "integer", "minimum": 6},
+    "excluded_source_material_admitted": {"const": false},
+    "raw_source_canonical": {"const": false},
+    "correction_route": {"const": "artifact-memory/record-supersession/v2"},
+    "deletion_route": {"const": "artifact-memory/retention-deletion/v2"},
+    "deletion_request_outcome": {"const": "not-authorized"},
+    "destructive_execution_performed": {"const": false},
+    "authority_boundary": {"const": "derivative knowledge only; no execution, routing, disclosure, or mutation authority"},
+    "limitations": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}}
+  }
+}

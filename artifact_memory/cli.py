@@ -8,6 +8,11 @@ import sys
 from pathlib import Path
 
 from . import CONTRACT_VERSION, __version__
+from .codex_history import (
+    import_task_export,
+    sanitize_private_import_receipt,
+    write_import_bundle,
+)
 from .context import ContextFailure, build_selection_policy, export_context
 from .projection import project_records, records_with_provenance, related_records, search_records
 from .scan import diff_manifests, scan_path, verify_path
@@ -77,6 +82,15 @@ def main(argv: list[str] | None = None) -> int:
     context.add_argument("--freshness-basis", required=True, help="operator assertion or receipt reference")
     context.add_argument("--authorize-evidence", action="append", nargs=2, metavar=("PROVIDER_ID", "PROVIDER_RECORD_ID"), default=[], dest="authorized_evidence")
     context.add_argument("--json", action="store_true", dest="as_json")
+    codex_history = subparsers.add_parser("import-codex-history")
+    codex_history.add_argument("task_export", type=Path)
+    codex_history.add_argument("policy", type=Path)
+    codex_history.add_argument("--out", required=True, type=Path)
+    codex_history.add_argument("--json", action="store_true", dest="as_json")
+    dogfood_receipt = subparsers.add_parser("codex-history-dogfood-receipt")
+    dogfood_receipt.add_argument("private_declassification_receipt", type=Path)
+    dogfood_receipt.add_argument("--performed-at", required=True)
+    dogfood_receipt.add_argument("--json", action="store_true", dest="as_json")
     version = subparsers.add_parser("version")
     version.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args(argv)
@@ -170,6 +184,73 @@ def main(argv: list[str] | None = None) -> int:
             (args.out / "context-pack.json").write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         exclusions = result["selection_receipt"]["exclusion_counts"]
         _receipt({"outcome": "complete", "pack_id": result["pack_id"], "selected_record_count": len(result["records"]), "excluded_record_count": sum(exclusions.values()), "authority_boundary": result["authority_boundary"]}, args.as_json)
+        return EXIT_OK
+    if args.command == "import-codex-history":
+        try:
+            task = load_json(args.task_export)
+            policy = load_json(args.policy)
+            if not isinstance(task, dict) or not isinstance(policy, dict):
+                raise ValidationFailure("invalid-input", "task export and policy must be objects")
+            result = import_task_export(task, policy)
+            if result["declassification_receipt"]["outcome"] != "admitted":
+                _receipt(
+                    {
+                        "outcome": "not-authorized",
+                        "records_written": 0,
+                        "owner_review_required": True,
+                    },
+                    args.as_json,
+                )
+                return EXIT_INVALID
+            write_import_bundle(result, args.out)
+        except (ValidationFailure, OSError, ValueError) as exc:
+            _receipt(
+                {
+                    "outcome": "rejected",
+                    "records_written": 0,
+                    "diagnostics": [
+                        {
+                            "code": getattr(exc, "code", "output-unavailable"),
+                            "message": getattr(exc, "message", "local import output is unavailable"),
+                        }
+                    ],
+                },
+                args.as_json,
+            )
+            return EXIT_INVALID
+        counts = result["declassification_receipt"]["record_type_counts"]
+        _receipt(
+            {
+                "outcome": "complete",
+                "records_written": len(result["records"]),
+                "record_type_counts": counts,
+                "owner_review_required": True,
+                "authority_boundary": result["declassification_receipt"]["authority_boundary"],
+            },
+            args.as_json,
+        )
+        return EXIT_OK
+    if args.command == "codex-history-dogfood-receipt":
+        try:
+            private_receipt = load_json(args.private_declassification_receipt)
+            if not isinstance(private_receipt, dict):
+                raise ValidationFailure(
+                    "invalid-input", "private declassification receipt must be an object"
+                )
+            result = sanitize_private_import_receipt(
+                private_receipt,
+                performed_at=args.performed_at,
+            )
+        except ValidationFailure as exc:
+            _receipt(
+                {
+                    "outcome": "rejected",
+                    "diagnostics": [{"code": exc.code, "message": exc.message}],
+                },
+                args.as_json,
+            )
+            return EXIT_INVALID
+        _receipt(result, args.as_json)
         return EXIT_OK
     try:
         record = load_json(args.record)

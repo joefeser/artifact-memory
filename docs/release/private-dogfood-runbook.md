@@ -20,6 +20,25 @@ the public repository.
 5. Export a bounded informational context pack and verify that it contains no
    unauthorized sensitivity or execution/route authority.
 
+## Authorized Codex-history derivative
+
+1. The owner identifies exactly one local task and records selection authority
+   in a private `codex-history-import-policy/v1`; do not use bulk discovery.
+2. Curate only the allowlisted title, summary, decisions, research,
+   workstreams, and open questions into a private task-export file. Never copy
+   raw transcript rows or attachments into the import batch.
+3. Set private or restricted sensitivity, an explicit raw-source expiry, the
+   honest raw-retention mode, and the #36 correction and deletion routes. Do
+   not claim encrypted recovery unless an encrypted raw archive actually exists.
+4. Run `artifact-memory import-codex-history` with explicit local input files
+   and a new private output directory. Review every draft record before
+   accepting it into the canonical vault.
+5. Keep the detailed declassification receipt private. Publish only the
+   sanitized Codex-history dogfood receipt; verify it contains no task, record,
+   content, digest, or location identifiers.
+   Generate it with `artifact-memory codex-history-dogfood-receipt` from the
+   private receipt and an explicit operation time.
+
 ## Recovery
 
 1. Allowlist only the vault and knowledge-store inputs for backup.

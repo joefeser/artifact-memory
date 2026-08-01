@@ -61,7 +61,7 @@ The receiver and operator are not assumed to be the same principal.
 | Tampered bytes or manifest | Named digests, deterministic manifests, and independent verification | Integrity does not imply authenticity or trusted claims |
 | Replay or contradictory receipt | Correlation, provenance, idempotency, and explicit contradiction outcomes | V0 admission rejects the record rather than silently merging it; any future quarantine store requires a separate policy |
 | Accidental ingestion or deletion request | Retention, redaction, tombstone, and deletion receipts from #36 | Destructive deletion is separately authorized and backup limits stay visible |
-| Raw Codex task history is bulk-ingested | Explicit task selection, field allowlist, redaction, and provenance from #37 | Raw archives remain recovery evidence, not canonical knowledge |
+| Raw Codex task history is bulk-ingested | One-task owner policy, bounded field allowlist, local-only CLI, draft derivatives, and provenance from #37 | Pattern checks cannot prove arbitrary prose safe; owner review remains required and raw archives stay non-canonical recovery evidence |
 
 ## Public fixture allowlist
 

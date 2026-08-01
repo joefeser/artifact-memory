@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/declassification-receipt/v2",
+  "title": "Artifact Memory Codex history declassification receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "receipt_id", "source_task_ref", "import_policy_id", "authority_ref",
+    "outcome", "admitted_fields", "admitted_record_ids", "record_type_counts",
+    "excluded_categories", "raw_retention", "raw_retention_policy_ref",
+    "raw_source_expires_at", "raw_source_canonical", "correction_route",
+    "deletion_route", "owner_review_required", "authority_boundary", "limitations"
+  ],
+  "allOf": [
+    {
+      "if": {"required": ["outcome"], "properties": {"outcome": {"const": "not-authorized"}}},
+      "then": {
+        "properties": {
+          "admitted_fields": {"const": []},
+          "admitted_record_ids": {"const": []},
+          "record_type_counts": {"const": {"decision": 0, "research": 0, "workstream": 0, "question": 0}}
+        }
+      }
+    },
+    {
+      "if": {"required": ["outcome"], "properties": {"outcome": {"const": "admitted"}}},
+      "then": {
+        "properties": {
+          "admitted_record_ids": {"minItems": 3},
+          "record_type_counts": {
+            "properties": {
+              "decision": {"minimum": 1},
+              "research": {"minimum": 1},
+              "workstream": {"minimum": 1}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/declassification-receipt/v2"},
+    "receipt_id": {"type": "string", "pattern": "^declassification-receipt://[0-9a-f]{64}$"},
+    "source_task_ref": {"type": "string", "pattern": "^codex-task://(?:synthetic|local)/[A-Za-z0-9._~-]+$"},
+    "import_policy_id": {"type": "string", "pattern": "^codex-history-import-policy://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "authority_ref": {"type": "string", "minLength": 1},
+    "outcome": {"enum": ["admitted", "not-authorized", "rejected"]},
+    "admitted_fields": {"type": "array", "items": {"enum": ["task_id", "title", "summary", "decisions", "research", "workstreams", "open_questions"]}},
+    "admitted_record_ids": {"type": "array", "items": {"type": "string", "pattern": "^record://codex-derivative/[0-9a-f]{64}$"}},
+    "record_type_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "research", "workstream", "question"],
+      "properties": {
+        "decision": {"type": "integer", "minimum": 0},
+        "research": {"type": "integer", "minimum": 0},
+        "workstream": {"type": "integer", "minimum": 0},
+        "question": {"type": "integer", "minimum": 0}
+      }
+    },
+    "excluded_categories": {"const": ["raw-transcript", "raw-attachments", "credentials", "browser-state", "absolute-paths", "unrelated-task-content", "unrecognized-source-fields"]},
+    "raw_retention": {"enum": ["source-system-managed-until-expiry", "encrypted-recovery-only"]},
+    "raw_retention_policy_ref": {"type": "string", "pattern": "^retention-policy://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "raw_source_expires_at": {"type": "string", "format": "date-time"},
+    "raw_source_canonical": {"const": false},
+    "correction_route": {"const": "artifact-memory/record-supersession/v2"},
+    "deletion_route": {"const": "artifact-memory/retention-deletion/v2"},
+    "owner_review_required": {"const": true},
+    "authority_boundary": {"const": "derivative knowledge only; no execution, routing, disclosure, or mutation authority"},
+    "limitations": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}}
+  }
+}

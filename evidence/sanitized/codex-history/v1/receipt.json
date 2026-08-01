@@ -1,0 +1,30 @@
+{
+  "authority_boundary": "derivative knowledge only; no execution, routing, disclosure, or mutation authority",
+  "declassification_receipt_retained_private": true,
+  "excluded_material_committed": false,
+  "import_contract": "artifact-memory/codex-history-allowlist/v2",
+  "lifecycle_route_verified": true,
+  "limitations": [
+    "receipt reports outcome and counts only; it does not disclose source identity",
+    "receipt does not declassify private records or raw task history",
+    "clean public checks are guardrails, not proof that private material never existed"
+  ],
+  "outcome": "complete",
+  "output_location_disclosed": false,
+  "owner_review_state": "required",
+  "performed_at": "2026-08-01T03:05:57Z",
+  "private_record_material_committed": false,
+  "raw_source_canonical": false,
+  "receipt_id": "codex-history-dogfood-receipt://62cdf2ab9288c890193c302b70a305f8f5605f9169c7d9e113b63feafceb42a4",
+  "record_type_counts": {
+    "decision": 1,
+    "question": 1,
+    "research": 1,
+    "workstream": 1
+  },
+  "records_validated": 4,
+  "schema_id": "artifact-memory/codex-history-dogfood-receipt/v1",
+  "scope": "authorized-private-single-task-import",
+  "source_task_count": 1,
+  "source_task_identity_disclosed": false
+}
