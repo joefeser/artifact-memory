@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterator
+from uuid import uuid4
 
 from . import __version__
 from .canonical import CHUNK_SIZE, CanonicalizationFailure, canonical_bytes, receipt_with_digest
@@ -43,6 +44,10 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _new_attempt_id() -> str:
+    return f"urn:uuid:{uuid4()}"
+
+
 def _policy_digest(policy: dict[str, Any]) -> str:
     payload = {key: value for key, value in policy.items() if key not in {"policy_id", "policy_digest"}}
     try:
@@ -51,17 +56,25 @@ def _policy_digest(policy: dict[str, Any]) -> str:
         raise ValidationFailure("canonicalization-failed", str(exc), "$.policy") from exc
 
 
-def _validate_policy_relative_path(value: str, path: str, *, allow_empty: bool) -> None:
-    if value == "" and allow_empty:
-        return
+def _is_normalized_relative_path(value: str, *, allow_empty: bool = False) -> bool:
+    try:
+        value.encode("utf-8")
+    except UnicodeError:
+        return False
+    if value == "":
+        return allow_empty
     normalized = PurePosixPath(value)
-    if (
-        value in {"", "."}
+    return not (
+        value == "."
         or "\\" in value
         or normalized.is_absolute()
         or normalized.as_posix() != value
         or any(part in {"", ".", ".."} for part in value.split("/"))
-    ):
+    )
+
+
+def _validate_policy_relative_path(value: str, path: str, *, allow_empty: bool) -> None:
+    if not _is_normalized_relative_path(value, allow_empty=allow_empty):
         raise ValidationFailure("scan-policy-path-invalid", "scan policy path is not normalized", path)
 
 
@@ -116,7 +129,21 @@ def make_scan_policy(
     return policy
 
 
-REFERENCE_POLICY = make_scan_policy()
+def _unvalidated_reference_policy() -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "schema_id": "artifact-memory/scan-policy/v2",
+        "endpoint_ref": REFERENCE_ENDPOINT_REF,
+        "root_relative_path": "",
+        "comparison_profile": "v0-case-sensitive-unicode-codepoint",
+        "follow_symlinks": False,
+        "exclusion_prefixes": [],
+    }
+    digest = _policy_digest(body)
+    return {**body, "policy_id": "scan-policy://sha-256/" + digest.removeprefix("sha-256:"), "policy_digest": digest}
+
+
+# Compatibility constants remain computation-only; schema I/O starts with a scan.
+REFERENCE_POLICY = _unvalidated_reference_policy()
 POLICY_REF = REFERENCE_POLICY["policy_id"]
 
 
@@ -221,16 +248,9 @@ def _hash_regular_file(path: Path, root: Path, remaining_budget: int | None = No
 def _normalized_relative_path(path: Path, root: Path) -> str:
     try:
         relative = path.relative_to(root).as_posix()
-        relative.encode("utf-8")
-    except (ValueError, UnicodeError) as exc:
+    except ValueError as exc:
         raise _ObservationFailure("unsupported", "entry path is not a portable UTF-8 relative path") from exc
-    if (
-        relative in {"", "."}
-        or "\\" in relative
-        or PurePosixPath(relative).is_absolute()
-        or PurePosixPath(relative).as_posix() != relative
-        or any(part in {"", ".", ".."} for part in relative.split("/"))
-    ):
+    if not _is_normalized_relative_path(relative):
         raise _ObservationFailure("unsupported", "entry path is not normalized for the v0 profile")
     return relative
 
@@ -246,19 +266,9 @@ def validate_manifest_identity(manifest: dict[str, Any], path: str = "$") -> Non
     for index, entry in enumerate(entries):
         entry_path = entry["path"]
         entry_pointer = f"{path}.entries[{index}]"
-        try:
-            normalized = PurePosixPath(entry_path)
-            entry_path.encode("utf-8")
-        except UnicodeError as exc:
-            raise ValidationFailure("manifest-path-invalid", "manifest path must be UTF-8", f"{entry_pointer}.path") from exc
-        if (
-            entry_path in {"", "."}
-            or "\\" in entry_path
-            or normalized.is_absolute()
-            or normalized.as_posix() != entry_path
-            or any(part in {"", ".", ".."} for part in entry_path.split("/"))
-        ):
+        if not _is_normalized_relative_path(entry_path):
             raise ValidationFailure("manifest-path-invalid", "manifest path is not normalized", f"{entry_pointer}.path")
+        normalized = PurePosixPath(entry_path)
         if entry["kind"] == "file":
             if "byte_size" not in entry or "content_digest" not in entry:
                 raise ValidationFailure("manifest-entry-invalid", "file entry requires byte size and content digest", entry_pointer)
@@ -360,10 +370,11 @@ def _walk(root: Path, limits: ScanLimits | None = None, exclusion_prefixes: tupl
 
 def scan_path(root: Path, limits: ScanLimits | None = None, policy: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     """Scan one root into a deterministic manifest and policy-bound receipt."""
+    attempt_id = _new_attempt_id()
     started_at = _utc_now()
     caller_limits = limits or ScanLimits()
     if policy is None:
-        policy = REFERENCE_POLICY
+        policy = make_scan_policy()
     else:
         validate_scan_policy(policy)
     effective_limits = caller_limits
@@ -429,12 +440,15 @@ def scan_path(root: Path, limits: ScanLimits | None = None, policy: dict[str, An
                 entry = {"path": relative, "kind": "file", "byte_size": byte_size, "content_digest": content_digest}
                 total_bytes += byte_size
             except _ObservationFailure as exc:
+                incomplete = True
+                if exc.code == "resource-limit":
+                    warning = {"code": exc.code, "message": exc.message, "relative_path": relative}
+                    warnings.append(warning)
+                    diagnostics.append(warning)
+                    break
                 failure = {"code": exc.code, "message": exc.message, "relative_path": relative}
                 failures.append(failure)
                 diagnostics.append(failure)
-                incomplete = True
-                if exc.code == "resource-limit":
-                    break
                 continue
         folded = relative.casefold()
         if folded in casefold_paths and casefold_paths[folded] != relative:
@@ -454,6 +468,7 @@ def scan_path(root: Path, limits: ScanLimits | None = None, policy: dict[str, An
         "artifact-memory/scan-receipt/v2",
         "scan-receipt://sha-256/",
         {
+            "attempt_id": attempt_id,
             "policy_ref": policy["policy_id"],
             "policy_digest": policy["policy_digest"],
             "scope": {"endpoint_ref": policy["endpoint_ref"], "root_relative_path": policy["root_relative_path"]},
@@ -491,7 +506,7 @@ def verify_path(root: Path, manifest: dict[str, Any], policy: dict[str, Any] | N
             "manifest_ref": manifest.get("manifest_id") if isinstance(manifest, dict) else None,
             "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}],
         }
-    effective_policy = REFERENCE_POLICY if policy is None else policy
+    effective_policy = make_scan_policy() if policy is None else policy
     try:
         validate_scan_policy(effective_policy)
     except ValidationFailure as exc:

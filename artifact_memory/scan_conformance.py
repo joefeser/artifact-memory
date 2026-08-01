@@ -44,7 +44,7 @@ def _case_observations(root: Path, case: dict[str, Any]) -> tuple[list[tuple[Pat
         hashed: tuple[int, str] | _ObservationFailure | None = (byte_size, content_digest)
     elif observation == "file-failure":
         code = case.get("failure_code")
-        if code not in {"unreadable", "unstable"}:
+        if code not in {"resource-limit", "unreadable", "unstable"}:
             raise ValidationFailure("invalid-vector", "scan conformance failure code is unsupported")
         hashed = _ObservationFailure(code, "synthetic entry could not be admitted")
     else:
@@ -61,7 +61,7 @@ def render_scan_conformance_receipt(receipt: dict[str, Any]) -> str:
         f"- Outcomes: complete={outcomes['complete']}, partial={outcomes['partial']}, failed={outcomes['failed']}, cancelled={outcomes['cancelled']}\n"
         "- Policy identity: canonical SHA-256 digest\n"
         "- Manifest binding: manifest identity and normalized tree digest\n\n"
-        "The vectors are newly authored synthetic observer events. They prove typed contract behavior for declared exclusions, inaccessible entries, changing files, unavailable roots, and cancellation; they are not claims about a production filesystem.\n"
+        "The vectors are newly authored synthetic observer events. They prove typed contract behavior for declared exclusions, inaccessible entries, changing files, byte-budget exhaustion, unavailable roots, and cancellation; they are not claims about a production filesystem.\n"
     )
 
 
@@ -78,7 +78,7 @@ def run_scan_conformance(fixture_path: Path) -> dict[str, Any]:
     summaries: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="artifact-memory-scan-conformance-") as temporary:
         root = Path(temporary)
-        for raw_case in cases:
+        for case_index, raw_case in enumerate(cases, start=1):
             case = _require_case(raw_case)
             walked, hashed = _case_observations(root, case)
             prefixes = case.get("exclusion_prefixes", [])
@@ -89,6 +89,7 @@ def run_scan_conformance(fixture_path: Path) -> dict[str, Any]:
             hash_patch = patch("artifact_memory.scan._hash_regular_file", side_effect=hashed) if isinstance(hashed, _ObservationFailure) else patch("artifact_memory.scan._hash_regular_file", return_value=hashed)
             with (
                 patch("artifact_memory.scan._walk", return_value=iter(walked)),
+                patch("artifact_memory.scan._new_attempt_id", return_value=f"urn:uuid:00000000-0000-4000-8000-{case_index:012d}"),
                 patch("artifact_memory.scan._utc_now", side_effect=[started_at, ended_at]),
                 hash_patch,
             ):

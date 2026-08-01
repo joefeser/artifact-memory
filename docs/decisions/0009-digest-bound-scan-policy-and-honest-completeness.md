@@ -23,6 +23,7 @@ separate warnings and failures. Absolute resolver paths remain local and never
 enter the portable receipt.
 
 Consequences: v1 policy and receipt schemas remain packaged for compatibility,
-while the reference scanner emits and verifies v2. Receipt timestamps make
-separate attempts intentionally distinct. Filesystem completeness remains
+while the reference scanner emits and verifies v2. A UUID v4 attempt ID makes
+separate attempts intentionally distinct even when their timestamps and other
+facts match. Filesystem completeness remains
 separate from provider analysis completeness and grants no authority.

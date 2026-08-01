@@ -8,6 +8,7 @@
     {"id": "declared-exclusion", "observation": "excluded", "relative_path": "private", "exclusion_prefixes": ["private"], "expected_outcome": "complete"},
     {"id": "inaccessible-entry", "observation": "file-failure", "relative_path": "unreadable.txt", "failure_code": "unreadable", "expected_outcome": "partial"},
     {"id": "changing-file", "observation": "file-failure", "relative_path": "changing.txt", "failure_code": "unstable", "expected_outcome": "partial"},
+    {"id": "byte-budget", "observation": "file-failure", "relative_path": "oversized.bin", "failure_code": "resource-limit", "expected_outcome": "partial"},
     {"id": "unavailable-root", "observation": "root-failure", "failure_code": "unreadable", "expected_outcome": "failed"},
     {"id": "caller-cancelled", "observation": "cancelled", "expected_outcome": "cancelled"}
   ]

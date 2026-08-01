@@ -50,9 +50,11 @@ declared exclusions remain separately readable; `diagnostics` is retained as
 a compatibility projection.
 
 Each receipt records whole-second timezone-aware start and end times,
-implementation name and version, logical scope, effective attempt bounds,
-policy ID and digest, manifest ID, normalized tree digest, counts, and the
-authority boundary. Its identifier is SHA-256 over the canonical receipt body.
+an independently generated UUID v4 attempt ID, implementation name and version,
+logical scope, effective attempt bounds, policy ID and digest, manifest ID,
+normalized tree digest, counts, and the authority boundary. The attempt ID keeps
+otherwise identical attempts distinct. The receipt identifier is SHA-256 over
+the canonical receipt body.
 Receipt validation rejects reversed times, mismatched counts, identity
 tampering, and supplied policy or manifest mismatches.
 
@@ -64,8 +66,8 @@ or authorization.
 
 `fixtures/synthetic/scan/v2/` contains newly authored synthetic observer-event
 vectors for a complete file, a pre-read exclusion, an inaccessible entry, a
-changing file, an unavailable root, and cancellation. Replay the checked
-machine and human receipts with:
+changing file, byte-budget exhaustion, an unavailable root, and cancellation.
+Replay the checked machine and human receipts with:
 
 ```sh
 python3 scripts/run_scan_conformance.py --check

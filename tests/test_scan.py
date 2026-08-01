@@ -33,6 +33,7 @@ class ScanTests(unittest.TestCase):
             (root / "record.json").write_text("synthetic", encoding="utf-8")
             manifest, receipt = scan_path(root, policy=policy)
         self.assertEqual(receipt["schema_id"], "artifact-memory/scan-receipt/v2")
+        self.assertRegex(receipt["attempt_id"], r"^urn:uuid:[0-9a-f-]{36}$")
         self.assertEqual(receipt["policy_ref"], policy["policy_id"])
         self.assertEqual(receipt["policy_digest"], policy["policy_digest"])
         self.assertEqual(receipt["scope"], {"endpoint_ref": "endpoint://synthetic/vault", "root_relative_path": "records"})
@@ -62,6 +63,21 @@ class ScanTests(unittest.TestCase):
                 with self.assertRaises(ValidationFailure) as failure:
                     make_scan_policy(root_relative_path=invalid)
                 self.assertIn(failure.exception.code, {"constraint-failed", "scan-policy-path-invalid"})
+
+    def test_attempt_id_distinguishes_otherwise_identical_receipts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (
+                patch("artifact_memory.scan._utc_now", side_effect=["2099-01-01T00:00:00Z"] * 4),
+                patch("artifact_memory.scan._new_attempt_id", side_effect=[
+                    "urn:uuid:00000000-0000-4000-8000-000000000001",
+                    "urn:uuid:00000000-0000-4000-8000-000000000002",
+                ]),
+            ):
+                _, first = scan_path(root)
+                _, second = scan_path(root)
+        self.assertNotEqual(first["attempt_id"], second["attempt_id"])
+        self.assertNotEqual(first["receipt_id"], second["receipt_id"])
 
     def test_declared_exclusion_is_applied_before_entry_metadata_or_content_read(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -349,6 +365,8 @@ class ScanTests(unittest.TestCase):
                 _, limited = scan_path(root, ScanLimits(max_bytes=4))
             self.assertEqual(limited["outcome"], "partial")
             self.assertEqual(limited["diagnostics"][0]["code"], "resource-limit")
+            self.assertEqual([item["code"] for item in limited["warnings"]], ["resource-limit"])
+            self.assertEqual(limited["failures"], [])
             self.assertEqual(hash_stream.call_count, 1)
             _, cancelled = scan_path(root, ScanLimits(cancellation_check=lambda: True))
             self.assertEqual(cancelled["outcome"], "cancelled")
@@ -367,6 +385,8 @@ class ScanTests(unittest.TestCase):
             self.assertEqual(manifest["entries"], [])
             self.assertEqual(receipt["outcome"], "partial")
             self.assertEqual(receipt["diagnostics"][0]["code"], "resource-limit")
+            self.assertEqual([item["code"] for item in receipt["warnings"]], ["resource-limit"])
+            self.assertEqual(receipt["failures"], [])
 
     @unittest.skipIf(os.name == "nt", "backslash is a separator rather than a legal filename on Windows")
     def test_nonportable_backslash_filename_is_explicitly_unsupported(self):
