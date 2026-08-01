@@ -2,7 +2,7 @@
 
 The v2 adapter accepts exact Artifact Memory record revisions, sensitivity and
 disclosure constraints, freshness, and optional TraceMap evidence references.
-It emits an opaque WITS projection reference and deterministic admission
+It emits an opaque WITS projection reference and a deterministic admission
 receipt. WITS owns owner meaning, decisions, readiness, task preparation,
 routing, authority, and reconciliation; Artifact Memory neither recreates nor
 interprets those schemas.
@@ -18,7 +18,7 @@ it copies no WITS implementation or product-owned schema text.
 ## Admission truth
 
 The adapter reports admitted, rejected, unsupported, stale, superseded,
-mixed-revision, conflict, sensitivity-mapping-unavailable, disclosure-denied,
+mixed-revision-context, conflict, sensitivity-mapping-unavailable, disclosure-denied,
 evidence-reference-unavailable, and authority-bearing-request-rejected
 outcomes. Provider responses are bound to the deterministic request digest.
 Nested Task Packet, Route Task, continuation, destination, approval, or

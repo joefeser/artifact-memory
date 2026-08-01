@@ -98,6 +98,35 @@ class WitsAdapterTests(unittest.TestCase):
         self.assertIsNone(projection)
         self.assertEqual(receipt["outcome"], "unsupported")
 
+    def test_request_builder_rejects_mixed_or_malformed_inputs(self):
+        with self.assertRaisesRegex(ValueError, "mixed-revision-context"):
+            build_projection_request([self.record], "owner-meaning", expected_revisions={})
+        with self.assertRaisesRegex(ValueError, "unsupported-request"):
+            build_projection_request(
+                [self.record], "owner-meaning",
+                expected_revisions={self.record["record_id"]: "not-a-digest"},
+            )
+        with self.assertRaisesRegex(ValueError, "unsupported-request"):
+            build_projection_request(
+                [self.record], "owner-meaning", external_evidence_refs=[{"not": "a string"}],
+            )
+
+    def test_v2_duplicate_record_is_mixed_revision_context(self):
+        projection, receipt = bind_projection_v2(
+            [self.record, self.record], "owner-meaning", self._strict_response(), True,
+        )
+        self.assertIsNone(projection)
+        self.assertEqual(receipt["outcome"], "mixed-revision-context")
+
+    def test_v2_malformed_request_is_receipted_as_unsupported(self):
+        projection, receipt = bind_projection_v2(
+            [self.record], "owner-meaning", self._strict_response(), True,
+            external_evidence_refs=[{"not": "a string"}],
+        )
+        self.assertIsNone(projection)
+        self.assertEqual(receipt["outcome"], "unsupported")
+        self.assertEqual(receipt["diagnostics"][0]["code"], "unsupported-request")
+
 
 if __name__ == "__main__":
     unittest.main()

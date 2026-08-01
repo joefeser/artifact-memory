@@ -12,7 +12,9 @@ an encrypted backup, and performs an isolated restore. It ends explicitly before
 HACP Task Packet or Route Task creation and performs no execution or mutation.
 
 `projection-response-v2.json` is the independently supplied, opaque synthetic
-provider artifact. Its request digest binds it to the exact claim revision,
-TraceMap binding, projection kind, and WITS contract anchor. It proves the
+provider response template. The synthetic provider adds the digest of the
+actual request at runtime, binding the response to the exact claim revision,
+TraceMap binding, projection kind, and WITS contract anchor without embedding
+platform-dependent generated-index bytes. It proves the
 Artifact Memory process boundary only; it is not evidence of live WITS
 interoperability or authority-safe coordinated use.

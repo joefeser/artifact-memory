@@ -8,6 +8,7 @@ from typing import Any, Iterable, Mapping
 
 from .canonical import canonical_bytes, receipt_with_digest
 from .projection import _knowledge_schema
+from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
 
@@ -23,6 +24,22 @@ FORBIDDEN_AUTHORITY_KEYS = {
     "execute", "human_approval", "requested_actions", "route_task", "task_packet",
 }
 SHA256 = re.compile(r"^sha-256:[0-9a-f]{64}$")
+DIAGNOSTIC_MESSAGES = {
+    "unsupported-record-schema": "source record schema is unsupported",
+    "not-authorized": "explicit local authorization is required outside portable records",
+    "authority-boundary": "knowledge projection cannot carry task, route, continuation, or execution authority",
+    "mixed-revision-context": "the request does not bind one exact revision for every source record",
+    "stale-source-revision": "a source record revision differs from the requested revision",
+    "superseded-record": "a source record is superseded",
+    "conflicting-records": "the source set has an unresolved conflict",
+    "sensitivity-mapping-unavailable": "the provider sensitivity mapping is unavailable",
+    "disclosure-denied": "the requested disclosure is not authorized",
+    "evidence-reference-unavailable": "a referenced evidence binding is unavailable",
+    "projection-unsupported": "the projection kind or provider contract is unsupported",
+    "unsupported-request": "the projection request does not satisfy the supported contract",
+    "wits-projection-rejected": "WITS did not admit the projection",
+    "provider-response-invalid": "the provider response is invalid or is not bound to this request",
+}
 
 
 def _digest(value: Any) -> str:
@@ -81,34 +98,33 @@ def build_projection_request(
     refs, failure = _source_refs(records)
     if failure:
         raise ValueError(failure)
-    expected = expected_revisions if expected_revisions is not None else {item["record_id"]: item["revision_digest"] for item in refs}
-    return {
-        "schema_id": "artifact-memory/wits-projection-request/v1",
-        "source_record_refs": refs,
-        "expected_revisions": dict(sorted(expected.items())),
-        "external_evidence_refs": sorted(set(external_evidence_refs)),
-        "projection_kind": projection_kind,
-        "provider_contract": contract_anchor(),
-        "authority_boundary": AUTHORITY_BOUNDARY,
-    }
+    try:
+        expected = dict(expected_revisions) if expected_revisions is not None else {
+            item["record_id"]: item["revision_digest"] for item in refs
+        }
+    except (TypeError, ValueError) as error:
+        raise ValueError("unsupported-request") from error
+    if set(expected) != {item["record_id"] for item in refs}:
+        raise ValueError("mixed-revision-context")
+    try:
+        evidence_refs = sorted(set(external_evidence_refs))
+        request = {
+            "schema_id": "artifact-memory/wits-projection-request/v1",
+            "source_record_refs": refs,
+            "expected_revisions": dict(sorted(expected.items())),
+            "external_evidence_refs": evidence_refs,
+            "projection_kind": projection_kind,
+            "provider_contract": contract_anchor(),
+            "authority_boundary": AUTHORITY_BOUNDARY,
+        }
+        validate(request, load_schema("adapters", "wits-projection-request.v1.schema.json"))
+    except (TypeError, ValidationFailure) as error:
+        raise ValueError("unsupported-request") from error
+    return request
 
 
 def _receipt(outcome: str, source_refs: list[dict[str, str]], request_digest: str, code: str | None = None) -> dict[str, Any]:
-    diagnostics = [] if code is None else [{"code": code, "message": {
-        "unsupported-record-schema": "source record schema is unsupported",
-        "not-authorized": "explicit local authorization is required outside portable records",
-        "authority-boundary": "knowledge projection cannot carry task, route, continuation, or execution authority",
-        "mixed-revision-context": "the request does not bind one exact revision for every source record",
-        "stale-source-revision": "a source record revision differs from the requested revision",
-        "superseded-record": "a source record is superseded",
-        "conflicting-records": "the source set has an unresolved conflict",
-        "sensitivity-mapping-unavailable": "the provider sensitivity mapping is unavailable",
-        "disclosure-denied": "the requested disclosure is not authorized",
-        "evidence-reference-unavailable": "a referenced evidence binding is unavailable",
-        "projection-unsupported": "the projection kind or provider contract is unsupported",
-        "wits-projection-rejected": "WITS did not admit the projection",
-        "provider-response-invalid": "the provider response is invalid or is not bound to this request",
-    }[code]}]
+    diagnostics = [] if code is None else [{"code": code, "message": DIAGNOSTIC_MESSAGES[code]}]
     body = {
         "outcome": outcome,
         "source_record_refs": source_refs,
@@ -134,28 +150,36 @@ def bind_projection_v2(
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Bind one opaque WITS projection; never invoke WITS or create HACP work."""
     source_refs, source_failure = _source_refs(records)
-    effective_revisions = expected_revisions if expected_revisions is not None else {item["record_id"]: item["revision_digest"] for item in source_refs}
-    request = {
-        "schema_id": "artifact-memory/wits-projection-request/v1",
-        "source_record_refs": source_refs,
-        "expected_revisions": dict(sorted(effective_revisions.items())),
-        "external_evidence_refs": sorted(set(external_evidence_refs or [])),
-        "projection_kind": projection_kind,
-        "provider_contract": contract_anchor(),
-        "authority_boundary": AUTHORITY_BOUNDARY,
-    }
+    if source_failure:
+        request = {"schema_id": "artifact-memory/wits-projection-request/v1", "source_record_refs": source_refs,
+                   "construction_failure": source_failure}
+    else:
+        try:
+            request = build_projection_request(
+                records, projection_kind, expected_revisions=expected_revisions,
+                external_evidence_refs=external_evidence_refs or (),
+            )
+        except ValueError as error:
+            code = str(error)
+            outcome = "mixed-revision-context" if code == "mixed-revision-context" else "unsupported"
+            failed_request = {
+                "schema_id": "artifact-memory/wits-projection-request/v1",
+                "source_record_refs": source_refs,
+                "construction_failure": code,
+            }
+            return None, _receipt(outcome, source_refs, _digest(failed_request),
+                                  code if code in DIAGNOSTIC_MESSAGES else "unsupported-request")
     request_digest = _digest(request)
     failure: tuple[str, str] | None = None
     if source_failure:
-        failure = ("unsupported", source_failure)
+        outcome = "mixed-revision-context" if source_failure == "mixed-revision-context" else "unsupported"
+        failure = (outcome, source_failure)
     elif not authorized:
         failure = ("rejected", "not-authorized")
     elif not isinstance(provider_response, dict):
         failure = ("unsupported", "provider-response-invalid")
     elif _contains_authority(provider_response) or projection_kind in {"create-task", "route", "execute"}:
         failure = ("authority-bearing-request-rejected", "authority-boundary")
-    elif set(request["expected_revisions"]) != {item["record_id"] for item in source_refs}:
-        failure = ("mixed-revision-context", "mixed-revision-context")
     elif any(request["expected_revisions"][item["record_id"]] != item["revision_digest"] for item in source_refs):
         failure = ("stale", "stale-source-revision")
     elif any(record.get("lifecycle") == "superseded" for record in records):

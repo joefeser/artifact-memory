@@ -6,7 +6,7 @@ import hashlib
 import json
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .backup import create_backup, restore_isolated
 from .canonical import canonical_bytes
@@ -16,11 +16,12 @@ from .projection import logical_projection_snapshot, project_records
 from .schema_resources import load_schema
 from .validator import validate
 from .vault import register_bytes
-from .wits_adapter import AUTHORITY_BOUNDARY, bind_projection_v2
+from .wits_adapter import AUTHORITY_BOUNDARY, bind_projection_v2, build_projection_request
 
 
 WITS_RECORD_ID = "record://synthetic/wits-projection-reference"
 WITS_ARTIFACT_ID = "artifact://synthetic/wits-projection"
+WITS_ARTIFACT_VERSION_ID = "artifact-version://synthetic/wits-projection/1"
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -53,7 +54,7 @@ def run_wits_conformance(
     base_proof: Path,
     output_dir: Path,
     passphrase: str,
-    provider_response: dict[str, Any],
+    provider: Callable[[dict[str, Any]], dict[str, Any]],
 ) -> dict[str, Any]:
     """Extend the accepted TraceMap proof with an opaque WITS projection reference."""
     if output_dir.exists():
@@ -67,6 +68,10 @@ def run_wits_conformance(
     claim = _load(canonical / "claim.json")
     trace_binding = _load(artifacts / "tracemap-binding.json")
 
+    request = build_projection_request(
+        [claim], "owner-meaning", external_evidence_refs=[trace_binding["binding_id"]],
+    )
+    provider_response = provider(request)
     projection, admission = bind_projection_v2(
         [claim], "owner-meaning", provider_response, True,
         external_evidence_refs=[trace_binding["binding_id"]],
@@ -79,6 +84,16 @@ def run_wits_conformance(
     registration = register_bytes(vault, projection_bytes, "application/vnd.artifact-memory.wits-projection+json")
     _write(artifacts / "wits-projection.json", projection)
     _write(artifacts / "wits-admission-receipt.json", admission)
+
+    projection_version = {
+        "schema_id": "artifact-memory/artifact-version/v1",
+        "artifact_id": WITS_ARTIFACT_ID,
+        "version_id": WITS_ARTIFACT_VERSION_ID,
+        "content_refs": [registration["content_ref"]],
+        "lifecycle": "accepted",
+    }
+    validate(projection_version, load_schema("core", "artifact-version.v1.schema.json"))
+    _write(canonical / "wits-projection-version.json", projection_version)
 
     projection_record = {
         "schema_id": "artifact-memory/knowledge-record/v1",
@@ -140,6 +155,10 @@ def run_wits_conformance(
         raise RuntimeError("WITS fixture backup or isolated restore failed")
     restored_projection = _load(restored / "artifacts" / "wits-projection.json")
     validate(restored_projection, load_schema("adapters", "wits-projection.v2.schema.json"))
+    restored_version = _load(restored / "canonical" / "wits-projection-version.json")
+    validate(restored_version, load_schema("core", "artifact-version.v1.schema.json"))
+    if registration["content_ref"] not in restored_version["content_refs"]:
+        raise RuntimeError("restored artifact version lost its registered content binding")
     shutil.rmtree(restored / "projection")
     rebuilt = output_dir / "rebuilt-projection"
     rebuilt_receipt = project_records(
@@ -163,7 +182,9 @@ def run_wits_conformance(
         "stages": [{"name": stage, "outcome": "complete"} for stage in stages],
         "source_record_refs": projection["source_record_refs"],
         "tracemap_binding_ref": trace_binding["binding_id"],
-        "wits_projection_ref": projection["projection_id"],
+        "wits_binding_ref": projection["projection_id"],
+        "wits_projection_ref": projection["wits_projection_ref"],
+        "wits_artifact_version_ref": WITS_ARTIFACT_VERSION_ID,
         "wits_contract_commit": projection["provider_contract"]["commit"],
         "wits_license": projection["provider_contract"]["license"],
         "context_pack_id": context["pack_id"],
