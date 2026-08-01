@@ -40,7 +40,7 @@
     "declassification_receipt_retained_private": {"const": true},
     "lifecycle_route_verified": {"const": true},
     "owner_review_state": {"const": "required"},
-    "authority_boundary": {"const": "derivative knowledge only; no execution, routing, disclosure, or mutation authority"},
+    "authority_boundary": {"const": "derivative knowledge only; no execution, mutation, spending, deployment, credential use, declassification, disclosure, routing, merge, or approval authority"},
     "limitations": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}}
   }
 }

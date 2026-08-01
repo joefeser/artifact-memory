@@ -1,5 +1,5 @@
 {
-  "authority_boundary": "derivative knowledge only; no execution, routing, disclosure, or mutation authority",
+  "authority_boundary": "derivative knowledge only; no execution, mutation, spending, deployment, credential use, declassification, disclosure, routing, merge, or approval authority",
   "declassification_receipt_retained_private": true,
   "excluded_material_committed": false,
   "import_contract": "artifact-memory/codex-history-allowlist/v2",
@@ -15,7 +15,7 @@
   "performed_at": "2026-08-01T03:05:57Z",
   "private_record_material_committed": false,
   "raw_source_canonical": false,
-  "receipt_id": "codex-history-dogfood-receipt://62cdf2ab9288c890193c302b70a305f8f5605f9169c7d9e113b63feafceb42a4",
+  "receipt_id": "codex-history-dogfood-receipt://95f8711e24c0af77e26f158fbff62def8599bfdcb1b3e88e0c27322bc167bccf",
   "record_type_counts": {
     "decision": 1,
     "question": 1,

@@ -43,7 +43,7 @@
     "deletion_route": {"const": "artifact-memory/retention-deletion/v2"},
     "deletion_request_outcome": {"const": "not-authorized"},
     "destructive_execution_performed": {"const": false},
-    "authority_boundary": {"const": "derivative knowledge only; no execution, routing, disclosure, or mutation authority"},
+    "authority_boundary": {"const": "derivative knowledge only; no execution, mutation, spending, deployment, credential use, declassification, disclosure, routing, merge, or approval authority"},
     "limitations": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}}
   }
 }

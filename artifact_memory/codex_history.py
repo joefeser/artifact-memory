@@ -37,7 +37,7 @@ EXCLUDED_CATEGORIES = (
 )
 TRANSFORMATION_REF = "artifact-memory/codex-history-allowlist/v2"
 AUTHORITY_BOUNDARY = (
-    "derivative knowledge only; no execution, routing, disclosure, or mutation authority"
+    "derivative knowledge only; no execution, mutation, spending, deployment, credential use, declassification, disclosure, routing, merge, or approval authority"
 )
 MAX_TITLE_CHARS = 240
 MAX_TEXT_CHARS = 4_096

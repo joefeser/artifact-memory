@@ -161,6 +161,10 @@ class CodexHistoryTests(unittest.TestCase):
         self.assertNotIn("source_task_ref", encoded)
         self.assertFalse(receipt["source_task_identity_disclosed"])
         self.assertEqual(receipt["owner_review_state"], "required")
+        self.assertEqual(
+            receipt["authority_boundary"],
+            "derivative knowledge only; no execution, mutation, spending, deployment, credential use, declassification, disclosure, routing, merge, or approval authority",
+        )
 
     def test_public_dogfood_receipt_rejects_untyped_counts(self):
         valid = {"decision": 1, "research": 1, "workstream": 1, "question": 0}
