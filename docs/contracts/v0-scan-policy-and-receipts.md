@@ -58,6 +58,12 @@ the canonical receipt body.
 Receipt validation rejects reversed times, mismatched counts, identity
 tampering, and supplied policy or manifest mismatches.
 
+Verification can use the built-in reference policy implicitly. A manifest that
+binds any other policy requires the exact policy object; a policy digest alone
+cannot reconstruct exclusions or scope. The CLI accepts that object with
+`artifact-memory verify ROOT MANIFEST --policy POLICY` and returns a typed
+`policy-required` outcome when it is omitted.
+
 Filesystem completeness is not TraceMap analysis completeness. A scan receipt
 establishes neither authenticity nor execution, disclosure, mutation, trust,
 or authorization.

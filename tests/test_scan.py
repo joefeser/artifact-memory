@@ -180,8 +180,11 @@ class ScanTests(unittest.TestCase):
             identity_payload = {key: value for key, value in manifest.items() if key not in {"manifest_id", "tree_digest"}}
             manifest["manifest_id"] = "manifest://" + hashlib.sha256(canonical_bytes(identity_payload)).hexdigest()
             result = verify_path(root, manifest)
-            self.assertEqual(result["outcome"], "unsupported")
-            self.assertEqual(result["diagnostics"][0]["code"], "scan-policy-unsupported")
+            self.assertEqual(result["outcome"], "policy-required")
+            self.assertEqual(result["diagnostics"][0]["code"], "scan-policy-required")
+            supplied = verify_path(root, manifest, policy=make_scan_policy())
+            self.assertEqual(supplied["outcome"], "unsupported")
+            self.assertEqual(supplied["diagnostics"][0]["code"], "scan-policy-unsupported")
 
     def test_diff_reports_content_changes_and_move_candidates(self):
         with tempfile.TemporaryDirectory() as temporary:

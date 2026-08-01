@@ -104,13 +104,7 @@ def validate_scan_policy(policy: dict[str, Any]) -> None:
         raise ValidationFailure("scan-policy-unsupported", "comparison profile is unsupported", "$.comparison_profile")
 
 
-def make_scan_policy(
-    *,
-    endpoint_ref: str = REFERENCE_ENDPOINT_REF,
-    root_relative_path: str = "",
-    exclusion_prefixes: tuple[str, ...] = (),
-) -> dict[str, Any]:
-    """Create the effective digest-bound policy used by one scan attempt."""
+def _build_scan_policy(endpoint_ref: str, root_relative_path: str, exclusion_prefixes: tuple[str, ...]) -> dict[str, Any]:
     body: dict[str, Any] = {
         "schema_id": "artifact-memory/scan-policy/v2",
         "endpoint_ref": endpoint_ref,
@@ -120,30 +114,27 @@ def make_scan_policy(
         "exclusion_prefixes": sorted(exclusion_prefixes),
     }
     digest = _policy_digest(body)
-    policy = {
+    return {
         **body,
         "policy_id": "scan-policy://sha-256/" + digest.removeprefix("sha-256:"),
         "policy_digest": digest,
     }
+
+
+def make_scan_policy(
+    *,
+    endpoint_ref: str = REFERENCE_ENDPOINT_REF,
+    root_relative_path: str = "",
+    exclusion_prefixes: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Create the effective digest-bound policy used by one scan attempt."""
+    policy = _build_scan_policy(endpoint_ref, root_relative_path, exclusion_prefixes)
     validate_scan_policy(policy)
     return policy
 
 
-def _unvalidated_reference_policy() -> dict[str, Any]:
-    body: dict[str, Any] = {
-        "schema_id": "artifact-memory/scan-policy/v2",
-        "endpoint_ref": REFERENCE_ENDPOINT_REF,
-        "root_relative_path": "",
-        "comparison_profile": "v0-case-sensitive-unicode-codepoint",
-        "follow_symlinks": False,
-        "exclusion_prefixes": [],
-    }
-    digest = _policy_digest(body)
-    return {**body, "policy_id": "scan-policy://sha-256/" + digest.removeprefix("sha-256:"), "policy_digest": digest}
-
-
 # Compatibility constants remain computation-only; schema I/O starts with a scan.
-REFERENCE_POLICY = _unvalidated_reference_policy()
+REFERENCE_POLICY = _build_scan_policy(REFERENCE_ENDPOINT_REF, "", ())
 POLICY_REF = REFERENCE_POLICY["policy_id"]
 
 
@@ -506,7 +497,23 @@ def verify_path(root: Path, manifest: dict[str, Any], policy: dict[str, Any] | N
             "manifest_ref": manifest.get("manifest_id") if isinstance(manifest, dict) else None,
             "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}],
         }
-    effective_policy = make_scan_policy() if policy is None else policy
+    if policy is None:
+        effective_policy = make_scan_policy()
+        if manifest["policy_ref"] != effective_policy["policy_id"]:
+            return {
+                "outcome": "policy-required",
+                "manifest_ref": manifest["manifest_id"],
+                "diagnostics": [
+                    {
+                        "code": "scan-policy-required",
+                        "path": "$.policy_ref",
+                        "message": "verification requires the exact digest-bound scan policy",
+                        "policy_ref": manifest["policy_ref"],
+                    }
+                ],
+            }
+    else:
+        effective_policy = policy
     try:
         validate_scan_policy(effective_policy)
     except ValidationFailure as exc:

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from artifact_memory.scan import ScanLimits, scan_path
+from artifact_memory.scan import ScanLimits, make_scan_policy, scan_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +59,26 @@ class CliTests(unittest.TestCase):
             incomplete = self.run_cli("diff", str(partial_path), str(complete_path), "--json")
             self.assertEqual(incomplete.returncode, 2)
             self.assertEqual(json.loads(incomplete.stdout)["outcome"], "partial")
+
+    def test_verify_requires_and_accepts_exact_custom_policy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            source.mkdir()
+            (source / "value.txt").write_text("synthetic", encoding="utf-8")
+            policy = make_scan_policy(endpoint_ref="endpoint://synthetic/custom", root_relative_path="records")
+            manifest, _ = scan_path(source, policy=policy)
+            manifest_path = root / "manifest.json"
+            policy_path = root / "policy.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+            missing = self.run_cli("verify", str(source), str(manifest_path), "--json")
+            self.assertEqual(missing.returncode, 3)
+            self.assertEqual(json.loads(missing.stdout)["outcome"], "policy-required")
+            supplied = self.run_cli("verify", str(source), str(manifest_path), "--policy", str(policy_path), "--json")
+            self.assertEqual(supplied.returncode, 0, supplied.stderr)
+            self.assertEqual(json.loads(supplied.stdout)["outcome"], "verified")
 
     def test_missing_generated_index_query_fails_without_creating_it(self):
         with tempfile.TemporaryDirectory() as temporary:
