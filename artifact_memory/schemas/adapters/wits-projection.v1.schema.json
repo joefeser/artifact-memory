@@ -11,8 +11,8 @@
     "source_record_refs": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["record_id", "revision_digest"], "properties": {"record_id": {"type": "string"}, "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}}}},
     "external_evidence_refs": {"type": "array", "items": {"type": "string"}},
     "projection_kind": {"enum": ["owner-meaning", "decision", "readiness", "ambiguity", "unsupported"]},
-    "wits_projection_ref": {"type": "string", "pattern": "^wits-projection://[A-Za-z0-9._~/-]+$"},
-    "wits_projection_schema_ref": {"type": "string", "pattern": "^wits-contract://[A-Za-z0-9._~/-]+$"},
+    "wits_projection_ref": {"type": "string", "minLength": 1},
+    "wits_projection_schema_ref": {"type": "string", "minLength": 1},
     "projection_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
     "authority_boundary": {"const": "informational projection only; no HACP task, route, continuation, or execution authority"},
     "extensions": {"type": "object", "additionalProperties": true}

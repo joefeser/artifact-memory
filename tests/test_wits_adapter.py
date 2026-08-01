@@ -98,6 +98,55 @@ class WitsAdapterTests(unittest.TestCase):
         self.assertIsNone(projection)
         self.assertEqual(receipt["outcome"], "unsupported")
 
+    def test_v2_rejection_must_bind_the_current_request(self):
+        response = self._strict_response()
+        response["admission"] = "rejected"
+        for malformed in (
+            {"request_digest": response["request_digest"]},
+            {"admission": "rejected", "request_digest": "sha-256:" + "0" * 64},
+        ):
+            projection, receipt = bind_projection_v2(
+                [self.record], "owner-meaning", malformed, True,
+            )
+            self.assertIsNone(projection)
+            self.assertEqual(receipt["outcome"], "unsupported")
+            self.assertEqual(receipt["diagnostics"][0]["code"], "provider-response-invalid")
+        projection, receipt = bind_projection_v2(
+            [self.record], "owner-meaning",
+            {"admission": "rejected", "request_digest": response["request_digest"]},
+            True,
+        )
+        self.assertIsNone(projection)
+        self.assertEqual(receipt["outcome"], "rejected")
+
+    def test_v2_preserves_optional_and_rejects_required_provider_extensions(self):
+        identifier = "https://synthetic.example/extensions/wits-provider"
+        optional = {"version": "v1", "required": False, "value": {"opaque": "kept"}}
+        response = {**self._strict_response(), "extensions": {identifier: optional}}
+        projection, receipt = bind_projection_v2(
+            [self.record], "owner-meaning", response, True,
+        )
+        self.assertEqual(receipt["outcome"], "admitted")
+        self.assertEqual(projection["extensions"][identifier], optional)
+        validate(
+            projection,
+            json.loads((ROOT / "artifact_memory/schemas/adapters/wits-projection.v2.schema.json").read_text()),
+        )
+        response["extensions"][identifier]["required"] = True
+        projection, receipt = bind_projection_v2(
+            [self.record], "owner-meaning", response, True,
+        )
+        self.assertIsNone(projection)
+        self.assertEqual(receipt["outcome"], "unsupported")
+        self.assertEqual(receipt["diagnostics"][0]["code"], "required-extension-unsupported")
+        malformed = {**self._strict_response(), "extensions": {"not-namespaced": optional}}
+        projection, receipt = bind_projection_v2(
+            [self.record], "owner-meaning", malformed, True,
+        )
+        self.assertIsNone(projection)
+        self.assertEqual(receipt["outcome"], "unsupported")
+        self.assertEqual(receipt["diagnostics"][0]["code"], "provider-response-invalid")
+
     def test_request_builder_rejects_mixed_or_malformed_inputs(self):
         with self.assertRaisesRegex(ValueError, "mixed-revision-context"):
             build_projection_request([self.record], "owner-meaning", expected_revisions={})
@@ -133,6 +182,28 @@ class WitsAdapterTests(unittest.TestCase):
             response[field] = "https://provider.example/signed?token=secret"
             projection, receipt = bind_projection_v2(
                 [self.record], "owner-meaning", response, True,
+            )
+            self.assertIsNone(projection)
+            self.assertEqual(receipt["outcome"], "unsupported")
+
+    def test_v1_preserves_legacy_opaque_refs_and_rejects_non_strings(self):
+        legacy = {
+            **self.response,
+            "projection_ref": "legacy-opaque-projection-id",
+            "projection_schema_ref": "legacy-opaque-schema-id",
+        }
+        projection, receipt = bind_projection(
+            [self.record], "owner-meaning", legacy, authorized=True,
+        )
+        self.assertEqual(receipt["outcome"], "admitted")
+        validate(
+            projection,
+            json.loads((ROOT / "artifact_memory/schemas/adapters/wits-projection.v1.schema.json").read_text()),
+        )
+        for field in ("projection_ref", "projection_schema_ref"):
+            malformed = {**self.response, field: {"not": "a string"}}
+            projection, receipt = bind_projection(
+                [self.record], "owner-meaning", malformed, authorized=True,
             )
             self.assertIsNone(projection)
             self.assertEqual(receipt["outcome"], "unsupported")

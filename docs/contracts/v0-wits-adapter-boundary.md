@@ -21,6 +21,10 @@ The adapter reports admitted, rejected, unsupported, stale, superseded,
 mixed-revision-context, conflict, sensitivity-mapping-unavailable, disclosure-denied,
 evidence-reference-unavailable, and authority-bearing-request-rejected
 outcomes. Provider responses are bound to the deterministic request digest.
+Provider rejections are accepted only when they bind that same request digest;
+missing, malformed, or replayed rejection envelopes are unsupported. Unknown
+optional namespaced provider extensions are preserved opaquely, while unknown
+required extensions fail closed.
 Nested Task Packet, Route Task, continuation, destination, approval, or
 execution fields fail closed.
 
