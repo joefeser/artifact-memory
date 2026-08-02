@@ -61,6 +61,13 @@ class ManifestConformanceTests(unittest.TestCase):
             self._run_changed(collision_and_unsupported)
         self.assertEqual(raised.exception.code, "invalid-vector")
 
+        def collision_and_unreadable(vectors):
+            vectors["negative_cases"][0]["observations"][0]["kind"] = "unreadable"
+
+        with self.assertRaises(ValidationFailure) as raised:
+            self._run_changed(collision_and_unreadable)
+        self.assertEqual(raised.exception.code, "invalid-vector")
+
         def unsupported_and_unreadable(vectors):
             vectors["negative_cases"][1]["observations"].append({"path": "private/value.txt", "kind": "unreadable"})
 
