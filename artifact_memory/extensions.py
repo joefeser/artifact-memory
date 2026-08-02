@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterable
 from copy import deepcopy
 from typing import Any
 
@@ -15,10 +16,11 @@ EXTENSION_ID = re.compile(r"^https://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~/-]+)?$")
 
 
 class ExtensionFailure(Exception):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, path: str = "$") -> None:
         super().__init__(message)
         self.code = code
         self.message = message
+        self.path = path
 
 
 _canonical = canonical_bytes
@@ -30,7 +32,7 @@ def validate_extension_bundle(extension_bundle: dict[str, Any]) -> None:
         validate(extension_bundle, load_schema("core", "extension-bundle.v1.schema.json"))
         observed_digest = extension_digest(extension_bundle)
     except ValidationFailure as exc:
-        raise ExtensionFailure(exc.code, exc.message) from exc
+        raise ExtensionFailure(exc.code, exc.message, exc.path) from exc
     except CanonicalizationFailure as exc:
         raise ExtensionFailure("extension-canonicalization-failed", str(exc)) from exc
     declared_digest = extension_bundle.get("extensions_digest")
@@ -38,21 +40,51 @@ def validate_extension_bundle(extension_bundle: dict[str, Any]) -> None:
         raise ExtensionFailure("extension-digest-invalid", "extension digest does not match its canonical declarations")
 
 
-def preserve_extensions(core_record: dict[str, Any], extension_bundle: dict[str, Any], supported_required: set[tuple[str, str]] | None = None) -> dict[str, Any]:
+def _validated_supported_required(supported_required: Iterable[tuple[str, str]] | None) -> set[tuple[str, str]]:
+    if supported_required is None:
+        return set()
+    if isinstance(supported_required, (str, bytes, dict)):
+        raise ExtensionFailure("invalid-supported-required", "supported required extensions must be (identifier, version) pairs", "$.supported_required")
+    try:
+        entries = list(supported_required)
+    except TypeError as exc:
+        raise ExtensionFailure("invalid-supported-required", "supported required extensions must be iterable", "$.supported_required") from exc
+    for index, entry in enumerate(entries):
+        if (
+            not isinstance(entry, tuple)
+            or len(entry) != 2
+            or not all(isinstance(part, str) for part in entry)
+            or EXTENSION_ID.fullmatch(entry[0]) is None
+            or re.fullmatch(r"v[0-9]+", entry[1]) is None
+        ):
+            raise ExtensionFailure(
+                "invalid-supported-required",
+                "supported required extensions must be valid (identifier, version) pairs",
+                f"$.supported_required[{index}]",
+            )
+    return set(entries)
+
+
+def preserve_extensions(core_record: dict[str, Any], extension_bundle: dict[str, Any], supported_required: Iterable[tuple[str, str]] | None = None) -> dict[str, Any]:
     if not isinstance(core_record, dict) or not isinstance(core_record.get("extensions", {}), dict):
         raise ExtensionFailure("invalid-core-record", "core record and its extensions must be objects")
+    supported = _validated_supported_required(supported_required)
     validate_extension_bundle(extension_bundle)
-    supported_required = supported_required or set()
     extensions = extension_bundle["extensions"]
     result = deepcopy(core_record)
     result["extensions"] = deepcopy(core_record.get("extensions", {}))
     for identifier, extension in extensions.items():
         if not EXTENSION_ID.fullmatch(identifier):
             raise ExtensionFailure("invalid-extension-identifier", "extension identifier must be globally namespaced")
-        if extension.get("required") and (identifier, extension["version"]) not in supported_required:
+        if extension.get("required") and (identifier, extension["version"]) not in supported:
             raise ExtensionFailure("required-extension-unsupported", "required extension is unsupported")
-        if identifier in result["extensions"] and result["extensions"][identifier] != extension:
-            raise ExtensionFailure("extension-conflict", "extension declaration conflicts with an existing value")
+        if identifier in result["extensions"]:
+            try:
+                declarations_match = canonical_bytes(result["extensions"][identifier]) == canonical_bytes(extension)
+            except CanonicalizationFailure as exc:
+                raise ExtensionFailure("extension-conflict", "extension declaration cannot be compared safely") from exc
+            if not declarations_match:
+                raise ExtensionFailure("extension-conflict", "extension declaration conflicts with an existing value")
         result["extensions"][identifier] = deepcopy(extension)
     return result
 

@@ -7,7 +7,8 @@ import json
 import re
 from typing import Any
 
-from .extensions import ExtensionFailure, preserve_extensions
+
+EXTENSION_ID = re.compile(r"^https://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~/-]+)?$")
 
 
 class ReaderFailure(Exception):
@@ -88,8 +89,49 @@ def _revision_digest(record: dict[str, Any]) -> str:
     return "sha-256:" + hashlib.sha256(canonical).hexdigest()
 
 
+def _supported_required_pairs(value: Any) -> set[tuple[str, str]]:
+    if value is None:
+        return set()
+    if isinstance(value, (str, bytes, dict)):
+        raise ReaderFailure("supported required extensions are invalid")
+    try:
+        entries = list(value)
+    except TypeError as exc:
+        raise ReaderFailure("supported required extensions are invalid") from exc
+    for entry in entries:
+        if (
+            not isinstance(entry, tuple)
+            or len(entry) != 2
+            or not all(isinstance(part, str) for part in entry)
+            or EXTENSION_ID.fullmatch(entry[0]) is None
+            or re.fullmatch(r"v[0-9]+", entry[1]) is None
+        ):
+            raise ReaderFailure("supported required extensions are invalid")
+    return set(entries)
+
+
+def _preserve_record_extensions(extensions: dict[str, Any], supported_required: set[tuple[str, str]]) -> dict[str, Any]:
+    """Preserve v1 opaque values; interpret only complete v0 declarations."""
+    preserved: dict[str, Any] = {}
+    declaration_fields = {"version", "required", "value"}
+    for identifier, value in extensions.items():
+        is_declaration = (
+            isinstance(value, dict)
+            and set(value) == declaration_fields
+            and isinstance(value.get("version"), str)
+            and re.fullmatch(r"v[0-9]+", value["version"]) is not None
+            and isinstance(value.get("required"), bool)
+            and isinstance(value.get("value"), dict)
+            and EXTENSION_ID.fullmatch(identifier) is not None
+        )
+        if is_declaration and value["required"] and (identifier, value["version"]) not in supported_required:
+            raise ReaderFailure("required extension is unsupported")
+        preserved[identifier] = value
+    return preserved
+
+
 def read_bundle(envelope_json: bytes, supported_required_extensions: set[tuple[str, str]] | None = None) -> dict[str, Any]:
-    supported_required_extensions = supported_required_extensions or set()
+    supported_required_extensions = _supported_required_pairs(supported_required_extensions)
     try:
         envelope = json.loads(envelope_json, object_pairs_hook=_pairs)
     except (json.JSONDecodeError, ReaderFailure) as exc:
@@ -132,15 +174,7 @@ def read_bundle(envelope_json: bytes, supported_required_extensions: set[tuple[s
         extensions = record.get("extensions", {})
         if not isinstance(extensions, dict):
             raise ReaderFailure("record extensions must be an object")
-        try:
-            preserved = preserve_extensions(
-                {},
-                {"schema_id": "artifact-memory/extension-bundle/v1", "extensions": extensions},
-                supported_required=supported_required_extensions,
-            )["extensions"]
-        except ExtensionFailure as exc:
-            message = exc.message if exc.code == "required-extension-unsupported" else "extension declaration is invalid"
-            raise ReaderFailure(message) from exc
+        preserved = _preserve_record_extensions(extensions, supported_required_extensions)
         accepted.append({"record_id": record["record_id"], "extensions": preserved})
     if bundle_present and bundled_ids != set(declared_revisions):
         raise ReaderFailure("record bundle does not match declared record references")

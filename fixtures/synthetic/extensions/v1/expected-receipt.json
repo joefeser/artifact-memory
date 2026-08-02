@@ -3,7 +3,7 @@
   "claims": [
     "one unknown optional extension round-trips unchanged without interpretation",
     "one unknown required extension fails closed and succeeds only when support is explicitly declared",
-    "extension namespace containment preserves core identity, sensitivity, schema, digest, and authority fields"
+    "extension namespace containment preserves the complete schema-valid core record and grants no authority"
   ],
   "core_fields_unchanged": true,
   "limitations": [
@@ -16,7 +16,7 @@
     "version": "v1"
   },
   "outcome": "complete",
-  "receipt_id": "extension-conformance-receipt://1599f5e9c3bcb95a57cfaa42d399e5daf774e476d7173553f4a9c492844f678e",
+  "receipt_id": "extension-conformance-receipt://896c29ba3ea39da8559ed54a70e1153abd89f1bd4653a0606bafaeb359e204ad",
   "required_extension": {
     "bundle_digest": "sha-256:deddfbd9fd43a18e8b3b7e77ced0ca4729def74a5edc1f935fc67729e406db81",
     "declared_support_outcome": "accepted",

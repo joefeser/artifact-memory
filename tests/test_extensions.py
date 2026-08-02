@@ -48,8 +48,22 @@ class ExtensionTests(unittest.TestCase):
             }
             with self.assertRaises(ValidationFailure):
                 validate(bundle, schema)
-            with self.assertRaises(ExtensionFailure):
+            with self.assertRaises(ExtensionFailure) as raised:
                 validate_extension_bundle(bundle)
+            self.assertTrue(raised.exception.path.startswith("$.extensions."))
+
+    def test_supported_required_configuration_is_validated(self):
+        bundle = json.loads((ROOT / "fixtures/synthetic/extensions/v1/required-extension.json").read_text(encoding="utf-8"))
+        malformed_values = (
+            {"https://synthetic.example/extensions/required"},
+            [("https://synthetic.example/extensions/required", 1)],
+            [("not-namespaced", "v1")],
+        )
+        for malformed in malformed_values:
+            with self.assertRaises(ExtensionFailure) as raised:
+                preserve_extensions({}, bundle, supported_required=malformed)
+            self.assertEqual(raised.exception.code, "invalid-supported-required")
+            self.assertTrue(raised.exception.path.startswith("$.supported_required"))
 
     def test_declared_digest_and_existing_extension_conflicts_fail_closed(self):
         bundle = json.loads((ROOT / "fixtures/synthetic/extensions/v1/optional-extension.json").read_text(encoding="utf-8"))
@@ -58,6 +72,14 @@ class ExtensionTests(unittest.TestCase):
             preserve_extensions({}, invalid_digest)
         with self.assertRaisesRegex(ExtensionFailure, "conflicts"):
             preserve_extensions({"extensions": {next(iter(bundle["extensions"])): {"different": True}}}, bundle)
+
+    def test_conflict_comparison_preserves_json_type_fidelity(self):
+        identifier = "https://synthetic.example/extensions/type-fidelity"
+        existing = {"version": "v1", "required": False, "value": {"flag": True}}
+        incoming = {"version": "v1", "required": False, "value": {"flag": 1}}
+        bundle = {"schema_id": "artifact-memory/extension-bundle/v1", "extensions": {identifier: incoming}}
+        with self.assertRaisesRegex(ExtensionFailure, "conflicts"):
+            preserve_extensions({"extensions": {identifier: existing}}, bundle)
 
 
 if __name__ == "__main__":

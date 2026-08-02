@@ -34,12 +34,18 @@ def run_extension_conformance(fixture: Path) -> dict[str, Any]:
     core = {
         "schema_id": "artifact-memory/knowledge-record/v2",
         "record_id": "record://synthetic/extension-conformance",
-        "digest": "sha-256:" + "0" * 64,
+        "record_type": "note",
+        "lifecycle": "accepted",
+        "meaning": {"summary": "Synthetic extension containment evidence."},
+        "artifact_refs": [],
+        "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/extensions/v1"}],
         "sensitivity": "public",
-        "authority_boundary": AUTHORITY_BOUNDARY,
     }
+    knowledge_record_schema = load_schema("core", "knowledge-record.v2.schema.json")
+    validate(core, knowledge_record_schema)
     preserved = preserve_extensions(core, optional_bundle)
-    core_unchanged = all(preserved.get(key) == value for key, value in core.items())
+    validate(preserved, knowledge_record_schema)
+    core_unchanged = all(preserved.get(key) == value for key, value in core.items()) and set(preserved) == set(core) | {"extensions"}
     optional_unchanged = preserved["extensions"].get(optional_id) == optional
     if not core_unchanged or not optional_unchanged:
         raise ValidationFailure("vector-mismatch", "optional extension did not round-trip opaquely")
@@ -78,7 +84,7 @@ def run_extension_conformance(fixture: Path) -> dict[str, Any]:
         "claims": [
             "one unknown optional extension round-trips unchanged without interpretation",
             "one unknown required extension fails closed and succeeds only when support is explicitly declared",
-            "extension namespace containment preserves core identity, sensitivity, schema, digest, and authority fields",
+            "extension namespace containment preserves the complete schema-valid core record and grants no authority",
         ],
         "limitations": [
             "v0 defines no registry, discovery service, marketplace, inheritance system, or executable plugin loading",

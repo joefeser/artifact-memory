@@ -21,6 +21,12 @@ inside an opaque value never replace top-level core fields. Applying a bundle
 also fails closed if it would overwrite a different declaration already stored
 under the same extension identifier.
 
+The legacy `knowledge-record/v1` contract predates the structured bundle and
+continues to preserve arbitrary extension values opaquely. The independent
+reader interprets required/optional semantics only when a value is a complete,
+valid structured declaration; all other v1 values remain uninterpreted. Reader
+support declarations are validated as exact `(identifier, version)` pairs.
+
 V0 has no registry, discovery, marketplace, inheritance, or generalized
 metadata framework. These two synthetic fixtures are the complete initial
 conformance surface.
