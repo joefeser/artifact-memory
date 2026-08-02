@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from .canonical import canonical_bytes, receipt_with_digest
+from .location import validate_location_observation
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -166,24 +167,33 @@ def tombstone(
 
 def content_retrievability(observations: list[dict[str, Any]]) -> str:
     """Summarize current evidence without converting absence into erasure."""
-    schema = load_schema("core", "location-observation.v1.schema.json")
     for observation in observations:
-        validate(observation, schema)
+        schema_id = observation.get("schema_id")
+        if schema_id == "artifact-memory/location-observation/v1":
+            validate(observation, load_schema("core", "location-observation.v1.schema.json"))
+        elif schema_id == "artifact-memory/location-observation/v2":
+            validate_location_observation(observation)
+        else:
+            raise ValidationFailure("unsupported-location-observation", "unsupported location observation schema")
     content_refs = {observation["content_ref"] for observation in observations}
     if len(content_refs) != 1:
         raise ValueError("retrievability requires observations for exactly one content_ref")
 
-    latest_by_location: dict[tuple[str, str], tuple[datetime, str]] = {}
+    latest_by_location: dict[tuple[str, str], tuple[datetime, bool]] = {}
     for observation in observations:
         location = (observation["endpoint_ref"], observation["relative_path"])
         observed_at = datetime.fromisoformat(observation["observed_at"].replace("Z", "+00:00"))
+        if observation["schema_id"] == "artifact-memory/location-observation/v1":
+            retrievable = observation["presence"] == "present"
+        else:
+            retrievable = observation["presence_state"] == "present" and observation["verification_state"] in {"content-verified", "presence-verified"}
         previous = latest_by_location.get(location)
         if previous is None or observed_at > previous[0]:
-            latest_by_location[location] = (observed_at, observation["presence"])
-        elif observed_at == previous[0] and observation["presence"] != previous[1]:
+            latest_by_location[location] = (observed_at, retrievable)
+        elif observed_at == previous[0] and retrievable != previous[1]:
             raise ValueError("retrievability has conflicting latest observations for one location")
 
-    if any(presence == "present" for _, presence in latest_by_location.values()):
+    if any(retrievable for _, retrievable in latest_by_location.values()):
         return "verified-retrievable-location-observed"
     return "zero-currently-verified-retrievable-locations"
 

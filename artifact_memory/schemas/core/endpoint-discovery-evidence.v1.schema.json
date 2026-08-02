@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/endpoint-discovery-evidence/v1",
+  "title": "Artifact Memory endpoint discovery evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "evidence_id", "endpoint_ref", "observed_at", "evidence_kind", "match_state", "evidence_digest", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/endpoint-discovery-evidence/v1"},
+    "evidence_id": {"type": "string", "pattern": "^endpoint-discovery-evidence://[A-Za-z0-9._~/-]+$"},
+    "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$"},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "evidence_kind": {"type": "string", "enum": ["configured-binding", "volume-marker", "repository-marker", "operator-assertion", "test-double"]},
+    "match_state": {"type": "string", "enum": ["matched", "ambiguous", "not-matched", "unavailable"]},
+    "evidence_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  }
+}

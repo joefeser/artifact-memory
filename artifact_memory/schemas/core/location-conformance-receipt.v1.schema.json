@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/location-conformance-receipt/v1",
+  "title": "Artifact Memory location conformance receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "vector_set_digest", "endpoint_ref", "relative_path", "platform_results", "portable_fields", "authority_boundary", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/location-conformance-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^location-conformance-receipt://synthetic/[0-9a-f]{64}$"},
+    "outcome": {"const": "complete"},
+    "vector_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "endpoint_ref": {"const": "endpoint://synthetic/portable-vault"},
+    "relative_path": {"const": "objects/order-sample.json"},
+    "platform_results": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "allOf": [
+          {"if": {"properties": {"platform": {"const": "macos"}}}, "then": {"properties": {"layout_style": {"const": "volume-mount"}}}},
+          {"if": {"properties": {"platform": {"const": "windows"}}}, "then": {"properties": {"layout_style": {"const": "drive-root"}}}},
+          {"if": {"properties": {"platform": {"const": "linux"}}}, "then": {"properties": {"layout_style": {"const": "filesystem-mount"}}}}
+        ],
+        "required": ["platform", "layout_style", "native_layout_digest", "resolution_outcome", "observation_id", "discovery_evidence_id"],
+        "properties": {
+          "platform": {"type": "string", "enum": ["macos", "windows", "linux"]},
+          "layout_style": {"type": "string", "enum": ["volume-mount", "drive-root", "filesystem-mount"]},
+          "native_layout_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+          "resolution_outcome": {"const": "resolved"},
+          "observation_id": {"type": "string", "pattern": "^location-observation://synthetic/[A-Za-z0-9._~-]+$"},
+          "discovery_evidence_id": {"type": "string", "pattern": "^endpoint-discovery-evidence://synthetic/[A-Za-z0-9._~-]+$"}
+        }
+      }
+    },
+    "portable_fields": {"type": "array", "minItems": 4, "items": {"type": "string", "minLength": 1}},
+    "authority_boundary": {"const": "location observation grants no access, mutation, disclosure, or execution authority"},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  }
+}
