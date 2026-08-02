@@ -65,6 +65,16 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "invalid-supported-required")
             self.assertTrue(raised.exception.path.startswith("$.supported_required"))
 
+    def test_bundle_validator_rejects_non_namespaced_identifier(self):
+        bundle = {
+            "schema_id": "artifact-memory/extension-bundle/v1",
+            "extensions": {"local-name": {"version": "v1", "required": False, "value": {}}},
+        }
+        with self.assertRaises(ExtensionFailure) as raised:
+            validate_extension_bundle(bundle)
+        self.assertEqual(raised.exception.code, "invalid-extension-identifier")
+        self.assertEqual(raised.exception.path, "$.extensions['local-name']")
+
     def test_declared_digest_and_existing_extension_conflicts_fail_closed(self):
         bundle = json.loads((ROOT / "fixtures/synthetic/extensions/v1/optional-extension.json").read_text(encoding="utf-8"))
         invalid_digest = {**bundle, "extensions_digest": "sha-256:" + "0" * 64}

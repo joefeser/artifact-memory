@@ -35,6 +35,14 @@ def validate_extension_bundle(extension_bundle: dict[str, Any]) -> None:
         raise ExtensionFailure(exc.code, exc.message, exc.path) from exc
     except CanonicalizationFailure as exc:
         raise ExtensionFailure("extension-canonicalization-failed", str(exc)) from exc
+    invalid_identifiers = sorted(identifier for identifier in extension_bundle["extensions"] if EXTENSION_ID.fullmatch(identifier) is None)
+    if invalid_identifiers:
+        identifier = invalid_identifiers[0]
+        raise ExtensionFailure(
+            "invalid-extension-identifier",
+            "extension identifier must be globally namespaced",
+            f"$.extensions[{identifier!r}]",
+        )
     declared_digest = extension_bundle.get("extensions_digest")
     if declared_digest is not None and declared_digest != observed_digest:
         raise ExtensionFailure("extension-digest-invalid", "extension digest does not match its canonical declarations")

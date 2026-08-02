@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Iterable
 from typing import Any
 
 
@@ -89,7 +90,8 @@ def _revision_digest(record: dict[str, Any]) -> str:
     return "sha-256:" + hashlib.sha256(canonical).hexdigest()
 
 
-def _supported_required_pairs(value: Any) -> set[tuple[str, str]]:
+def _supported_required_pairs(value: Iterable[tuple[str, str]] | None) -> set[tuple[str, str]]:
+    """Validate independently; sharing the reference helper would invalidate this reader's conformance role."""
     if value is None:
         return set()
     if isinstance(value, (str, bytes, dict)):
@@ -130,7 +132,7 @@ def _preserve_record_extensions(extensions: dict[str, Any], supported_required: 
     return preserved
 
 
-def read_bundle(envelope_json: bytes, supported_required_extensions: set[tuple[str, str]] | None = None) -> dict[str, Any]:
+def read_bundle(envelope_json: bytes, supported_required_extensions: Iterable[tuple[str, str]] | None = None) -> dict[str, Any]:
     supported_required_extensions = _supported_required_pairs(supported_required_extensions)
     try:
         envelope = json.loads(envelope_json, object_pairs_hook=_pairs)

@@ -52,7 +52,7 @@ class ExchangeTests(unittest.TestCase):
             read_bundle(json.dumps(required_envelope).encode())
         supported = read_bundle(
             json.dumps(required_envelope).encode(),
-            supported_required_extensions={("https://synthetic.example/required", "v1")},
+            supported_required_extensions=[("https://synthetic.example/required", "v1")],
         )
         self.assertEqual(supported["preserved_extensions"], [required["extensions"]])
         with self.assertRaisesRegex(ReaderFailure, "required extension"):
