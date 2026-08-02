@@ -67,6 +67,7 @@ def _is_normalized_relative_path(value: str, *, allow_empty: bool = False) -> bo
     return not (
         value == "."
         or "\\" in value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
         or normalized.is_absolute()
         or normalized.as_posix() != value
         or any(part in {"", ".", ".."} for part in value.split("/"))
@@ -210,6 +211,11 @@ def _hash_regular_file(path: Path, root: Path, remaining_budget: int | None = No
         before = path.stat(follow_symlinks=False)
         if _is_link_or_reparse(before) or not stat.S_ISREG(before.st_mode):
             raise _ObservationFailure("unsupported", "entry changed to a non-regular file")
+        if getattr(before, "st_nlink", 1) > 1:
+            raise _ObservationFailure("unsupported", "hard-linked files are outside the v0 ordinary-tree profile")
+        allocated_blocks = getattr(before, "st_blocks", None)
+        if isinstance(allocated_blocks, int) and before.st_size > 0 and allocated_blocks * 512 < before.st_size:
+            raise _ObservationFailure("unsupported", "sparse files are outside the v0 ordinary-tree profile")
         if remaining_budget is not None and before.st_size > remaining_budget:
             raise _ObservationFailure("resource-limit", "scan byte limit reached")
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
