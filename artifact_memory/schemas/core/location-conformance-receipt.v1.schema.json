@@ -18,10 +18,11 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["platform", "layout_style", "resolution_outcome", "observation_id", "discovery_evidence_id"],
+        "required": ["platform", "layout_style", "native_layout_digest", "resolution_outcome", "observation_id", "discovery_evidence_id"],
         "properties": {
           "platform": {"type": "string", "enum": ["macos", "windows", "linux"]},
           "layout_style": {"type": "string", "enum": ["volume-mount", "drive-root", "filesystem-mount"]},
+          "native_layout_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
           "resolution_outcome": {"const": "resolved"},
           "observation_id": {"type": "string", "pattern": "^location-observation://synthetic/[A-Za-z0-9._~-]+$"},
           "discovery_evidence_id": {"type": "string", "pattern": "^endpoint-discovery-evidence://synthetic/[A-Za-z0-9._~-]+$"}

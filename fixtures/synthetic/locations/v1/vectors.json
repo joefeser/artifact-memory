@@ -9,8 +9,9 @@
     "portability_boundary": "logical identity only; discovery and machine-local resolution are separate"
   },
   "artifact_ref": "artifact://synthetic/order-sample",
-  "content_ref": "content://sha-256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "content_ref": "content://sha-256/81ce1ba1b1cf8815ffcaca18e35f8d809beae756fefa805ceafe03116c96359e",
   "relative_path": "objects/order-sample.json",
+  "payload_utf8": "synthetic artifact memory location bytes\n",
   "observed_at": "2026-08-01T00:00:00Z",
   "platforms": [
     {"platform": "macos", "layout_style": "volume-mount", "root_token": "macos-volume"},

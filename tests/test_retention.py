@@ -179,6 +179,24 @@ class RetentionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "conflicting latest observations"):
             content_retrievability([present, absent])
 
+    def test_retrievability_accepts_v2_without_promoting_unverified_presence(self):
+        base = {
+            "schema_id": "artifact-memory/location-observation/v2",
+            "observation_id": "location-observation://synthetic/v2",
+            "artifact_ref": "artifact://synthetic/order-sample",
+            "content_ref": "content://sha-256/" + "a" * 64,
+            "endpoint_ref": "endpoint://synthetic/active-vault",
+            "relative_path": "objects/object.bin",
+            "presence_state": "present",
+            "verification_state": "unverified",
+            "observed_at": "2026-08-01T00:00:00Z",
+            "discovery_evidence_ref": "endpoint-discovery-evidence://synthetic/configured",
+            "authority_boundary": "location observation grants no access, mutation, disclosure, or execution authority",
+        }
+        self.assertEqual(content_retrievability([base]), "zero-currently-verified-retrievable-locations")
+        verified = {**base, "verification_state": "content-verified"}
+        self.assertEqual(content_retrievability([verified]), "verified-retrievable-location-observed")
+
     def test_unknown_replica_scope_rejects_contradictory_outcomes_and_locations(self):
         with self.assertRaisesRegex(ValueError, "scope-unknown"):
             deletion_receipt(

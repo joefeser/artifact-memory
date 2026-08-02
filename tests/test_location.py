@@ -26,7 +26,7 @@ class LocationContractTests(unittest.TestCase):
         self.assertEqual([item["platform"] for item in receipt["platform_results"]], ["macos", "windows", "linux"])
         self.assertEqual({item["resolution_outcome"] for item in receipt["platform_results"]}, {"resolved"})
         serialized = json.dumps(receipt)
-        for forbidden in ("root_token", "hostname", "provider_url", "credential", "resolved_path_digest"):
+        for forbidden in ("root_token", "/Volumes/", "R:\\\\", "/mnt/", "hostname", "provider_url", "credential", "resolved_path_digest"):
             self.assertNotIn(forbidden, serialized)
 
     def test_logical_references_reject_local_and_bearer_forms(self):
@@ -75,8 +75,38 @@ class LocationContractTests(unittest.TestCase):
             "discovery_evidence_ref": "endpoint-discovery-evidence://synthetic/configured",
             "authority_boundary": AUTHORITY_BOUNDARY,
         }
-        with self.assertRaisesRegex(ValidationFailure, "content verification"):
+        with self.assertRaises(ValidationFailure):
             validate_location_observation(observation)
+
+    def test_registered_schema_rejects_inconsistent_location_state(self):
+        from artifact_memory.schema_resources import load_schema
+        from artifact_memory.validator import validate
+
+        observation = {
+            "schema_id": "artifact-memory/location-observation/v2",
+            "observation_id": "location-observation://synthetic/one",
+            "artifact_ref": "artifact://synthetic/order-sample",
+            "content_ref": CONTENT_REF,
+            "endpoint_ref": "endpoint://synthetic/portable-vault",
+            "relative_path": "objects/order.json",
+            "presence_state": "absent",
+            "verification_state": "content-verified",
+            "observed_at": "2026-08-01T00:00:00Z",
+            "discovery_evidence_ref": "endpoint-discovery-evidence://synthetic/configured",
+            "authority_boundary": AUTHORITY_BOUNDARY,
+        }
+        with self.assertRaises(ValidationFailure):
+            validate(observation, load_schema("core", "location-observation.v2.schema.json"))
+
+    def test_root_tokens_fail_closed_before_filesystem_use(self):
+        vectors = json.loads(VECTORS.read_text(encoding="utf-8"))
+        for token in ("../outside", "/absolute", "two/segments", "C:\\outside", 7):
+            with self.subTest(token=token), tempfile.TemporaryDirectory() as directory:
+                vectors["platforms"][0]["root_token"] = token
+                path = Path(directory) / "vectors.json"
+                path.write_text(json.dumps(vectors), encoding="utf-8")
+                with self.assertRaises(ValidationFailure):
+                    run_location_conformance(path)
 
     def test_unknown_vector_schema_fails_closed(self):
         vectors = json.loads(VECTORS.read_text(encoding="utf-8"))

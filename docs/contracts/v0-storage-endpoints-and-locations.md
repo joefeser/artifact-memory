@@ -50,15 +50,19 @@ without one. It must never be exchanged as canonical knowledge, included in a
 no credential or bearer-URL fields; adapters obtain authentication through a
 separate authorized local mechanism.
 
-The synthetic conformance fixture creates ephemeral local roots representing
-macOS volume, Windows drive, and Linux filesystem-mount layouts. All three
-resolve the same endpoint and relative path. The checked receipt retains only
-the logical references and sanitized outcomes.
+The synthetic conformance fixture parses distinct macOS volume, Windows drive,
+and Linux filesystem-mount spellings through platform-specific pure-path
+adapters, maps them to contained ephemeral roots, writes identical synthetic
+bytes, and verifies their SHA-256 identity. All three resolve the same endpoint
+and relative path. The checked receipt retains only logical references,
+sanitized outcomes, and digests of the non-portable native spellings.
 
 ## Compatibility and security
 
-`location-observation/v1` remains readable and is not reinterpreted. Writers
-use v2. Unknown fields fail closed. Future capability or observation semantics
+`location-observation/v1` remains readable and is not reinterpreted. The
+retention retrievability reader accepts both versions explicitly; v2 unverified
+presence does not become a verified-retrievable claim. Writers use v2. Unknown
+fields fail closed. Future capability or observation semantics
 require a new schema version. Portable records are safe to exchange only after
 their ordinary classification and declassification policy has also passed;
 location portability is not a disclosure decision.

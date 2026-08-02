@@ -4,6 +4,20 @@
   "title": "Artifact Memory portable location observation v2",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {"properties": {"presence_state": {"const": "present"}}},
+      "then": {"properties": {"verification_state": {"enum": ["content-verified", "presence-verified", "unverified", "verification-failed"]}}}
+    },
+    {
+      "if": {"properties": {"presence_state": {"const": "absent"}}},
+      "then": {"properties": {"verification_state": {"enum": ["presence-verified", "unverified", "verification-failed"]}}}
+    },
+    {
+      "if": {"properties": {"presence_state": {"const": "unavailable"}}},
+      "then": {"properties": {"verification_state": {"enum": ["unverified", "not-applicable"]}}}
+    }
+  ],
   "required": ["schema_id", "observation_id", "artifact_ref", "content_ref", "endpoint_ref", "relative_path", "presence_state", "verification_state", "observed_at", "discovery_evidence_ref", "authority_boundary"],
   "properties": {
     "schema_id": {"const": "artifact-memory/location-observation/v2"},
