@@ -10,13 +10,13 @@
     "v0 defines no registry, discovery service, marketplace, inheritance system, or executable plugin loading"
   ],
   "optional_extension": {
-    "bundle_digest": "sha-256:ceed5de686ceb446963580b8c65d62a2c45708a1b97576868939c4e479721a65",
+    "bundle_digest": "sha-256:932f0cf14bf8cc2739e1a85c705cea329fe649eb43dede7dd34157f9515fa10e",
     "identifier": "https://synthetic.example/extensions/catalog",
     "round_trip_preserved": true,
     "version": "v1"
   },
   "outcome": "complete",
-  "receipt_id": "extension-conformance-receipt://4fa0601f2b7d66756fc4f98f11e2aa4561cad15d93181d141f630d9b0b30c4ed",
+  "receipt_id": "extension-conformance-receipt://1599f5e9c3bcb95a57cfaa42d399e5daf774e476d7173553f4a9c492844f678e",
   "required_extension": {
     "bundle_digest": "sha-256:deddfbd9fd43a18e8b3b7e77ced0ca4729def74a5edc1f935fc67729e406db81",
     "declared_support_outcome": "accepted",

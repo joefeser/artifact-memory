@@ -34,6 +34,7 @@ def run_extension_conformance(fixture: Path) -> dict[str, Any]:
     core = {
         "schema_id": "artifact-memory/knowledge-record/v2",
         "record_id": "record://synthetic/extension-conformance",
+        "digest": "sha-256:" + "0" * 64,
         "sensitivity": "public",
         "authority_boundary": AUTHORITY_BOUNDARY,
     }
