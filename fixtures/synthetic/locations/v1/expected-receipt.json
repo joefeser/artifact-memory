@@ -1,0 +1,42 @@
+{
+  "authority_boundary": "location observation grants no access, mutation, disclosure, or execution authority",
+  "endpoint_ref": "endpoint://synthetic/portable-vault",
+  "limitations": [
+    "mount roots exist only in ephemeral local resolver configuration",
+    "synthetic fixture does not claim physical-device interoperability"
+  ],
+  "outcome": "complete",
+  "platform_results": [
+    {
+      "discovery_evidence_id": "endpoint-discovery-evidence://synthetic/macos",
+      "layout_style": "volume-mount",
+      "observation_id": "location-observation://synthetic/macos",
+      "platform": "macos",
+      "resolution_outcome": "resolved"
+    },
+    {
+      "discovery_evidence_id": "endpoint-discovery-evidence://synthetic/windows",
+      "layout_style": "drive-root",
+      "observation_id": "location-observation://synthetic/windows",
+      "platform": "windows",
+      "resolution_outcome": "resolved"
+    },
+    {
+      "discovery_evidence_id": "endpoint-discovery-evidence://synthetic/linux",
+      "layout_style": "filesystem-mount",
+      "observation_id": "location-observation://synthetic/linux",
+      "platform": "linux",
+      "resolution_outcome": "resolved"
+    }
+  ],
+  "portable_fields": [
+    "artifact_ref",
+    "content_ref",
+    "endpoint_ref",
+    "relative_path"
+  ],
+  "receipt_id": "location-conformance-receipt://synthetic/dcf596d8347f31adcb0a8f6604e812d677b5d7233fdaa6da58108e885a14f255",
+  "relative_path": "objects/order-sample.json",
+  "schema_id": "artifact-memory/location-conformance-receipt/v1",
+  "vector_set_digest": "sha-256:c00a40bba3ee23f9e7d8a5f527d0f3387ae0d6b62d69b22274db24e88a69b53c"
+}
