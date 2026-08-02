@@ -53,6 +53,30 @@ class ManifestConformanceTests(unittest.TestCase):
             self._run_changed(change)
         self.assertEqual(raised.exception.code, "vector-mismatch")
 
+    def test_duplicate_case_identity_and_exact_duplicate_paths_fail_closed(self):
+        def duplicate_case(vectors):
+            vectors["negative_cases"][0]["case_id"] = vectors["positive_cases"][0]["case_id"]
+
+        with self.assertRaises(ValidationFailure) as raised:
+            self._run_changed(duplicate_case)
+        self.assertEqual(raised.exception.code, "duplicate-vector-identity")
+
+        def duplicate_path(vectors):
+            vectors["negative_cases"][0]["observations"][1]["path"] = vectors["negative_cases"][0]["observations"][0]["path"]
+
+        with self.assertRaises(ValidationFailure) as raised:
+            self._run_changed(duplicate_path)
+        self.assertEqual(raised.exception.code, "invalid-vector")
+
+    def test_equivalence_cases_require_distinct_mount_roots(self):
+        def duplicate_root(vectors):
+            layouts = vectors["positive_cases"][0]["layouts"]
+            layouts[1]["mount_root"] = layouts[0]["mount_root"]
+
+        with self.assertRaises(ValidationFailure) as raised:
+            self._run_changed(duplicate_root)
+        self.assertEqual(raised.exception.code, "invalid-vector")
+
     def test_ambiguous_and_parentless_paths_fail_closed(self):
         for path in (".", "folder\\file", "folder/file\nname"):
             with self.subTest(path=path), self.assertRaises(ValidationFailure):

@@ -71,6 +71,8 @@ def _classify_negative(case: dict[str, Any]) -> tuple[str, str, str]:
             raise ValidationFailure("invalid-vector", "negative manifest observation is malformed")
         paths.append(_portable_path(observation["path"]))
         kinds.append(observation["kind"])
+    if len(paths) != len(set(paths)):
+        raise ValidationFailure("invalid-vector", "negative manifest case contains an exact duplicate path")
     if len({path.casefold() for path in paths}) != len(paths):
         return "collision", "partial", "collision"
     if any(kind in UNSUPPORTED_KINDS for kind in kinds):
@@ -113,12 +115,18 @@ def run_manifest_conformance(vector_path: Path) -> dict[str, Any]:
         raise ValidationFailure("invalid-vector", "manifest digest profile is not the normative v0 profile")
 
     positive_cases = vectors["positive_cases"]
+    negative_cases = vectors["negative_cases"]
+    case_ids = [case["case_id"] for case in [*positive_cases, *negative_cases]]
+    if len(case_ids) != len(set(case_ids)):
+        raise ValidationFailure("duplicate-vector-identity", "manifest conformance case IDs must be unique")
     positive_summaries: list[dict[str, Any]] = []
     platform_digests: dict[str, list[str]] = {platform: [] for platform in PLATFORMS}
     for case in positive_cases:
         layouts = case["layouts"]
         if sorted(layout["platform"] for layout in layouts) != list(PLATFORMS):
             raise ValidationFailure("invalid-vector", "positive manifest case must include exactly one Linux, macOS, and Windows layout")
+        if len({layout["mount_root"] for layout in layouts}) != len(PLATFORMS):
+            raise ValidationFailure("invalid-vector", "positive manifest layouts must use distinct synthetic mount roots")
         observed_entries: list[list[dict[str, Any]]] = []
         observed_digests: list[str] = []
         for layout in layouts:
@@ -141,7 +149,7 @@ def run_manifest_conformance(vector_path: Path) -> dict[str, Any]:
         })
 
     negative_summaries: list[dict[str, str]] = []
-    for case in vectors["negative_cases"]:
+    for case in negative_cases:
         outcome, completeness, code = _classify_negative(case)
         if (outcome, completeness, code) != (case["expected_outcome"], case["expected_completeness"], case["expected_code"]):
             raise ValidationFailure("vector-mismatch", f"negative outcome does not match: {case['case_id']}")
