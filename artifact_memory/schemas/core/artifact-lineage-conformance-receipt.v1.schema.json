@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/artifact-lineage-conformance-receipt/v1",
+  "title": "Artifact Memory artifact lineage conformance receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "synthetic", "artifact_ref", "version_count", "role_counts", "content_binding_count", "multi_content_version_count", "lineage_relationship_count", "supersession_count", "retained_history", "vector_set_digest", "claims", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/artifact-lineage-conformance-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^artifact-lineage-conformance-receipt://[0-9a-f]{64}$"},
+    "outcome": {"const": "complete"},
+    "synthetic": {"const": true},
+    "artifact_ref": {"type": "string", "pattern": "^artifact://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "version_count": {"type": "integer", "minimum": 5},
+    "role_counts": {"type": "object", "additionalProperties": false, "required": ["original", "normalized", "redacted", "derived", "released"], "properties": {"original": {"type": "integer", "minimum": 1}, "normalized": {"type": "integer", "minimum": 1}, "redacted": {"type": "integer", "minimum": 1}, "derived": {"type": "integer", "minimum": 1}, "released": {"type": "integer", "minimum": 1}}},
+    "content_binding_count": {"type": "integer", "minimum": 5},
+    "multi_content_version_count": {"type": "integer", "minimum": 1},
+    "lineage_relationship_count": {"type": "integer", "minimum": 4},
+    "supersession_count": {"type": "integer", "minimum": 1},
+    "retained_history": {"const": true},
+    "vector_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "claims": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  }
+}

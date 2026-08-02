@@ -17,6 +17,9 @@ normative canonical serialization and exact-content rules are in
 in `docs/contracts/v0-scan-policy-and-receipts.md`; their checked vectors remain
 runtime-neutral even though the first runner is Python.
 
+Normative artifact/version identity and lineage behavior is in
+`docs/contracts/v0-artifacts-versions-and-lineage.md`.
+
 Normative storage endpoint, logical reference, endpoint discovery, and location
 observation behavior is in `docs/contracts/v0-storage-endpoints-and-locations.md`.
 Machine-local resolver configuration is explicitly non-portable.

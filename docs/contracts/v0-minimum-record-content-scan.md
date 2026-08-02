@@ -41,6 +41,10 @@ or trust decision.
 The complete normative scan policy, exclusion, attempt, and receipt rules are
 in `v0-scan-policy-and-receipts.md`.
 
+The normative logical artifact, immutable version, role, content-binding,
+lineage, provenance, and supersession rules are in
+`v0-artifacts-versions-and-lineage.md`.
+
 `complete` means the declared scope was scanned and every in-scope entry was
 accounted for. `partial`, `failed`, and `cancelled` are explicit outcomes.
 Unreadable entries, exclusions, unsupported entry kinds, and collisions are
