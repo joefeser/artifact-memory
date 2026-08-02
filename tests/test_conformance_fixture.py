@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from artifact_memory.canonical import sha256_bytes
-from artifact_memory.conformance_fixture import _json_pointer, _read_fixture_snapshot, _run_declared_outcome, render_conformance_fixture_receipt, run_conformance_fixture
+from artifact_memory.conformance_fixture import _json_pointer, _load_inputs, _read_fixture_snapshot, _run_declared_outcome, _run_exact_content, render_conformance_fixture_receipt, run_conformance_fixture
 from artifact_memory.validator import ValidationFailure
 
 
@@ -86,8 +86,8 @@ class ConformanceFixtureTests(unittest.TestCase):
         expected["results"][0]["assertions"][2]["value"] = vector["tree_digest"]
         original_reader = _read_fixture_snapshot
 
-        def read_snapshot(path: Path) -> bytes:
-            return snapshot if path == vector_path else original_reader(path)
+        def read_snapshot(path: Path, repository_root: Path | None = None) -> bytes:
+            return snapshot if path == vector_path else original_reader(path, repository_root)
 
         with patch("artifact_memory.conformance_fixture._read_fixture_snapshot", side_effect=read_snapshot):
             receipt = self._run(manifest=manifest, expected=expected)
@@ -107,6 +107,44 @@ class ConformanceFixtureTests(unittest.TestCase):
                 with self.assertRaises(ValidationFailure) as raised:
                     self._run(manifest=manifest)
                 self.assertEqual(raised.exception.code, "invalid-fixture-reference")
+
+    def test_replacement_symlink_is_not_followed_after_path_validation(self):
+        if not hasattr(Path, "symlink_to"):
+            self.skipTest("symlinks unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "bundle"
+            outside = Path(temporary) / "outside"
+            source = root / "fixtures" / "synthetic" / "input.json"
+            source.parent.mkdir(parents=True)
+            outside.mkdir()
+            source.write_text('{"synthetic":true}', encoding="utf-8")
+            (outside / "input.json").write_text('{"synthetic":true}', encoding="utf-8")
+            source_digest = sha256_bytes(source.read_bytes())
+            original_safe_path = __import__("artifact_memory.conformance_fixture", fromlist=["_safe_fixture_path"])._safe_fixture_path
+
+            def validate_then_replace(repository_root: Path, relative: str) -> Path:
+                validated = original_safe_path(repository_root, relative)
+                synthetic = root / "fixtures" / "synthetic"
+                synthetic.rename(root / "fixtures" / "held-synthetic")
+                try:
+                    synthetic.symlink_to(outside, target_is_directory=True)
+                except OSError:
+                    self.skipTest("symlink creation unavailable")
+                return validated
+
+            with patch("artifact_memory.conformance_fixture._safe_fixture_path", side_effect=validate_then_replace):
+                with self.assertRaises(ValidationFailure):
+                    _load_inputs({"inputs": [{"path": "fixtures/synthetic/input.json", "sha256": source_digest}]}, root)
+
+    def test_exact_content_path_rejects_ambiguous_leaf_delimiters(self):
+        manifest = json.loads((FIXTURE / "manifest.json").read_text(encoding="utf-8"))
+        vector_path = ROOT / manifest["cases"][0]["inputs"][0]["path"]
+        vector = json.loads(vector_path.read_text(encoding="utf-8"))
+        for relative_path in (".", "folder\\file.json", "folder/file\tname.json", "folder/file\nname.json", "folder/file\x00name.json"):
+            with self.subTest(relative_path=relative_path):
+                changed = dict(vector, relative_path=relative_path)
+                with self.assertRaises(ValidationFailure):
+                    _run_exact_content({"case_id": "portable-path"}, [(vector_path, changed)])
 
     def test_unavailable_fixture_names_the_required_bundle_or_root(self):
         with tempfile.TemporaryDirectory() as temporary:

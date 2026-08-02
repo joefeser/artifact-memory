@@ -10,6 +10,7 @@ from typing import Any
 
 from .canonical import CanonicalizationFailure, canonical_bytes, receipt_with_digest, sha256_bytes
 from .location_conformance import run_location_conformance_vectors
+from .scan import _is_normalized_relative_path
 from .schema_resources import core_schemas, load_schema
 from .validator import ValidationFailure, load_json, load_json_bytes, validate
 
@@ -68,12 +69,77 @@ def _json_pointer(value: Any, pointer: Any) -> Any:
     return current
 
 
-def _read_fixture_snapshot(path: Path) -> bytes:
+def _is_link_or_reparse(metadata: os.stat_result) -> bool:
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return stat.S_ISLNK(metadata.st_mode) or bool(getattr(metadata, "st_file_attributes", 0) & reparse_flag)
+
+
+def _path_observations(root: Path, path: Path) -> list[os.stat_result]:
+    observations: list[os.stat_result] = []
+    current = root
+    for part in (None, *path.relative_to(root).parts):
+        if part is not None:
+            current /= part
+        metadata = os.lstat(current)
+        if _is_link_or_reparse(metadata):
+            raise ValidationFailure("invalid-fixture-reference", "fixture input may not traverse a link or reparse point")
+        observations.append(metadata)
+    return observations
+
+
+def _same_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    return (left.st_dev, left.st_ino, stat.S_IFMT(left.st_mode)) == (right.st_dev, right.st_ino, stat.S_IFMT(right.st_mode))
+
+
+def _read_with_held_directories(root: Path, path: Path) -> bytes:
+    relative_parts = path.relative_to(root).parts
+    descriptor = os.open(
+        root,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+    )
     try:
-        with path.open("rb") as stream:
-            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-                raise ValidationFailure("invalid-fixture-reference", "fixture input must be a regular file")
+        for index, part in enumerate(relative_parts):
+            final = index == len(relative_parts) - 1
+            flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+            flags |= getattr(os, "O_BINARY", 0) if final else os.O_DIRECTORY
+            child = os.open(part, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValidationFailure("invalid-fixture-reference", "fixture input must be a regular file")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
             return stream.read()
+    finally:
+        os.close(descriptor)
+
+
+def _read_with_identity_checks(root: Path, path: Path) -> bytes:
+    before = _path_observations(root, path)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or not _same_identity(before[-1], opened):
+            raise ValidationFailure("invalid-fixture-reference", "fixture input changed before it could be opened safely")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            snapshot = stream.read()
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    current = _path_observations(root, path)
+    if len(before) != len(current) or any(not _same_identity(left, right) for left, right in zip(before, current)) or not _same_identity(opened, after):
+        raise ValidationFailure("invalid-fixture-reference", "fixture input path changed while it was being read")
+    return snapshot
+
+
+def _read_fixture_snapshot(path: Path, repository_root: Path | None = None) -> bytes:
+    try:
+        root = repository_root.resolve() if repository_root is not None else path.parent.resolve()
+        secure_dir_open = os.open in os.supports_dir_fd and all(hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW"))
+        if secure_dir_open:
+            return _read_with_held_directories(root, path)
+        return _read_with_identity_checks(root, path)
     except ValidationFailure:
         raise
     except OSError as exc:
@@ -84,7 +150,7 @@ def _load_inputs(case: dict[str, Any], repository_root: Path) -> list[tuple[Path
     loaded: list[tuple[Path, Any]] = []
     for source in case["inputs"]:
         path = _safe_fixture_path(repository_root, source["path"])
-        snapshot = _read_fixture_snapshot(path)
+        snapshot = _read_fixture_snapshot(path, repository_root)
         if sha256_bytes(snapshot) != source["sha256"]:
             raise ValidationFailure("fixture-digest-mismatch", "fixture input does not match its manifest digest")
         value = load_json_bytes(snapshot)
@@ -110,8 +176,7 @@ def _run_exact_content(case: dict[str, Any], inputs: list[tuple[Path, Any]]) -> 
     byte_size = vector["byte_size"]
     if not isinstance(content, str) or not isinstance(relative_path, str) or isinstance(byte_size, bool) or not isinstance(byte_size, int):
         raise ValidationFailure("invalid-vector", "exact-content vector fields are invalid")
-    logical_path = PurePosixPath(relative_path)
-    if relative_path != logical_path.as_posix() or logical_path.is_absolute() or any(part in {"", ".", ".."} for part in logical_path.parts):
+    if not _is_normalized_relative_path(relative_path) or any(ord(character) < 32 or ord(character) == 127 for character in relative_path):
         raise ValidationFailure("invalid-vector", "exact-content relative path is not normalized and portable")
     content_digest = sha256_bytes(content.encode("utf-8"))
     leaf = f"file\t{relative_path}\t{content_digest}\t{len(content.encode('utf-8'))}\n"
