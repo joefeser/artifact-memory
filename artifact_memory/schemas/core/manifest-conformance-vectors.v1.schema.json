@@ -43,7 +43,24 @@
               "properties": {
                 "platform": {"enum": ["linux", "macos", "windows"]},
                 "mount_root": {"type": "string", "minLength": 1},
-                "entries": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": true}}
+                "entries": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["path", "kind"],
+                    "allOf": [
+                      {"if": {"properties": {"kind": {"const": "file"}}}, "then": {"required": ["content_utf8"]}},
+                      {"if": {"properties": {"kind": {"const": "directory"}}}, "then": {"not": {"required": ["content_utf8"]}}}
+                    ],
+                    "properties": {
+                      "path": {"type": "string", "minLength": 1},
+                      "kind": {"enum": ["file", "directory"]},
+                      "content_utf8": {"type": "string"}
+                    }
+                  }
+                }
               }
             }
           }
@@ -59,7 +76,7 @@
         "required": ["case_id", "observations", "expected_outcome", "expected_completeness", "expected_code"],
         "properties": {
           "case_id": {"type": "string", "minLength": 1},
-          "observations": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["path", "kind"], "properties": {"path": {"type": "string", "minLength": 1}, "kind": {"type": "string", "minLength": 1}}}},
+          "observations": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["path", "kind"], "properties": {"path": {"type": "string", "minLength": 1}, "kind": {"enum": ["file", "directory", "alternate-data-stream", "hardlink", "sparse-file", "symlink", "extended-attributes", "unreadable"]}}}},
           "expected_outcome": {"enum": ["collision", "unsupported", "partial"]},
           "expected_completeness": {"const": "partial"},
           "expected_code": {"enum": ["collision", "unsupported", "unreadable"]}

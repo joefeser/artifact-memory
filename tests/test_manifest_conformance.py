@@ -78,7 +78,7 @@ class ManifestConformanceTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "invalid-vector")
 
     def test_ambiguous_and_parentless_paths_fail_closed(self):
-        for path in (".", "folder\\file", "folder/file\nname"):
+        for path in (".", "folder\\file", "folder/file\nname", "report:final.txt", "CON.txt", "folder/NUL.json", "trailing.", "trailing "):
             with self.subTest(path=path), self.assertRaises(ValidationFailure):
                 self._run_changed(lambda vectors, path=path: vectors["positive_cases"][0]["layouts"][0]["entries"][0].update(path=path))
 
@@ -88,6 +88,21 @@ class ManifestConformanceTests(unittest.TestCase):
 
         with self.assertRaises(ValidationFailure):
             self._run_changed(remove_parent)
+
+    def test_vector_schema_matches_runner_entry_and_observation_contracts(self):
+        def add_positive_field(vectors):
+            vectors["positive_cases"][0]["layouts"][0]["entries"][0]["unexpected"] = True
+
+        with self.assertRaises(ValidationFailure) as raised:
+            self._run_changed(add_positive_field)
+        self.assertEqual(raised.exception.code, "unknown-field")
+
+        def unknown_observation_kind(vectors):
+            vectors["negative_cases"][1]["observations"][0]["kind"] = "synthetic-unknown-kind"
+
+        with self.assertRaises(ValidationFailure) as raised:
+            self._run_changed(unknown_observation_kind)
+        self.assertEqual(raised.exception.code, "constraint-failed")
 
 
 if __name__ == "__main__":

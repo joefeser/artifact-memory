@@ -16,7 +16,7 @@ UNSUPPORTED_KINDS = {"alternate-data-stream", "hardlink", "sparse-file", "symlin
 
 
 def _portable_path(value: Any) -> str:
-    if not isinstance(value, str) or not _is_normalized_relative_path(value) or any(ord(character) < 32 or ord(character) == 127 for character in value):
+    if not isinstance(value, str) or not _is_normalized_relative_path(value):
         raise ValidationFailure("invalid-vector", "manifest vector path is not normalized portable UTF-8")
     return value
 

@@ -176,7 +176,7 @@ def _run_exact_content(case: dict[str, Any], inputs: list[tuple[Path, Any]]) -> 
     byte_size = vector["byte_size"]
     if not isinstance(content, str) or not isinstance(relative_path, str) or isinstance(byte_size, bool) or not isinstance(byte_size, int):
         raise ValidationFailure("invalid-vector", "exact-content vector fields are invalid")
-    if not _is_normalized_relative_path(relative_path) or any(ord(character) < 32 or ord(character) == 127 for character in relative_path):
+    if not _is_normalized_relative_path(relative_path):
         raise ValidationFailure("invalid-vector", "exact-content relative path is not normalized and portable")
     content_digest = sha256_bytes(content.encode("utf-8"))
     leaf = f"file\t{relative_path}\t{content_digest}\t{len(content.encode('utf-8'))}\n"

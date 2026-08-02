@@ -19,6 +19,15 @@ from .validator import ValidationFailure, validate
 
 REFERENCE_ENDPOINT_REF = "endpoint://local/reference-cli"
 SCAN_AUTHORITY_BOUNDARY = "filesystem observation grants no execution, disclosure, mutation, authenticity, trust, or authorization"
+WINDOWS_RESERVED_COMPONENTS = {
+    "aux",
+    "con",
+    "nul",
+    "prn",
+    *(f"com{suffix}" for suffix in (*range(1, 10), "¹", "²", "³")),
+    *(f"lpt{suffix}" for suffix in (*range(1, 10), "¹", "²", "³")),
+}
+WINDOWS_FORBIDDEN_PATH_CHARACTERS = frozenset('<>:"|?*')
 
 
 @dataclass(frozen=True)
@@ -64,13 +73,16 @@ def _is_normalized_relative_path(value: str, *, allow_empty: bool = False) -> bo
     if value == "":
         return allow_empty
     normalized = PurePosixPath(value)
+    parts = value.split("/")
     return not (
         value == "."
         or "\\" in value
+        or any(character in WINDOWS_FORBIDDEN_PATH_CHARACTERS for character in value)
         or any(ord(character) < 32 or ord(character) == 127 for character in value)
         or normalized.is_absolute()
         or normalized.as_posix() != value
-        or any(part in {"", ".", ".."} for part in value.split("/"))
+        or any(part in {"", ".", ".."} or part.endswith((".", " ")) for part in parts)
+        or any(part.split(".", 1)[0].casefold() in WINDOWS_RESERVED_COMPONENTS for part in parts)
     )
 
 
@@ -266,11 +278,6 @@ def validate_manifest_identity(manifest: dict[str, Any], path: str = "$") -> Non
         if not _is_normalized_relative_path(entry_path):
             raise ValidationFailure("manifest-path-invalid", "manifest path is not normalized", f"{entry_pointer}.path")
         normalized = PurePosixPath(entry_path)
-        if entry["kind"] == "file":
-            if "byte_size" not in entry or "content_digest" not in entry:
-                raise ValidationFailure("manifest-entry-invalid", "file entry requires byte size and content digest", entry_pointer)
-        elif "byte_size" in entry or "content_digest" in entry:
-            raise ValidationFailure("manifest-entry-invalid", "directory entry cannot carry file content fields", entry_pointer)
         parent = normalized.parent
         while parent != PurePosixPath("."):
             if parent.as_posix() not in directory_paths:

@@ -58,7 +58,23 @@ class ScanTests(unittest.TestCase):
         self.assertEqual(count_failure.exception.code, "scan-receipt-count-invalid")
 
     def test_scan_policy_rejects_non_normalized_relative_paths(self):
-        for invalid in (".", "nested//value", "nested/./value", "../value", "/absolute", "windows\\path", "line\nbreak", "tab\tpath"):
+        for invalid in (
+            ".",
+            "nested//value",
+            "nested/./value",
+            "../value",
+            "/absolute",
+            "windows\\path",
+            "line\nbreak",
+            "tab\tpath",
+            "report:final.txt",
+            "CON",
+            "con.txt",
+            "folder/NUL.json",
+            "trailing.",
+            "trailing ",
+            "angle<name>",
+        ):
             with self.subTest(invalid=invalid):
                 with self.assertRaises(ValidationFailure) as failure:
                     make_scan_policy(root_relative_path=invalid)
@@ -268,6 +284,12 @@ class ScanTests(unittest.TestCase):
             with self.assertRaises(ValidationFailure) as raised:
                 validate_manifest_identity(missing_content)
             self.assertEqual(raised.exception.code, "required-field-missing")
+
+            reserved_name = json.loads(json.dumps(manifest))
+            reserved_name["entries"][0]["path"] = "CON.txt"
+            with self.assertRaises(ValidationFailure) as raised:
+                validate_manifest_identity(reserved_name)
+            self.assertEqual(raised.exception.code, "manifest-path-invalid")
 
     def test_manifest_canonicalization_failures_are_typed(self):
         with tempfile.TemporaryDirectory() as temporary:

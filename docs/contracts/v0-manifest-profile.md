@@ -47,7 +47,14 @@ not carry file fields, and both manifest and tree identities match the
 canonical body. Partial manifests remain useful bounded evidence, but a diff
 that consumes one is explicitly partial.
 
-The checked `manifest-conformance-vectors/v1` fixture contains two supported
+Portable path components exclude ASCII control characters, backslashes,
+Windows-forbidden characters (`<`, `>`, `:`, `"`, `|`, `?`, and `*`), trailing
+dots or spaces, and case-insensitive Windows device names such as `CON`, `NUL`,
+`COM1`, and `LPT1`, including those names before an extension. The semantic
+validator enforces device-name exclusions that are intentionally not encoded
+as a case-insensitive JSON Schema regular expression.
+
+The checked `fixtures/synthetic/manifests/v1/` corpus contains two supported
 logical trees represented under synthetic Windows, macOS, and Linux mount
 layouts, plus executable collision, unsupported-link, and unreadable-partial
 cases. The same receipt is replayed by CI on all three supported runner
