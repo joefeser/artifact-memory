@@ -32,3 +32,7 @@ results, and representative class coverage are in
 `manifest-conformance-receipt.v1.schema.json` define the runner-neutral issue
 #6 fixture and its checked evidence envelope. The fixture corpus remains under
 `fixtures/synthetic/manifests/v1/` rather than inside the installed package.
+
+`extension-bundle.v1.schema.json` and
+`extension-conformance-receipt.v1.schema.json` define the deliberately narrow
+issue #10 optional/required extension surface and its checked evidence.

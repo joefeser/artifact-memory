@@ -43,6 +43,16 @@ class ExchangeTests(unittest.TestCase):
         required_envelope = make_envelope("system://independent-reader", "synthetic-exchange-required", "2099-01-01T00:00:00Z", [revision_ref(required)], [], record_bundle=[required])
         with self.assertRaisesRegex(ReaderFailure, "required extension"):
             read_bundle(json.dumps(required_envelope).encode())
+        supported = read_bundle(
+            json.dumps(required_envelope).encode(),
+            supported_required_extensions={("https://synthetic.example/required", "v1")},
+        )
+        self.assertEqual(supported["preserved_extensions"], [required["extensions"]])
+        with self.assertRaisesRegex(ReaderFailure, "required extension"):
+            read_bundle(
+                json.dumps(required_envelope).encode(),
+                supported_required_extensions={("https://synthetic.example/required", "v2")},
+            )
 
     def test_independent_reader_binds_bundle_ids_and_revision_digests(self):
         record = canonical_record()

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/extension-conformance-receipt/v1",
+  "title": "Artifact Memory minimum extension conformance receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "synthetic", "optional_extension", "required_extension", "core_fields_unchanged", "authority_boundary", "claims", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/extension-conformance-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^extension-conformance-receipt://[0-9a-f]{64}$"},
+    "outcome": {"const": "complete"},
+    "synthetic": {"const": true},
+    "optional_extension": {"type": "object", "additionalProperties": false, "required": ["identifier", "version", "bundle_digest", "round_trip_preserved"], "properties": {"identifier": {"type": "string", "pattern": "^https://[^\\s]+$"}, "version": {"type": "string", "pattern": "^v[0-9]+$"}, "bundle_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}, "round_trip_preserved": {"const": true}}},
+    "required_extension": {"type": "object", "additionalProperties": false, "required": ["identifier", "version", "bundle_digest", "unknown_outcome", "diagnostic_code", "declared_support_outcome"], "properties": {"identifier": {"type": "string", "pattern": "^https://[^\\s]+$"}, "version": {"type": "string", "pattern": "^v[0-9]+$"}, "bundle_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}, "unknown_outcome": {"const": "rejected"}, "diagnostic_code": {"const": "required-extension-unsupported"}, "declared_support_outcome": {"const": "accepted"}}},
+    "core_fields_unchanged": {"const": true},
+    "authority_boundary": {"const": "extension data grants no execution, disclosure, mutation, credential, deployment, spending, or approval authority"},
+    "claims": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  }
+}

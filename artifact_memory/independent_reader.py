@@ -7,6 +7,8 @@ import json
 import re
 from typing import Any
 
+from .extensions import ExtensionFailure, preserve_extensions
+
 
 class ReaderFailure(Exception):
     pass
@@ -86,7 +88,7 @@ def _revision_digest(record: dict[str, Any]) -> str:
     return "sha-256:" + hashlib.sha256(canonical).hexdigest()
 
 
-def read_bundle(envelope_json: bytes, supported_required_extensions: set[str] | None = None) -> dict[str, Any]:
+def read_bundle(envelope_json: bytes, supported_required_extensions: set[tuple[str, str]] | None = None) -> dict[str, Any]:
     supported_required_extensions = supported_required_extensions or set()
     try:
         envelope = json.loads(envelope_json, object_pairs_hook=_pairs)
@@ -130,12 +132,16 @@ def read_bundle(envelope_json: bytes, supported_required_extensions: set[str] | 
         extensions = record.get("extensions", {})
         if not isinstance(extensions, dict):
             raise ReaderFailure("record extensions must be an object")
-        for identifier, declaration in extensions.items():
-            if not isinstance(identifier, str) or not isinstance(declaration, dict):
-                raise ReaderFailure("extension declaration must be an object")
-            if declaration.get("required") and identifier not in supported_required_extensions:
-                raise ReaderFailure("required extension unsupported")
-        accepted.append({"record_id": record["record_id"], "extensions": extensions})
+        try:
+            preserved = preserve_extensions(
+                {},
+                {"schema_id": "artifact-memory/extension-bundle/v1", "extensions": extensions},
+                supported_required=supported_required_extensions,
+            )["extensions"]
+        except ExtensionFailure as exc:
+            message = exc.message if exc.code == "required-extension-unsupported" else "extension declaration is invalid"
+            raise ReaderFailure(message) from exc
+        accepted.append({"record_id": record["record_id"], "extensions": preserved})
     if bundle_present and bundled_ids != set(declared_revisions):
         raise ReaderFailure("record bundle does not match declared record references")
     return {"outcome": "accepted", "record_ids": [item["record_id"] for item in accepted], "preserved_extensions": [item["extensions"] for item in accepted], "artifact_refs": list(artifact_refs), "artifact_retrieval": "separately-authorized"}

@@ -59,7 +59,9 @@ def main() -> None:
                 "assert load_schema('core', 'manifest-conformance-vectors.v1.schema.json')"
                 "['properties']['schema_id']['const'] == 'artifact-memory/manifest-conformance-vectors/v1'; "
                 "assert load_schema('core', 'manifest-conformance-receipt.v1.schema.json')"
-                "['properties']['schema_id']['const'] == 'artifact-memory/manifest-conformance-receipt/v1'",
+                "['properties']['schema_id']['const'] == 'artifact-memory/manifest-conformance-receipt/v1'; "
+                "assert load_schema('core', 'extension-conformance-receipt.v1.schema.json')"
+                "['properties']['schema_id']['const'] == 'artifact-memory/extension-conformance-receipt/v1'",
             ],
             cwd=root,
             text=True,
