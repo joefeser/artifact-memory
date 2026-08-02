@@ -1,0 +1,64 @@
+{
+  "schema_id": "artifact-memory/conformance-expected-results/v1",
+  "fixture_set_id": "fixture-set://synthetic/core-v1",
+  "results": [
+    {
+      "result_id": "fixture-result://synthetic/exact-content-valid",
+      "case_id": "exact-content-valid",
+      "class": "valid",
+      "outcome": "accepted",
+      "diagnostic_codes": [],
+      "assertions": [
+        {"pointer": "/byte_size", "operator": "equals", "value": 35},
+        {"pointer": "/content_digest", "operator": "equals", "value": "sha-256:86ac52d837b21ab05630a340b71d49bdd265d76551106e977aa1510862ddc78b"},
+        {"pointer": "/tree_digest", "operator": "equals", "value": "sha-256:8ce3660460255ae5677f8bdf14e373ad967b17e83d03256cee524be0aad3bf90"}
+      ]
+    },
+    {
+      "result_id": "fixture-result://synthetic/absolute-path-invalid",
+      "case_id": "absolute-path-invalid",
+      "class": "invalid",
+      "outcome": "rejected",
+      "diagnostic_codes": ["constraint-failed"],
+      "assertions": [
+        {"pointer": "/diagnostic_path", "operator": "equals", "value": "$.relative_path"},
+        {"pointer": "/schema_id_under_test", "operator": "equals", "value": "artifact-memory/location-observation/v1"}
+      ]
+    },
+    {
+      "result_id": "fixture-result://synthetic/portable-location-equivalent",
+      "case_id": "portable-location-equivalent",
+      "class": "equivalent",
+      "outcome": "equivalent",
+      "diagnostic_codes": [],
+      "assertions": [
+        {"pointer": "/endpoint_ref", "operator": "equals", "value": "endpoint://synthetic/portable-vault"},
+        {"pointer": "/platform_count", "operator": "equals", "value": 3},
+        {"pointer": "/resolved_platforms", "operator": "equals", "value": ["macos", "windows", "linux"]},
+        {"pointer": "/relative_path", "operator": "equals", "value": "objects/order-sample.json"}
+      ]
+    },
+    {
+      "result_id": "fixture-result://synthetic/casefold-name-collision",
+      "case_id": "casefold-name-collision",
+      "class": "collision",
+      "outcome": "collision",
+      "diagnostic_codes": ["collision"],
+      "assertions": [
+        {"pointer": "/declared_outcome", "operator": "equals", "value": "partial"},
+        {"pointer": "/details/paths", "operator": "equals", "value": ["Readme.txt", "README.TXT"]}
+      ]
+    },
+    {
+      "result_id": "fixture-result://synthetic/symlink-unsupported",
+      "case_id": "symlink-unsupported",
+      "class": "unsupported",
+      "outcome": "unsupported",
+      "diagnostic_codes": ["unsupported"],
+      "assertions": [
+        {"pointer": "/declared_outcome", "operator": "equals", "value": "partial"},
+        {"pointer": "/details/kind", "operator": "equals", "value": "symlink"}
+      ]
+    }
+  ]
+}

@@ -10,4 +10,5 @@ python3 scripts/run_location_conformance.py --check >/dev/null
 python3 scripts/run_codex_history_conformance.py --check >/dev/null
 python3 scripts/run_scan_conformance.py --check >/dev/null
 python3 scripts/run_artifact_lineage_conformance.py --check >/dev/null
+python3 scripts/run_conformance_fixture.py --check >/dev/null
 python3 -m unittest tests.test_wits_conformance >/dev/null
