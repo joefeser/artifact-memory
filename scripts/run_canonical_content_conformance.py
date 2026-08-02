@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -12,30 +10,22 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from artifact_memory.canonical_content_conformance import render_receipt, run_conformance
+from artifact_memory.conformance_cli import run_conformance_cli
 
 
 DEFAULT_FIXTURE = ROOT / "fixtures" / "synthetic"
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE)
-    parser.add_argument("--check", action="store_true")
-    parser.add_argument("--format", choices=("json", "markdown"), default="json")
-    args = parser.parse_args(argv)
-    receipt = run_conformance(args.fixture)
-    if args.check:
-        evidence_root = args.fixture / "canonical-content" / "v1"
-        expected = json.loads((evidence_root / "expected-receipt.json").read_text(encoding="utf-8"))
-        expected_markdown = (evidence_root / "receipt.md").read_text(encoding="utf-8")
-        if receipt != expected or render_receipt(receipt) != expected_markdown:
-            print("canonical/content conformance receipt does not match checked evidence", file=sys.stderr)
-            return 1
-    if args.format == "markdown":
-        print(render_receipt(receipt), end="")
-    else:
-        print(json.dumps(receipt, sort_keys=True, indent=2))
-    return 0
+    return run_conformance_cli(
+        argv,
+        default_fixture=DEFAULT_FIXTURE,
+        run_fixture=run_conformance,
+        expected_receipt=Path("canonical-content/v1/expected-receipt.json"),
+        mismatch_message="canonical/content conformance receipt does not match checked evidence",
+        render_receipt=render_receipt,
+        expected_markdown=Path("canonical-content/v1/receipt.md"),
+    )
 
 
 if __name__ == "__main__":

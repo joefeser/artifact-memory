@@ -23,3 +23,7 @@ Normative artifact/version identity and lineage behavior is in
 Normative storage endpoint, logical reference, endpoint discovery, and location
 observation behavior is in `docs/contracts/v0-storage-endpoints-and-locations.md`.
 Machine-local resolver configuration is explicitly non-portable.
+
+Normative aggregate synthetic fixture manifests, runner-neutral expected
+results, and representative class coverage are in
+`docs/contracts/v0-synthetic-conformance-fixtures.md`.

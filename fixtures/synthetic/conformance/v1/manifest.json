@@ -1,0 +1,74 @@
+{
+  "schema_id": "artifact-memory/conformance-fixture-manifest/v1",
+  "fixture_set_id": "fixture-set://synthetic/core-v1",
+  "synthetic_provenance": {
+    "declaration": "Every referenced case was newly authored for Artifact Memory from synthetic-only source material and is not derived from a customer, private vault, production system, browser session, or raw task transcript.",
+    "source_kind": "newly-authored-synthetic-only",
+    "production_derived": false
+  },
+  "cases": [
+    {
+      "case_id": "exact-content-valid",
+      "class": "valid",
+      "operation": "exact-content-digest-v0",
+      "inputs": [
+        {
+          "path": "fixtures/synthetic/vectors/v0-vector-0001.json",
+          "sha256": "sha-256:1cc571d893558b8cc56eb87391711e6bb19feaab5aae537067b27a2216646a5d"
+        }
+      ],
+      "expected_result_ref": "fixture-result://synthetic/exact-content-valid"
+    },
+    {
+      "case_id": "absolute-path-invalid",
+      "class": "invalid",
+      "operation": "schema-validation-v0",
+      "schema_id_under_test": "artifact-memory/location-observation/v1",
+      "inputs": [
+        {
+          "path": "fixtures/synthetic/contracts/v0-invalid-absolute-path.json",
+          "sha256": "sha-256:f1d82d7361bd745d739993fe0b5523dee7811a5d0738fa239a75cc3ee2851225"
+        }
+      ],
+      "expected_result_ref": "fixture-result://synthetic/absolute-path-invalid"
+    },
+    {
+      "case_id": "portable-location-equivalent",
+      "class": "equivalent",
+      "operation": "logical-location-equivalence-v0",
+      "inputs": [
+        {
+          "path": "fixtures/synthetic/locations/v1/vectors.json",
+          "sha256": "sha-256:34491367f33b7df1ec11797d2f60f7a7e3633bc7803107054c27344f9f07743f"
+        }
+      ],
+      "expected_result_ref": "fixture-result://synthetic/portable-location-equivalent"
+    },
+    {
+      "case_id": "casefold-name-collision",
+      "class": "collision",
+      "operation": "declared-outcome-v0",
+      "inputs": [
+        {
+          "path": "fixtures/synthetic/manifests/v0-negative-outcomes.json",
+          "sha256": "sha-256:931abf7801dd9320532cbb1711fadbe2354bd4073d1478fc7e70c45580d5fb45",
+          "selector": "/collision"
+        }
+      ],
+      "expected_result_ref": "fixture-result://synthetic/casefold-name-collision"
+    },
+    {
+      "case_id": "symlink-unsupported",
+      "class": "unsupported",
+      "operation": "declared-outcome-v0",
+      "inputs": [
+        {
+          "path": "fixtures/synthetic/manifests/v0-negative-outcomes.json",
+          "sha256": "sha-256:931abf7801dd9320532cbb1711fadbe2354bd4073d1478fc7e70c45580d5fb45",
+          "selector": "/unsupported"
+        }
+      ],
+      "expected_result_ref": "fixture-result://synthetic/symlink-unsupported"
+    }
+  ]
+}
