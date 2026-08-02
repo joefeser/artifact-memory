@@ -53,6 +53,21 @@ class ManifestConformanceTests(unittest.TestCase):
             self._run_changed(change)
         self.assertEqual(raised.exception.code, "vector-mismatch")
 
+    def test_negative_cases_cannot_mask_mixed_failure_classes(self):
+        def collision_and_unsupported(vectors):
+            vectors["negative_cases"][0]["observations"][0]["kind"] = "symlink"
+
+        with self.assertRaises(ValidationFailure) as raised:
+            self._run_changed(collision_and_unsupported)
+        self.assertEqual(raised.exception.code, "invalid-vector")
+
+        def unsupported_and_unreadable(vectors):
+            vectors["negative_cases"][1]["observations"].append({"path": "private/value.txt", "kind": "unreadable"})
+
+        with self.assertRaises(ValidationFailure) as raised:
+            self._run_changed(unsupported_and_unreadable)
+        self.assertEqual(raised.exception.code, "invalid-vector")
+
     def test_duplicate_case_identity_and_exact_duplicate_paths_fail_closed(self):
         def duplicate_case(vectors):
             vectors["negative_cases"][0]["case_id"] = vectors["positive_cases"][0]["case_id"]

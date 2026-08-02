@@ -73,11 +73,16 @@ def _classify_negative(case: dict[str, Any]) -> tuple[str, str, str]:
         kinds.append(observation["kind"])
     if len(paths) != len(set(paths)):
         raise ValidationFailure("invalid-vector", "negative manifest case contains an exact duplicate path")
-    if len({path.casefold() for path in paths}) != len(paths):
+    collision = len({path.casefold() for path in paths}) != len(paths)
+    unsupported = any(kind in UNSUPPORTED_KINDS for kind in kinds)
+    unreadable = "unreadable" in kinds
+    if sum((collision, unsupported, unreadable)) > 1:
+        raise ValidationFailure("invalid-vector", "negative manifest case mixes distinct failure classes")
+    if collision:
         return "collision", "partial", "collision"
-    if any(kind in UNSUPPORTED_KINDS for kind in kinds):
+    if unsupported:
         return "unsupported", "partial", "unsupported"
-    if "unreadable" in kinds:
+    if unreadable:
         return "partial", "partial", "unreadable"
     raise ValidationFailure("invalid-vector", "negative manifest case does not exercise a bounded v0 outcome")
 
