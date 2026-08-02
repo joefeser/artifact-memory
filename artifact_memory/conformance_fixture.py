@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import os
 import re
+import stat
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .canonical import canonical_bytes, receipt_with_digest, sha256_bytes, sha256_path
-from .location_conformance import run_location_conformance
+from .canonical import CanonicalizationFailure, canonical_bytes, receipt_with_digest, sha256_bytes
+from .location_conformance import run_location_conformance_vectors
 from .schema_resources import core_schemas, load_schema
-from .validator import ValidationFailure, load_json, validate
+from .validator import ValidationFailure, load_json, load_json_bytes, validate
 
 
 MANIFEST_SCHEMA_ID = "artifact-memory/conformance-fixture-manifest/v1"
 EXPECTED_RESULTS_SCHEMA_ID = "artifact-memory/conformance-expected-results/v1"
 REQUIRED_CLASSES = {"valid", "invalid", "equivalent", "collision", "unsupported"}
+CLASS_OUTCOMES = {"valid": "accepted", "invalid": "rejected", "equivalent": "equivalent", "collision": "collision", "unsupported": "unsupported"}
+ARRAY_INDEX = re.compile(r"0|[1-9][0-9]*")
 
 
 def _safe_fixture_path(repository_root: Path, relative: Any) -> Path:
@@ -33,7 +37,10 @@ def _safe_fixture_path(repository_root: Path, relative: Any) -> Path:
     try:
         resolved = candidate.resolve(strict=True)
     except OSError as exc:
-        raise ValidationFailure("fixture-unavailable", "fixture input is unavailable") from exc
+        raise ValidationFailure(
+            "fixture-unavailable",
+            "fixture input is unavailable; ship the synthetic fixture bundle or pass repository_root pointing to it",
+        ) from exc
     if not resolved.is_relative_to(root) or not resolved.is_file():
         raise ValidationFailure("invalid-fixture-reference", "fixture input must resolve to a regular repository file")
     return resolved
@@ -49,20 +56,38 @@ def _json_pointer(value: Any, pointer: Any) -> Any:
         token = raw_token.replace("~1", "/").replace("~0", "~")
         if isinstance(current, dict) and token in current:
             current = current[token]
-        elif isinstance(current, list) and token.isdigit() and int(token) < len(current):
-            current = current[int(token)]
+        elif isinstance(current, list):
+            if ARRAY_INDEX.fullmatch(token) is None:
+                raise ValidationFailure("invalid-json-pointer", "array index must use canonical ASCII digits")
+            index = int(token)
+            if index >= len(current):
+                raise ValidationFailure("json-pointer-missing", "fixture selector does not identify a value")
+            current = current[index]
         else:
             raise ValidationFailure("json-pointer-missing", "fixture selector does not identify a value")
     return current
+
+
+def _read_fixture_snapshot(path: Path) -> bytes:
+    try:
+        with path.open("rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise ValidationFailure("invalid-fixture-reference", "fixture input must be a regular file")
+            return stream.read()
+    except ValidationFailure:
+        raise
+    except OSError as exc:
+        raise ValidationFailure("fixture-unavailable", "fixture input could not be read from the supplied repository_root") from exc
 
 
 def _load_inputs(case: dict[str, Any], repository_root: Path) -> list[tuple[Path, Any]]:
     loaded: list[tuple[Path, Any]] = []
     for source in case["inputs"]:
         path = _safe_fixture_path(repository_root, source["path"])
-        if sha256_path(path) != source["sha256"]:
+        snapshot = _read_fixture_snapshot(path)
+        if sha256_bytes(snapshot) != source["sha256"]:
             raise ValidationFailure("fixture-digest-mismatch", "fixture input does not match its manifest digest")
-        value = load_json(path)
+        value = load_json_bytes(snapshot)
         if "selector" in source:
             value = _json_pointer(value, source["selector"])
         loaded.append((path, value))
@@ -112,8 +137,8 @@ def _run_schema_validation(case: dict[str, Any], inputs: list[tuple[Path, Any]])
 
 
 def _run_location_equivalence(case: dict[str, Any], inputs: list[tuple[Path, Any]]) -> dict[str, Any]:
-    path, _ = _one_input(case, inputs)
-    receipt = run_location_conformance(path)
+    _, vectors = _one_input(case, inputs)
+    receipt = run_location_conformance_vectors(vectors)
     platforms = receipt["platform_results"]
     resolved = [item["platform"] for item in platforms if item["resolution_outcome"] == "resolved"]
     outcome = "equivalent" if len(resolved) == len(platforms) and len(platforms) > 1 else "rejected"
@@ -134,7 +159,7 @@ def _run_declared_outcome(case: dict[str, Any], inputs: list[tuple[Path, Any]]) 
         raise ValidationFailure("invalid-vector", "declared outcome must be an object")
     code = declaration.get("expected_code")
     source_outcome = declaration.get("expected_outcome")
-    if code not in {"collision", "unsupported"} or source_outcome not in {"partial", "failed"} or code != case["class"]:
+    if not isinstance(code, str) or not isinstance(source_outcome, str) or code not in {"collision", "unsupported"} or source_outcome not in {"partial", "failed"} or code != case["class"]:
         raise ValidationFailure("invalid-vector", "declared outcome does not match its fixture class")
     details = {key: value for key, value in declaration.items() if key not in {"expected_code", "expected_outcome"}}
     return {"outcome": code, "diagnostic_codes": [code], "declared_outcome": source_outcome, "details": details}
@@ -142,6 +167,11 @@ def _run_declared_outcome(case: dict[str, Any], inputs: list[tuple[Path, Any]]) 
 
 def _execute(case: dict[str, Any], inputs: list[tuple[Path, Any]]) -> dict[str, Any]:
     operation = case["operation"]
+    has_selector = any("selector" in source for source in case["inputs"])
+    if operation == "declared-outcome-v0" and not has_selector:
+        raise ValidationFailure("invalid-fixture-case", "declared-outcome-v0 requires a selector")
+    if operation != "declared-outcome-v0" and has_selector:
+        raise ValidationFailure("invalid-fixture-case", f"selectors are unsupported for {operation}")
     if operation != "schema-validation-v0" and "schema_id_under_test" in case:
         raise ValidationFailure("invalid-fixture-case", "schema_id_under_test is only valid for schema-validation-v0")
     runners = {
@@ -158,9 +188,15 @@ def _assert_expected(case: dict[str, Any], expected: dict[str, Any], actual: dic
         raise ValidationFailure("expected-result-mismatch", "expected result identity does not match its fixture case")
     if actual["outcome"] != expected["outcome"] or actual["diagnostic_codes"] != expected["diagnostic_codes"]:
         raise ValidationFailure("expected-result-mismatch", f"fixture result does not match: {case['case_id']}")
+    if actual["outcome"] != CLASS_OUTCOMES[case["class"]]:
+        raise ValidationFailure("class-outcome-mismatch", f"fixture class does not match observed outcome: {case['case_id']}")
     for assertion in expected["assertions"]:
         observed = _json_pointer(actual, assertion["pointer"])
-        if canonical_bytes(observed) != canonical_bytes(assertion["value"]):
+        try:
+            values_match = canonical_bytes(observed) == canonical_bytes(assertion["value"])
+        except CanonicalizationFailure as exc:
+            raise ValidationFailure("invalid-canonical-json", f"fixture assertion is outside the canonical JSON profile: {case['case_id']}") from exc
+        if not values_match:
             raise ValidationFailure("expected-result-mismatch", f"fixture assertion does not match: {case['case_id']}")
 
 
@@ -198,12 +234,18 @@ def run_conformance_fixture(manifest_path: Path, expected_results_path: Path, re
             "input_digests": [source["sha256"] for source in case["inputs"]],
         })
 
+    try:
+        manifest_digest = sha256_bytes(canonical_bytes(manifest))
+        expected_results_digest = sha256_bytes(canonical_bytes(expected_results))
+    except CanonicalizationFailure as exc:
+        raise ValidationFailure("invalid-canonical-json", "manifest or expected results are outside the canonical JSON profile") from exc
+
     body = {
         "outcome": "complete",
         "synthetic": True,
         "fixture_set_id": manifest["fixture_set_id"],
-        "manifest_digest": sha256_bytes(canonical_bytes(manifest)),
-        "expected_results_digest": sha256_bytes(canonical_bytes(expected_results)),
+        "manifest_digest": manifest_digest,
+        "expected_results_digest": expected_results_digest,
         "case_count": len(summaries),
         "class_counts": {name: sum(item["class"] == name for item in summaries) for name in sorted(REQUIRED_CLASSES)},
         "cases": summaries,

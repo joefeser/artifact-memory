@@ -25,6 +25,18 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["case_id", "class", "operation", "inputs", "expected_result_ref"],
+        "allOf": [
+          {
+            "if": {"properties": {"operation": {"const": "schema-validation-v0"}}},
+            "then": {"required": ["schema_id_under_test"]},
+            "else": {"not": {"required": ["schema_id_under_test"]}}
+          },
+          {
+            "if": {"properties": {"operation": {"const": "declared-outcome-v0"}}},
+            "then": {"properties": {"inputs": {"items": {"required": ["selector"]}}}},
+            "else": {"properties": {"inputs": {"items": {"not": {"required": ["selector"]}}}}}
+          }
+        ],
         "properties": {
           "case_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
           "class": {"enum": ["valid", "invalid", "equivalent", "collision", "unsupported"]},
@@ -33,6 +45,7 @@
           "inputs": {
             "type": "array",
             "minItems": 1,
+            "maxItems": 1,
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -40,7 +53,7 @@
               "properties": {
                 "path": {"type": "string", "pattern": "^fixtures/synthetic/[A-Za-z0-9._~/-]+$"},
                 "sha256": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
-                "selector": {"type": "string", "pattern": "^/.*$"}
+                "selector": {"type": "string", "pattern": "^/(?:[^~/]|~[01])*(?:/(?:[^~/]|~[01])*)*$"}
               }
             }
           },

@@ -28,20 +28,29 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def load_json(path: Path) -> Any:
+def load_json_bytes(data: bytes) -> Any:
     def reject_non_finite(token: str) -> None:
         raise ValidationFailure("invalid-json", f"non-finite JSON number is not allowed: {token}")
 
     try:
+        text = data.decode("utf-8")
         return json.loads(
-            path.read_text(encoding="utf-8"),
+            text,
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=reject_non_finite,
         )
     except ValidationFailure:
         raise
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (UnicodeError, json.JSONDecodeError) as exc:
         raise ValidationFailure("invalid-json", "input is not valid UTF-8 JSON") from exc
+
+
+def load_json(path: Path) -> Any:
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise ValidationFailure("invalid-json", "input is not valid UTF-8 JSON") from exc
+    return load_json_bytes(data)
 
 
 def _kind(value: Any) -> str:
@@ -92,7 +101,7 @@ def _matches(value: Any, schema: dict[str, Any], path: str) -> bool:
 
 
 def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
-    supported = {"$schema", "$id", "title", "type", "additionalProperties", "required", "dependentRequired", "properties", "const", "enum", "pattern", "minLength", "minItems", "minimum", "format", "items", "allOf", "anyOf", "not", "if", "then", "else"}
+    supported = {"$schema", "$id", "title", "type", "additionalProperties", "required", "dependentRequired", "properties", "const", "enum", "pattern", "minLength", "minItems", "maxItems", "minimum", "format", "items", "allOf", "anyOf", "not", "if", "then", "else"}
     unknown = set(schema) - supported
     if unknown:
         _fail("unsupported-schema-keyword", "unsupported schema keyword", path)
@@ -138,6 +147,8 @@ def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
     if isinstance(value, list):
         if len(value) < schema.get("minItems", 0):
             _fail("constraint-failed", "array has too few items", path)
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            _fail("constraint-failed", "array has too many items", path)
         if "items" in schema:
             for index, item in enumerate(value):
                 validate(item, schema["items"], f"{path}[{index}]")

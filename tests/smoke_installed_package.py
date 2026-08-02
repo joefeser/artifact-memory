@@ -51,7 +51,11 @@ def main() -> None:
                 "assert load_schema('core', 'content-object.v2.schema.json')"
                 "['properties']['schema_id']['const'] == 'artifact-memory/content-object/v2'; "
                 "assert load_schema('core', 'content-verification-receipt.v1.schema.json')"
-                "['properties']['schema_id']['const'] == 'artifact-memory/content-verification-receipt/v1'",
+                "['properties']['schema_id']['const'] == 'artifact-memory/content-verification-receipt/v1'; "
+                "assert load_schema('core', 'conformance-fixture-manifest.v1.schema.json')"
+                "['properties']['schema_id']['const'] == 'artifact-memory/conformance-fixture-manifest/v1'; "
+                "assert load_schema('core', 'conformance-expected-results.v1.schema.json')"
+                "['properties']['schema_id']['const'] == 'artifact-memory/conformance-expected-results/v1'",
             ],
             cwd=root,
             text=True,

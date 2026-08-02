@@ -35,8 +35,7 @@ def _native_root(platform: str, root_token: str) -> str:
     raise ValidationFailure("invalid-vector", "unsupported platform")
 
 
-def run_location_conformance(vector_path: Path) -> dict[str, Any]:
-    vectors = load_json(vector_path)
+def run_location_conformance_vectors(vectors: Any) -> dict[str, Any]:
     if not isinstance(vectors, dict) or set(vectors) != {"schema_id", "synthetic_only", "endpoint", "artifact_ref", "content_ref", "relative_path", "payload_utf8", "observed_at", "platforms"}:
         raise ValidationFailure("invalid-vector-set", "location vector envelope is invalid")
     if vectors["schema_id"] != VECTOR_SCHEMA_ID or vectors["synthetic_only"] is not True:
@@ -151,6 +150,10 @@ def run_location_conformance(vector_path: Path) -> dict[str, Any]:
     receipt = receipt_with_digest("artifact-memory/location-conformance-receipt/v1", "location-conformance-receipt://synthetic/", body)
     validate(receipt, load_schema("core", "location-conformance-receipt.v1.schema.json"))
     return receipt
+
+
+def run_location_conformance(vector_path: Path) -> dict[str, Any]:
+    return run_location_conformance_vectors(load_json(vector_path))
 
 
 def render_location_receipt(receipt: dict[str, Any]) -> str:

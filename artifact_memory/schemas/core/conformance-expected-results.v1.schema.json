@@ -15,6 +15,13 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["result_id", "case_id", "class", "outcome", "diagnostic_codes", "assertions"],
+        "allOf": [
+          {"if": {"properties": {"class": {"const": "valid"}}}, "then": {"properties": {"outcome": {"const": "accepted"}}}},
+          {"if": {"properties": {"class": {"const": "invalid"}}}, "then": {"properties": {"outcome": {"const": "rejected"}}}},
+          {"if": {"properties": {"class": {"const": "equivalent"}}}, "then": {"properties": {"outcome": {"const": "equivalent"}}}},
+          {"if": {"properties": {"class": {"const": "collision"}}}, "then": {"properties": {"outcome": {"const": "collision"}}}},
+          {"if": {"properties": {"class": {"const": "unsupported"}}}, "then": {"properties": {"outcome": {"const": "unsupported"}}}}
+        ],
         "properties": {
           "result_id": {"type": "string", "pattern": "^fixture-result://synthetic/[A-Za-z0-9._~-]+$"},
           "case_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
@@ -28,7 +35,7 @@
               "additionalProperties": false,
               "required": ["pointer", "operator", "value"],
               "properties": {
-                "pointer": {"type": "string", "pattern": "^/.*$"},
+                "pointer": {"type": "string", "pattern": "^/(?:[^~/]|~[01])*(?:/(?:[^~/]|~[01])*)*$"},
                 "operator": {"const": "equals"},
                 "value": {}
               }

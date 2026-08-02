@@ -11,8 +11,9 @@ vectors or convert provider contracts into Artifact Memory core schemas.
 `conformance-fixture-manifest/v1` identifies one synthetic fixture set and its
 cases. Each case declares exactly one of five behavior classes—`valid`,
 `invalid`, `equivalent`, `collision`, or `unsupported`—a versioned operation,
-one or more repository-relative synthetic input references, and an expected
-result reference.
+exactly one repository-relative synthetic input reference, and an expected
+result reference. V1 operations intentionally use one input; an operation that
+composes multiple inputs requires a later fixture contract version.
 
 Every input reference is bound to the SHA-256 digest of the exact file bytes.
 Absolute paths, parent traversal, symlink traversal, unavailable files, and
@@ -30,6 +31,12 @@ production-derived. Redaction alone does not make source material synthetic.
 diagnostic codes, and zero or more equality assertions addressed with JSON
 Pointers. It contains no Python class names, exception text, filesystem mount
 roots, provider-specific schema, or test-framework convention.
+
+Pointer tokens use RFC 6901 `~0` and `~1` escapes. Array indexes are ASCII `0`
+or a nonzero ASCII digit followed by digits; leading-zero and non-ASCII indexes
+fail closed. Selectors are required only for `declared-outcome-v0`, which
+selects one declaration from a larger vector document. Other v1 operations
+consume the whole digest-bound input and reject selectors.
 
 V1 operations are deliberately bounded:
 
@@ -51,3 +58,8 @@ cases. Synthetic platform adapters do not prove behavior on physical devices
 or every filesystem. Integrity of fixture bytes is not authenticity, trust,
 custody, access, disclosure, declassification, mutation, execution, spending,
 deployment, or approval authority.
+
+The Python package contains the schemas and runtime, not the root-level public
+fixture corpus. Callers outside a source checkout must ship the fixture bundle
+and pass a `repository_root` containing `fixtures/synthetic/`; unavailable
+fixture data fails with an actionable typed diagnostic.

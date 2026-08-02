@@ -27,6 +27,13 @@ class ValidatorTests(unittest.TestCase):
         with self.assertRaises(ValidationFailure):
             validate({"evidence_tier": "tier"}, schema)
 
+    def test_max_items_is_enforced(self):
+        schema = {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "string"}}
+        validate(["one"], schema)
+        with self.assertRaises(ValidationFailure) as raised:
+            validate(["one", "two"], schema)
+        self.assertEqual(raised.exception.code, "constraint-failed")
+
 
 if __name__ == "__main__":
     unittest.main()
