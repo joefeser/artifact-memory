@@ -61,5 +61,6 @@ deployment, or approval authority.
 
 The Python package contains the schemas and runtime, not the root-level public
 fixture corpus. Callers outside a source checkout must ship the fixture bundle
-and pass a `repository_root` containing `fixtures/synthetic/`; unavailable
-fixture data fails with an actionable typed diagnostic.
+and pass a `repository_root` containing `fixtures/synthetic/` to the API. The
+aggregate fixture CLI infers that root from the enclosing `--fixture` bundle
+layout. Unavailable fixture data fails with an actionable typed diagnostic.

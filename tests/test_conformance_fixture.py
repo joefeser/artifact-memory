@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -32,6 +34,20 @@ class ConformanceFixtureTests(unittest.TestCase):
         expected = json.loads((FIXTURE / "expected-receipt.json").read_text(encoding="utf-8"))
         self.assertEqual(receipt, expected)
         self.assertEqual(render_conformance_fixture_receipt(receipt), (FIXTURE / "receipt.md").read_text(encoding="utf-8"))
+
+    def test_cli_replays_an_external_fixture_bundle(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle_root = Path(temporary) / "bundle"
+            shutil.copytree(ROOT / "fixtures" / "synthetic", bundle_root / "fixtures" / "synthetic")
+            fixture = bundle_root / "fixtures" / "synthetic" / "conformance" / "v1"
+            result = subprocess.run(
+                ["python3", str(ROOT / "scripts/run_conformance_fixture.py"), "--fixture", str(fixture), "--check"],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_all_required_classes_have_distinct_results(self):
         receipt = self._run()

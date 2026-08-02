@@ -16,11 +16,24 @@ from artifact_memory.conformance_cli import run_conformance_cli
 DEFAULT_FIXTURE = ROOT / "fixtures" / "synthetic" / "conformance" / "v1"
 
 
+def _fixture_repository_root(fixture: Path) -> Path:
+    """Find the portable bundle root that encloses fixtures/synthetic/."""
+    resolved = fixture.resolve()
+    for candidate in (resolved, *resolved.parents):
+        if (candidate / "fixtures" / "synthetic").is_dir():
+            return candidate
+    return resolved
+
+
 def main(argv: list[str] | None = None) -> int:
     return run_conformance_cli(
         argv,
         default_fixture=DEFAULT_FIXTURE,
-        run_fixture=lambda fixture: run_conformance_fixture(fixture / "manifest.json", fixture / "expected-results.json", ROOT),
+        run_fixture=lambda fixture: run_conformance_fixture(
+            fixture / "manifest.json",
+            fixture / "expected-results.json",
+            _fixture_repository_root(fixture),
+        ),
         expected_receipt=Path("expected-receipt.json"),
         mismatch_message="aggregate conformance receipt does not match checked evidence",
         render_receipt=render_conformance_fixture_receipt,
