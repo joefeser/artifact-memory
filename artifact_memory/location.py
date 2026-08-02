@@ -13,7 +13,10 @@ AUTHORITY_BOUNDARY = "location observation grants no access, mutation, disclosur
 ARTIFACT_REF = re.compile(r"^artifact://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$")
 CONTENT_REF = re.compile(r"^content://sha-256/[0-9a-f]{64}$")
 ENDPOINT_REF = re.compile(r"^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$")
-RELATIVE_PATH = re.compile(r"^(?!/)(?!.*(^|/)\.\.(?:/|$))(?!.*\\)(?!.*://)[A-Za-z0-9._~/-]+$")
+RELATIVE_PATH = re.compile(
+    r"^(?!\.{1,2}(?:/|$))(?!.*\/\.{1,2}(?:/|$))(?!.*://)(?!.*\\)"
+    r"[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$"
+)
 
 
 def validate_logical_references(artifact_ref: str, content_ref: str, endpoint_ref: str, relative_path: str) -> None:

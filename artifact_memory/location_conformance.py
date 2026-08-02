@@ -10,7 +10,7 @@ from typing import Any
 
 from .canonical import canonical_bytes, receipt_with_digest, sha256_bytes
 from .content import verify_content
-from .location import AUTHORITY_BOUNDARY, validate_discovery_evidence, validate_endpoint, validate_location_observation
+from .location import AUTHORITY_BOUNDARY, validate_discovery_evidence, validate_endpoint, validate_location_observation, validate_logical_references
 from .resolver import resolve
 from .schema_resources import load_schema
 from .validator import ValidationFailure, load_json, validate
@@ -43,6 +43,14 @@ def run_location_conformance(vector_path: Path) -> dict[str, Any]:
         raise ValidationFailure("invalid-vector-set", "location vector identity or synthetic marker is invalid")
     endpoint = vectors["endpoint"]
     validate_endpoint(endpoint)
+    relative_path = vectors["relative_path"]
+    validate_logical_references(
+        vectors["artifact_ref"],
+        vectors["content_ref"],
+        endpoint["endpoint_ref"],
+        relative_path,
+    )
+    portable_path = PurePosixPath(relative_path)
     payload_text = vectors["payload_utf8"]
     if not isinstance(payload_text, str):
         raise ValidationFailure("invalid-vector", "payload_utf8 must be a string")
@@ -79,7 +87,9 @@ def run_location_conformance(vector_path: Path) -> dict[str, Any]:
                 raise ValidationFailure("invalid-vector", "root_token escapes the temporary root")
             try:
                 local_root.mkdir()
-                content_path = local_root.joinpath(*PurePosixPath(vectors["relative_path"]).parts)
+                content_path = local_root.joinpath(*portable_path.parts).resolve()
+                if not content_path.is_relative_to(local_root):
+                    raise ValidationFailure("invalid-vector", "relative_path escapes the synthetic platform root")
                 content_path.parent.mkdir(parents=True)
                 content_path.write_bytes(payload)
             except OSError as exc:
@@ -87,7 +97,7 @@ def run_location_conformance(vector_path: Path) -> dict[str, Any]:
             resolution = resolve(
                 [{"endpoint_ref": endpoint["endpoint_ref"], "platform": platform, "root": str(local_root), "authorized": True}],
                 endpoint["endpoint_ref"],
-                vectors["relative_path"],
+                relative_path,
             )
             if resolution["outcome"] != "resolved":
                 raise ValidationFailure("vector-mismatch", f"logical resolution failed for {platform}")
@@ -110,7 +120,7 @@ def run_location_conformance(vector_path: Path) -> dict[str, Any]:
                 "artifact_ref": vectors["artifact_ref"],
                 "content_ref": vectors["content_ref"],
                 "endpoint_ref": endpoint["endpoint_ref"],
-                "relative_path": vectors["relative_path"],
+                "relative_path": relative_path,
                 "presence_state": "present",
                 "verification_state": "content-verified",
                 "observed_at": vectors["observed_at"],
@@ -132,7 +142,7 @@ def run_location_conformance(vector_path: Path) -> dict[str, Any]:
         "outcome": "complete",
         "vector_set_digest": sha256_bytes(canonical_bytes(vectors)),
         "endpoint_ref": endpoint["endpoint_ref"],
-        "relative_path": vectors["relative_path"],
+        "relative_path": relative_path,
         "platform_results": platform_results,
         "portable_fields": ["artifact_ref", "content_ref", "endpoint_ref", "relative_path"],
         "authority_boundary": AUTHORITY_BOUNDARY,

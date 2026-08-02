@@ -18,6 +18,11 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
+        "allOf": [
+          {"if": {"properties": {"platform": {"const": "macos"}}}, "then": {"properties": {"layout_style": {"const": "volume-mount"}}}},
+          {"if": {"properties": {"platform": {"const": "windows"}}}, "then": {"properties": {"layout_style": {"const": "drive-root"}}}},
+          {"if": {"properties": {"platform": {"const": "linux"}}}, "then": {"properties": {"layout_style": {"const": "filesystem-mount"}}}}
+        ],
         "required": ["platform", "layout_style", "native_layout_digest", "resolution_outcome", "observation_id", "discovery_evidence_id"],
         "properties": {
           "platform": {"type": "string", "enum": ["macos", "windows", "linux"]},

@@ -32,7 +32,16 @@ class LocationContractTests(unittest.TestCase):
     def test_logical_references_reject_local_and_bearer_forms(self):
         valid = ("artifact://synthetic/order-sample", CONTENT_REF, "endpoint://synthetic/portable-vault", "objects/order.json")
         validate_logical_references(*valid)
-        invalid_paths = ("/Volumes/private/order.json", "C:\\vault\\order.json", "../order.json", "https://example.test/order?token=secret")
+        invalid_paths = (
+            "/Volumes/private/order.json",
+            "C:\\vault\\order.json",
+            "../order.json",
+            "objects/../order.json",
+            "./objects/order.json",
+            "objects/./order.json",
+            "objects//order.json",
+            "https://example.test/order?token=secret",
+        )
         for relative_path in invalid_paths:
             with self.subTest(relative_path=relative_path), self.assertRaises(ValidationFailure):
                 validate_logical_references(valid[0], valid[1], valid[2], relative_path)
@@ -107,6 +116,25 @@ class LocationContractTests(unittest.TestCase):
                 path.write_text(json.dumps(vectors), encoding="utf-8")
                 with self.assertRaises(ValidationFailure):
                     run_location_conformance(path)
+
+    def test_relative_paths_fail_closed_before_filesystem_use(self):
+        for relative_path in ("/tmp/artifact-memory-escape", "../outside", "objects/../outside", "objects//file", 7):
+            with self.subTest(relative_path=relative_path), tempfile.TemporaryDirectory() as directory:
+                vectors = json.loads(VECTORS.read_text(encoding="utf-8"))
+                vectors["relative_path"] = relative_path
+                path = Path(directory) / "vectors.json"
+                path.write_text(json.dumps(vectors), encoding="utf-8")
+                with self.assertRaises(ValidationFailure):
+                    run_location_conformance(path)
+
+    def test_receipt_schema_rejects_mismatched_platform_layout(self):
+        from artifact_memory.schema_resources import load_schema
+        from artifact_memory.validator import validate
+
+        receipt = run_location_conformance(VECTORS)
+        receipt["platform_results"][0]["layout_style"] = "drive-root"
+        with self.assertRaises(ValidationFailure):
+            validate(receipt, load_schema("core", "location-conformance-receipt.v1.schema.json"))
 
     def test_unknown_vector_schema_fails_closed(self):
         vectors = json.loads(VECTORS.read_text(encoding="utf-8"))
