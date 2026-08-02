@@ -12,6 +12,7 @@ import artifact_memory.scan as scan_module
 from artifact_memory.canonical import canonical_bytes
 from artifact_memory.scan import ScanLimits, diff_manifests, make_scan_policy, scan_path, validate_manifest_identity, validate_scan_policy, validate_scan_receipt, verify_path
 from artifact_memory.scan_conformance import render_scan_conformance_receipt, run_scan_conformance
+from artifact_memory.schema_resources import load_schema
 from artifact_memory.validator import ValidationFailure, validate
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,6 +80,21 @@ class ScanTests(unittest.TestCase):
                 with self.assertRaises(ValidationFailure) as failure:
                     make_scan_policy(root_relative_path=invalid)
                 self.assertIn(failure.exception.code, {"constraint-failed", "scan-policy-path-invalid"})
+
+    def test_scan_policy_schema_rejects_windows_reserved_components(self):
+        schema = load_schema("core", "scan-policy.v2.schema.json")
+        for invalid in ("con", "dir/con.txt", "AUX", "nested/Com1.log", "lpt9", "COM¹.txt"):
+            with self.subTest(root_relative_path=invalid):
+                policy = {**make_scan_policy(), "root_relative_path": invalid}
+                with self.assertRaises(ValidationFailure) as failure:
+                    validate(policy, schema)
+                self.assertEqual(failure.exception.code, "constraint-failed")
+
+            with self.subTest(exclusion_prefix=invalid):
+                policy = {**make_scan_policy(), "exclusion_prefixes": [invalid]}
+                with self.assertRaises(ValidationFailure) as failure:
+                    validate(policy, schema)
+                self.assertEqual(failure.exception.code, "constraint-failed")
 
     def test_attempt_id_distinguishes_otherwise_identical_receipts(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -289,7 +305,7 @@ class ScanTests(unittest.TestCase):
             reserved_name["entries"][0]["path"] = "CON.txt"
             with self.assertRaises(ValidationFailure) as raised:
                 validate_manifest_identity(reserved_name)
-            self.assertEqual(raised.exception.code, "manifest-path-invalid")
+            self.assertEqual(raised.exception.code, "constraint-failed")
 
     def test_manifest_canonicalization_failures_are_typed(self):
         with tempfile.TemporaryDirectory() as temporary:

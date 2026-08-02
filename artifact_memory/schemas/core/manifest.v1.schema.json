@@ -22,7 +22,7 @@
           {"if": {"properties": {"kind": {"const": "directory"}}}, "then": {"not": {"anyOf": [{"required": ["byte_size"]}, {"required": ["content_digest"]}]}}}
         ],
         "properties": {
-          "path": {"type": "string", "pattern": "^(?!/)(?!.*//)(?!.*[. ](?:/|$))(?!.*\\\\)(?!.*[<>:\\x22|?*])(?!.*[\\u0000-\\u001F\\u007F]).+$"},
+          "path": {"type": "string", "pattern": "^(?!/)(?!(?:.*/)?(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm](?:[1-9]|[¹²³])|[Ll][Pp][Tt](?:[1-9]|[¹²³]))(?:\\.[^/]*|/|$))(?!.*//)(?!.*[. ](?:/|$))(?!.*\\\\)(?!.*[<>:\\x22|?*])(?!.*[\\u0000-\\u001F\\u007F]).+$"},
           "kind": {"enum": ["file", "directory"]},
           "byte_size": {"type": "integer", "minimum": 0},
           "content_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
