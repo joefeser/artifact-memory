@@ -12,6 +12,7 @@ import artifact_memory.scan as scan_module
 from artifact_memory.canonical import canonical_bytes
 from artifact_memory.scan import ScanLimits, diff_manifests, make_scan_policy, scan_path, validate_manifest_identity, validate_scan_policy, validate_scan_receipt, verify_path
 from artifact_memory.scan_conformance import render_scan_conformance_receipt, run_scan_conformance
+from artifact_memory.schema_resources import load_schema
 from artifact_memory.validator import ValidationFailure, validate
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,11 +59,42 @@ class ScanTests(unittest.TestCase):
         self.assertEqual(count_failure.exception.code, "scan-receipt-count-invalid")
 
     def test_scan_policy_rejects_non_normalized_relative_paths(self):
-        for invalid in (".", "nested//value", "nested/./value", "../value", "/absolute", "windows\\path"):
+        for invalid in (
+            ".",
+            "nested//value",
+            "nested/./value",
+            "../value",
+            "/absolute",
+            "windows\\path",
+            "line\nbreak",
+            "tab\tpath",
+            "report:final.txt",
+            "CON",
+            "con.txt",
+            "folder/NUL.json",
+            "trailing.",
+            "trailing ",
+            "angle<name>",
+        ):
             with self.subTest(invalid=invalid):
                 with self.assertRaises(ValidationFailure) as failure:
                     make_scan_policy(root_relative_path=invalid)
                 self.assertIn(failure.exception.code, {"constraint-failed", "scan-policy-path-invalid"})
+
+    def test_scan_policy_schema_rejects_windows_reserved_components(self):
+        schema = load_schema("core", "scan-policy.v2.schema.json")
+        for invalid in ("con", "dir/con.txt", "AUX", "nested/Com1.log", "lpt9", "COM¹.txt"):
+            with self.subTest(root_relative_path=invalid):
+                policy = {**make_scan_policy(), "root_relative_path": invalid}
+                with self.assertRaises(ValidationFailure) as failure:
+                    validate(policy, schema)
+                self.assertEqual(failure.exception.code, "constraint-failed")
+
+            with self.subTest(exclusion_prefix=invalid):
+                policy = {**make_scan_policy(), "exclusion_prefixes": [invalid]}
+                with self.assertRaises(ValidationFailure) as failure:
+                    validate(policy, schema)
+                self.assertEqual(failure.exception.code, "constraint-failed")
 
     def test_attempt_id_distinguishes_otherwise_identical_receipts(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -267,7 +299,13 @@ class ScanTests(unittest.TestCase):
             del missing_content["entries"][1]["content_digest"]
             with self.assertRaises(ValidationFailure) as raised:
                 validate_manifest_identity(missing_content)
-            self.assertEqual(raised.exception.code, "manifest-entry-invalid")
+            self.assertEqual(raised.exception.code, "required-field-missing")
+
+            reserved_name = json.loads(json.dumps(manifest))
+            reserved_name["entries"][0]["path"] = "CON.txt"
+            with self.assertRaises(ValidationFailure) as raised:
+                validate_manifest_identity(reserved_name)
+            self.assertEqual(raised.exception.code, "constraint-failed")
 
     def test_manifest_canonicalization_failures_are_typed(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -288,6 +326,41 @@ class ScanTests(unittest.TestCase):
             _, receipt = scan_path(root)
             self.assertEqual(receipt["outcome"], "partial")
             self.assertEqual(receipt["diagnostics"][0]["code"], "unsupported")
+
+    def test_hard_link_is_explicitly_unsupported(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source.txt"
+            source.write_text("synthetic", encoding="utf-8")
+            try:
+                os.link(source, root / "alias.txt")
+            except OSError:
+                self.skipTest("hard links unavailable on this platform")
+            manifest, receipt = scan_path(root)
+        self.assertEqual(manifest["entries"], [])
+        self.assertEqual(receipt["outcome"], "partial")
+        self.assertEqual({item["code"] for item in receipt["failures"]}, {"unsupported"})
+
+    def test_sparse_file_observation_is_explicitly_unsupported(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "sparse.bin"
+            path.write_bytes(b"synthetic")
+            observed = os.stat(path, follow_symlinks=False)
+            sparse = SimpleNamespace(
+                st_mode=observed.st_mode,
+                st_dev=observed.st_dev,
+                st_ino=observed.st_ino,
+                st_size=4096,
+                st_mtime_ns=observed.st_mtime_ns,
+                st_ctime_ns=observed.st_ctime_ns,
+                st_nlink=1,
+                st_blocks=0,
+            )
+            with patch.object(Path, "stat", return_value=sparse):
+                with self.assertRaises(scan_module._ObservationFailure) as raised:
+                    scan_module._hash_regular_file(path, root)
+        self.assertEqual(raised.exception.code, "unsupported")
 
     def test_symlink_root_is_not_silently_resolved(self):
         with tempfile.TemporaryDirectory() as temporary:

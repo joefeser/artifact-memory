@@ -9,7 +9,7 @@
     "schema_id": {"const": "artifact-memory/scan-policy/v1"},
     "policy_id": {"type": "string", "pattern": "^scan-policy://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
     "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$"},
-    "root_relative_path": {"type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(?:/|$))[A-Za-z0-9._~/-]*$"},
+    "root_relative_path": {"type": "string", "pattern": "^(?!/)(?!(?:.*/)?(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:\\.[^/]*|/|$))(?!.*//)(?!.*[. ](?:/|$))(?!.*[\\u0000-\\u001F\\u007F])[A-Za-z0-9._~/-]*$"},
     "follow_symlinks": {"type": "boolean"},
     "extensions": {"type": "object", "additionalProperties": true}
   }

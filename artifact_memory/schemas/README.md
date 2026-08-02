@@ -27,3 +27,8 @@ Machine-local resolver configuration is explicitly non-portable.
 Normative aggregate synthetic fixture manifests, runner-neutral expected
 results, and representative class coverage are in
 `docs/contracts/v0-synthetic-conformance-fixtures.md`.
+
+`manifest-conformance-vectors.v1.schema.json` and
+`manifest-conformance-receipt.v1.schema.json` define the runner-neutral issue
+#6 fixture and its checked evidence envelope. The fixture corpus remains under
+`fixtures/synthetic/manifests/v1/` rather than inside the installed package.

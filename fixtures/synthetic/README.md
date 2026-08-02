@@ -11,6 +11,11 @@ representative valid, invalid, equivalent, collision, and unsupported case to
 exact input digests and runner-neutral expected results. Contract-specific
 fixtures remain authoritative for their broader behavior.
 
+`manifests/v1/` proves the narrow portable ordinary-tree profile across
+synthetic Windows, macOS, and Linux mount layouts, including explicit
+collision, unsupported, and partial outcomes plus the container/tree identity
+boundary.
+
 The wider fixture set covers or is expected to cover:
 
 - equivalent logical trees under Windows, macOS, and Linux paths;

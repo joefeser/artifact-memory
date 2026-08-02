@@ -1,0 +1,36 @@
+{
+  "claims": [
+    "mount roots and observation order do not affect normalized tree identity",
+    "ordinary files and directories produce deterministic UTF-8 leaf serialization and SHA-256 tree digests",
+    "case collisions, unsupported entry kinds, and unreadable entries remain distinct bounded outcomes"
+  ],
+  "container_digest": "sha-256:5b3db887c62451c865df4a0c19fe4a9eb1ca0ba6ebba9c4e0948051479508588",
+  "container_tree_distinct": true,
+  "extracted_tree_digest": "sha-256:ff3e228acdc08da0514b52d407dd2c9ca01c90b669c6aa68e423f189126d423c",
+  "limitations": [
+    "synthetic logical layouts do not prove every host filesystem behavior; actual platform replay is recorded by CI and broader semantics remain in issue #24",
+    "archive extraction safety and container relationships beyond the identity distinction remain in issue #25"
+  ],
+  "negative_cases": [
+    {"case_id": "casefold-collision", "diagnostic_code": "collision", "manifest_completeness": "partial", "outcome": "collision"},
+    {"case_id": "symlink-unsupported", "diagnostic_code": "unsupported", "manifest_completeness": "partial", "outcome": "unsupported"},
+    {"case_id": "unreadable-partial", "diagnostic_code": "unreadable", "manifest_completeness": "partial", "outcome": "partial"}
+  ],
+  "outcome": "complete",
+  "outcomes": {"collision": 1, "partial": 1, "unsupported": 1},
+  "platform_tree_digests": {
+    "linux": ["sha-256:ff3e228acdc08da0514b52d407dd2c9ca01c90b669c6aa68e423f189126d423c", "sha-256:9cfbcdfa640e09c04226be827b89246f85de935cab8759433b7bbae6d460c29d"],
+    "macos": ["sha-256:ff3e228acdc08da0514b52d407dd2c9ca01c90b669c6aa68e423f189126d423c", "sha-256:9cfbcdfa640e09c04226be827b89246f85de935cab8759433b7bbae6d460c29d"],
+    "windows": ["sha-256:ff3e228acdc08da0514b52d407dd2c9ca01c90b669c6aa68e423f189126d423c", "sha-256:9cfbcdfa640e09c04226be827b89246f85de935cab8759433b7bbae6d460c29d"]
+  },
+  "platforms": ["linux", "macos", "windows"],
+  "positive_case_count": 2,
+  "positive_cases": [
+    {"case_id": "ordinary-tree", "entry_count": 4, "outcome": "equivalent", "tree_digest": "sha-256:ff3e228acdc08da0514b52d407dd2c9ca01c90b669c6aa68e423f189126d423c"},
+    {"case_id": "nested-tree", "entry_count": 4, "outcome": "equivalent", "tree_digest": "sha-256:9cfbcdfa640e09c04226be827b89246f85de935cab8759433b7bbae6d460c29d"}
+  ],
+  "receipt_id": "manifest-conformance-receipt://92b6ce5e5b4a0ede09b21ff20813204d8ba3b85320bfd8557811ece45a0e826c",
+  "schema_id": "artifact-memory/manifest-conformance-receipt/v1",
+  "synthetic": true,
+  "vector_set_digest": "sha-256:7792b98e6c51b4efdae40b6ff6c472181ba719741e59ce8528ac3517343a00d6"
+}
