@@ -11,7 +11,10 @@ from .validator import ValidationFailure, validate
 
 SOURCE_REF = "https://github.com/joefeser/WhereAreMyFiles"
 _SHA1 = re.compile(r"^[0-9a-fA-F]{40}$")
-_LEGACY_OBSERVATION_SCHEMA = load_schema("core", "legacy-observation.v2.schema.json")
+_LEGACY_OBSERVATION_SCHEMAS = {
+    "v1": load_schema("core", "legacy-observation.v1.schema.json"),
+    "v2": load_schema("core", "legacy-observation.v2.schema.json"),
+}
 
 
 def _require_row(row: dict[str, Any], field: str, expected: type) -> Any:
@@ -23,8 +26,15 @@ def _require_row(row: dict[str, Any], field: str, expected: type) -> Any:
     return value
 
 
-def observe_legacy_file(row: dict[str, Any], source_ref: str) -> dict[str, Any]:
+def observe_legacy_file(
+    row: dict[str, Any],
+    source_ref: str,
+    *,
+    schema_version: str = "v1",
+) -> dict[str, Any]:
     """Preserve legacy evidence without upgrading identity or mutating source."""
+    if schema_version not in _LEGACY_OBSERVATION_SCHEMAS:
+        raise ValidationFailure("legacy-schema-unsupported", "legacy observation schema version is unsupported")
     if not isinstance(row, dict):
         raise ValidationFailure("legacy-evidence-insufficient", "legacy row must be an object")
     if source_ref != SOURCE_REF:
@@ -45,7 +55,7 @@ def observe_legacy_file(row: dict[str, Any], source_ref: str) -> dict[str, Any]:
         raise ValidationFailure("legacy-evidence-insufficient", "legacy sha1 must be a 40-hex digest or the exact NONE sentinel", "$.sha1")
 
     observation = {
-        "schema_id": "artifact-memory/legacy-observation/v2",
+        "schema_id": f"artifact-memory/legacy-observation/{schema_version}",
         "source_ref": source_ref,
         "read_only": True,
         "historical_fields": {
@@ -64,5 +74,5 @@ def observe_legacy_file(row: dict[str, Any], source_ref: str) -> dict[str, Any]:
             "legacy NONE values remain not-recorded",
         ],
     }
-    validate(observation, _LEGACY_OBSERVATION_SCHEMA)
+    validate(observation, _LEGACY_OBSERVATION_SCHEMAS[schema_version])
     return observation

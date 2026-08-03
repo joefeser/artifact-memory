@@ -19,7 +19,9 @@ class LineageTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         schema = json.loads((root / "artifact_memory/schemas/core/legacy-observation.v2.schema.json").read_text(encoding="utf-8"))
         observation = observe_legacy_file({"path": "synthetic/legacy/file.bin", "size": 1024, "created": "2010", "modified": "2010", "sha1": "NONE"}, SOURCE_REF)
-        validate(observation, schema)
+        v2_observation = observe_legacy_file({"path": "synthetic/legacy/file.bin", "size": 1024, "created": "2010", "modified": "2010", "sha1": "NONE"}, SOURCE_REF, schema_version="v2")
+        validate(v2_observation, schema)
+        self.assertEqual(observation["schema_id"], "artifact-memory/legacy-observation/v1")
         self.assertEqual(observation["historical_fields"]["legacy_hash"]["state"], "none-recorded")
         self.assertEqual(observation["historical_fields"]["legacy_hash"]["value"], "NONE")
         self.assertEqual(observation["artifact_identity"], "not-established")
@@ -38,6 +40,20 @@ class LineageTests(unittest.TestCase):
             for malformed in ([], {"synthetic": True, "source_ref": SOURCE_REF}, {"synthetic": True, "source_ref": SOURCE_REF, "source_commit": "3a18550fa52526e1a440a1e9264bd9f17638d89e", "rows": [None]}):
                 vector_path.write_text(json.dumps(malformed), encoding="utf-8")
                 with self.subTest(malformed=malformed), self.assertRaises(ValidationFailure) as failure:
+                    run_legacy_lineage_conformance(vector_path)
+                self.assertEqual(failure.exception.code, "invalid-vector")
+
+    def test_wrong_row_count_and_order_fail_as_invalid_vectors(self):
+        fixture = Path(__file__).resolve().parents[1] / "fixtures/synthetic/lineage/v1/vectors.json"
+        valid = json.loads(fixture.read_text(encoding="utf-8"))
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            vector_path = Path(directory) / "vectors.json"
+            for rows in (valid["rows"][:1], list(reversed(valid["rows"]))):
+                malformed = {**valid, "rows": rows}
+                vector_path.write_text(json.dumps(malformed), encoding="utf-8")
+                with self.subTest(rows=rows), self.assertRaises(ValidationFailure) as failure:
                     run_legacy_lineage_conformance(vector_path)
                 self.assertEqual(failure.exception.code, "invalid-vector")
 

@@ -27,11 +27,13 @@ def run_legacy_lineage_conformance(vector_path: Path) -> dict[str, Any]:
             "$.source_commit",
         )
     rows = vectors.get("rows")
-    if not isinstance(rows, list) or not rows or not all(isinstance(row, dict) for row in rows):
-        raise ValidationFailure("invalid-vector", "legacy lineage vectors require object rows")
+    if not isinstance(rows, list) or len(rows) != 2 or not all(isinstance(row, dict) for row in rows):
+        raise ValidationFailure("invalid-vector", "legacy lineage vectors require exactly two object rows")
 
-    observations = [observe_legacy_file(row, SOURCE_REF) for row in rows]
+    observations = [observe_legacy_file(row, SOURCE_REF, schema_version="v2") for row in rows]
     states = [item["historical_fields"]["legacy_hash"]["state"] for item in observations]
+    if states != ["none-recorded", "sha-1-observed-not-upgraded"]:
+        raise ValidationFailure("invalid-vector", "legacy lineage vector states are out of contract order")
     body = {
         "outcome": "pass",
         "synthetic": True,
