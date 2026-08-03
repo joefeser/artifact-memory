@@ -66,10 +66,14 @@ class ExtensionTests(unittest.TestCase):
             self.assertTrue(raised.exception.path.startswith("$.supported_required"))
 
     def test_bundle_validator_rejects_non_namespaced_identifier(self):
+        schema = json.loads((ROOT / "artifact_memory/schemas/core/extension-bundle.v1.schema.json").read_text(encoding="utf-8"))
         bundle = {
             "schema_id": "artifact-memory/extension-bundle/v1",
             "extensions": {"local-name": {"version": "v1", "required": False, "value": {}}},
         }
+        with self.assertRaises(ValidationFailure) as schema_failure:
+            validate(bundle, schema)
+        self.assertEqual(schema_failure.exception.path, "$.extensions['local-name']")
         with self.assertRaises(ExtensionFailure) as raised:
             validate_extension_bundle(bundle)
         self.assertEqual(raised.exception.code, "invalid-extension-identifier")

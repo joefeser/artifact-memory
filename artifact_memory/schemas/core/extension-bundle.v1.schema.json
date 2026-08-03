@@ -7,7 +7,7 @@
   "required": ["schema_id", "extensions"],
   "properties": {
     "schema_id": {"const": "artifact-memory/extension-bundle/v1"},
-    "extensions": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["version", "required", "value"], "properties": {"version": {"type": "string", "pattern": "^v[0-9]+$"}, "required": {"type": "boolean"}, "value": {"type": "object", "additionalProperties": true}}}},
+    "extensions": {"type": "object", "propertyNames": {"pattern": "^https://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~/-]+)?$"}, "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["version", "required", "value"], "properties": {"version": {"type": "string", "pattern": "^v[0-9]+$"}, "required": {"type": "boolean"}, "value": {"type": "object", "additionalProperties": true}}}},
     "extensions_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
   }
 }

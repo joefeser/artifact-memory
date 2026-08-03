@@ -28,6 +28,16 @@ _canonical = canonical_bytes
 
 def validate_extension_bundle(extension_bundle: dict[str, Any]) -> None:
     """Validate the public declaration shape and optional digest binding."""
+    extensions = extension_bundle.get("extensions") if isinstance(extension_bundle, dict) else None
+    if isinstance(extensions, dict):
+        invalid_identifiers = sorted(identifier for identifier in extensions if EXTENSION_ID.fullmatch(identifier) is None)
+        if invalid_identifiers:
+            identifier = invalid_identifiers[0]
+            raise ExtensionFailure(
+                "invalid-extension-identifier",
+                "extension identifier must be globally namespaced",
+                f"$.extensions[{identifier!r}]",
+            )
     try:
         validate(extension_bundle, load_schema("core", "extension-bundle.v1.schema.json"))
         observed_digest = extension_digest(extension_bundle)
@@ -35,14 +45,6 @@ def validate_extension_bundle(extension_bundle: dict[str, Any]) -> None:
         raise ExtensionFailure(exc.code, exc.message, exc.path) from exc
     except CanonicalizationFailure as exc:
         raise ExtensionFailure("extension-canonicalization-failed", str(exc)) from exc
-    invalid_identifiers = sorted(identifier for identifier in extension_bundle["extensions"] if EXTENSION_ID.fullmatch(identifier) is None)
-    if invalid_identifiers:
-        identifier = invalid_identifiers[0]
-        raise ExtensionFailure(
-            "invalid-extension-identifier",
-            "extension identifier must be globally namespaced",
-            f"$.extensions[{identifier!r}]",
-        )
     declared_digest = extension_bundle.get("extensions_digest")
     if declared_digest is not None and declared_digest != observed_digest:
         raise ExtensionFailure("extension-digest-invalid", "extension digest does not match its canonical declarations")
