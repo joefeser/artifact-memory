@@ -314,6 +314,25 @@ class ExchangeTests(unittest.TestCase):
         )
         self.assertEqual(supported["outcome"], "admitted")
 
+    def test_v2_preserves_optional_envelope_extensions_unchanged(self):
+        identifier = "https://synthetic.example/optional-exchange"
+        declaration = {"version": "v1", "required": False, "value": {"opaque": True}}
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-optional-envelope-extension",
+            "2099-01-01T00:00:00Z",
+            [],
+            ["artifact://synthetic/reference"],
+            extensions={identifier: declaration},
+        )
+        receipt = admit_v2(
+            envelope,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(receipt["outcome"], "admitted")
+        self.assertEqual(receipt["extensions"], {identifier: declaration})
+
     def test_v2_noncanonical_envelope_and_invalid_time_fail_closed(self):
         record = canonical_record(
             record_id="record://synthetic/exchange-surrogate",

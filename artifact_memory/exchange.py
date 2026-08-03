@@ -162,6 +162,7 @@ def _v2_receipt(
     unresolved_record_ids: list[str] | None = None,
     artifact_refs: list[str] | None = None,
     diagnostics: list[dict[str, str]] | None = None,
+    extensions: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     body = {
         "envelope_ref": envelope_ref,
@@ -171,6 +172,7 @@ def _v2_receipt(
         "artifact_refs": sorted(artifact_refs or []),
         "artifact_retrieval": "not-attempted/separately-authorized",
         "diagnostics": diagnostics or [],
+        "extensions": extensions or {},
         "authority_boundary": AUTHORITY_BOUNDARY,
     }
     receipt = receipt_with_digest(
@@ -198,20 +200,21 @@ def _record_revision(
         raise ValidationFailure("unsupported-record", "bundled record schema is unsupported")
     validate(record, load_schema("core", schema_name))
     extensions = record.get("extensions", {})
-    for declaration in extensions.values():
-        if isinstance(declaration, dict) and declaration.get("required") is True:
-            try:
-                preserve_extensions(
-                    {},
-                    {
-                        "schema_id": "artifact-memory/extension-bundle/v1",
-                        "extensions": extensions,
-                    },
-                    supported_required_extensions,
-                )
-            except ExtensionFailure as exc:
-                raise ValidationFailure(exc.code, exc.message, exc.path) from exc
-            break
+    if any(
+        isinstance(declaration, dict) and declaration.get("required") is True
+        for declaration in extensions.values()
+    ):
+        try:
+            preserve_extensions(
+                {},
+                {
+                    "schema_id": "artifact-memory/extension-bundle/v1",
+                    "extensions": extensions,
+                },
+                supported_required_extensions,
+            )
+        except ExtensionFailure as exc:
+            raise ValidationFailure(exc.code, exc.message, exc.path) from exc
     sensitivity = record.get("sensitivity", "restricted")
     if sensitivity not in {"public", "private", "restricted"}:
         raise ValidationFailure("invalid-record", "bundled record sensitivity is invalid")
@@ -296,6 +299,21 @@ def admit_v2(
             envelope_ref,
             "rejected",
             diagnostics=[{"code": "bearer-material-prohibited", "message": "exchange envelope contains prohibited bearer material"}],
+        )
+    try:
+        preserved_extensions = preserve_extensions(
+            {},
+            {
+                "schema_id": "artifact-memory/extension-bundle/v1",
+                "extensions": envelope.get("extensions", {}),
+            },
+            supported_required_extensions,
+        )["extensions"]
+    except ExtensionFailure as exc:
+        return _v2_receipt(
+            envelope_ref,
+            "quarantined",
+            diagnostics=[{"code": exc.code, "message": exc.message}],
         )
     try:
         expiry = datetime.fromisoformat(envelope["expires_at"].replace("Z", "+00:00"))
@@ -396,4 +414,5 @@ def admit_v2(
         unresolved_record_ids=unresolved,
         artifact_refs=artifact_refs,
         diagnostics=diagnostics,
+        extensions=preserved_extensions,
     )

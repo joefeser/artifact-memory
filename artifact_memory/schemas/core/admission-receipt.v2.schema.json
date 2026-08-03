@@ -14,6 +14,7 @@
     "artifact_refs",
     "artifact_retrieval",
     "diagnostics",
+    "extensions",
     "authority_boundary"
   ],
   "properties": {
@@ -37,6 +38,7 @@
         }
       }
     },
+    "extensions": {"type": "object", "additionalProperties": true},
     "authority_boundary": {
       "const": "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"
     }
