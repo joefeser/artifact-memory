@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/archive-conformance-receipt/v1",
+  "title": "Artifact Memory archive conformance receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "synthetic", "vector_set_digest", "case_count", "cases", "claims", "authority_boundary", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/archive-conformance-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^archive-conformance-receipt://[0-9a-f]{64}$"},
+    "outcome": {"const": "pass"},
+    "synthetic": {"const": true},
+    "vector_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "case_count": {"const": 5},
+    "cases": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["case_id", "outcome", "inspection_completeness", "diagnostic_codes", "accepted_entry_count", "container_digest", "extracted_tree_manifest_digest", "relationship_emitted", "inspection_receipt_id"],
+        "properties": {
+          "case_id": {"enum": ["safe", "mixed-malicious", "link-only", "encrypted-only", "corrupt"]},
+          "outcome": {"enum": ["supported", "partial", "unsupported", "failed"]},
+          "inspection_completeness": {"enum": ["complete", "partial", "unavailable"]},
+          "diagnostic_codes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "accepted_entry_count": {"type": "integer", "minimum": 0},
+          "container_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+          "extracted_tree_manifest_digest": {"anyOf": [{"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}, {"type": "null"}]},
+          "relationship_emitted": {"type": "boolean"},
+          "inspection_receipt_id": {"type": "string", "pattern": "^archive-inspection-receipt://[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "claims": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}},
+    "authority_boundary": {"const": "archive inspection grants no extraction, execution, mutation, disclosure, or trust authority"},
+    "limitations": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}}
+  }
+}

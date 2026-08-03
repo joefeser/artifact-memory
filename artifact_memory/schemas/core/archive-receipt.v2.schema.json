@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/archive-receipt/v2",
+  "title": "Artifact Memory bounded archive inspection receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "allOf": [
+    {"if": {"properties": {"outcome": {"const": "supported"}}}, "then": {"properties": {"inspection_completeness": {"const": "complete"}, "diagnostics": {"const": []}, "extracted_tree_manifest": {"type": "object"}, "extracted_tree_manifest_digest": {"type": "string"}, "relationship": {"type": "object"}}}},
+    {"if": {"properties": {"outcome": {"const": "partial"}}}, "then": {"properties": {"inspection_completeness": {"const": "partial"}, "diagnostics": {"type": "array", "minItems": 1}, "extracted_tree_manifest": {"type": "null"}, "extracted_tree_manifest_digest": {"type": "null"}, "relationship": {"type": "null"}}}},
+    {"if": {"properties": {"outcome": {"enum": ["unsupported", "failed"]}}}, "then": {"properties": {"inspection_completeness": {"const": "unavailable"}, "entries": {"const": []}, "diagnostics": {"type": "array", "minItems": 1}, "extracted_tree_manifest": {"type": "null"}, "extracted_tree_manifest_digest": {"type": "null"}, "relationship": {"type": "null"}}}},
+    {"if": {"properties": {"container": {"properties": {"integrity": {"const": "unavailable"}}}}}, "then": {"properties": {"container": {"properties": {"content_digest": {"type": "null"}, "byte_size": {"type": "null"}}}}}},
+    {"if": {"properties": {"container": {"properties": {"integrity": {"const": "bytes-hashed"}}}}}, "then": {"properties": {"container": {"properties": {"content_digest": {"type": "string"}, "byte_size": {"type": "integer"}}}}}}
+  ],
+  "required": ["schema_id", "receipt_id", "outcome", "format", "container", "limits", "inspection_completeness", "entries", "observed_entry_set_digest", "extracted_tree_manifest", "extracted_tree_manifest_digest", "relationship", "diagnostics", "authority_boundary", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/archive-receipt/v2"},
+    "receipt_id": {"type": "string", "pattern": "^archive-inspection-receipt://[0-9a-f]{64}$"},
+    "outcome": {"enum": ["supported", "partial", "unsupported", "failed"]},
+    "format": {"const": "zip"},
+    "container": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content_digest", "byte_size", "integrity"],
+      "properties": {
+        "content_digest": {"anyOf": [{"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}, {"type": "null"}]},
+        "byte_size": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]},
+        "integrity": {"enum": ["bytes-hashed", "unavailable"]}
+      }
+    },
+    "limits": {"type": "object", "additionalProperties": false, "required": ["max_entries", "max_uncompressed_bytes"], "properties": {"max_entries": {"type": "integer", "minimum": 1}, "max_uncompressed_bytes": {"type": "integer", "minimum": 1}}},
+    "inspection_completeness": {"enum": ["complete", "partial", "unavailable"]},
+    "entries": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "kind", "byte_size", "content_digest"], "properties": {"path": {"type": "string", "minLength": 1}, "kind": {"const": "file"}, "byte_size": {"type": "integer", "minimum": 0}, "content_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}}}},
+    "observed_entry_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "extracted_tree_manifest": {"anyOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["schema_id", "profile", "entries"], "properties": {"schema_id": {"const": "artifact-memory/archive-extracted-tree-manifest/v1"}, "profile": {"const": "zip-v0-safe-files"}, "entries": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "kind", "byte_size", "content_digest"], "properties": {"path": {"type": "string", "minLength": 1}, "kind": {"const": "file"}, "byte_size": {"type": "integer", "minimum": 0}, "content_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}}}}}}]},
+    "extracted_tree_manifest_digest": {"anyOf": [{"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}, {"type": "null"}]},
+    "relationship": {"anyOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["type", "container_content_digest", "extracted_tree_manifest_digest", "extraction_profile"], "properties": {"type": {"const": "container-extracts-to-tree"}, "container_content_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}, "extracted_tree_manifest_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}, "extraction_profile": {"const": "zip-v0-safe-files"}}}]},
+    "diagnostics": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["code", "path", "message"], "properties": {"code": {"enum": ["container-unavailable", "container-changed-during-inspection", "corrupt-container", "path-traversal", "path-conflict", "duplicate-entry", "case-collision", "link-entry", "unsupported-entry-kind", "encrypted-entry", "unsupported-compression", "decompression-limit", "entry-count-limit", "corrupt-entry"]}, "path": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}, "message": {"type": "string", "minLength": 1}}}},
+    "authority_boundary": {"const": "archive inspection grants no extraction, execution, mutation, disclosure, or trust authority"},
+    "limitations": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}}
+  }
+}

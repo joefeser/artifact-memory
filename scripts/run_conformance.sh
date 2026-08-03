@@ -13,6 +13,7 @@ python3 scripts/run_artifact_lineage_conformance.py --check >/dev/null
 python3 scripts/run_legacy_lineage_conformance.py --check >/dev/null
 python3 scripts/run_conformance_fixture.py --check >/dev/null
 python3 scripts/run_manifest_conformance.py --check >/dev/null
+python3 scripts/run_archive_conformance.py --check >/dev/null
 python3 scripts/run_extension_conformance.py --check >/dev/null
 python3 scripts/run_adapter_manifest_conformance.py --check >/dev/null
 python3 scripts/run_tracemap_failure_conformance.py --check >/dev/null
