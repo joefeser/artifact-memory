@@ -18,13 +18,17 @@ def run_adapter_manifest_conformance(fixture: Path) -> dict[str, Any]:
     manifest_schema = load_schema("adapters", "adapter-manifest.v1.schema.json")
     validate(reference_manifest, manifest_schema)
     validate(tracemap_manifest, manifest_schema)
+    denied_without_authority = dict(denied_manifest)
+    denied_without_authority["record_contents_authorize_execution"] = False
+    if denied_without_authority != reference_manifest:
+        raise ValidationFailure("vector-mismatch", "denied manifest must differ from the reference only by its authority claim")
     tracemap_capabilities = tracemap_manifest["capabilities"]
     if (
         tracemap_capabilities["filesystem"] != "read"
         or tracemap_capabilities["network"] != "none"
         or tracemap_capabilities["credentials"] != "none"
         or tracemap_capabilities["mutation"] != "none"
-        or "trace-map-local-output" not in tracemap_capabilities["read_capabilities"]
+        or tracemap_capabilities["read_capabilities"] != ["trace-map-local-output"]
     ):
         raise ValidationFailure("vector-mismatch", "TraceMap manifest does not declare the bounded local-read capability")
 

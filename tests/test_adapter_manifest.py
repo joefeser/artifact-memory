@@ -2,10 +2,11 @@ import json
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 from artifact_memory.adapter_manifest import validate_manifest
 from artifact_memory.canonical import receipt_with_digest
-from artifact_memory.validator import validate
+from artifact_memory.validator import ValidationFailure, validate
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +55,19 @@ class AdapterManifestTests(unittest.TestCase):
         receipt = validate_manifest([])
         self.assertEqual(receipt["outcome"], "failed")
         self.assertEqual(receipt["adapter_ref"], "adapter://unknown/unknown")
+
+    def test_packaged_schema_failure_is_not_reported_as_invalid_input(self):
+        manifest = json.loads((ROOT / "fixtures/synthetic/adapters/v1/independent-reference-manifest.json").read_text(encoding="utf-8"))
+        with patch("artifact_memory.adapter_manifest.load_schema", side_effect=ValidationFailure("invalid-schema", "unavailable")):
+            with self.assertRaisesRegex(ValidationFailure, "unavailable"):
+                validate_manifest(manifest)
+
+    def test_failed_receipt_requires_path_aware_diagnostics(self):
+        schema = json.loads((ROOT / "artifact_memory/schemas/adapters/adapter-receipt.v1.schema.json").read_text(encoding="utf-8"))
+        failed = validate_manifest([])
+        del failed["diagnostics"][0]["detail_code"]
+        with self.assertRaises(ValidationFailure):
+            validate(failed, schema)
 
     def test_receipt_helper_rejects_reserved_identity_fields(self):
         for field in ("schema_id", "receipt_id"):

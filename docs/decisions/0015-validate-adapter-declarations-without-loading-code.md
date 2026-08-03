@@ -24,6 +24,9 @@ failure receipts with typed, path-aware diagnostics that do not echo input
 values. Invalid adapter identities are represented by the portable fallback
 `adapter://unknown/unknown`.
 
+A packaged-schema load failure propagates as an `invalid-schema` runtime
+failure rather than being converted into a `manifest-invalid` input receipt.
+
 Manifest capability fields describe requirements only. Authorization remains
 external to records and manifests. Validation performs no discovery,
 installation, import, dynamic loading, network access, credential use,

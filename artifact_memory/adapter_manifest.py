@@ -22,6 +22,7 @@ def receipt(manifest: Any, outcome: str, diagnostics: list[dict[str, str]] | Non
 
 def validate_manifest(manifest: Any) -> dict[str, Any]:
     """Validate a manifest without interpreting or executing the adapter."""
+    manifest_schema = load_schema("adapters", "adapter-manifest.v1.schema.json")
     if (
         isinstance(manifest, dict)
         and "record_contents_authorize_execution" in manifest
@@ -38,7 +39,7 @@ def validate_manifest(manifest: Any) -> dict[str, Any]:
             }],
         )
     try:
-        validate(manifest, load_schema("adapters", "adapter-manifest.v1.schema.json"))
+        validate(manifest, manifest_schema)
     except ValidationFailure as exc:
         return receipt(
             manifest,

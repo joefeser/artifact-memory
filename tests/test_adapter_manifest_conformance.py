@@ -38,6 +38,28 @@ class AdapterManifestConformanceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValidationFailure, "bounded local-read"):
                 run_adapter_manifest_conformance(copied)
 
+    def test_tracemap_extra_read_capability_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "fixture"
+            shutil.copytree(FIXTURE, copied)
+            manifest_path = copied / "tracemap-read-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["capabilities"]["read_capabilities"].append("synthetic-extra-read")
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValidationFailure, "bounded local-read"):
+                run_adapter_manifest_conformance(copied)
+
+    def test_denied_vector_may_differ_only_by_authority(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "fixture"
+            shutil.copytree(FIXTURE, copied)
+            manifest_path = copied / "unauthorized-reference-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["capabilities"]["network"] = "read"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValidationFailure, "differ from the reference only"):
+                run_adapter_manifest_conformance(copied)
+
 
 if __name__ == "__main__":
     unittest.main()

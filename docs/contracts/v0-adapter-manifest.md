@@ -29,6 +29,8 @@ with a stable diagnostic code, validator detail code, and JSON path. Invalid
 or unavailable adapter identities use `adapter://unknown/unknown` in the
 failure receipt rather than echoing an unusable identity. Diagnostics never
 echo manifest values, local paths, credentials, or provider content.
+Unavailable or invalid packaged schemas remain typed runtime failures; they
+are not misreported as defects in the caller's manifest.
 
 The checked synthetic fixture proves one independent reference-adapter success
 receipt and one authority-boundary failure receipt. It also schema-validates
