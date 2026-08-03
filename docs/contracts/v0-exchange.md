@@ -8,8 +8,12 @@ retrieval remains a separate local authorization.
 
 Admission is receiver-owned and produces one of six typed outcomes:
 `admitted`, `rejected`, `quarantined`, `duplicate`, `unsupported`, or
-`partially-resolved`. A caller-owned ledger records valid processed envelope
-identities. Repeated replay returns the same deterministic `duplicate` receipt.
+`partially-resolved`. The receiver must inject a durable ledger whose `claim`
+operation atomically inserts an envelope identity only when it has not already
+been processed. Admission without that dependency, or with a failed/malformed
+claim result, is quarantined as `replay-ledger-unavailable`; the reference
+runtime never silently substitutes process-local memory. Repeated replay through
+the shared ledger returns the same deterministic `duplicate` receipt.
 An envelope with some resolvable and some unresolved record revisions returns
 `partially-resolved`; contradictory declarations or bytes are quarantined.
 Expired or malformed envelopes are rejected, and unsupported schemas remain
@@ -23,8 +27,9 @@ receiver supplies matching sensitivity metadata that is permitted by the
 envelope handling policy.
 
 Bearer credentials are prohibited in envelopes. The reference admission
-boundary rejects credential-shaped keys and bearer-token-shaped values without
-echoing them into receipts. Receipts contain only stable diagnostics, admitted
+boundary examines values without interpreting opaque extension keys and rejects
+private-key headers, token-shaped bearer/header values, and recognized token
+prefixes without echoing them into receipts. Receipts contain only stable diagnostics, admitted
 and unresolved record IDs, artifact references, and the retrieval/authority
 boundary.
 

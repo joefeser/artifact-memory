@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from pathlib import Path
 from typing import Any
 
 from .canonical import canonical_bytes, receipt_with_digest
-from .exchange import AUTHORITY_BOUNDARY, admit_v2, make_envelope_v2
+from .exchange import AUTHORITY_BOUNDARY, admit_v2 as _runtime_admit_v2, make_envelope_v2
 from .schema_resources import load_schema
 from .validator import ValidationFailure, load_json, validate
 
@@ -20,6 +21,29 @@ OUTCOMES = (
     "rejected",
     "unsupported",
 )
+
+
+class _SyntheticReplayLedger:
+    """Process-local conformance fixture; production callers must inject durability."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._seen: set[str] = set()
+
+    def claim(self, envelope_ref: str) -> bool:
+        with self._lock:
+            if envelope_ref in self._seen:
+                return False
+            self._seen.add(envelope_ref)
+            return True
+
+
+def admit_v2(envelope: dict[str, Any], replay_ledger: _SyntheticReplayLedger | None = None, **kwargs: Any) -> dict[str, Any]:
+    return _runtime_admit_v2(
+        envelope,
+        replay_ledger if replay_ledger is not None else _SyntheticReplayLedger(),
+        **kwargs,
+    )
 
 
 def _revision(record: dict[str, Any]) -> dict[str, str]:
@@ -131,7 +155,7 @@ def run_exchange_conformance(fixture: Path) -> dict[str, Any]:
     }
     duplicate = None
     for expected_outcome, (replay_envelope, options) in replay_vectors.items():
-        ledger: set[str] = set()
+        ledger = _SyntheticReplayLedger()
         first_attempt = admit_v2(
             replay_envelope,
             ledger,

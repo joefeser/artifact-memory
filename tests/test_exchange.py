@@ -8,7 +8,7 @@ from pathlib import Path
 from artifact_memory.exchange import (
     AUTHORITY_BOUNDARY,
     admit,
-    admit_v2,
+    admit_v2 as _runtime_admit_v2,
     make_envelope,
     make_envelope_v2,
 )
@@ -17,6 +17,29 @@ from artifact_memory.validator import ValidationFailure, validate
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class SyntheticReplayLedger:
+    """Explicit process-local ledger for synthetic tests; it makes no durability claim."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._seen: set[str] = set()
+
+    def claim(self, envelope_ref):
+        with self._lock:
+            if envelope_ref in self._seen:
+                return False
+            self._seen.add(envelope_ref)
+            return True
+
+
+def admit_v2(envelope, replay_ledger=None, **kwargs):
+    return _runtime_admit_v2(
+        envelope,
+        replay_ledger if replay_ledger is not None else SyntheticReplayLedger(),
+        **kwargs,
+    )
 
 
 def canonical_record(**overrides):
@@ -134,7 +157,7 @@ class ExchangeTests(unittest.TestCase):
             )
         )
         validate(envelope, envelope_schema)
-        ledger: set[str] = set()
+        ledger = SyntheticReplayLedger()
         partial = admit_v2(
             envelope,
             ledger,
@@ -170,7 +193,7 @@ class ExchangeTests(unittest.TestCase):
             ["artifact://synthetic/reference"],
         )
         malformed = {**envelope, "envelope_id": "exchange://" + "f" * 64}
-        ledger: set[str] = set()
+        ledger = SyntheticReplayLedger()
         rejected = admit_v2(
             malformed,
             ledger,
@@ -233,7 +256,8 @@ class ExchangeTests(unittest.TestCase):
             expected_audience_ref="system://synthetic-receiver",
             supported_schema=False,
         )
-        ledger = {base["envelope_id"]}
+        ledger = SyntheticReplayLedger()
+        self.assertTrue(ledger.claim(base["envelope_id"]))
         duplicate = admit_v2(
             base,
             ledger,
@@ -291,7 +315,7 @@ class ExchangeTests(unittest.TestCase):
             ["artifact://synthetic/reference"],
             extensions={"authorization": "Bearer synthetic-not-a-real-token"},
         )
-        protected_ledger: set[str] = set()
+        protected_ledger = SyntheticReplayLedger()
         rejected = admit_v2(
             protected,
             protected_ledger,
@@ -419,8 +443,11 @@ class ExchangeTests(unittest.TestCase):
             self.assertEqual(receipt["outcome"], "admitted")
 
     def test_v2_rejects_credential_shaped_values_without_echo(self):
+        synthetic_value = "github" + "_pat_" + "A" * 24
         values = (
             "-----BEGIN RSA " + "PRIVATE" + " KEY-----\nsynthetic\n-----END RSA " + "PRIVATE" + " KEY-----",
+            synthetic_value,
+            "Author" + "ization: Bearer " + synthetic_value,
         )
         for index, value in enumerate(values):
             envelope = make_envelope_v2(
@@ -444,6 +471,30 @@ class ExchangeTests(unittest.TestCase):
             )
             self.assertEqual(receipt["outcome"], "rejected")
             self.assertNotIn(value, json.dumps(receipt))
+
+    def test_v2_requires_explicit_replay_ledger(self):
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-replay-ledger-required",
+            "2099-01-01T00:00:00Z",
+            [],
+            ["artifact://synthetic/reference"],
+        )
+        unavailable = _runtime_admit_v2(
+            envelope,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(unavailable["outcome"], "quarantined")
+        self.assertEqual(unavailable["diagnostics"][0]["code"], "replay-ledger-unavailable")
+
+        admitted = _runtime_admit_v2(
+            envelope,
+            SyntheticReplayLedger(),
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(admitted["outcome"], "admitted")
 
     def test_v2_deduplicates_identical_revision_declarations(self):
         record = canonical_record(
@@ -607,7 +658,7 @@ class ExchangeTests(unittest.TestCase):
             [],
             ["artifact://synthetic/reference"],
         )
-        ledger: set[str] = set()
+        ledger = SyntheticReplayLedger()
         barrier = threading.Barrier(2)
         outcomes: list[str] = []
 

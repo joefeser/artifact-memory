@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-import threading
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Protocol
 
 from .canonical import canonical_bytes, receipt_with_digest
 from .extensions import ExtensionFailure, preserve_extensions
@@ -17,13 +16,26 @@ AUTHORITY_BOUNDARY = "knowledge exchange grants no execution, disclosure, routin
 
 
 _canonical = canonical_bytes
-_LEDGER_LOCK = threading.Lock()
 _PRIVATE_KEY_HEADER = re.compile(
     r"-----BEGIN (?:[A-Z0-9][A-Z0-9 -]* )?" + r"PRIVATE" + r" KEY-----",
     re.IGNORECASE,
 )
+_TOKEN_VALUE = re.compile(
+    r"(?:gh[opusr]_[A-Za-z0-9_]{20,}|github" + r"_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})"
+)
+_BEARER_VALUE = re.compile(
+    r"(?:authorization\s*:\s*)?bearer\s+[A-Za-z0-9._~+/=-]{16,}",
+    re.IGNORECASE,
+)
 _RECORD_ID = re.compile(r"^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$")
 _REVISION_DIGEST = re.compile(r"^sha-256:[0-9a-f]{64}$")
+
+
+class ReplayLedger(Protocol):
+    """Caller-supplied durable ledger with an atomic insert-if-absent claim."""
+
+    def claim(self, envelope_ref: str) -> bool:
+        """Return true only when this call atomically claims a new envelope."""
 
 
 def make_envelope(audience_ref: str, correlation_id: str, expires_at: str, record_refs: list[dict[str, str]], artifact_refs: list[str], sensitivity: str = "public", record_bundle: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -81,10 +93,9 @@ def _contains_protected_material(value: Any) -> bool:
     if isinstance(value, list):
         return any(_contains_protected_material(item) for item in value)
     return isinstance(value, str) and (
-        re.fullmatch(r"bearer [A-Za-z0-9._~+/=-]{16,}", value, re.IGNORECASE) is not None
+        _BEARER_VALUE.fullmatch(value) is not None
         or _PRIVATE_KEY_HEADER.search(value) is not None
-        or re.fullmatch(r"(?:gh[opusr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})", value)
-        is not None
+        or _TOKEN_VALUE.fullmatch(value) is not None
     )
 
 
@@ -220,7 +231,7 @@ def _record_revision(
 
 def admit_v2(
     envelope: dict[str, Any],
-    seen_envelope_ids: set[str] | None = None,
+    replay_ledger: ReplayLedger | None = None,
     *,
     expected_audience_ref: str,
     supported_schema: bool = True,
@@ -251,15 +262,28 @@ def admit_v2(
             "rejected",
             diagnostics=[{"code": "envelope-id-mismatch", "message": "exchange envelope identity does not match its canonical body"}],
         )
-    ledger = seen_envelope_ids if seen_envelope_ids is not None else set()
-    with _LEDGER_LOCK:
-        if envelope_ref in ledger:
-            return _v2_receipt(
-                envelope_ref,
-                "duplicate",
-                diagnostics=[{"code": "replay", "message": "envelope was already processed"}],
-            )
-        ledger.add(envelope_ref)
+    if replay_ledger is None:
+        return _v2_receipt(
+            envelope_ref,
+            "quarantined",
+            diagnostics=[{"code": "replay-ledger-unavailable", "message": "a durable atomic replay ledger is required"}],
+        )
+    try:
+        claimed = replay_ledger.claim(envelope_ref)
+    except Exception:
+        claimed = None
+    if not isinstance(claimed, bool):
+        return _v2_receipt(
+            envelope_ref,
+            "quarantined",
+            diagnostics=[{"code": "replay-ledger-unavailable", "message": "the durable atomic replay ledger could not claim the envelope"}],
+        )
+    if not claimed:
+        return _v2_receipt(
+            envelope_ref,
+            "duplicate",
+            diagnostics=[{"code": "replay", "message": "envelope was already processed"}],
+        )
     if not supported_schema:
         return _v2_receipt(
             envelope_ref,
