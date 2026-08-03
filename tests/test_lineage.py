@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-from artifact_memory.lineage import SOURCE_REF, observe_legacy_file
+from artifact_memory.lineage import SOURCE_REF, observe_legacy_file, validate_legacy_observation
 from artifact_memory.legacy_lineage_conformance import render_legacy_lineage_receipt, run_legacy_lineage_conformance
 from artifact_memory.validator import ValidationFailure, validate
 
@@ -31,6 +31,23 @@ class LineageTests(unittest.TestCase):
         schema = json.loads((root / "artifact_memory/schemas/core/legacy-observation.v1.schema.json").read_text(encoding="utf-8"))
         observation = json.loads((root / "fixtures/synthetic/lineage/v0-legacy-none-observation.json").read_text(encoding="utf-8"))
         validate(observation, schema)
+        self.assertIs(validate_legacy_observation(observation), observation)
+
+        broad_v1 = json.loads(json.dumps(observation))
+        broad_v1["source_ref"] = "legacy-source://synthetic/other"
+        broad_v1["historical_fields"]["legacy_hash"] = {
+            "algorithm": "sha-1",
+            "state": "sha-1-observed-not-upgraded",
+            "value": "legacy-noncanonical-value",
+        }
+        self.assertIs(validate_legacy_observation(broad_v1), broad_v1)
+
+    def test_malformed_schema_versions_fail_closed(self):
+        row = {"path": "synthetic/file", "size": 1, "created": "2010", "modified": "2010", "sha1": "NONE"}
+        for version in ([], {}):
+            with self.subTest(version=version), self.assertRaises(ValidationFailure) as failure:
+                observe_legacy_file(row, SOURCE_REF, schema_version=version)  # type: ignore[arg-type]
+            self.assertEqual(failure.exception.code, "legacy-schema-unsupported")
 
     def test_malformed_conformance_vectors_fail_closed(self):
         import tempfile

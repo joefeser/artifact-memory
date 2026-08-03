@@ -17,6 +17,21 @@ _LEGACY_OBSERVATION_SCHEMAS = {
 }
 
 
+def validate_legacy_observation(observation: dict[str, Any]) -> dict[str, Any]:
+    """Validate retained v1 read evidence or strict v2 observations by schema ID."""
+    if not isinstance(observation, dict):
+        raise ValidationFailure("legacy-observation-invalid", "legacy observation must be an object")
+    schema_id = observation.get("schema_id")
+    schema_version = {
+        "artifact-memory/legacy-observation/v1": "v1",
+        "artifact-memory/legacy-observation/v2": "v2",
+    }.get(schema_id)
+    if schema_version is None:
+        raise ValidationFailure("legacy-schema-unsupported", "legacy observation schema version is unsupported")
+    validate(observation, _LEGACY_OBSERVATION_SCHEMAS[schema_version])
+    return observation
+
+
 def _require_row(row: dict[str, Any], field: str, expected: type) -> Any:
     value = row.get(field)
     if not isinstance(value, expected) or isinstance(value, bool):
@@ -33,7 +48,7 @@ def observe_legacy_file(
     schema_version: str = "v1",
 ) -> dict[str, Any]:
     """Preserve legacy evidence without upgrading identity or mutating source."""
-    if schema_version not in _LEGACY_OBSERVATION_SCHEMAS:
+    if not isinstance(schema_version, str) or schema_version not in _LEGACY_OBSERVATION_SCHEMAS:
         raise ValidationFailure("legacy-schema-unsupported", "legacy observation schema version is unsupported")
     if not isinstance(row, dict):
         raise ValidationFailure("legacy-evidence-insufficient", "legacy row must be an object")
@@ -74,5 +89,4 @@ def observe_legacy_file(
             "legacy NONE values remain not-recorded",
         ],
     }
-    validate(observation, _LEGACY_OBSERVATION_SCHEMAS[schema_version])
-    return observation
+    return validate_legacy_observation(observation)
