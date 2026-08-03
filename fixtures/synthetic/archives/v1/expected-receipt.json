@@ -1,0 +1,75 @@
+{
+  "authority_boundary": "archive inspection grants no extraction, execution, mutation, disclosure, or trust authority",
+  "case_count": 5,
+  "cases": [
+    {
+      "accepted_entry_count": 2,
+      "case_id": "safe",
+      "container_digest": "sha-256:53a8c0a993e3fdc8434e21ed325278472268db9f2ed7fdc33f5e887d35b3e501",
+      "diagnostic_codes": [],
+      "extracted_tree_manifest_digest": "sha-256:7bd63a970d87793cf44cf5ccd029b77c3d9d8a05cc8758503dea78386bd99d58",
+      "inspection_completeness": "complete",
+      "inspection_receipt_id": "archive-inspection-receipt://7384db4513b8868da4e03fd4c13d2b77b6e986cacdc5ded750e2cd6ad72df5a9",
+      "outcome": "supported",
+      "relationship_emitted": true
+    },
+    {
+      "accepted_entry_count": 3,
+      "case_id": "mixed-malicious",
+      "container_digest": "sha-256:5576369e1ab6be430180e8808b4334e1c8777209c88293f02c869fb3ba3506c5",
+      "diagnostic_codes": ["path-traversal", "duplicate-entry", "case-collision", "link-entry", "decompression-limit"],
+      "extracted_tree_manifest_digest": null,
+      "inspection_completeness": "partial",
+      "inspection_receipt_id": "archive-inspection-receipt://e709cdb286bfd96fb72a07f65749f0df03689ce62ebeaa84bb895c96554732da",
+      "outcome": "partial",
+      "relationship_emitted": false
+    },
+    {
+      "accepted_entry_count": 0,
+      "case_id": "link-only",
+      "container_digest": "sha-256:979bf435267867c4899c972074d5fa528c452a89c714109b08b288712a29b7fc",
+      "diagnostic_codes": ["link-entry"],
+      "extracted_tree_manifest_digest": null,
+      "inspection_completeness": "unavailable",
+      "inspection_receipt_id": "archive-inspection-receipt://64572702467712de236fca57c3a05d40f4e96e0d0e1b914695f38f6b4f84cf87",
+      "outcome": "unsupported",
+      "relationship_emitted": false
+    },
+    {
+      "accepted_entry_count": 0,
+      "case_id": "encrypted-only",
+      "container_digest": "sha-256:e81e0361b426c3ebab5e9403636bf7333282fdac2372591000394e4c3e52b3c2",
+      "diagnostic_codes": ["encrypted-entry"],
+      "extracted_tree_manifest_digest": null,
+      "inspection_completeness": "unavailable",
+      "inspection_receipt_id": "archive-inspection-receipt://d5692c314bb5cfbd10618d5675ce224738ce0e3ae436de21e194a1c14cbb1436",
+      "outcome": "unsupported",
+      "relationship_emitted": false
+    },
+    {
+      "accepted_entry_count": 0,
+      "case_id": "corrupt",
+      "container_digest": "sha-256:f22a2a6ffe2c24b9b9465366362ce239120d70f569d50af56bb8c23b590fd456",
+      "diagnostic_codes": ["corrupt-entry"],
+      "extracted_tree_manifest_digest": null,
+      "inspection_completeness": "partial",
+      "inspection_receipt_id": "archive-inspection-receipt://ff264e9a45047b16d9d8e64dcc62ac0ed87802938169c3980c573d5e97a2166b",
+      "outcome": "partial",
+      "relationship_emitted": false
+    }
+  ],
+  "claims": [
+    "safe ZIP bytes retain an independent container digest and complete extracted-tree manifest relationship",
+    "path traversal, duplicate entry, case collision, link, encryption, corruption, and decompression limits produce explicit bounded outcomes",
+    "partial and unsupported receipts emit no complete extracted-tree relationship"
+  ],
+  "limitations": [
+    "fixtures are newly authored synthetic ZIP recipes replayed in a temporary directory",
+    "v0 supports bounded ZIP inspection only and does not claim arbitrary archive-format interoperability"
+  ],
+  "outcome": "pass",
+  "receipt_id": "archive-conformance-receipt://71aeb95b8ffd10577cf1522e4199f933621404e7ddcc423d9ece20c2089ac27f",
+  "schema_id": "artifact-memory/archive-conformance-receipt/v1",
+  "synthetic": true,
+  "vector_set_digest": "sha-256:577d04c05cc9e696060a033b9146c5e94833d5200d8852824bd42c2651670346"
+}
