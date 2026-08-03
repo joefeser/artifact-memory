@@ -22,6 +22,9 @@ one declaration of each kind and checked machine/human receipts.
 `adapters/v1/` proves one synthetic reference-adapter success receipt, one
 authority-boundary failure receipt, and the local-read-only TraceMap manifest.
 
+`vault-intake/v1/` proves immutable registration, verification, canonical
+artifact/version records, duplicate replay, and digest-mismatch quarantine.
+
 The wider fixture set covers or is expected to cover:
 
 - equivalent logical trees under Windows, macOS, and Linux paths;

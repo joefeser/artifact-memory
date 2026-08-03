@@ -32,10 +32,13 @@ def _register_tree(vault: Path, root: Path) -> list[dict[str, Any]]:
     receipts = []
     for path in sorted(root.rglob("*")):
         if path.is_file() and not path.is_symlink():
+            receipt = register_bytes(vault, path.read_bytes())
+            if receipt["outcome"] not in {"registered", "duplicate"}:
+                raise RuntimeError("synthetic source content registration failed")
             receipts.append(
                 {
                     "path": path.relative_to(root).as_posix(),
-                    "receipt": register_bytes(vault, path.read_bytes()),
+                    "receipt": receipt,
                 }
             )
     return receipts
@@ -103,6 +106,8 @@ def run_vertical_slice(
         canonical_bytes(source_manifest),
         "application/vnd.artifact-memory.manifest+json",
     )
+    if manifest_registration["outcome"] not in {"registered", "duplicate"}:
+        raise RuntimeError("synthetic source manifest registration failed")
     source_version_ref = manifest_registration["artifact_version_ref"]
     source_version = {
         "schema_id": "artifact-memory/artifact-version/v1",
