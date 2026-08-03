@@ -31,6 +31,14 @@ closed with `legacy-evidence-insufficient`; an unattributed source fails with
 `legacy-source-unsupported`. The experiment does not migrate bytes, create
 current identity, resolve a path, or mutate the source.
 
+`legacy-observation/v1` remains the broad legacy read-compatibility contract.
+It is intentionally not a claim that every schema-valid historical v1 value can
+be reproduced from the reviewed source row model. The observer emits v1 by
+default for existing consumers and can emit strict `legacy-observation/v2`
+explicitly; the checked two-row conformance fixture uses v2. V2 binds the
+WhereAreMyFiles source and exact SHA-1/`NONE` state relationship without
+narrowing the retained v1 schema in place.
+
 A historical SHA-1 value remains labeled SHA-1 and is never converted into a
 SHA-256 claim. `NONE` means only that the old application recorded no hash; it
 does not mean empty content, a failed read, or a known content identity.
