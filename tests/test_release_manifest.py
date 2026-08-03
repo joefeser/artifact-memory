@@ -1,5 +1,7 @@
 import copy
+import hashlib
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -43,6 +45,63 @@ class ReleaseManifestTests(unittest.TestCase):
         with self.assertRaises(ValidationFailure) as failure:
             validate_release_manifest(manifest)
         self.assertEqual(failure.exception.code, "release-artifact-duplicate")
+
+    def test_case_colliding_artifact_names_fail_closed(self):
+        manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
+        duplicate = copy.deepcopy(manifest["artifacts"][0])
+        duplicate["name"] = duplicate["name"].upper()
+        duplicate["kind"] = "documentation"
+        manifest["artifacts"].append(duplicate)
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_release_manifest(manifest)
+        self.assertEqual(failure.exception.code, "release-artifact-case-collision")
+
+    def test_documentation_asset_bytes_are_reproduced(self):
+        manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
+        documentation = b"synthetic release notes\n"
+        documentation_name = "SYNTHETIC-NOTES.md"
+        documentation_digest = hashlib.sha256(documentation).hexdigest()
+        manifest["artifacts"].append(
+            {
+                "name": documentation_name,
+                "kind": "documentation",
+                "format": "markdown",
+                "byte_size": len(documentation),
+                "sha256": "sha-256:" + documentation_digest,
+                "provenance": "newly authored synthetic release fixture",
+            }
+        )
+        checksum_name = manifest["checksum_manifest"]["artifact_name"]
+        source = next(artifact for artifact in manifest["artifacts"] if artifact["kind"] == "source-archive")
+        checksum = f"{source['sha256'].removeprefix('sha-256:')}  {source['name']}\n{documentation_digest}  {documentation_name}\n".encode("ascii")
+        checksum_artifact = next(artifact for artifact in manifest["artifacts"] if artifact["kind"] == "checksum-file")
+        checksum_artifact["byte_size"] = len(checksum)
+        checksum_artifact["sha256"] = "sha-256:" + hashlib.sha256(checksum).hexdigest()
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            (fixture / "v0-preview-manifest.v2.json").write_text(json.dumps(manifest), encoding="utf-8")
+            (fixture / checksum_name).write_bytes(checksum)
+            with self.assertRaises(ValidationFailure) as missing:
+                run_release_conformance(fixture)
+            self.assertEqual(missing.exception.code, "release-artifact-unavailable")
+            (fixture / documentation_name).write_bytes(documentation)
+            self.assertEqual(run_release_conformance(fixture)["outcome"], "pass")
+
+    def test_non_ascii_checksum_manifest_fails_closed(self):
+        manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
+        checksum_name = manifest["checksum_manifest"]["artifact_name"]
+        checksum = b"\xff"
+        checksum_artifact = next(artifact for artifact in manifest["artifacts"] if artifact["kind"] == "checksum-file")
+        checksum_artifact["byte_size"] = len(checksum)
+        checksum_artifact["sha256"] = "sha-256:" + hashlib.sha256(checksum).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            (fixture / "v0-preview-manifest.v2.json").write_text(json.dumps(manifest), encoding="utf-8")
+            (fixture / checksum_name).write_bytes(checksum)
+            with self.assertRaises(ValidationFailure) as failure:
+                run_release_conformance(fixture)
+            self.assertEqual(failure.exception.code, "release-checksum-encoding-invalid")
 
     def test_released_tag_must_match_release_identifier(self):
         manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))

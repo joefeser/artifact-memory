@@ -13,6 +13,8 @@ def validate_release_manifest(manifest: dict[str, Any]) -> None:
     names = [artifact["name"] for artifact in manifest["artifacts"]]
     if len(names) != len(set(names)):
         raise ValidationFailure("release-artifact-duplicate", "release artifact names must be unique", "$.artifacts")
+    if len(names) != len({name.casefold() for name in names}):
+        raise ValidationFailure("release-artifact-case-collision", "release artifact names must not collide by case", "$.artifacts")
     checksum_name = manifest["checksum_manifest"]["artifact_name"]
     checksum_artifacts = [artifact for artifact in manifest["artifacts"] if artifact["kind"] == "checksum-file"]
     if (

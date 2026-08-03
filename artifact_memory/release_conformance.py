@@ -63,16 +63,33 @@ def run_release_conformance(fixture: Path) -> dict[str, Any]:
         raise ValidationFailure("release-artifact-digest-mismatch", "source archive size or digest does not reproduce")
     with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:") as archive:
         names = set(archive.getnames())
-    for required in (f"{prefix}README.md", f"{prefix}pyproject.toml", f"{prefix}artifact_memory"):
+    for required in (f"{prefix}README.md", f"{prefix}pyproject.toml"):
         if required not in names:
             raise ValidationFailure("release-artifact-content-missing", "source archive lacks an install or documentation input")
+    if not any(name.startswith(f"{prefix}artifact_memory/") for name in names):
+        raise ValidationFailure("release-artifact-content-missing", "source archive lacks package contents")
+
+    reproduced_assets = {archive_name: archive_bytes}
+    for artifact in manifest["artifacts"]:
+        if artifact["kind"] in {"source-archive", "checksum-file"}:
+            continue
+        try:
+            artifact_bytes = (fixture / artifact["name"]).read_bytes()
+        except OSError as exc:
+            raise ValidationFailure("release-artifact-unavailable", "release asset bytes are unavailable") from exc
+        if len(artifact_bytes) != artifact["byte_size"] or sha256_bytes(artifact_bytes) != artifact["sha256"]:
+            raise ValidationFailure("release-artifact-digest-mismatch", "release asset size or digest does not reproduce")
+        reproduced_assets[artifact["name"]] = artifact_bytes
 
     checksum_name = manifest["checksum_manifest"]["artifact_name"]
     checksum_bytes = (fixture / checksum_name).read_bytes()
     checksum_artifact = next(artifact for artifact in manifest["artifacts"] if artifact["name"] == checksum_name)
     if len(checksum_bytes) != checksum_artifact["byte_size"] or sha256_bytes(checksum_bytes) != checksum_artifact["sha256"]:
         raise ValidationFailure("release-checksum-file-mismatch", "checksum manifest size or digest does not reproduce")
-    lines = checksum_bytes.decode("ascii").splitlines()
+    try:
+        lines = checksum_bytes.decode("ascii").splitlines()
+    except UnicodeError as exc:
+        raise ValidationFailure("release-checksum-encoding-invalid", "checksum manifest must be ASCII") from exc
     expected_assets = [artifact for artifact in manifest["artifacts"] if artifact["kind"] != "checksum-file"]
     parsed: dict[str, str] = {}
     for line in lines:
@@ -82,12 +99,22 @@ def run_release_conformance(fixture: Path) -> dict[str, Any]:
         parsed[match.group(2)] = "sha-256:" + match.group(1)
     if parsed != {artifact["name"]: artifact["sha256"] for artifact in expected_assets}:
         raise ValidationFailure("release-checksum-scope-mismatch", "checksum manifest does not cover every non-checksum asset exactly once")
+    for artifact in expected_assets:
+        asset_bytes = reproduced_assets.get(artifact["name"])
+        if asset_bytes is None or len(asset_bytes) != artifact["byte_size"] or sha256_bytes(asset_bytes) != artifact["sha256"]:
+            raise ValidationFailure("release-artifact-digest-mismatch", "checksummed release asset bytes do not reproduce")
 
     schema_count, schema_digest = _schema_inventory(commit)
     if schema_count != manifest["surfaces"]["schemas"]["inventory_count"] or schema_digest != manifest["surfaces"]["schemas"]["inventory_digest"]:
         raise ValidationFailure("release-schema-inventory-mismatch", "schema inventory does not reproduce")
-    project = tomllib.loads(_git("show", f"{commit}:pyproject.toml").decode("utf-8"))
-    package_version = project["project"]["version"]
+    try:
+        project = tomllib.loads(_git("show", f"{commit}:pyproject.toml").decode("utf-8"))
+        project_table = project.get("project")
+        package_version = project_table.get("version") if isinstance(project_table, dict) else None
+    except (UnicodeError, tomllib.TOMLDecodeError) as exc:
+        raise ValidationFailure("release-pyproject-invalid", "release pyproject metadata is invalid") from exc
+    if not isinstance(package_version, str) or not package_version:
+        raise ValidationFailure("release-pyproject-invalid", "release package version is missing")
     if package_version != manifest["surfaces"]["reference_cli"]["package_version"]:
         raise ValidationFailure("release-package-version-mismatch", "reference CLI package version does not reproduce")
 
