@@ -81,7 +81,7 @@ def _contains_protected_material(value: Any) -> bool:
     if isinstance(value, list):
         return any(_contains_protected_material(item) for item in value)
     return isinstance(value, str) and (
-        value.casefold().startswith("bearer ")
+        re.fullmatch(r"bearer [A-Za-z0-9._~+/=-]{16,}", value, re.IGNORECASE) is not None
         or _PRIVATE_KEY_HEADER.search(value) is not None
         or re.fullmatch(r"(?:gh[opusr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})", value)
         is not None
@@ -400,6 +400,7 @@ def admit_v2(
             and _RECORD_ID.fullmatch(item[0]) is not None
             and isinstance(item[1], str)
             and _REVISION_DIGEST.fullmatch(item[1]) is not None
+            and isinstance(sensitivity, str)
             and sensitivity in sensitivity_rank
             for item, sensitivity in available_sensitivities.items()
         )

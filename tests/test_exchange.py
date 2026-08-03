@@ -374,6 +374,27 @@ class ExchangeTests(unittest.TestCase):
         self.assertEqual(expired_receipt["outcome"], "rejected")
         self.assertEqual(expired_receipt["extensions"], {identifier: declaration})
 
+        prose_declaration = {
+            "version": "v1",
+            "required": False,
+            "value": {"note": "Bearer instruments are transferable"},
+        }
+        prose_envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-bearer-prose-extension",
+            "2099-01-01T00:00:00Z",
+            [],
+            ["artifact://synthetic/reference"],
+            extensions={identifier: prose_declaration},
+        )
+        prose_receipt = admit_v2(
+            prose_envelope,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(prose_receipt["outcome"], "admitted")
+        self.assertEqual(prose_receipt["extensions"], {identifier: prose_declaration})
+
     def test_v2_does_not_interpret_opaque_optional_extension_keys(self):
         for key in ("api-key", "private_key", "cookie"):
             envelope = make_envelope_v2(
@@ -510,11 +531,15 @@ class ExchangeTests(unittest.TestCase):
             [revision_ref(record)],
             [],
         )
+        reference = revision_ref(record)
+        availability_key = (reference["record_id"], reference["revision_digest"])
         cases = (
             {"available_record_revisions": []},
             {"available_record_revisions": {("bad", "revision")}},
             {"available_record_sensitivities": []},
-            {"available_record_sensitivities": {revision_ref(record)["record_id"]: "public"}},
+            {"available_record_sensitivities": {reference["record_id"]: "public"}},
+            {"available_record_sensitivities": {availability_key: []}},
+            {"available_record_sensitivities": {availability_key: {}}},
         )
         for options in cases:
             with self.subTest(options=options):
