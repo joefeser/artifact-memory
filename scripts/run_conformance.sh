@@ -16,4 +16,5 @@ python3 scripts/run_extension_conformance.py --check >/dev/null
 python3 scripts/run_adapter_manifest_conformance.py --check >/dev/null
 python3 scripts/run_tracemap_failure_conformance.py --check >/dev/null
 python3 scripts/run_vault_intake_conformance.py --check >/dev/null
+python3 scripts/run_release_conformance.py --check >/dev/null
 python3 -m unittest tests.test_wits_conformance >/dev/null

@@ -78,7 +78,9 @@ See [Security](SECURITY.md) and the
 
 Start with the [quickstart](docs/quickstart.md). Versioning and public launch
 requirements are in [the release policy](docs/release/versioning-and-launch.md)
-and [the readiness audit](docs/release/public-readiness-audit.md).
+and [the readiness audit](docs/release/public-readiness-audit.md). The current
+[support boundary](SUPPORT.md) and [preview notes](docs/release/v0.1.0-preview-notes.md)
+remain explicitly pre-release.
 
 ## Design
 
