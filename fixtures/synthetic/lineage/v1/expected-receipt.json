@@ -1,0 +1,26 @@
+{
+  "artifact_identities_established": 0,
+  "claims": [
+    "complete synthetic rows emit read-only historical observations",
+    "SHA-1 and NONE establish no artifact or content identity",
+    "the historical source remains separately attributed"
+  ],
+  "content_identities_established": 0,
+  "hash_states": [
+    "none-recorded",
+    "sha-1-observed-not-upgraded"
+  ],
+  "limitations": [
+    "synthetic replay does not prove a complete historical filesystem scan",
+    "historical observations establish no present existence, custody, authenticity, trust, disclosure permission, or authority"
+  ],
+  "observation_count": 2,
+  "outcome": "pass",
+  "receipt_id": "legacy-lineage-conformance-receipt://9206c885186576df4df1f1b3bb39c7de9739cc6030d6b340c381abea522789a5",
+  "schema_id": "artifact-memory/legacy-lineage-conformance-receipt/v1",
+  "source_commit": "3a18550fa52526e1a440a1e9264bd9f17638d89e",
+  "source_mutations": 0,
+  "source_ref": "https://github.com/joefeser/WhereAreMyFiles",
+  "synthetic": true,
+  "vector_set_digest": "sha-256:7cd629a614e5d43872bd6d209916602130a0b9a6cf2ea262d3c4b1977f9047b5"
+}
