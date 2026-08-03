@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,6 +57,25 @@ class ReleaseManifestTests(unittest.TestCase):
             validate_release_manifest(manifest)
         self.assertEqual(failure.exception.code, "release-artifact-case-collision")
 
+    def test_optional_manifest_extensions_are_preserved_and_required_fail_closed(self):
+        identifier = "https://synthetic.example/release-preview"
+        declaration = {"version": "v1", "required": False, "value": {"opaque": True}}
+        manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
+        manifest["extensions"] = {identifier: declaration}
+        validate_release_manifest(manifest)
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            for source in FIXTURE.iterdir():
+                if source.is_file():
+                    (fixture / source.name).write_bytes(source.read_bytes())
+            (fixture / "v0-preview-manifest.v2.json").write_text(json.dumps(manifest), encoding="utf-8")
+            receipt = run_release_conformance(fixture)
+        self.assertEqual(receipt["extensions"], {identifier: declaration})
+        manifest["extensions"][identifier]["required"] = True
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_release_manifest(manifest)
+        self.assertEqual(failure.exception.code, "required-extension-unsupported")
+
     def test_documentation_asset_bytes_are_reproduced(self):
         manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
         documentation = b"synthetic release notes\n"
@@ -102,6 +122,20 @@ class ReleaseManifestTests(unittest.TestCase):
             with self.assertRaises(ValidationFailure) as failure:
                 run_release_conformance(fixture)
             self.assertEqual(failure.exception.code, "release-checksum-encoding-invalid")
+
+    def test_release_cli_reports_invalid_fixture_without_traceback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                ["python3", "scripts/run_release_conformance.py", "--fixture", directory, "--check"],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("release-preview-fixture-invalid", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
     def test_released_tag_must_match_release_identifier(self):
         manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))

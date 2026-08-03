@@ -4,12 +4,23 @@ from __future__ import annotations
 
 from typing import Any
 
+from .extensions import ExtensionFailure, preserve_extensions
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
 
 def validate_release_manifest(manifest: dict[str, Any]) -> None:
     validate(manifest, load_schema("core", "release-manifest.v2.schema.json"))
+    try:
+        preserve_extensions(
+            {},
+            {
+                "schema_id": "artifact-memory/extension-bundle/v1",
+                "extensions": manifest.get("extensions", {}),
+            },
+        )
+    except ExtensionFailure as exc:
+        raise ValidationFailure(exc.code, exc.message, exc.path) from exc
     names = [artifact["name"] for artifact in manifest["artifacts"]]
     if len(names) != len(set(names)):
         raise ValidationFailure("release-artifact-duplicate", "release artifact names must be unique", "$.artifacts")

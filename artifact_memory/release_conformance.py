@@ -43,7 +43,10 @@ def _schema_inventory(commit: str) -> tuple[int, str]:
 
 
 def run_release_conformance(fixture: Path) -> dict[str, Any]:
-    manifest = load_json(fixture / "v0-preview-manifest.v2.json")
+    manifest_path = fixture / "v0-preview-manifest.v2.json"
+    if not manifest_path.is_file():
+        raise ValidationFailure("release-preview-fixture-invalid", "selected fixture lacks the v0 preview manifest")
+    manifest = load_json(manifest_path)
     validate_release_manifest(manifest)
     commit = manifest["source"]["commit"]
 
@@ -61,8 +64,11 @@ def run_release_conformance(fixture: Path) -> dict[str, Any]:
         raise ValidationFailure("release-artifact-provenance-mismatch", "source archive provenance command is not exact")
     if len(archive_bytes) != archive_artifact["byte_size"] or sha256_bytes(archive_bytes) != archive_artifact["sha256"]:
         raise ValidationFailure("release-artifact-digest-mismatch", "source archive size or digest does not reproduce")
-    with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:") as archive:
-        names = set(archive.getnames())
+    try:
+        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:") as archive:
+            names = set(archive.getnames())
+    except (tarfile.TarError, UnicodeError) as exc:
+        raise ValidationFailure("release-artifact-invalid", "source archive could not be parsed") from exc
     for required in (f"{prefix}README.md", f"{prefix}pyproject.toml"):
         if required not in names:
             raise ValidationFailure("release-artifact-content-missing", "source archive lacks an install or documentation input")
@@ -140,6 +146,8 @@ def run_release_conformance(fixture: Path) -> dict[str, Any]:
         "authority_boundary": manifest["authority_boundary"],
         "limitations": manifest["limitations"],
     }
+    if "extensions" in manifest:
+        body["extensions"] = manifest["extensions"]
     receipt = receipt_with_digest(
         "artifact-memory/release-conformance-receipt/v1",
         "release-conformance-receipt://",
