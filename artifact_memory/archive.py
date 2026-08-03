@@ -23,9 +23,9 @@ def _diagnostic(code: str, message: str, path: str | None = None) -> dict[str, A
     return {"code": code, "path": path, "message": message}
 
 
-def _normalized_path(info: zipfile.ZipInfo) -> tuple[str | None, str | None]:
-    normalized = info.filename.replace("\\", "/")
-    if info.is_dir() and normalized.endswith("/"):
+def _normalized_name(name: str, *, is_dir: bool) -> tuple[str | None, str | None]:
+    normalized = name.replace("\\", "/")
+    if is_dir and normalized.endswith("/"):
         normalized = normalized[:-1]
     parts = normalized.split("/")
     if (
@@ -37,6 +37,18 @@ def _normalized_path(info: zipfile.ZipInfo) -> tuple[str | None, str | None]:
     ):
         return None, "path-traversal"
     return normalized, None
+
+
+def _normalized_path(info: zipfile.ZipInfo) -> tuple[str | None, str | None]:
+    raw_name = getattr(info, "orig_filename", info.filename)
+    return _normalized_name(raw_name, is_dir=info.is_dir())
+
+
+def _path_conflicts(path: str, file_paths: set[str], *, current_is_file: bool = True) -> bool:
+    parts = path.split("/")
+    return any("/".join(parts[:index]) in file_paths for index in range(1, len(parts))) or (
+        current_is_file and any(existing.startswith(path + "/") for existing in file_paths)
+    )
 
 
 def _entry_kind(info: zipfile.ZipInfo) -> str:
@@ -118,6 +130,16 @@ def validate_archive_receipt(receipt: dict[str, Any]) -> None:
     paths = [entry["path"] for entry in entries]
     if paths != sorted(paths) or len(paths) != len(set(paths)):
         raise ValidationFailure("archive-entry-order-invalid", "archive receipt entries must be unique and sorted", "$.entries")
+    validated_paths: set[str] = set()
+    validated_casefolded: set[str] = set()
+    for path in paths:
+        normalized, failure = _normalized_name(path, is_dir=False)
+        if failure is not None or normalized != path:
+            raise ValidationFailure("archive-entry-path-invalid", "archive receipt entry path is unsafe", "$.entries")
+        if path.casefold() in validated_casefolded or _path_conflicts(path, validated_paths):
+            raise ValidationFailure("archive-entry-path-conflict", "archive receipt entry paths conflict", "$.entries")
+        validated_paths.add(path)
+        validated_casefolded.add(path.casefold())
     if receipt["observed_entry_set_digest"] != sha256_bytes(canonical_bytes(entries)):
         raise ValidationFailure("archive-entry-set-digest-mismatch", "observed entry set digest does not match entries", "$.observed_entry_set_digest")
     container = receipt["container"]
@@ -155,7 +177,8 @@ def _inspect_open_zip(
     diagnostics: list[dict[str, Any]] = []
     seen_exact: set[str] = set()
     seen_casefolded: set[str] = set()
-    total = 0
+    seen_files: set[str] = set()
+    total_charged = 0
     try:
         with zipfile.ZipFile(stream) as archive:
             for index, info in enumerate(archive.infolist()):
@@ -167,6 +190,7 @@ def _inspect_open_zip(
                     diagnostics.append(_diagnostic(path_failure, "archive entry path is unsafe"))
                     continue
                 assert normalized is not None
+                kind = _entry_kind(info)
                 if normalized in seen_exact:
                     diagnostics.append(_diagnostic("duplicate-entry", "archive repeats an exact normalized entry path", normalized))
                     continue
@@ -174,10 +198,12 @@ def _inspect_open_zip(
                 if folded in seen_casefolded:
                     diagnostics.append(_diagnostic("case-collision", "archive entry collides under Unicode case folding", normalized))
                     continue
+                if _path_conflicts(normalized, seen_files, current_is_file=kind == "file"):
+                    diagnostics.append(_diagnostic("path-conflict", "archive file and descendant paths conflict", normalized))
+                    continue
                 seen_exact.add(normalized)
                 seen_casefolded.add(folded)
 
-                kind = _entry_kind(info)
                 if kind == "link":
                     diagnostics.append(_diagnostic("link-entry", "archive links are unsupported", normalized))
                     continue
@@ -189,8 +215,9 @@ def _inspect_open_zip(
                     continue
                 if kind == "directory":
                     continue
+                seen_files.add(normalized)
 
-                remaining = max_uncompressed_bytes - total
+                remaining = max_uncompressed_bytes - total_charged
                 if info.file_size > remaining:
                     diagnostics.append(_diagnostic("decompression-limit", "archive exceeds the v0 uncompressed-byte limit", normalized))
                     break
@@ -198,10 +225,20 @@ def _inspect_open_zip(
                     digest = hashlib.sha256()
                     byte_size = 0
                     limit_exceeded = False
-                    with archive.open(info) as stream:
-                        while chunk := stream.read(min(64 * 1024, remaining - byte_size + 1)):
+                    charged_for_entry = info.file_size
+                    total_charged += charged_for_entry
+                    with archive.open(info) as entry_stream:
+                        while chunk := entry_stream.read(
+                            min(
+                                64 * 1024,
+                                info.file_size - byte_size + max_uncompressed_bytes - total_charged + 1,
+                            )
+                        ):
                             byte_size += len(chunk)
-                            if byte_size > remaining:
+                            if byte_size > charged_for_entry:
+                                total_charged += byte_size - charged_for_entry
+                                charged_for_entry = byte_size
+                            if total_charged > max_uncompressed_bytes:
                                 limit_exceeded = True
                                 break
                             digest.update(chunk)
@@ -217,7 +254,6 @@ def _inspect_open_zip(
                 if byte_size != info.file_size:
                     diagnostics.append(_diagnostic("corrupt-entry", "archive entry size does not match its central-directory claim", normalized))
                     continue
-                total += byte_size
                 entries.append(
                     {
                         "path": normalized,

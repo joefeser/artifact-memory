@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import stat
 import tempfile
 import warnings
@@ -67,11 +68,32 @@ def _build_case(case: dict[str, Any], path: Path) -> None:
 
 def run_archive_conformance(vector_path: Path) -> dict[str, Any]:
     vectors = load_json(vector_path)
+    if not isinstance(vectors, dict):
+        raise ValidationFailure("invalid-vector", "archive conformance vectors must be an object")
     if vectors.get("schema_id") != "artifact-memory/archive-conformance-vectors/v1" or vectors.get("synthetic") is not True:
         raise ValidationFailure("invalid-vector", "archive conformance vectors require synthetic provenance")
     cases = vectors.get("cases")
-    if not isinstance(cases, list) or not cases:
+    if not isinstance(cases, list) or not cases or not all(isinstance(case, dict) for case in cases):
         raise ValidationFailure("invalid-vector", "archive conformance vectors require cases")
+    for case in cases:
+        case_id = case.get("case_id")
+        entries = case.get("entries")
+        if not isinstance(case_id, str) or re.fullmatch(r"[A-Za-z0-9._-]+", case_id) is None:
+            raise ValidationFailure("invalid-vector", "archive case identifiers must be safe strings")
+        if not isinstance(entries, list) or not all(
+            isinstance(entry, dict)
+            and isinstance(entry.get("path"), str)
+            and entry.get("kind") in {"file", "directory", "link"}
+            and isinstance(entry.get("content_utf8", ""), str)
+            for entry in entries
+        ):
+            raise ValidationFailure("invalid-vector", "archive cases require valid entry recipes")
+        if case.get("expected_outcome") not in {"supported", "partial", "unsupported", "failed"} or not isinstance(case.get("expected_diagnostic_codes"), list) or not all(isinstance(code, str) for code in case["expected_diagnostic_codes"]):
+            raise ValidationFailure("invalid-vector", "archive cases require expected outcomes and diagnostics")
+        if case.get("patch") not in {None, "encrypted-flags", "corrupt-payload"}:
+            raise ValidationFailure("invalid-vector", "archive case patch is unsupported")
+        if case.get("patch") == "corrupt-payload" and not isinstance(case.get("corruption_marker"), str):
+            raise ValidationFailure("invalid-vector", "corrupt archive cases require a marker")
 
     summaries: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as temporary:

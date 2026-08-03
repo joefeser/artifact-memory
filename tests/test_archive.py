@@ -67,6 +67,41 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual([entry["path"] for entry in receipt["entries"]], ["safe.txt"])
             self.assertEqual([item["code"] for item in receipt["diagnostics"]], ["path-traversal"] * 4)
 
+    def test_raw_nul_and_file_descendant_conflicts_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            nul_path = Path(temporary) / "nul.zip"
+            with zipfile.ZipFile(nul_path, "w") as archive:
+                archive.writestr("safe.txt", b"unsafe-name")
+            nul_path.write_bytes(nul_path.read_bytes().replace(b"safe.txt", b"safe\x00txt"))
+            nul_receipt = inspect_zip(nul_path)
+            self.assertEqual([item["code"] for item in nul_receipt["diagnostics"]], ["path-traversal"])
+            self.assertEqual(nul_receipt["entries"], [])
+
+            conflict_path = Path(temporary) / "conflict.zip"
+            with zipfile.ZipFile(conflict_path, "w") as archive:
+                archive.writestr("node", b"file")
+                archive.writestr("node/child.txt", b"child")
+            conflict_receipt = inspect_zip(conflict_path)
+            self.assertEqual([entry["path"] for entry in conflict_receipt["entries"]], ["node"])
+            self.assertEqual([item["code"] for item in conflict_receipt["diagnostics"]], ["path-conflict"])
+
+    def test_corrupt_entries_consume_the_global_decompression_budget(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive_path = Path(temporary) / "budget.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("corrupt.bin", b"MARK")
+                archive.writestr("later.bin", b"1234")
+            data = bytearray(archive_path.read_bytes())
+            position = data.find(b"MARK")
+            self.assertGreaterEqual(position, 0)
+            data[position] ^= 0x01
+            archive_path.write_bytes(data)
+            receipt = inspect_zip(archive_path, max_uncompressed_bytes=6)
+            self.assertEqual(
+                [item["code"] for item in receipt["diagnostics"]],
+                ["corrupt-entry", "decompression-limit"],
+            )
+
     def test_entry_count_limit_stops_with_partial_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
             archive_path = Path(temporary) / "count.zip"
@@ -154,6 +189,41 @@ class ArchiveTests(unittest.TestCase):
         with self.assertRaises(ValidationFailure) as failure:
             validate_archive_receipt(tampered)
         self.assertEqual(failure.exception.code, "archive-entry-order-invalid")
+
+    def test_semantic_validator_rejects_unsafe_and_conflicting_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive_path = Path(temporary) / "safe.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("a.txt", b"a")
+                archive.writestr("b.txt", b"b")
+            receipt = inspect_zip(archive_path)
+        for paths, code in ((["../escape", "b.txt"], "archive-entry-path-invalid"), (["node", "node/child"], "archive-entry-path-conflict")):
+            tampered = copy.deepcopy(receipt)
+            for entry, path in zip(tampered["entries"], paths):
+                entry["path"] = path
+            tampered["entries"].sort(key=lambda entry: entry["path"])
+            tampered["observed_entry_set_digest"] = sha256_bytes(canonical_bytes(tampered["entries"]))
+            tampered["extracted_tree_manifest"]["entries"] = tampered["entries"]
+            tampered["extracted_tree_manifest_digest"] = sha256_bytes(canonical_bytes(tampered["extracted_tree_manifest"]))
+            tampered["relationship"]["extracted_tree_manifest_digest"] = tampered["extracted_tree_manifest_digest"]
+            tampered = _reseal(tampered)
+            with self.subTest(paths=paths), self.assertRaises(ValidationFailure) as failure:
+                validate_archive_receipt(tampered)
+            self.assertEqual(failure.exception.code, code)
+
+    def test_malformed_conformance_vectors_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vector_path = Path(temporary) / "vectors.json"
+            malformed_values = (
+                [],
+                {"schema_id": "artifact-memory/archive-conformance-vectors/v1", "synthetic": True, "cases": [None]},
+                {"schema_id": "artifact-memory/archive-conformance-vectors/v1", "synthetic": True, "cases": [{"case_id": "../escape", "entries": [], "expected_outcome": "supported", "expected_diagnostic_codes": []}]},
+            )
+            for malformed in malformed_values:
+                vector_path.write_text(json.dumps(malformed), encoding="utf-8")
+                with self.subTest(malformed=malformed), self.assertRaises(ValidationFailure) as failure:
+                    run_archive_conformance(vector_path)
+                self.assertEqual(failure.exception.code, "invalid-vector")
 
 
 if __name__ == "__main__":
