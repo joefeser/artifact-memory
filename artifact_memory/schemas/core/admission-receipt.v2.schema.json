@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/admission-receipt/v2",
+  "title": "Artifact Memory exchange admission receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "receipt_id",
+    "envelope_ref",
+    "outcome",
+    "accepted_record_ids",
+    "unresolved_record_ids",
+    "artifact_refs",
+    "artifact_retrieval",
+    "diagnostics",
+    "extensions",
+    "authority_boundary"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/admission-receipt/v2"},
+    "receipt_id": {"type": "string", "pattern": "^admission-receipt://[0-9a-f]{64}$"},
+    "envelope_ref": {"type": "string", "pattern": "^exchange://[0-9a-f]{64}$"},
+    "outcome": {"enum": ["admitted", "rejected", "quarantined", "duplicate", "unsupported", "partially-resolved"]},
+    "accepted_record_ids": {"type": "array", "items": {"type": "string", "pattern": "^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"}},
+    "unresolved_record_ids": {"type": "array", "items": {"type": "string", "pattern": "^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"}},
+    "artifact_refs": {"type": "array", "items": {"type": "string", "pattern": "^artifact://[A-Za-z0-9._~/-]+$"}},
+    "artifact_retrieval": {"const": "not-attempted/separately-authorized"},
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1},
+          "message": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "extensions": {"type": "object", "additionalProperties": true},
+    "authority_boundary": {
+      "const": "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"outcome": {"const": "admitted"}}, "required": ["outcome"]},
+      "then": {"properties": {"unresolved_record_ids": {"maxItems": 0}, "diagnostics": {"maxItems": 0}}}
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "partially-resolved"}}, "required": ["outcome"]},
+      "then": {"properties": {"accepted_record_ids": {"minItems": 1}, "unresolved_record_ids": {"minItems": 1}, "diagnostics": {"minItems": 1}}}
+    },
+    {
+      "if": {"properties": {"outcome": {"enum": ["rejected", "duplicate", "unsupported"]}}, "required": ["outcome"]},
+      "then": {
+        "properties": {
+          "accepted_record_ids": {"maxItems": 0},
+          "unresolved_record_ids": {"maxItems": 0},
+          "artifact_refs": {"maxItems": 0},
+          "diagnostics": {"minItems": 1}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "quarantined"}}, "required": ["outcome"]},
+      "then": {"properties": {"accepted_record_ids": {"maxItems": 0}, "diagnostics": {"minItems": 1}}}
+    }
+  ]
+}

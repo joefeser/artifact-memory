@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/exchange-envelope/v2",
+  "title": "Artifact Memory bounded exchange envelope v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "envelope_id",
+    "audience_ref",
+    "correlation_id",
+    "expires_at",
+    "bundle_manifest",
+    "handling",
+    "authority_boundary"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/exchange-envelope/v2"},
+    "envelope_id": {"type": "string", "pattern": "^exchange://[0-9a-f]{64}$"},
+    "audience_ref": {"type": "string", "minLength": 1},
+    "correlation_id": {"type": "string", "pattern": "^[A-Za-z0-9._~-]+$"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "bundle_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundle_id", "records", "artifact_refs"],
+      "properties": {
+        "bundle_id": {"type": "string", "pattern": "^exchange-bundle://[0-9a-f]{64}$"},
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["record_id", "revision_digest"],
+            "properties": {
+              "record_id": {"type": "string", "pattern": "^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+              "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+            }
+          }
+        },
+        "artifact_refs": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^artifact://[A-Za-z0-9._~/-]+$"}
+        }
+      }
+    },
+    "record_bundle": {
+      "type": "array",
+      "items": {"type": "object", "additionalProperties": true}
+    },
+    "handling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sensitivity", "disclosure", "artifact_retrieval"],
+      "properties": {
+        "sensitivity": {"enum": ["public", "private", "restricted"]},
+        "disclosure": {"enum": ["informational-only", "receiver-policy-required"]},
+        "artifact_retrieval": {"const": "separately-authorized"}
+      }
+    },
+    "authority_boundary": {
+      "const": "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"
+    },
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}
