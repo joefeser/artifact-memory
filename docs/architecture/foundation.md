@@ -183,15 +183,15 @@ The rewrite modernizes that model:
 
 | Historical concept | Artifact Memory concept |
 | --- | --- |
-| Drive information | Storage endpoint plus private resolver |
-| Drive letter | Machine-local mount mapping |
-| Volume identity heuristics | Endpoint discovery evidence |
-| Directory information | Normalized manifest path |
-| File information | Content object plus location observation |
-| SHA-1 | SHA-256 with named algorithm |
+| Drive information | Historical storage-location discovery evidence |
+| Drive letter | Historical machine-local mount observation |
+| Volume identity heuristics | Non-authoritative endpoint discovery evidence |
+| Directory information | Historical path-hierarchy observation |
+| File information | Historical file observation; no current identity |
+| SHA-1 or `NONE` | Legacy hash evidence; never upgraded to content identity |
 | SQLite database | Generated query projection |
-| Recursive scan | Platform-neutral scan receipt |
-| ZIP/7z phase | Container and extracted-tree relationship |
+| Recursive scan | Incomplete historical scan evidence |
+| Planned ZIP/7z phases | Roadmap only; no archive-support evidence |
 
 ## Non-goals for the first release
 
@@ -216,4 +216,3 @@ Artifact Memory itself. Success means:
 - an agent receives an authorized bounded context pack without vault access;
 - encrypted backup restores into an isolated location;
 - restored records and content pass independent digest verification.
-
