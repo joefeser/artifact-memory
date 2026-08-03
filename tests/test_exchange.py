@@ -39,9 +39,81 @@ def revision_ref(record):
 
 
 class ExchangeTests(unittest.TestCase):
+    def test_v2_binds_receiver_audience_and_fails_closed_on_record_sensitivity(self):
+        private_record = canonical_record(
+            record_id="record://synthetic/exchange-private",
+            sensitivity="private",
+        )
+        public_handling = make_envelope_v2(
+            "system://intended-receiver",
+            "v2-audience-and-handling",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(private_record)],
+            [],
+            sensitivity="public",
+            record_bundle=[private_record],
+        )
+        wrong_audience = admit_v2(
+            public_handling,
+            expected_audience_ref="system://different-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(wrong_audience["outcome"], "rejected")
+        self.assertEqual(wrong_audience["diagnostics"][0]["code"], "audience-mismatch")
+        handling_mismatch = admit_v2(
+            public_handling,
+            expected_audience_ref="system://intended-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(handling_mismatch["outcome"], "quarantined")
+        self.assertEqual(
+            handling_mismatch["diagnostics"][0]["code"],
+            "handling-sensitivity-mismatch",
+        )
+        private_handling = make_envelope_v2(
+            "system://intended-receiver",
+            "v2-private-handling",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(private_record)],
+            [],
+            sensitivity="private",
+            record_bundle=[private_record],
+        )
+        admitted = admit_v2(
+            private_handling,
+            expected_audience_ref="system://intended-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(admitted["outcome"], "admitted")
+
+        legacy_unspecified = canonical_record(
+            record_id="record://synthetic/exchange-unspecified-sensitivity"
+        )
+        legacy_envelope = make_envelope_v2(
+            "system://intended-receiver",
+            "v2-unspecified-sensitivity",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(legacy_unspecified)],
+            [],
+            sensitivity="private",
+            record_bundle=[legacy_unspecified],
+        )
+        fail_closed = admit_v2(
+            legacy_envelope,
+            expected_audience_ref="system://intended-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(fail_closed["outcome"], "quarantined")
+
     def test_v2_bundle_manifest_partial_resolution_and_replay_are_explicit(self):
-        first = canonical_record(record_id="record://synthetic/exchange-first")
-        second = canonical_record(record_id="record://synthetic/exchange-second")
+        first = canonical_record(
+            record_id="record://synthetic/exchange-first",
+            sensitivity="public",
+        )
+        second = canonical_record(
+            record_id="record://synthetic/exchange-second",
+            sensitivity="public",
+        )
         envelope = make_envelope_v2(
             "system://synthetic-receiver",
             "v2-partial",
@@ -62,19 +134,37 @@ class ExchangeTests(unittest.TestCase):
         )
         validate(envelope, envelope_schema)
         ledger: set[str] = set()
-        partial = admit_v2(envelope, ledger, now="2026-08-03T00:00:00Z")
+        partial = admit_v2(
+            envelope,
+            ledger,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
         validate(partial, receipt_schema)
         self.assertEqual(partial["outcome"], "partially-resolved")
         self.assertEqual(partial["accepted_record_ids"], [first["record_id"]])
         self.assertEqual(partial["unresolved_record_ids"], [second["record_id"]])
         self.assertEqual(partial["artifact_retrieval"], "not-attempted/separately-authorized")
-        replay = admit_v2(envelope, ledger, now="2026-08-03T00:00:00Z")
-        repeated_replay = admit_v2(envelope, ledger, now="2026-08-03T00:00:00Z")
+        replay = admit_v2(
+            envelope,
+            ledger,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        repeated_replay = admit_v2(
+            envelope,
+            ledger,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
         self.assertEqual(replay, repeated_replay)
         self.assertEqual(replay["outcome"], "duplicate")
 
     def test_v2_all_declared_admission_outcomes_are_reachable(self):
-        record = canonical_record(record_id="record://synthetic/exchange-outcomes")
+        record = canonical_record(
+            record_id="record://synthetic/exchange-outcomes",
+            sensitivity="public",
+        )
         base = make_envelope_v2(
             "system://synthetic-receiver",
             "v2-outcomes",
@@ -83,7 +173,11 @@ class ExchangeTests(unittest.TestCase):
             [],
             record_bundle=[record],
         )
-        admitted = admit_v2(base, now="2026-08-03T00:00:00Z")
+        admitted = admit_v2(
+            base,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
         expired = make_envelope_v2(
             "system://synthetic-receiver",
             "v2-expired",
@@ -91,7 +185,11 @@ class ExchangeTests(unittest.TestCase):
             [],
             ["artifact://synthetic/reference"],
         )
-        rejected = admit_v2(expired, now="2026-08-03T00:00:00Z")
+        rejected = admit_v2(
+            expired,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
         unresolved = make_envelope_v2(
             "system://synthetic-receiver",
             "v2-unresolved",
@@ -99,11 +197,27 @@ class ExchangeTests(unittest.TestCase):
             [revision_ref(record)],
             [],
         )
-        quarantined = admit_v2(unresolved, now="2026-08-03T00:00:00Z")
-        unsupported = admit_v2(base, supported_schema=False)
+        quarantined = admit_v2(
+            unresolved,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        unsupported = admit_v2(
+            base,
+            expected_audience_ref="system://synthetic-receiver",
+            supported_schema=False,
+        )
         ledger = {base["envelope_id"]}
-        duplicate = admit_v2(base, ledger, now="2026-08-03T00:00:00Z")
-        second = canonical_record(record_id="record://synthetic/exchange-unresolved")
+        duplicate = admit_v2(
+            base,
+            ledger,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        second = canonical_record(
+            record_id="record://synthetic/exchange-unresolved",
+            sensitivity="public",
+        )
         partial_envelope = make_envelope_v2(
             "system://synthetic-receiver",
             "v2-partially-resolved",
@@ -112,14 +226,21 @@ class ExchangeTests(unittest.TestCase):
             [],
             record_bundle=[record],
         )
-        partial = admit_v2(partial_envelope, now="2026-08-03T00:00:00Z")
+        partial = admit_v2(
+            partial_envelope,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
         self.assertEqual(
             {item["outcome"] for item in (admitted, rejected, quarantined, unsupported, duplicate, partial)},
             {"admitted", "rejected", "quarantined", "unsupported", "duplicate", "partially-resolved"},
         )
 
     def test_v2_rejects_contradictory_bundle_and_bearer_material(self):
-        record = canonical_record(record_id="record://synthetic/exchange-contradiction")
+        record = canonical_record(
+            record_id="record://synthetic/exchange-contradiction",
+            sensitivity="public",
+        )
         reference = revision_ref(record)
         contradictory = make_envelope_v2(
             "system://synthetic-receiver",
@@ -129,7 +250,11 @@ class ExchangeTests(unittest.TestCase):
             [],
             record_bundle=[record],
         )
-        receipt = admit_v2(contradictory, now="2026-08-03T00:00:00Z")
+        receipt = admit_v2(
+            contradictory,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
         self.assertEqual(receipt["outcome"], "quarantined")
         self.assertEqual(receipt["diagnostics"][0]["code"], "contradictory-bundle")
         protected = make_envelope_v2(
@@ -144,6 +269,7 @@ class ExchangeTests(unittest.TestCase):
         rejected = admit_v2(
             protected,
             protected_ledger,
+            expected_audience_ref="system://synthetic-receiver",
             now="2026-08-03T00:00:00Z",
         )
         self.assertEqual(rejected["outcome"], "rejected")
@@ -152,6 +278,7 @@ class ExchangeTests(unittest.TestCase):
         replay = admit_v2(
             protected,
             protected_ledger,
+            expected_audience_ref="system://synthetic-receiver",
             now="2026-08-03T00:00:00Z",
         )
         self.assertEqual(replay["outcome"], "duplicate")

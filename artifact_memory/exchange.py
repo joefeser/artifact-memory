@@ -175,7 +175,7 @@ def _v2_receipt(
     return receipt
 
 
-def _record_revision(record: dict[str, Any]) -> tuple[str, str]:
+def _record_revision(record: dict[str, Any]) -> tuple[str, str, str]:
     record_id = record.get("record_id")
     schema_id = record.get("schema_id")
     if not isinstance(record_id, str) or not isinstance(schema_id, str):
@@ -187,16 +187,25 @@ def _record_revision(record: dict[str, Any]) -> tuple[str, str]:
     if schema_name is None:
         raise ValidationFailure("unsupported-record", "bundled record schema is unsupported")
     validate(record, load_schema("core", schema_name))
-    return record_id, "sha-256:" + hashlib.sha256(_canonical(record)).hexdigest()
+    sensitivity = record.get("sensitivity", "restricted")
+    if sensitivity not in {"public", "private", "restricted"}:
+        raise ValidationFailure("invalid-record", "bundled record sensitivity is invalid")
+    return (
+        record_id,
+        "sha-256:" + hashlib.sha256(_canonical(record)).hexdigest(),
+        sensitivity,
+    )
 
 
 def admit_v2(
     envelope: dict[str, Any],
     seen_envelope_ids: set[str] | None = None,
     *,
+    expected_audience_ref: str,
     supported_schema: bool = True,
     now: str | None = None,
     available_record_revisions: set[tuple[str, str]] | None = None,
+    available_record_sensitivities: dict[tuple[str, str], str] | None = None,
 ) -> dict[str, Any]:
     """Admit one v2 envelope with deterministic replay and resolution truth."""
     envelope_ref = _safe_envelope_ref(envelope)
@@ -239,6 +248,13 @@ def admit_v2(
             "duplicate",
             diagnostics=[{"code": "replay", "message": "envelope was already processed"}],
         )
+    if envelope["audience_ref"] != expected_audience_ref:
+        ledger.add(envelope_ref)
+        return _v2_receipt(
+            envelope_ref,
+            "rejected",
+            diagnostics=[{"code": "audience-mismatch", "message": "exchange audience does not match this receiver"}],
+        )
     if _contains_bearer_material(envelope):
         ledger.add(envelope_ref)
         return _v2_receipt(
@@ -276,30 +292,52 @@ def admit_v2(
         else:
             declared[item["record_id"]] = item["revision_digest"]
     bundled: dict[str, str] = {}
+    handling_conflict = False
+    sensitivity_rank = {"public": 0, "private": 1, "restricted": 2}
+    handling_sensitivity = envelope["handling"]["sensitivity"]
     try:
         for record in envelope.get("record_bundle", []):
-            record_id, revision = _record_revision(record)
+            record_id, revision, sensitivity = _record_revision(record)
             if record_id in bundled or record_id not in declared or declared[record_id] != revision:
                 contradictory.append(record_id)
+            elif sensitivity_rank[sensitivity] > sensitivity_rank[handling_sensitivity]:
+                handling_conflict = True
             else:
                 bundled[record_id] = revision
     except ValidationFailure:
         contradictory.append("record://invalid/bundled-record")
-    if contradictory:
+    if contradictory or handling_conflict:
         ledger.add(envelope_ref)
+        diagnostic = (
+            {"code": "contradictory-bundle", "message": "bundle declarations or bytes contradict each other"}
+            if contradictory
+            else {"code": "handling-sensitivity-mismatch", "message": "bundle handling is weaker than a record sensitivity"}
+        )
         return _v2_receipt(
             envelope_ref,
             "quarantined",
             unresolved_record_ids=sorted(declared),
             artifact_refs=manifest["artifact_refs"],
-            diagnostics=[{"code": "contradictory-bundle", "message": "bundle declarations or bytes contradict each other"}],
+            diagnostics=[diagnostic],
         )
 
     available = available_record_revisions or set()
+    available_sensitivities = available_record_sensitivities or {}
+
+    def locally_available(record_id: str, revision: str) -> bool:
+        sensitivity = available_sensitivities.get((record_id, revision))
+        return (
+            (record_id, revision) in available
+            and isinstance(sensitivity, str)
+            and sensitivity in sensitivity_rank
+            and sensitivity_rank[sensitivity] <= sensitivity_rank[handling_sensitivity]
+        )
+
     accepted = sorted(
         record_id
         for record_id, revision in declared.items()
-        if bundled.get(record_id) == revision or (record_id, revision) in available
+        if bundled.get(record_id) == revision
+        or locally_available(record_id, revision)
     )
     unresolved = sorted(set(declared) - set(accepted))
     artifact_refs = manifest["artifact_refs"]

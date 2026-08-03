@@ -71,6 +71,7 @@ def run_exchange_conformance(fixture: Path) -> dict[str, Any]:
     )
     admitted = admit_v2(
         admitted_envelope,
+        expected_audience_ref=common["audience_ref"],
         now=vectors["evaluation_time"],
     )
 
@@ -81,7 +82,11 @@ def run_exchange_conformance(fixture: Path) -> dict[str, Any]:
         [],
         [vectors["artifact_ref"]],
     )
-    rejected = admit_v2(expired_envelope, now=vectors["evaluation_time"])
+    rejected = admit_v2(
+        expired_envelope,
+        expected_audience_ref=common["audience_ref"],
+        now=vectors["evaluation_time"],
+    )
 
     contradictory_envelope = make_envelope_v2(
         common["audience_ref"],
@@ -93,6 +98,7 @@ def run_exchange_conformance(fixture: Path) -> dict[str, Any]:
     )
     quarantined = admit_v2(
         contradictory_envelope,
+        expected_audience_ref=common["audience_ref"],
         now=vectors["evaluation_time"],
     )
 
@@ -106,17 +112,33 @@ def run_exchange_conformance(fixture: Path) -> dict[str, Any]:
     )
     partially_resolved = admit_v2(
         partial_envelope,
+        expected_audience_ref=common["audience_ref"],
         now=vectors["evaluation_time"],
     )
 
-    unsupported = admit_v2(admitted_envelope, supported_schema=False)
+    unsupported = admit_v2(
+        admitted_envelope,
+        expected_audience_ref=common["audience_ref"],
+        supported_schema=False,
+    )
 
     ledger: set[str] = set()
-    admit_v2(admitted_envelope, ledger, now=vectors["evaluation_time"])
-    duplicate = admit_v2(admitted_envelope, ledger, now=vectors["evaluation_time"])
+    admit_v2(
+        admitted_envelope,
+        ledger,
+        expected_audience_ref=common["audience_ref"],
+        now=vectors["evaluation_time"],
+    )
+    duplicate = admit_v2(
+        admitted_envelope,
+        ledger,
+        expected_audience_ref=common["audience_ref"],
+        now=vectors["evaluation_time"],
+    )
     repeated_duplicate = admit_v2(
         admitted_envelope,
         ledger,
+        expected_audience_ref=common["audience_ref"],
         now=vectors["evaluation_time"],
     )
     if duplicate != repeated_duplicate:
@@ -135,6 +157,7 @@ def run_exchange_conformance(fixture: Path) -> dict[str, Any]:
     )
     protected_receipt = admit_v2(
         protected_envelope,
+        expected_audience_ref=common["audience_ref"],
         now=vectors["evaluation_time"],
     )
     if (

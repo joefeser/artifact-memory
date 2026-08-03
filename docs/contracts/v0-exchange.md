@@ -15,6 +15,13 @@ An envelope with some resolvable and some unresolved record revisions returns
 Expired or malformed envelopes are rejected, and unsupported schemas remain
 explicit.
 
+The receiver must supply its expected audience out of band; a mismatch is
+rejected before record admission. Bundled records may not exceed the envelope's
+handling sensitivity. A v1 record with no explicit sensitivity fails closed as
+`restricted`. Locally available revisions count as resolved only when the
+receiver supplies matching sensitivity metadata that is permitted by the
+envelope handling policy.
+
 Bearer credentials are prohibited in envelopes. The reference admission
 boundary rejects credential-shaped keys and bearer-token-shaped values without
 echoing them into receipts. Receipts contain only stable diagnostics, admitted
