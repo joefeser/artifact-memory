@@ -1,0 +1,21 @@
+{
+  "artifact_ref": "artifact://synthetic/intake-document",
+  "artifact_version_ref": "artifact-version://synthetic/intake-document/1",
+  "authority_boundary": "intake and registration grant no execution, disclosure, mutation, authenticity, trust, or authorization",
+  "content_ref": "content://sha-256/e9611aa569027d7d83cfc9e8f4a64b438e76610086489d188c697365a78ef127",
+  "limitations": [
+    "fixture uses newly authored synthetic bytes and a temporary vault",
+    "interrupted-write cleanup is proved by the runtime regression test",
+    "receipt discloses no local path or private vault material"
+  ],
+  "payload_digest": "sha-256:e9611aa569027d7d83cfc9e8f4a64b438e76610086489d188c697365a78ef127",
+  "receipt_id": "vault-intake-conformance-receipt://f49394eeac829d045475a3b21d48354019eef20af13cf672d986c2848af173b3",
+  "schema_id": "artifact-memory/vault-intake-conformance-receipt/v1",
+  "stages": [
+    {"name": "hash-register-verify", "outcome": "registered"},
+    {"name": "canonical-artifact-version-records", "outcome": "created"},
+    {"name": "duplicate-replay", "outcome": "duplicate"},
+    {"name": "digest-mismatch-quarantine", "outcome": "quarantined"}
+  ],
+  "synthetic": true
+}

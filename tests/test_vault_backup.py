@@ -10,9 +10,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from artifact_memory.artifact_lineage import validate_artifact, validate_artifact_version
 from artifact_memory.backup import create_backup, create_git_bundle, restore_isolated
 from artifact_memory.canonical import canonical_bytes
-from artifact_memory.vault import register_bytes
+from artifact_memory.vault import intake_bytes, register_bytes
 from artifact_memory.validator import validate
 
 
@@ -20,6 +21,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class VaultBackupTests(unittest.TestCase):
+    def _intake(self, vault, data=b"synthetic intake bytes\n", **overrides):
+        arguments = {
+            "artifact_id": "artifact://synthetic/intake-document",
+            "artifact_kind": "document",
+            "title": "Synthetic intake document",
+            "created_at": "2026-08-03T00:00:00Z",
+            "source_ref": "fixture://synthetic/private-vault-intake",
+            "media_type": "text/plain",
+        }
+        arguments.update(overrides)
+        return intake_bytes(vault, data, **arguments)
+
     def test_sanitized_dogfood_receipt_is_public_safe(self):
         receipt = json.loads((ROOT / "fixtures/synthetic/dogfood/v1/receipt.json").read_text(encoding="utf-8"))
         schema = json.loads((ROOT / "artifact_memory/schemas/core/dogfood-receipt.v1.schema.json").read_text(encoding="utf-8"))
@@ -52,6 +65,57 @@ class VaultBackupTests(unittest.TestCase):
             self.assertEqual(receipt["outcome"], "failed")
             self.assertEqual(receipt["diagnostics"], ["existing-object-integrity-failed"])
             self.assertEqual(stored.read_bytes(), b"corrupt")
+
+    def test_intake_registers_verifies_records_and_replays_as_duplicate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary) / "vault"
+            first = self._intake(vault)
+            second = self._intake(vault)
+            schema = json.loads((ROOT / "artifact_memory/schemas/core/vault-intake-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            validate(first, schema)
+            validate(second, schema)
+            self.assertEqual(first["outcome"], "registered")
+            self.assertEqual(first["verification_outcome"], "verified")
+            self.assertEqual(first["canonical_records"], "created")
+            self.assertEqual(second["outcome"], "duplicate")
+            self.assertEqual(second["canonical_records"], "duplicate")
+            artifacts = list((vault / "records/artifacts").glob("*.json"))
+            versions = list((vault / "records/versions").glob("*.json"))
+            self.assertEqual(len(artifacts), 1)
+            self.assertEqual(len(versions), 1)
+            validate_artifact(json.loads(artifacts[0].read_text(encoding="utf-8")))
+            validate_artifact_version(json.loads(versions[0].read_text(encoding="utf-8")))
+
+    def test_intake_quarantines_digest_mismatch_without_registration(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary) / "vault"
+            receipt = self._intake(vault, expected_digest="sha-256:" + "0" * 64)
+            self.assertEqual(receipt["outcome"], "quarantined")
+            self.assertEqual(receipt["registration_outcome"], "not-attempted")
+            self.assertFalse((vault / "objects").exists())
+            self.assertEqual(len([path for path in (vault / "quarantine").rglob("*") if path.is_file()]), 1)
+            self.assertNotIn(str(vault), json.dumps(receipt))
+
+    def test_intake_invalid_metadata_fails_without_echo_or_write(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary) / "vault"
+            receipt = self._intake(vault, artifact_id="/private/local/path")
+            schema = json.loads((ROOT / "artifact_memory/schemas/core/vault-intake-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            validate(receipt, schema)
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertEqual(receipt["artifact_ref"], "artifact://unknown/unknown")
+            self.assertNotIn("/private/local/path", json.dumps(receipt))
+            self.assertFalse(vault.exists())
+
+    def test_interrupted_object_write_is_receipted_and_leaves_no_partial(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary) / "vault"
+            with patch("artifact_memory.vault.os.link", side_effect=OSError("synthetic interruption")):
+                receipt = register_bytes(vault, b"synthetic interrupted bytes")
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertIn("object-write-failed", receipt["diagnostics"])
+            self.assertEqual([path for path in vault.rglob("*") if path.name.startswith(".partial-")], [])
+            self.assertEqual([path for path in (vault / "objects").rglob("*") if path.is_file()], [])
 
     def test_encrypted_backup_and_isolated_restore(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -1,0 +1,12 @@
+{
+  "schema_id": "artifact-memory/vault-intake-vector/v1",
+  "payload": "payload.txt",
+  "intake": {
+    "artifact_id": "artifact://synthetic/intake-document",
+    "artifact_kind": "document",
+    "title": "Synthetic intake document",
+    "created_at": "2026-08-03T00:00:00Z",
+    "source_ref": "fixture://synthetic/private-vault-intake",
+    "media_type": "text/plain"
+  }
+}
