@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-from artifact_memory.extensions import ExtensionFailure, extension_digest, preserve_extensions
+from artifact_memory.extensions import ExtensionFailure, extension_digest, preserve_extensions, validate_extension_bundle
 from artifact_memory.validator import ValidationFailure, validate
 
 
@@ -16,6 +16,22 @@ class ExtensionTests(unittest.TestCase):
         result = preserve_extensions(record, bundle)
         self.assertEqual(result["extensions"]["https://synthetic.example/extensions/catalog"], bundle["extensions"]["https://synthetic.example/extensions/catalog"])
         self.assertTrue(extension_digest(bundle).startswith("sha-256:"))
+
+    def test_extension_values_cannot_redefine_core_fields(self):
+        record = {"schema_id": "artifact-memory/knowledge-record/v2", "record_id": "record://synthetic/extensions", "sensitivity": "public"}
+        bundle = {
+            "schema_id": "artifact-memory/extension-bundle/v1",
+            "extensions": {
+                "https://synthetic.example/extensions/spoof": {
+                    "version": "v1",
+                    "required": False,
+                    "value": {"schema_id": "spoofed", "record_id": "record://spoofed/value", "sensitivity": "restricted", "authority": "execute"},
+                }
+            },
+        }
+        result = preserve_extensions(record, bundle)
+        self.assertEqual({key: result[key] for key in record}, record)
+        self.assertEqual(result["extensions"], bundle["extensions"])
 
     def test_unknown_required_extension_fails_closed(self):
         record = json.loads((ROOT / "fixtures/synthetic/contracts/v0-valid-record.json").read_text(encoding="utf-8"))
@@ -32,6 +48,65 @@ class ExtensionTests(unittest.TestCase):
             }
             with self.assertRaises(ValidationFailure):
                 validate(bundle, schema)
+            with self.assertRaises(ExtensionFailure) as raised:
+                validate_extension_bundle(bundle)
+            self.assertTrue(raised.exception.path.startswith("$.extensions."))
+
+    def test_supported_required_configuration_is_validated(self):
+        bundle = json.loads((ROOT / "fixtures/synthetic/extensions/v1/required-extension.json").read_text(encoding="utf-8"))
+        malformed_values = (
+            {"https://synthetic.example/extensions/required"},
+            [("https://synthetic.example/extensions/required", 1)],
+            [("not-namespaced", "v1")],
+        )
+        for malformed in malformed_values:
+            with self.assertRaises(ExtensionFailure) as raised:
+                preserve_extensions({}, bundle, supported_required=malformed)
+            self.assertEqual(raised.exception.code, "invalid-supported-required")
+            self.assertTrue(raised.exception.path.startswith("$.supported_required"))
+
+    def test_bundle_validator_rejects_non_namespaced_identifier(self):
+        schema = json.loads((ROOT / "artifact_memory/schemas/core/extension-bundle.v1.schema.json").read_text(encoding="utf-8"))
+        bundle = {
+            "schema_id": "artifact-memory/extension-bundle/v1",
+            "extensions": {"local-name": {"version": "v1", "required": False, "value": {}}},
+        }
+        with self.assertRaises(ValidationFailure) as schema_failure:
+            validate(bundle, schema)
+        self.assertEqual(schema_failure.exception.path, "$.extensions['local-name']")
+        with self.assertRaises(ExtensionFailure) as raised:
+            validate_extension_bundle(bundle)
+        self.assertEqual(raised.exception.code, "invalid-extension-identifier")
+        self.assertEqual(raised.exception.path, "$.extensions['local-name']")
+
+    def test_property_names_fail_closed_for_non_string_python_keys(self):
+        schema = json.loads((ROOT / "artifact_memory/schemas/core/extension-bundle.v1.schema.json").read_text(encoding="utf-8"))
+        declaration = {"version": "v1", "required": False, "value": {}}
+        bundle = {"schema_id": "artifact-memory/extension-bundle/v1", "extensions": {1: declaration, "local-name": declaration}}
+        with self.assertRaises(ValidationFailure) as schema_failure:
+            validate(bundle, schema)
+        self.assertEqual(schema_failure.exception.code, "type-mismatch")
+        self.assertEqual(schema_failure.exception.path, "$.extensions[1]")
+        with self.assertRaises(ExtensionFailure) as runtime_failure:
+            validate_extension_bundle(bundle)
+        self.assertEqual(runtime_failure.exception.code, "invalid-extension-identifier")
+        self.assertEqual(runtime_failure.exception.path, "$.extensions[1]")
+
+    def test_declared_digest_and_existing_extension_conflicts_fail_closed(self):
+        bundle = json.loads((ROOT / "fixtures/synthetic/extensions/v1/optional-extension.json").read_text(encoding="utf-8"))
+        invalid_digest = {**bundle, "extensions_digest": "sha-256:" + "0" * 64}
+        with self.assertRaisesRegex(ExtensionFailure, "digest"):
+            preserve_extensions({}, invalid_digest)
+        with self.assertRaisesRegex(ExtensionFailure, "conflicts"):
+            preserve_extensions({"extensions": {next(iter(bundle["extensions"])): {"different": True}}}, bundle)
+
+    def test_conflict_comparison_preserves_json_type_fidelity(self):
+        identifier = "https://synthetic.example/extensions/type-fidelity"
+        existing = {"version": "v1", "required": False, "value": {"flag": True}}
+        incoming = {"version": "v1", "required": False, "value": {"flag": 1}}
+        bundle = {"schema_id": "artifact-memory/extension-bundle/v1", "extensions": {identifier: incoming}}
+        with self.assertRaisesRegex(ExtensionFailure, "conflicts"):
+            preserve_extensions({"extensions": {identifier: existing}}, bundle)
 
 
 if __name__ == "__main__":

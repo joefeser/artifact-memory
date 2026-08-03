@@ -1,3 +1,4 @@
+import ast
 import json
 import hashlib
 import unittest
@@ -32,6 +33,12 @@ def revision_ref(record):
 
 
 class ExchangeTests(unittest.TestCase):
+    def test_independent_reader_has_no_reference_runtime_imports(self):
+        source = (ROOT / "artifact_memory/independent_reader.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        relative_imports = [node for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.level]
+        self.assertEqual(relative_imports, [])
+
     def test_independent_reader_preserves_optional_and_rejects_required_extensions(self):
         record = canonical_record(extensions={"https://synthetic.example/optional": {"version": "v1", "required": False, "value": {"opaque": True}}})
         envelope = make_envelope("system://independent-reader", "synthetic-exchange-reader", "2099-01-01T00:00:00Z", [revision_ref(record)], ["artifact://synthetic/order"], record_bundle=[record])
@@ -43,6 +50,32 @@ class ExchangeTests(unittest.TestCase):
         required_envelope = make_envelope("system://independent-reader", "synthetic-exchange-required", "2099-01-01T00:00:00Z", [revision_ref(required)], [], record_bundle=[required])
         with self.assertRaisesRegex(ReaderFailure, "required extension"):
             read_bundle(json.dumps(required_envelope).encode())
+        supported = read_bundle(
+            json.dumps(required_envelope).encode(),
+            supported_required_extensions=[("https://synthetic.example/required", "v1")],
+        )
+        self.assertEqual(supported["preserved_extensions"], [required["extensions"]])
+        with self.assertRaisesRegex(ReaderFailure, "required extension"):
+            read_bundle(
+                json.dumps(required_envelope).encode(),
+                supported_required_extensions={("https://synthetic.example/required", "v2")},
+            )
+
+    def test_independent_reader_preserves_legacy_v1_opaque_extensions(self):
+        extensions = {
+            "legacy-name": ["schema-valid", 1, True],
+            "https://synthetic.example/opaque": {"required": True, "legacy": "not a v0 declaration"},
+        }
+        record = canonical_record(extensions=extensions)
+        envelope = make_envelope("system://independent-reader", "legacy-opaque", "2099-01-01T00:00:00Z", [revision_ref(record)], [], record_bundle=[record])
+        result = read_bundle(json.dumps(envelope).encode())
+        self.assertEqual(result["preserved_extensions"], [extensions])
+
+    def test_independent_reader_rejects_malformed_support_configuration(self):
+        record = canonical_record()
+        envelope = make_envelope("system://independent-reader", "bad-support", "2099-01-01T00:00:00Z", [revision_ref(record)], [], record_bundle=[record])
+        with self.assertRaisesRegex(ReaderFailure, "supported required"):
+            read_bundle(json.dumps(envelope).encode(), supported_required_extensions={"legacy-string-form"})
 
     def test_independent_reader_binds_bundle_ids_and_revision_digests(self):
         record = canonical_record()
@@ -198,10 +231,9 @@ class ExchangeTests(unittest.TestCase):
         malformed = make_envelope("system://independent-reader", "malformed-extensions", "2099-01-01T00:00:00Z", [revision_ref(malformed_record)], [], record_bundle=[malformed_record])
         with self.assertRaisesRegex(ReaderFailure, "extensions"):
             read_bundle(json.dumps(malformed).encode())
-        malformed_record = canonical_record(extensions={"https://synthetic.example/extension": []})
-        malformed = make_envelope("system://independent-reader", "malformed-declaration", "2099-01-01T00:00:00Z", [revision_ref(malformed_record)], [], record_bundle=[malformed_record])
-        with self.assertRaisesRegex(ReaderFailure, "declaration"):
-            read_bundle(json.dumps(malformed).encode())
+        legacy_record = canonical_record(extensions={"https://synthetic.example/extension": []})
+        malformed = make_envelope("system://independent-reader", "legacy-extension", "2099-01-01T00:00:00Z", [revision_ref(legacy_record)], [], record_bundle=[legacy_record])
+        self.assertEqual(read_bundle(json.dumps(malformed).encode())["preserved_extensions"], [legacy_record["extensions"]])
         malformed["record_bundle"][0] = {"schema_id": "artifact-memory/knowledge-record/v1", "record_id": "record://synthetic/incomplete"}
         with self.assertRaisesRegex(ReaderFailure, "fields"):
             read_bundle(json.dumps(malformed).encode())

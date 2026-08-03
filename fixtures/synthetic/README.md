@@ -16,6 +16,9 @@ synthetic Windows, macOS, and Linux mount layouts, including explicit
 collision, unsupported, and partial outcomes plus the container/tree identity
 boundary.
 
+`extensions/v1/` proves the minimum optional/required extension contract with
+one declaration of each kind and checked machine/human receipts.
+
 The wider fixture set covers or is expected to cover:
 
 - equivalent logical trees under Windows, macOS, and Linux paths;

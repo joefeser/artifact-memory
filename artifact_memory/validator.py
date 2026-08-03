@@ -101,7 +101,7 @@ def _matches(value: Any, schema: dict[str, Any], path: str) -> bool:
 
 
 def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
-    supported = {"$schema", "$id", "title", "type", "additionalProperties", "required", "dependentRequired", "properties", "const", "enum", "pattern", "minLength", "minItems", "maxItems", "minimum", "format", "items", "allOf", "anyOf", "not", "if", "then", "else"}
+    supported = {"$schema", "$id", "title", "type", "additionalProperties", "propertyNames", "required", "dependentRequired", "properties", "const", "enum", "pattern", "minLength", "minItems", "maxItems", "minimum", "format", "items", "allOf", "anyOf", "not", "if", "then", "else"}
     unknown = set(schema) - supported
     if unknown:
         _fail("unsupported-schema-keyword", "unsupported schema keyword", path)
@@ -123,6 +123,12 @@ def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
     if expected and _kind(value) != expected and not (expected == "number" and _kind(value) == "integer"):
         _fail("type-mismatch", f"expected {expected}", path)
     if isinstance(value, dict):
+        if "propertyNames" in schema:
+            for key in value:
+                if not isinstance(key, str):
+                    _fail("type-mismatch", "property name must be a string", f"{path}[{key!r}]")
+            for key in sorted(value):
+                validate(key, schema["propertyNames"], f"{path}[{key!r}]")
         required = schema.get("required", [])
         for key in required:
             if key not in value:

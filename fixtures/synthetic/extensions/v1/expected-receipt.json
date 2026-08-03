@@ -1,0 +1,30 @@
+{
+  "authority_boundary": "extension data grants no execution, disclosure, mutation, credential, deployment, spending, or approval authority",
+  "claims": [
+    "one unknown optional extension round-trips unchanged without interpretation",
+    "one unknown required extension fails closed and succeeds only when support is explicitly declared",
+    "extension namespace containment preserves the complete schema-valid core record and grants no authority"
+  ],
+  "core_fields_unchanged": true,
+  "limitations": [
+    "v0 defines no registry, discovery service, marketplace, inheritance system, or executable plugin loading"
+  ],
+  "optional_extension": {
+    "bundle_digest": "sha-256:932f0cf14bf8cc2739e1a85c705cea329fe649eb43dede7dd34157f9515fa10e",
+    "identifier": "https://synthetic.example/extensions/catalog",
+    "round_trip_preserved": true,
+    "version": "v1"
+  },
+  "outcome": "complete",
+  "receipt_id": "extension-conformance-receipt://896c29ba3ea39da8559ed54a70e1153abd89f1bd4653a0606bafaeb359e204ad",
+  "required_extension": {
+    "bundle_digest": "sha-256:deddfbd9fd43a18e8b3b7e77ced0ca4729def74a5edc1f935fc67729e406db81",
+    "declared_support_outcome": "accepted",
+    "diagnostic_code": "required-extension-unsupported",
+    "identifier": "https://synthetic.example/extensions/required",
+    "unknown_outcome": "rejected",
+    "version": "v1"
+  },
+  "schema_id": "artifact-memory/extension-conformance-receipt/v1",
+  "synthetic": true
+}
