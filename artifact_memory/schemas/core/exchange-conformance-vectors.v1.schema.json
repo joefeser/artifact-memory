@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/exchange-conformance-vectors/v1",
+  "title": "Artifact Memory exchange conformance vectors v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "audience_ref", "expires_at", "evaluation_time", "artifact_ref", "records"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/exchange-conformance-vectors/v1"},
+    "audience_ref": {"type": "string", "minLength": 1},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "evaluation_time": {"type": "string", "format": "date-time"},
+    "artifact_ref": {"type": "string", "pattern": "^artifact://[A-Za-z0-9._~/-]+$"},
+    "records": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "object", "additionalProperties": true}
+    }
+  }
+}

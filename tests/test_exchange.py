@@ -4,7 +4,13 @@ import hashlib
 import unittest
 from pathlib import Path
 
-from artifact_memory.exchange import AUTHORITY_BOUNDARY, admit, make_envelope
+from artifact_memory.exchange import (
+    AUTHORITY_BOUNDARY,
+    admit,
+    admit_v2,
+    make_envelope,
+    make_envelope_v2,
+)
 from artifact_memory.independent_reader import ReaderFailure, read_bundle
 from artifact_memory.validator import ValidationFailure, validate
 
@@ -33,6 +39,124 @@ def revision_ref(record):
 
 
 class ExchangeTests(unittest.TestCase):
+    def test_v2_bundle_manifest_partial_resolution_and_replay_are_explicit(self):
+        first = canonical_record(record_id="record://synthetic/exchange-first")
+        second = canonical_record(record_id="record://synthetic/exchange-second")
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-partial",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(first), revision_ref(second)],
+            ["artifact://synthetic/exchange-payload"],
+            record_bundle=[first],
+        )
+        envelope_schema = json.loads(
+            (ROOT / "artifact_memory/schemas/core/exchange-envelope.v2.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        receipt_schema = json.loads(
+            (ROOT / "artifact_memory/schemas/core/admission-receipt.v2.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        validate(envelope, envelope_schema)
+        ledger: set[str] = set()
+        partial = admit_v2(envelope, ledger, now="2026-08-03T00:00:00Z")
+        validate(partial, receipt_schema)
+        self.assertEqual(partial["outcome"], "partially-resolved")
+        self.assertEqual(partial["accepted_record_ids"], [first["record_id"]])
+        self.assertEqual(partial["unresolved_record_ids"], [second["record_id"]])
+        self.assertEqual(partial["artifact_retrieval"], "not-attempted/separately-authorized")
+        replay = admit_v2(envelope, ledger, now="2026-08-03T00:00:00Z")
+        repeated_replay = admit_v2(envelope, ledger, now="2026-08-03T00:00:00Z")
+        self.assertEqual(replay, repeated_replay)
+        self.assertEqual(replay["outcome"], "duplicate")
+
+    def test_v2_all_declared_admission_outcomes_are_reachable(self):
+        record = canonical_record(record_id="record://synthetic/exchange-outcomes")
+        base = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-outcomes",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(record)],
+            [],
+            record_bundle=[record],
+        )
+        admitted = admit_v2(base, now="2026-08-03T00:00:00Z")
+        expired = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-expired",
+            "2020-01-01T00:00:00Z",
+            [],
+            ["artifact://synthetic/reference"],
+        )
+        rejected = admit_v2(expired, now="2026-08-03T00:00:00Z")
+        unresolved = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-unresolved",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(record)],
+            [],
+        )
+        quarantined = admit_v2(unresolved, now="2026-08-03T00:00:00Z")
+        unsupported = admit_v2(base, supported_schema=False)
+        ledger = {base["envelope_id"]}
+        duplicate = admit_v2(base, ledger, now="2026-08-03T00:00:00Z")
+        second = canonical_record(record_id="record://synthetic/exchange-unresolved")
+        partial_envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-partially-resolved",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(record), revision_ref(second)],
+            [],
+            record_bundle=[record],
+        )
+        partial = admit_v2(partial_envelope, now="2026-08-03T00:00:00Z")
+        self.assertEqual(
+            {item["outcome"] for item in (admitted, rejected, quarantined, unsupported, duplicate, partial)},
+            {"admitted", "rejected", "quarantined", "unsupported", "duplicate", "partially-resolved"},
+        )
+
+    def test_v2_rejects_contradictory_bundle_and_bearer_material(self):
+        record = canonical_record(record_id="record://synthetic/exchange-contradiction")
+        reference = revision_ref(record)
+        contradictory = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-contradiction",
+            "2099-01-01T00:00:00Z",
+            [reference, {**reference, "revision_digest": "sha-256:" + "f" * 64}],
+            [],
+            record_bundle=[record],
+        )
+        receipt = admit_v2(contradictory, now="2026-08-03T00:00:00Z")
+        self.assertEqual(receipt["outcome"], "quarantined")
+        self.assertEqual(receipt["diagnostics"][0]["code"], "contradictory-bundle")
+        protected = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-protected",
+            "2099-01-01T00:00:00Z",
+            [],
+            ["artifact://synthetic/reference"],
+            extensions={"authorization": "Bearer synthetic-not-a-real-token"},
+        )
+        protected_ledger: set[str] = set()
+        rejected = admit_v2(
+            protected,
+            protected_ledger,
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(rejected["outcome"], "rejected")
+        self.assertEqual(rejected["diagnostics"][0]["code"], "bearer-material-prohibited")
+        self.assertNotIn("Bearer", json.dumps(rejected))
+        replay = admit_v2(
+            protected,
+            protected_ledger,
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(replay["outcome"], "duplicate")
+        self.assertNotIn("Bearer", json.dumps(replay))
+
     def test_independent_reader_has_no_reference_runtime_imports(self):
         source = (ROOT / "artifact_memory/independent_reader.py").read_text(encoding="utf-8")
         tree = ast.parse(source)

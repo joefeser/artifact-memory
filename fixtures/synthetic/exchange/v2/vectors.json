@@ -1,0 +1,39 @@
+{
+  "schema_id": "artifact-memory/exchange-conformance-vectors/v1",
+  "audience_ref": "system://synthetic-exchange-receiver",
+  "expires_at": "2099-01-01T00:00:00Z",
+  "evaluation_time": "2026-08-03T00:00:00Z",
+  "artifact_ref": "artifact://synthetic/exchange-order",
+  "records": [
+    {
+      "schema_id": "artifact-memory/knowledge-record/v2",
+      "record_id": "record://synthetic/exchange-order-status",
+      "record_type": "claim",
+      "lifecycle": "accepted",
+      "meaning": {
+        "summary": "Synthetic order status is represented by a bounded record.",
+        "labels": ["exchange", "synthetic"]
+      },
+      "artifact_refs": ["artifact://synthetic/exchange-order"],
+      "provenance": [
+        {"kind": "author", "source_ref": "fixture://synthetic/exchange/v2"}
+      ],
+      "sensitivity": "public"
+    },
+    {
+      "schema_id": "artifact-memory/knowledge-record/v2",
+      "record_id": "record://synthetic/exchange-order-reader",
+      "record_type": "note",
+      "lifecycle": "accepted",
+      "meaning": {
+        "summary": "Synthetic reader evidence remains independently resolvable.",
+        "labels": ["exchange", "synthetic"]
+      },
+      "artifact_refs": ["artifact://synthetic/exchange-order"],
+      "provenance": [
+        {"kind": "author", "source_ref": "fixture://synthetic/exchange/v2"}
+      ],
+      "sensitivity": "public"
+    }
+  ]
+}

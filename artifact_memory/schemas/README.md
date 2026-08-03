@@ -37,6 +37,13 @@ results, and representative class coverage are in
 `extension-conformance-receipt.v1.schema.json` define the deliberately narrow
 issue #10 optional/required extension surface and its checked evidence.
 
+`exchange-envelope.v2.schema.json`, `admission-receipt.v2.schema.json`,
+`exchange-conformance-vectors.v1.schema.json`, and
+`exchange-conformance-receipt.v1.schema.json` define the issue #22 bounded
+bundle manifest, six admission outcomes, replay behavior, and checked
+contradictory/replayed vectors. Exchange grants no authority and never carries
+bearer credentials.
+
 `adapter-manifest.v1.schema.json`, `adapter-receipt.v1.schema.json`, and
 `adapter-manifest-conformance-receipt.v1.schema.json` define the issue #11
 capability declaration, typed success/failure receipts, and checked synthetic

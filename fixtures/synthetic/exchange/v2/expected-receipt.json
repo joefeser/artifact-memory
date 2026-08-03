@@ -1,0 +1,38 @@
+{
+  "artifact_retrieval": "not-attempted/separately-authorized",
+  "authority_boundary": "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority",
+  "bearer_material_rejected_without_echo": true,
+  "cases": {
+    "admitted": {"expected_outcome": "admitted", "observed_outcome": "admitted", "passed": true},
+    "duplicate": {"expected_outcome": "duplicate", "observed_outcome": "duplicate", "passed": true},
+    "partially-resolved": {"expected_outcome": "partially-resolved", "observed_outcome": "partially-resolved", "passed": true},
+    "quarantined": {"expected_outcome": "quarantined", "observed_outcome": "quarantined", "passed": true},
+    "rejected": {"expected_outcome": "rejected", "observed_outcome": "rejected", "passed": true},
+    "unsupported": {"expected_outcome": "unsupported", "observed_outcome": "unsupported", "passed": true}
+  },
+  "claims": [
+    "the v2 bundle manifest binds record revisions and artifact references",
+    "all six admission outcomes are independently replayed",
+    "repeated replay returns one deterministic duplicate receipt",
+    "contradictory declarations quarantine without granting authority",
+    "bearer material is rejected and never echoed into receipts"
+  ],
+  "contradictory_input_quarantined": true,
+  "declared_outcomes": [
+    "admitted",
+    "duplicate",
+    "partially-resolved",
+    "quarantined",
+    "rejected",
+    "unsupported"
+  ],
+  "limitations": [
+    "synthetic exchange does not establish cross-party authenticity or execution authority",
+    "artifact bytes are not retrieved by this fixture"
+  ],
+  "outcome": "complete",
+  "receipt_id": "exchange-conformance-receipt://157630d75584f43279e9d9447abd406588727f4ef9bd2a8ef583c8b60018a8d8",
+  "replay_idempotent": true,
+  "schema_id": "artifact-memory/exchange-conformance-receipt/v1",
+  "synthetic": true
+}

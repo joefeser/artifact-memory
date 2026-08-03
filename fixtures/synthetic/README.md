@@ -19,6 +19,10 @@ boundary.
 `extensions/v1/` proves the minimum optional/required extension contract with
 one declaration of each kind and checked machine/human receipts.
 
+`exchange/v2/` proves the identity-bound bundle manifest, six admission
+outcomes, idempotent replay, contradictory-input quarantine, prohibited bearer
+material handling, and separate artifact-retrieval authority.
+
 `adapters/v1/` proves one synthetic reference-adapter success receipt, one
 authority-boundary failure receipt, and the local-read-only TraceMap manifest.
 

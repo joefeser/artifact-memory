@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/exchange-conformance-receipt/v1",
+  "title": "Artifact Memory exchange conformance receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "receipt_id",
+    "outcome",
+    "synthetic",
+    "declared_outcomes",
+    "cases",
+    "replay_idempotent",
+    "contradictory_input_quarantined",
+    "bearer_material_rejected_without_echo",
+    "artifact_retrieval",
+    "authority_boundary",
+    "claims",
+    "limitations"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/exchange-conformance-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^exchange-conformance-receipt://[0-9a-f]{64}$"},
+    "outcome": {"const": "complete"},
+    "synthetic": {"const": true},
+    "declared_outcomes": {"const": ["admitted", "duplicate", "partially-resolved", "quarantined", "rejected", "unsupported"]},
+    "cases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["admitted", "duplicate", "partially-resolved", "quarantined", "rejected", "unsupported"],
+      "properties": {
+        "admitted": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "admitted"}, "observed_outcome": {"const": "admitted"}, "passed": {"const": true}}},
+        "duplicate": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "duplicate"}, "observed_outcome": {"const": "duplicate"}, "passed": {"const": true}}},
+        "partially-resolved": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "partially-resolved"}, "observed_outcome": {"const": "partially-resolved"}, "passed": {"const": true}}},
+        "quarantined": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "quarantined"}, "observed_outcome": {"const": "quarantined"}, "passed": {"const": true}}},
+        "rejected": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "rejected"}, "observed_outcome": {"const": "rejected"}, "passed": {"const": true}}},
+        "unsupported": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "unsupported"}, "observed_outcome": {"const": "unsupported"}, "passed": {"const": true}}}
+      }
+    },
+    "replay_idempotent": {"const": true},
+    "contradictory_input_quarantined": {"const": true},
+    "bearer_material_rejected_without_echo": {"const": true},
+    "artifact_retrieval": {"const": "not-attempted/separately-authorized"},
+    "authority_boundary": {"const": "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"},
+    "claims": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  }
+}
