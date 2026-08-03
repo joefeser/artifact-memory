@@ -40,11 +40,25 @@ text, protected content, provider values, or local paths. Unexpected faults
 collapse to `adapter-failed`. A failed receipt emits no binding and does not
 claim that packet integrity was assessed.
 
+The additive receipted API exposes the specialized configuration and rule
+catalog outcomes. The original binding API preserves its v0 compatibility
+behavior by reporting either malformed identity as `trace-output-invalid`.
+Receipts normally carry `validation_state: validated`. If the packaged receipt
+schema cannot be loaded or executed, the boundary still returns a schema-shaped
+`adapter-failed` receipt marked `not-validated-runtime-failure`; it does not
+return a binding or pretend validation succeeded.
+
 Configuration identity is required. Rule-catalog identity remains optional;
 omission is valid, while a supplied value that is not an exact SHA-256 identity
 returns `rule-catalog-unavailable` rather than silently weakening provenance.
 
 The checked synthetic failure matrix exercises every outcome independently.
+Its closed case object binds each normative case name to the same expected and
+observed outcome. It intentionally omits per-case receipt and binding IDs,
+because successful binding identities include the provider's replaceable
+SQLite artifact bytes and are not portable checked-fixture values. Each
+individual runtime receipt is still schema-validated before the aggregate is
+produced.
 The separate exact-anchor vertical slice proves successful source validation,
 registration, evidence binding, claim projection, bounded context export,
 encrypted backup, isolated restore, index rebuild, and context revalidation.

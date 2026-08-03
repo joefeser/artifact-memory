@@ -188,18 +188,16 @@ def _run_case(fixture: Path, case_id: str, expected_outcome: str) -> dict[str, A
         if receipt["protected_input_echoed"] or receipt["local_path_echoed"]:
             raise ValidationFailure("unsafe-receipt", "TraceMap receipt exposed protected input")
         return {
-            "case_id": case_id,
             "expected_outcome": expected_outcome,
             "observed_outcome": receipt["outcome"],
-            "receipt_id": receipt["receipt_id"],
             "passed": True,
         }
 
 
 def run_tracemap_failure_conformance(fixture: Path) -> dict[str, Any]:
     declared = sorted(DECLARED_OUTCOMES)
-    cases = [_run_case(fixture, outcome, outcome) for outcome in declared]
-    if sorted(case["observed_outcome"] for case in cases) != declared:
+    cases = {outcome: _run_case(fixture, outcome, outcome) for outcome in declared}
+    if sorted(case["observed_outcome"] for case in cases.values()) != declared:
         raise ValidationFailure("outcome-surface-incomplete", "TraceMap declared outcome surface is incomplete")
     body = {
         "synthetic": True,
@@ -229,8 +227,8 @@ def run_tracemap_failure_conformance(fixture: Path) -> dict[str, Any]:
 
 def render_tracemap_failure_conformance(receipt: dict[str, Any]) -> str:
     rows = "\n".join(
-        f"| `{case['case_id']}` | `{case['observed_outcome']}` | pass |"
-        for case in receipt["cases"]
+        f"| `{case_id}` | `{case['observed_outcome']}` | pass |"
+        for case_id, case in receipt["cases"].items()
     )
     return (
         "# TraceMap adapter failure-surface receipt\n\n"

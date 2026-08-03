@@ -2,7 +2,7 @@
 
 - Provider contract anchor: `9a252f12f781ae2a0aab52b5faa53601440a2a3b`
 - Aggregate outcome: `complete`
-- Conformance receipt: `tracemap-failure-conformance-receipt://e9c7950d56489f95426577d4170e655984fde57fc4938d13e813ba7ac24711af`
+- Conformance receipt: `tracemap-failure-conformance-receipt://8bf77e4ff9ef7a03e54374de75c8bbb17395011938cfbb982a47e63d876f82fe`
 - Protected input echoed: `false`
 - Local path echoed: `false`
 

@@ -266,7 +266,7 @@ def _verify_index(packet_dir: Path, manifest: dict[str, Any], facts: list[dict[s
         raise AdapterFailure("trace-output-invalid", "provider index cannot be opened read-only") from exc
 
 
-def bind_trace_map_evidence(
+def _bind_trace_map_evidence_impl(
     source_version_ref: str,
     packet_dir: Path,
     expected_repo: str,
@@ -277,7 +277,7 @@ def bind_trace_map_evidence(
     configuration_digest: str,
     rule_catalog_digest: str | None = None,
 ) -> dict[str, Any]:
-    """Validate and bind one existing TraceMap packet without interpreting it."""
+    """Validate and bind one packet with the receipted API's full outcomes."""
     if not re.fullmatch(r"artifact-version://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+/[0-9]+", source_version_ref):
         raise AdapterFailure("source-version-unavailable", "source artifact-version reference is invalid")
     if not re.fullmatch(r"[0-9a-f]{40}", tool_source_commit):
@@ -372,7 +372,44 @@ def bind_trace_map_evidence(
     }
 
 
-def _adapter_receipt(outcome: str, binding_id: str | None = None) -> dict[str, Any]:
+def bind_trace_map_evidence(
+    source_version_ref: str,
+    packet_dir: Path,
+    expected_repo: str,
+    expected_commit: str,
+    selected_fact_ids: list[str] | None = None,
+    *,
+    tool_source_commit: str,
+    configuration_digest: str,
+    rule_catalog_digest: str | None = None,
+) -> dict[str, Any]:
+    """Validate and bind one packet while preserving legacy failure outcomes."""
+    try:
+        return _bind_trace_map_evidence_impl(
+            source_version_ref,
+            packet_dir,
+            expected_repo,
+            expected_commit,
+            selected_fact_ids,
+            tool_source_commit=tool_source_commit,
+            configuration_digest=configuration_digest,
+            rule_catalog_digest=rule_catalog_digest,
+        )
+    except AdapterFailure as exc:
+        if exc.outcome in {
+            "configuration-identity-unavailable",
+            "rule-catalog-unavailable",
+        }:
+            raise AdapterFailure("trace-output-invalid", exc.message) from exc
+        raise
+
+
+def _adapter_receipt_body(
+    outcome: str,
+    binding_id: str | None = None,
+    *,
+    validation_state: str = "validated",
+) -> dict[str, Any]:
     admitted = outcome in ADMITTED_OUTCOMES
     body: dict[str, Any] = {
         "outcome": outcome,
@@ -384,9 +421,15 @@ def _adapter_receipt(outcome: str, binding_id: str | None = None) -> dict[str, A
         "protected_input_echoed": False,
         "local_path_echoed": False,
         "authority_boundary": AUTHORITY_BOUNDARY,
+        "validation_state": validation_state,
     }
     if binding_id is not None:
         body["binding_id"] = binding_id
+    return body
+
+
+def _adapter_receipt(outcome: str, binding_id: str | None = None) -> dict[str, Any]:
+    body = _adapter_receipt_body(outcome, binding_id)
     receipt = receipt_with_digest(
         "artifact-memory/tracemap-adapter-receipt/v1",
         "tracemap-adapter-receipt://",
@@ -397,6 +440,23 @@ def _adapter_receipt(outcome: str, binding_id: str | None = None) -> dict[str, A
         load_schema("adapters", "tracemap-adapter-receipt.v1.schema.json"),
     )
     return receipt
+
+
+def _safe_adapter_receipt(outcome: str, binding_id: str | None = None) -> dict[str, Any]:
+    """Return a receipt even when its packaged schema cannot be loaded or run."""
+    try:
+        return _adapter_receipt(outcome, binding_id)
+    except Exception:
+        body = _adapter_receipt_body(
+            "adapter-failed",
+            validation_state="not-validated-runtime-failure",
+        )
+        return {
+            "schema_id": "artifact-memory/tracemap-adapter-receipt/v1",
+            "receipt_id": "tracemap-adapter-receipt://"
+            + hashlib.sha256(canonical_bytes(body)).hexdigest(),
+            **body,
+        }
 
 
 def bind_trace_map_evidence_receipted(
@@ -417,7 +477,7 @@ def bind_trace_map_evidence_receipted(
     collapse to ``adapter-failed`` instead of escaping as an untyped exception.
     """
     try:
-        binding = bind_trace_map_evidence(
+        binding = _bind_trace_map_evidence_impl(
             source_version_ref,
             packet_dir,
             expected_repo,
@@ -429,10 +489,13 @@ def bind_trace_map_evidence_receipted(
         )
     except AdapterFailure as exc:
         outcome = exc.outcome if exc.outcome in DECLARED_OUTCOMES else "adapter-failed"
-        return None, _adapter_receipt(outcome)
+        return None, _safe_adapter_receipt(outcome)
     except Exception:
-        return None, _adapter_receipt("adapter-failed")
+        return None, _safe_adapter_receipt("adapter-failed")
     outcome = binding["receipt"]["outcome"]
     if outcome not in ADMITTED_OUTCOMES:
-        return None, _adapter_receipt("adapter-failed")
-    return binding, _adapter_receipt(outcome, binding["binding_id"])
+        return None, _safe_adapter_receipt("adapter-failed")
+    receipt = _safe_adapter_receipt(outcome, binding["binding_id"])
+    if receipt["outcome"] not in ADMITTED_OUTCOMES:
+        return None, receipt
+    return binding, receipt

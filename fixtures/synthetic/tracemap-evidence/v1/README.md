@@ -17,3 +17,9 @@ declared by issue #39. Each case uses a fresh synthetic packet. Failure receipts
 contain only a typed code, never provider values, protected bytes, exception
 text, or local paths. The `adapter-failed` case injects an unexpected synthetic
 path fault solely to prove exception containment.
+
+The aggregate records the closed case-to-outcome mapping but omits per-case
+receipt IDs. Admitted receipt IDs transitively bind the generated SQLite bytes,
+whose physical serialization can vary by runtime even when its logical rows
+match. Individual receipts and SQLite row parity are still validated during
+every replay.

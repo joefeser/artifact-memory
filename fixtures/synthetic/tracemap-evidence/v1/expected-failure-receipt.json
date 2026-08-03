@@ -1,105 +1,21 @@
 {
   "authority_boundary": "informational evidence only; no execution, routing, disclosure, approval, or mutation authority",
-  "cases": [
-    {
-      "case_id": "adapter-failed",
-      "expected_outcome": "adapter-failed",
-      "observed_outcome": "adapter-failed",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://d230f3264a9520b7addd8bfd351c0d54529e537ccee82d5d52195295cca4f070"
-    },
-    {
-      "case_id": "commit-binding-mismatch",
-      "expected_outcome": "commit-binding-mismatch",
-      "observed_outcome": "commit-binding-mismatch",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://5c6d89b7e3c76311935e0cda2ecb693c25368fcb2acf792b160e6b83f4bab44d"
-    },
-    {
-      "case_id": "complete",
-      "expected_outcome": "complete",
-      "observed_outcome": "complete",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://62e0d75ab6f29c636b145186dbe70c24a581a696f60d2d28960fa0f78c2ea603"
-    },
-    {
-      "case_id": "configuration-identity-unavailable",
-      "expected_outcome": "configuration-identity-unavailable",
-      "observed_outcome": "configuration-identity-unavailable",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://6e8e119234c9bc7309473cd7e19ebd53297e2036ef6e6205f319319fa35956a6"
-    },
-    {
-      "case_id": "digest-mismatch",
-      "expected_outcome": "digest-mismatch",
-      "observed_outcome": "digest-mismatch",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://29da64603a7353ccbd3658ec8385ef0de8033ec0fc6fcc18b4bba706151f9690"
-    },
-    {
-      "case_id": "partial-evidence-admitted",
-      "expected_outcome": "partial-evidence-admitted",
-      "observed_outcome": "partial-evidence-admitted",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://09d36d5416c2cfa88cf4d6b130c0cf83f9d985a563ff4e9b9f2954883308a39e"
-    },
-    {
-      "case_id": "provider-record-not-found",
-      "expected_outcome": "provider-record-not-found",
-      "observed_outcome": "provider-record-not-found",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://df172756e799cf09fb14a2b45ca12d7b71b2aa93be79790e09908c1ccc31169b"
-    },
-    {
-      "case_id": "repository-binding-mismatch",
-      "expected_outcome": "repository-binding-mismatch",
-      "observed_outcome": "repository-binding-mismatch",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://14876891c1a9873a28465f8e8d68e977acf72fae991a5b3c7ac7b86f95de7ced"
-    },
-    {
-      "case_id": "required-artifact-missing",
-      "expected_outcome": "required-artifact-missing",
-      "observed_outcome": "required-artifact-missing",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://afca1edb740427b47318d83d6c5c50555291693273703b6937f53f189e93bbc1"
-    },
-    {
-      "case_id": "rule-catalog-unavailable",
-      "expected_outcome": "rule-catalog-unavailable",
-      "observed_outcome": "rule-catalog-unavailable",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://3cc2088d2a44d446aa045c9c9b6d74537fa50651ebafd3b7acf4e5fa85c25373"
-    },
-    {
-      "case_id": "schema-unsupported",
-      "expected_outcome": "schema-unsupported",
-      "observed_outcome": "schema-unsupported",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://7feac0ad26ce47813da0291999d1e18078f723fb374ebac484a7336040d80b24"
-    },
-    {
-      "case_id": "source-version-unavailable",
-      "expected_outcome": "source-version-unavailable",
-      "observed_outcome": "source-version-unavailable",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://a5c9eaff2137926b37d5ea40ae57f30fe326de9eee463cd2fd6468506995a35c"
-    },
-    {
-      "case_id": "trace-output-invalid",
-      "expected_outcome": "trace-output-invalid",
-      "observed_outcome": "trace-output-invalid",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://91a82ba82e69cd47c969502ffefda8a0be521ef0071f77b5e7a291bd72b6461c"
-    },
-    {
-      "case_id": "unsafe-provenance-rejected",
-      "expected_outcome": "unsafe-provenance-rejected",
-      "observed_outcome": "unsafe-provenance-rejected",
-      "passed": true,
-      "receipt_id": "tracemap-adapter-receipt://8bbde8516ac0af035b6f8b3e30ce1dccc4c50c309d3fd59a7dbe4b85159bb227"
-    }
-  ],
+  "cases": {
+    "adapter-failed": {"expected_outcome": "adapter-failed", "observed_outcome": "adapter-failed", "passed": true},
+    "commit-binding-mismatch": {"expected_outcome": "commit-binding-mismatch", "observed_outcome": "commit-binding-mismatch", "passed": true},
+    "complete": {"expected_outcome": "complete", "observed_outcome": "complete", "passed": true},
+    "configuration-identity-unavailable": {"expected_outcome": "configuration-identity-unavailable", "observed_outcome": "configuration-identity-unavailable", "passed": true},
+    "digest-mismatch": {"expected_outcome": "digest-mismatch", "observed_outcome": "digest-mismatch", "passed": true},
+    "partial-evidence-admitted": {"expected_outcome": "partial-evidence-admitted", "observed_outcome": "partial-evidence-admitted", "passed": true},
+    "provider-record-not-found": {"expected_outcome": "provider-record-not-found", "observed_outcome": "provider-record-not-found", "passed": true},
+    "repository-binding-mismatch": {"expected_outcome": "repository-binding-mismatch", "observed_outcome": "repository-binding-mismatch", "passed": true},
+    "required-artifact-missing": {"expected_outcome": "required-artifact-missing", "observed_outcome": "required-artifact-missing", "passed": true},
+    "rule-catalog-unavailable": {"expected_outcome": "rule-catalog-unavailable", "observed_outcome": "rule-catalog-unavailable", "passed": true},
+    "schema-unsupported": {"expected_outcome": "schema-unsupported", "observed_outcome": "schema-unsupported", "passed": true},
+    "source-version-unavailable": {"expected_outcome": "source-version-unavailable", "observed_outcome": "source-version-unavailable", "passed": true},
+    "trace-output-invalid": {"expected_outcome": "trace-output-invalid", "observed_outcome": "trace-output-invalid", "passed": true},
+    "unsafe-provenance-rejected": {"expected_outcome": "unsafe-provenance-rejected", "observed_outcome": "unsafe-provenance-rejected", "passed": true}
+  },
   "declared_outcomes": [
     "adapter-failed",
     "commit-binding-mismatch",
@@ -124,7 +40,7 @@
   "outcome": "complete",
   "protected_input_echoed": false,
   "provider_contract_anchor": "9a252f12f781ae2a0aab52b5faa53601440a2a3b",
-  "receipt_id": "tracemap-failure-conformance-receipt://e9c7950d56489f95426577d4170e655984fde57fc4938d13e813ba7ac24711af",
+  "receipt_id": "tracemap-failure-conformance-receipt://8bf77e4ff9ef7a03e54374de75c8bbb17395011938cfbb982a47e63d876f82fe",
   "schema_id": "artifact-memory/tracemap-failure-conformance-receipt/v1",
   "synthetic": true
 }

@@ -64,6 +64,32 @@ def materialize_packet(root: Path) -> Path:
 
 
 class TraceMapAdapterTests(unittest.TestCase):
+    def test_legacy_identity_failures_remain_trace_output_invalid(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            packet = materialize_packet(Path(temporary))
+            with self.assertRaises(AdapterFailure) as configuration:
+                bind_trace_map_evidence(
+                    SOURCE_REF,
+                    packet,
+                    "SyntheticOrders",
+                    COMMIT,
+                    tool_source_commit=TOOL_COMMIT,
+                    configuration_digest="invalid",
+                    rule_catalog_digest=RULE_CATALOG_DIGEST,
+                )
+            self.assertEqual(configuration.exception.outcome, "trace-output-invalid")
+            with self.assertRaises(AdapterFailure) as catalog:
+                bind_trace_map_evidence(
+                    SOURCE_REF,
+                    packet,
+                    "SyntheticOrders",
+                    COMMIT,
+                    tool_source_commit=TOOL_COMMIT,
+                    configuration_digest=CONFIG_DIGEST,
+                    rule_catalog_digest="invalid",
+                )
+            self.assertEqual(catalog.exception.outcome, "trace-output-invalid")
+
     def test_binding_is_deterministic_and_preserves_boundary(self):
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
             left = bind(materialize_packet(Path(first)), ["fact-synthetic-status-declaration"])
