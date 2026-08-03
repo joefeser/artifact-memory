@@ -161,6 +161,31 @@ class ExchangeTests(unittest.TestCase):
         self.assertEqual(replay, repeated_replay)
         self.assertEqual(replay["outcome"], "duplicate")
 
+    def test_v2_identity_mismatch_cannot_poison_replay_ledger(self):
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-identity-mismatch",
+            "2099-01-01T00:00:00Z",
+            [],
+            ["artifact://synthetic/reference"],
+        )
+        malformed = {**envelope, "envelope_id": "exchange://" + "f" * 64}
+        ledger: set[str] = set()
+        rejected = admit_v2(
+            malformed,
+            ledger,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        admitted = admit_v2(
+            envelope,
+            ledger,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(rejected["diagnostics"][0]["code"], "envelope-id-mismatch")
+        self.assertEqual(admitted["outcome"], "admitted")
+
     def test_v2_all_declared_admission_outcomes_are_reachable(self):
         record = canonical_record(
             record_id="record://synthetic/exchange-outcomes",
@@ -333,7 +358,23 @@ class ExchangeTests(unittest.TestCase):
         self.assertEqual(receipt["outcome"], "admitted")
         self.assertEqual(receipt["extensions"], {identifier: declaration})
 
-    def test_v2_rejects_normalized_credential_keys_without_echo(self):
+        expired = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-expired-optional-envelope-extension",
+            "2020-01-01T00:00:00Z",
+            [],
+            ["artifact://synthetic/reference"],
+            extensions={identifier: declaration},
+        )
+        expired_receipt = admit_v2(
+            expired,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(expired_receipt["outcome"], "rejected")
+        self.assertEqual(expired_receipt["extensions"], {identifier: declaration})
+
+    def test_v2_does_not_interpret_opaque_optional_extension_keys(self):
         for key in ("api-key", "private_key", "cookie"):
             envelope = make_envelope_v2(
                 "system://synthetic-receiver",
@@ -354,8 +395,34 @@ class ExchangeTests(unittest.TestCase):
                 expected_audience_ref="system://synthetic-receiver",
                 now="2026-08-03T00:00:00Z",
             )
+            self.assertEqual(receipt["outcome"], "admitted")
+
+    def test_v2_rejects_credential_shaped_values_without_echo(self):
+        values = (
+            "-----BEGIN RSA " + "PRIVATE" + " KEY-----\nsynthetic\n-----END RSA " + "PRIVATE" + " KEY-----",
+        )
+        for index, value in enumerate(values):
+            envelope = make_envelope_v2(
+                "system://synthetic-receiver",
+                f"v2-protected-value-{index}",
+                "2099-01-01T00:00:00Z",
+                [],
+                ["artifact://synthetic/reference"],
+                extensions={
+                    "https://synthetic.example/protected": {
+                        "version": "v1",
+                        "required": False,
+                        "value": {"payload": value},
+                    }
+                },
+            )
+            receipt = admit_v2(
+                envelope,
+                expected_audience_ref="system://synthetic-receiver",
+                now="2026-08-03T00:00:00Z",
+            )
             self.assertEqual(receipt["outcome"], "rejected")
-            self.assertNotIn("synthetic-placeholder", json.dumps(receipt))
+            self.assertNotIn(value, json.dumps(receipt))
 
     def test_v2_deduplicates_identical_revision_declarations(self):
         record = canonical_record(

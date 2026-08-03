@@ -18,22 +18,10 @@ AUTHORITY_BOUNDARY = "knowledge exchange grants no execution, disclosure, routin
 
 _canonical = canonical_bytes
 _LEDGER_LOCK = threading.Lock()
-_PROTECTED_KEYS = frozenset(
-    {
-        "access_token",
-        "api_key",
-        "authorization",
-        "bearer_token",
-        "credential",
-        "credentials",
-        "cookie",
-        "password",
-        "private_key",
-        "refresh_token",
-        "secret",
-    }
+_PRIVATE_KEY_HEADER = re.compile(
+    r"-----BEGIN (?:[A-Z0-9][A-Z0-9 -]* )?" + r"PRIVATE" + r" KEY-----",
+    re.IGNORECASE,
 )
-_NORMALIZED_PROTECTED_KEYS = frozenset(re.sub(r"[^a-z0-9]", "", key.casefold()) for key in _PROTECTED_KEYS)
 
 
 def make_envelope(audience_ref: str, correlation_id: str, expires_at: str, record_refs: list[dict[str, str]], artifact_refs: list[str], sensitivity: str = "public", record_bundle: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -87,16 +75,12 @@ def admit(envelope: dict[str, Any], seen_envelope_ids: set[str] | None = None, s
 
 def _contains_protected_material(value: Any) -> bool:
     if isinstance(value, dict):
-        return any(
-            re.sub(r"[^a-z0-9]", "", key.casefold()) in _NORMALIZED_PROTECTED_KEYS
-            or _contains_protected_material(item)
-            for key, item in value.items()
-        )
+        return any(_contains_protected_material(item) for item in value.values())
     if isinstance(value, list):
         return any(_contains_protected_material(item) for item in value)
     return isinstance(value, str) and (
         value.casefold().startswith("bearer ")
-        or "".join(("-----begin ", "private key-----")) in value.casefold()
+        or _PRIVATE_KEY_HEADER.search(value) is not None
         or re.fullmatch(r"(?:gh[opusr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})", value)
         is not None
     )
@@ -251,6 +235,20 @@ def admit_v2(
             "rejected",
             diagnostics=[{"code": "invalid-envelope", "message": "exchange envelope is not canonicalizable"}],
         )
+    try:
+        validate(envelope, load_schema("core", "exchange-envelope.v2.schema.json"))
+    except (ValidationFailure, KeyError, TypeError):
+        return _v2_receipt(
+            envelope_ref,
+            "rejected",
+            diagnostics=[{"code": "invalid-envelope", "message": "exchange envelope does not satisfy the v2 contract"}],
+        )
+    if envelope["envelope_id"] != envelope_ref:
+        return _v2_receipt(
+            envelope_ref,
+            "rejected",
+            diagnostics=[{"code": "envelope-id-mismatch", "message": "exchange envelope identity does not match its canonical body"}],
+        )
     ledger = seen_envelope_ids if seen_envelope_ids is not None else set()
     with _LEDGER_LOCK:
         if envelope_ref in ledger:
@@ -265,20 +263,6 @@ def admit_v2(
             envelope_ref,
             "unsupported",
             diagnostics=[{"code": "schema-unsupported", "message": "exchange schema is unsupported"}],
-        )
-    try:
-        validate(envelope, load_schema("core", "exchange-envelope.v2.schema.json"))
-    except (ValidationFailure, KeyError, TypeError):
-        return _v2_receipt(
-            envelope_ref,
-            "rejected",
-            diagnostics=[{"code": "invalid-envelope", "message": "exchange envelope does not satisfy the v2 contract"}],
-        )
-    if envelope["envelope_id"] != envelope_ref:
-        return _v2_receipt(
-            envelope_ref,
-            "rejected",
-            diagnostics=[{"code": "envelope-id-mismatch", "message": "exchange envelope identity does not match its canonical body"}],
         )
     manifest = envelope["bundle_manifest"]
     manifest_body = {
@@ -331,12 +315,14 @@ def admit_v2(
                 envelope_ref,
                 "rejected",
                 diagnostics=[{"code": "expired", "message": "exchange envelope is expired"}],
+                extensions=preserved_extensions,
             )
     except (AttributeError, ValueError, TypeError):
         return _v2_receipt(
             envelope_ref,
             "rejected",
             diagnostics=[{"code": "invalid-expiry", "message": "exchange expiry is invalid"}],
+            extensions=preserved_extensions,
         )
 
     declared: dict[str, str] = {}
@@ -377,6 +363,7 @@ def admit_v2(
             unresolved_record_ids=sorted(declared),
             artifact_refs=manifest["artifact_refs"],
             diagnostics=[diagnostic],
+            extensions=preserved_extensions,
         )
 
     available = available_record_revisions or set()
