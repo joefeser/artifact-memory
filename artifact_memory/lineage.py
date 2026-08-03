@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any
 
 from .schema_resources import load_schema
@@ -17,6 +18,24 @@ _LEGACY_OBSERVATION_SCHEMAS = {
 }
 
 
+def _require_qualified_timestamp(value: str, field: str) -> None:
+    """Require an ISO-8601 timestamp with an explicit UTC offset."""
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValidationFailure(
+            "legacy-evidence-insufficient",
+            f"legacy {field} must be a timezone-qualified ISO-8601 timestamp",
+            f"$.historical_fields.{field}",
+        ) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValidationFailure(
+            "legacy-evidence-insufficient",
+            f"legacy {field} must be a timezone-qualified ISO-8601 timestamp",
+            f"$.historical_fields.{field}",
+        )
+
+
 def validate_legacy_observation(observation: dict[str, Any]) -> dict[str, Any]:
     """Validate retained v1 read evidence or strict v2 observations by schema ID."""
     if not isinstance(observation, dict):
@@ -29,6 +48,10 @@ def validate_legacy_observation(observation: dict[str, Any]) -> dict[str, Any]:
     if schema_version is None:
         raise ValidationFailure("legacy-schema-unsupported", "legacy observation schema version is unsupported")
     validate(observation, _LEGACY_OBSERVATION_SCHEMAS[schema_version])
+    if schema_version == "v2":
+        historical_fields = observation["historical_fields"]
+        _require_qualified_timestamp(historical_fields["created_time_observed"], "created_time_observed")
+        _require_qualified_timestamp(historical_fields["modified_time_observed"], "modified_time_observed")
     return observation
 
 
@@ -60,6 +83,9 @@ def observe_legacy_file(
     created = _require_row(row, "created", str)
     modified = _require_row(row, "modified", str)
     legacy_hash = _require_row(row, "sha1", str)
+    if schema_version == "v2":
+        _require_qualified_timestamp(created, "created_time_observed")
+        _require_qualified_timestamp(modified, "modified_time_observed")
     if size < 0:
         raise ValidationFailure("legacy-evidence-insufficient", "legacy size cannot be negative", "$.size")
     if legacy_hash == "NONE":

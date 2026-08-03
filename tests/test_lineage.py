@@ -19,12 +19,26 @@ class LineageTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         schema = json.loads((root / "artifact_memory/schemas/core/legacy-observation.v2.schema.json").read_text(encoding="utf-8"))
         observation = observe_legacy_file({"path": "synthetic/legacy/file.bin", "size": 1024, "created": "2010", "modified": "2010", "sha1": "NONE"}, SOURCE_REF)
-        v2_observation = observe_legacy_file({"path": "synthetic/legacy/file.bin", "size": 1024, "created": "2010", "modified": "2010", "sha1": "NONE"}, SOURCE_REF, schema_version="v2")
+        v2_observation = observe_legacy_file({"path": "synthetic/legacy/file.bin", "size": 1024, "created": "2010-01-01T00:00:00Z", "modified": "2010-01-02T00:00:00+00:00", "sha1": "NONE"}, SOURCE_REF, schema_version="v2")
         validate(v2_observation, schema)
         self.assertEqual(observation["schema_id"], "artifact-memory/legacy-observation/v1")
         self.assertEqual(observation["historical_fields"]["legacy_hash"]["state"], "none-recorded")
         self.assertEqual(observation["historical_fields"]["legacy_hash"]["value"], "NONE")
         self.assertEqual(observation["artifact_identity"], "not-established")
+
+    def test_v2_timestamps_require_valid_explicit_timezone(self):
+        base = {"path": "synthetic/file", "size": 1, "created": "2010-01-01T00:00:00Z", "modified": "2010-01-02T00:00:00Z", "sha1": "NONE"}
+        for field, value in (("created", "2010"), ("modified", "not-a-date"), ("modified", "2010-01-02T00:00:00")):
+            row = {**base, field: value}
+            with self.subTest(field=field, value=value), self.assertRaises(ValidationFailure) as failure:
+                observe_legacy_file(row, SOURCE_REF, schema_version="v2")
+            self.assertEqual(failure.exception.code, "legacy-evidence-insufficient")
+
+        observation = observe_legacy_file(base, SOURCE_REF, schema_version="v2")
+        observation["historical_fields"]["created_time_observed"] = "2010"
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_legacy_observation(observation)
+        self.assertEqual(failure.exception.code, "constraint-failed")
 
     def test_v1_schema_remains_compatible_with_existing_observations(self):
         root = Path(__file__).resolve().parents[1]
