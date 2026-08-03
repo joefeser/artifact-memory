@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 from .extensions import ExtensionFailure, preserve_extensions
@@ -9,7 +10,14 @@ from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
 
-def validate_release_manifest(manifest: dict[str, Any]) -> None:
+def validate_release_manifest(
+    manifest: dict[str, Any],
+    *,
+    supported_required_extensions: Iterable[tuple[str, str]] | None = None,
+) -> None:
+    if isinstance(manifest, dict) and manifest.get("schema_id") == "artifact-memory/release-manifest/v1":
+        validate(manifest, load_schema("core", "release-manifest.v1.schema.json"))
+        return
     validate(manifest, load_schema("core", "release-manifest.v2.schema.json"))
     try:
         preserve_extensions(
@@ -18,6 +26,7 @@ def validate_release_manifest(manifest: dict[str, Any]) -> None:
                 "schema_id": "artifact-memory/extension-bundle/v1",
                 "extensions": manifest.get("extensions", {}),
             },
+            supported_required_extensions,
         )
     except ExtensionFailure as exc:
         raise ValidationFailure(exc.code, exc.message, exc.path) from exc

@@ -7,6 +7,7 @@ import re
 import subprocess
 import tarfile
 import tomllib
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -42,12 +43,26 @@ def _schema_inventory(commit: str) -> tuple[int, str]:
     return len(identifiers), sha256_bytes(canonical_bytes(sorted(identifiers)))
 
 
-def run_release_conformance(fixture: Path) -> dict[str, Any]:
+def run_release_conformance(
+    fixture: Path,
+    *,
+    supported_required_extensions: Iterable[tuple[str, str]] | None = None,
+) -> dict[str, Any]:
     manifest_path = fixture / "v0-preview-manifest.v2.json"
     if not manifest_path.is_file():
+        legacy_path = fixture / "v0-preview-manifest.json"
+        if legacy_path.is_file():
+            validate_release_manifest(load_json(legacy_path))
+            raise ValidationFailure(
+                "release-manifest-migration-required",
+                "v1 preview evidence requires migration to v2 byte-size and checksum bindings",
+            )
         raise ValidationFailure("release-preview-fixture-invalid", "selected fixture lacks the v0 preview manifest")
     manifest = load_json(manifest_path)
-    validate_release_manifest(manifest)
+    validate_release_manifest(
+        manifest,
+        supported_required_extensions=supported_required_extensions,
+    )
     commit = manifest["source"]["commit"]
 
     tree_listing = _git("ls-tree", "-r", "--full-tree", commit)

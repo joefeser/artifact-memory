@@ -20,6 +20,7 @@ class ReleaseManifestTests(unittest.TestCase):
         schema = json.loads((ROOT / "artifact_memory/schemas/core/release-manifest.v1.schema.json").read_text(encoding="utf-8"))
         manifest = json.loads((FIXTURE / "v0-preview-manifest.json").read_text(encoding="utf-8"))
         validate(manifest, schema)
+        validate_release_manifest(manifest)
         self.assertEqual(manifest["status"], "preview")
         self.assertEqual(manifest["signature"]["state"], "not-signed")
 
@@ -75,6 +76,31 @@ class ReleaseManifestTests(unittest.TestCase):
         with self.assertRaises(ValidationFailure) as failure:
             validate_release_manifest(manifest)
         self.assertEqual(failure.exception.code, "required-extension-unsupported")
+        validate_release_manifest(
+            manifest,
+            supported_required_extensions={(identifier, "v1")},
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            for source in FIXTURE.iterdir():
+                if source.is_file():
+                    (fixture / source.name).write_bytes(source.read_bytes())
+            (fixture / "v0-preview-manifest.v2.json").write_text(json.dumps(manifest), encoding="utf-8")
+            receipt = run_release_conformance(
+                fixture,
+                supported_required_extensions={(identifier, "v1")},
+            )
+        self.assertTrue(receipt["extensions"][identifier]["required"])
+
+    def test_v1_fixture_reports_typed_migration_requirement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            (fixture / "v0-preview-manifest.json").write_bytes(
+                (FIXTURE / "v0-preview-manifest.json").read_bytes()
+            )
+            with self.assertRaises(ValidationFailure) as failure:
+                run_release_conformance(fixture)
+        self.assertEqual(failure.exception.code, "release-manifest-migration-required")
 
     def test_documentation_asset_bytes_are_reproduced(self):
         manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
