@@ -12,11 +12,11 @@ verifies the stored bytes, validates canonical artifact and version records,
 and writes those records as versioned text. Exact replay is a duplicate;
 conflicting immutable records fail closed.
 
-Publication prefers atomic no-clobber hard links. A filesystem that does not
-support hard links uses a same-directory publication lock and atomic replace;
-all Artifact Memory writers honor that lock. Cleanup failures and mixed
-canonical-record recovery states are explicit failures that require inspection
-or replay, never successful registration.
+Publication uses atomic no-clobber hard links. A filesystem that does not
+support them returns `object-write-hardlink-unsupported`; v0 does not trade
+immutability or interrupted-write safety for broader filesystem support.
+Cleanup failures and mixed canonical-record recovery states are explicit
+failures that require inspection or replay, never successful registration.
 
 Interrupted object finalization emits a failed registration receipt and cleans
 the partial file. Canonical record writes are independently replay-safe; a

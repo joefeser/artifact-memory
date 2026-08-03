@@ -142,15 +142,15 @@ class VaultBackupTests(unittest.TestCase):
             self.assertEqual(mixed["diagnostics"], ["canonical-record-state-mixed-replay-required"])
             self.assertEqual(replayed["outcome"], "duplicate")
 
-    def test_hardlink_unavailable_uses_locked_atomic_fallback(self):
+    def test_hardlink_unavailable_fails_closed_without_partial(self):
         with tempfile.TemporaryDirectory() as temporary:
             vault = Path(temporary) / "vault"
             unavailable = OSError(errno.EOPNOTSUPP, "synthetic hardlink unavailable")
             with patch("artifact_memory.vault.os.link", side_effect=unavailable):
                 receipt = register_bytes(vault, b"synthetic fallback bytes")
-            self.assertEqual(receipt["outcome"], "registered")
-            self.assertEqual(receipt["diagnostics"], [])
-            self.assertEqual([path for path in vault.rglob("*") if ".publish-lock" in path.name], [])
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertEqual(receipt["diagnostics"], ["object-write-hardlink-unsupported"])
+            self.assertEqual([path for path in vault.rglob("*") if path.is_file()], [])
 
     def test_cleanup_failure_is_explicit_and_preserves_unsafe_partial(self):
         with tempfile.TemporaryDirectory() as temporary:

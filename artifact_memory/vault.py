@@ -49,33 +49,6 @@ def _existing_matches(path: Path, data: bytes) -> bool:
     return sha256_path(path) == "sha-256:" + hashlib.sha256(data).hexdigest()
 
 
-def _publish_with_lock(temporary: str, path: Path, data: bytes) -> str:
-    """Fallback for filesystems without hard links, serialized by atomic mkdir."""
-    lock = path.with_name(f".{path.name}.publish-lock")
-    lock.mkdir()
-    result: str | None = None
-    primary_error: Exception | None = None
-    try:
-        if path.exists() or path.is_symlink():
-            if not _existing_matches(path, data):
-                raise ValueError("immutable-record-collision")
-            result = "duplicate"
-        else:
-            os.replace(temporary, path)
-            result = "created"
-    except Exception as exc:
-        primary_error = exc
-    try:
-        lock.rmdir()
-    except OSError as exc:
-        raise ImmutableWriteFailure("object-write-cleanup-failed") from (primary_error or exc)
-    if primary_error is not None:
-        raise primary_error
-    if result is None:
-        raise ImmutableWriteFailure("object-write-failed")
-    return result
-
-
 def _write_immutable(path: Path, data: bytes) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() or path.is_symlink():
@@ -99,7 +72,7 @@ def _write_immutable(path: Path, data: bytes) -> str:
         except OSError as exc:
             if exc.errno not in HARDLINK_UNAVAILABLE:
                 raise
-            result = _publish_with_lock(temporary, path, data)
+            raise ImmutableWriteFailure("object-write-hardlink-unsupported") from exc
         else:
             result = "created"
     except Exception as exc:
