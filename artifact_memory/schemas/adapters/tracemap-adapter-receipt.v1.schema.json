@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/adapters/tracemap-adapter-receipt/v1",
+  "title": "Artifact Memory TraceMap adapter receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "receipt_id",
+    "outcome",
+    "provider",
+    "provider_contract_anchor",
+    "admitted",
+    "integrity_state",
+    "diagnostics",
+    "protected_input_echoed",
+    "local_path_echoed",
+    "authority_boundary",
+    "validation_state"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/tracemap-adapter-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^tracemap-adapter-receipt://[0-9a-f]{64}$"},
+    "outcome": {
+      "enum": [
+        "complete",
+        "required-artifact-missing",
+        "schema-unsupported",
+        "trace-output-invalid",
+        "digest-mismatch",
+        "repository-binding-mismatch",
+        "commit-binding-mismatch",
+        "source-version-unavailable",
+        "rule-catalog-unavailable",
+        "configuration-identity-unavailable",
+        "unsafe-provenance-rejected",
+        "provider-record-not-found",
+        "partial-evidence-admitted",
+        "adapter-failed"
+      ]
+    },
+    "provider": {"const": "tracemap"},
+    "provider_contract_anchor": {"const": "9a252f12f781ae2a0aab52b5faa53601440a2a3b"},
+    "admitted": {"type": "boolean"},
+    "integrity_state": {"enum": ["integrity-verified / issuer-unverified", "not-assessed"]},
+    "binding_id": {"type": "string", "pattern": "^binding://tracemap/[0-9a-f]{64}$"},
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code"],
+        "properties": {"code": {"type": "string", "minLength": 1}}
+      }
+    },
+    "protected_input_echoed": {"const": false},
+    "local_path_echoed": {"const": false},
+    "authority_boundary": {
+      "const": "informational evidence only; no execution, routing, disclosure, approval, or mutation authority"
+    },
+    "validation_state": {"enum": ["validated", "not-validated-runtime-failure"]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"admitted": {"const": true}}, "required": ["admitted"]},
+      "then": {
+        "required": ["binding_id"],
+        "properties": {
+          "outcome": {"enum": ["complete", "partial-evidence-admitted"]},
+          "integrity_state": {"const": "integrity-verified / issuer-unverified"},
+          "diagnostics": {"maxItems": 0}
+        }
+      },
+      "else": {
+        "not": {"required": ["binding_id"]},
+        "properties": {
+          "outcome": {
+            "not": {"enum": ["complete", "partial-evidence-admitted"]}
+          },
+          "integrity_state": {"const": "not-assessed"},
+          "diagnostics": {"minItems": 1, "maxItems": 1}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"validation_state": {"const": "not-validated-runtime-failure"}},
+        "required": ["validation_state"]
+      },
+      "then": {
+        "properties": {
+          "outcome": {"const": "adapter-failed"},
+          "admitted": {"const": false}
+        },
+        "not": {"required": ["binding_id"]}
+      }
+    },
+    {
+      "anyOf": [
+        {
+          "properties": {
+            "outcome": {"enum": ["complete", "partial-evidence-admitted"]},
+            "diagnostics": {"maxItems": 0}
+          }
+        },
+        {"properties": {"outcome": {"const": "required-artifact-missing"}, "diagnostics": {"items": {"properties": {"code": {"const": "required-artifact-missing"}}}}}},
+        {"properties": {"outcome": {"const": "schema-unsupported"}, "diagnostics": {"items": {"properties": {"code": {"const": "schema-unsupported"}}}}}},
+        {"properties": {"outcome": {"const": "trace-output-invalid"}, "diagnostics": {"items": {"properties": {"code": {"const": "trace-output-invalid"}}}}}},
+        {"properties": {"outcome": {"const": "digest-mismatch"}, "diagnostics": {"items": {"properties": {"code": {"const": "digest-mismatch"}}}}}},
+        {"properties": {"outcome": {"const": "repository-binding-mismatch"}, "diagnostics": {"items": {"properties": {"code": {"const": "repository-binding-mismatch"}}}}}},
+        {"properties": {"outcome": {"const": "commit-binding-mismatch"}, "diagnostics": {"items": {"properties": {"code": {"const": "commit-binding-mismatch"}}}}}},
+        {"properties": {"outcome": {"const": "source-version-unavailable"}, "diagnostics": {"items": {"properties": {"code": {"const": "source-version-unavailable"}}}}}},
+        {"properties": {"outcome": {"const": "rule-catalog-unavailable"}, "diagnostics": {"items": {"properties": {"code": {"const": "rule-catalog-unavailable"}}}}}},
+        {"properties": {"outcome": {"const": "configuration-identity-unavailable"}, "diagnostics": {"items": {"properties": {"code": {"const": "configuration-identity-unavailable"}}}}}},
+        {"properties": {"outcome": {"const": "unsafe-provenance-rejected"}, "diagnostics": {"items": {"properties": {"code": {"const": "unsafe-provenance-rejected"}}}}}},
+        {"properties": {"outcome": {"const": "provider-record-not-found"}, "diagnostics": {"items": {"properties": {"code": {"const": "provider-record-not-found"}}}}}},
+        {"properties": {"outcome": {"const": "adapter-failed"}, "diagnostics": {"items": {"properties": {"code": {"const": "adapter-failed"}}}}}}
+      ]
+    }
+  ]
+}

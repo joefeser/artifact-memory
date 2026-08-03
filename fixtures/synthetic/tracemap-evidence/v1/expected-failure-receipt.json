@@ -1,0 +1,46 @@
+{
+  "authority_boundary": "informational evidence only; no execution, routing, disclosure, approval, or mutation authority",
+  "cases": {
+    "adapter-failed": {"expected_outcome": "adapter-failed", "observed_outcome": "adapter-failed", "passed": true},
+    "commit-binding-mismatch": {"expected_outcome": "commit-binding-mismatch", "observed_outcome": "commit-binding-mismatch", "passed": true},
+    "complete": {"expected_outcome": "complete", "observed_outcome": "complete", "passed": true},
+    "configuration-identity-unavailable": {"expected_outcome": "configuration-identity-unavailable", "observed_outcome": "configuration-identity-unavailable", "passed": true},
+    "digest-mismatch": {"expected_outcome": "digest-mismatch", "observed_outcome": "digest-mismatch", "passed": true},
+    "partial-evidence-admitted": {"expected_outcome": "partial-evidence-admitted", "observed_outcome": "partial-evidence-admitted", "passed": true},
+    "provider-record-not-found": {"expected_outcome": "provider-record-not-found", "observed_outcome": "provider-record-not-found", "passed": true},
+    "repository-binding-mismatch": {"expected_outcome": "repository-binding-mismatch", "observed_outcome": "repository-binding-mismatch", "passed": true},
+    "required-artifact-missing": {"expected_outcome": "required-artifact-missing", "observed_outcome": "required-artifact-missing", "passed": true},
+    "rule-catalog-unavailable": {"expected_outcome": "rule-catalog-unavailable", "observed_outcome": "rule-catalog-unavailable", "passed": true},
+    "schema-unsupported": {"expected_outcome": "schema-unsupported", "observed_outcome": "schema-unsupported", "passed": true},
+    "source-version-unavailable": {"expected_outcome": "source-version-unavailable", "observed_outcome": "source-version-unavailable", "passed": true},
+    "trace-output-invalid": {"expected_outcome": "trace-output-invalid", "observed_outcome": "trace-output-invalid", "passed": true},
+    "unsafe-provenance-rejected": {"expected_outcome": "unsafe-provenance-rejected", "observed_outcome": "unsafe-provenance-rejected", "passed": true}
+  },
+  "declared_outcomes": [
+    "adapter-failed",
+    "commit-binding-mismatch",
+    "complete",
+    "configuration-identity-unavailable",
+    "digest-mismatch",
+    "partial-evidence-admitted",
+    "provider-record-not-found",
+    "repository-binding-mismatch",
+    "required-artifact-missing",
+    "rule-catalog-unavailable",
+    "schema-unsupported",
+    "source-version-unavailable",
+    "trace-output-invalid",
+    "unsafe-provenance-rejected"
+  ],
+  "limitations": [
+    "synthetic failure vectors do not establish provider issuer authenticity",
+    "adapter-failed proves exception containment through an injected synthetic path fault"
+  ],
+  "local_path_echoed": false,
+  "outcome": "complete",
+  "protected_input_echoed": false,
+  "provider_contract_anchor": "9a252f12f781ae2a0aab52b5faa53601440a2a3b",
+  "receipt_id": "tracemap-failure-conformance-receipt://8bf77e4ff9ef7a03e54374de75c8bbb17395011938cfbb982a47e63d876f82fe",
+  "schema_id": "artifact-memory/tracemap-failure-conformance-receipt/v1",
+  "synthetic": true
+}
