@@ -328,11 +328,11 @@ def admit_v2(
         )
 
     declared: dict[str, str] = {}
-    contradictory: list[str] = []
+    contradictory: set[str] = set()
     for item in manifest["records"]:
         prior = declared.get(item["record_id"])
         if prior is not None and prior != item["revision_digest"]:
-            contradictory.append(item["record_id"])
+            contradictory.add(item["record_id"])
         elif prior is None:
             declared[item["record_id"]] = item["revision_digest"]
     bundled: dict[str, str] = {}
@@ -348,7 +348,7 @@ def admit_v2(
                 supported_required_extensions or set(),
             )
             if record_id in bundled or record_id not in declared or declared[record_id] != revision:
-                contradictory.append(record_id)
+                contradictory.add(record_id)
             elif sensitivity_rank[sensitivity] > sensitivity_rank[handling_sensitivity]:
                 handling_conflict = True
             else:
@@ -359,7 +359,7 @@ def admit_v2(
                 candidate_id = "record://invalid/bundled-record"
             invalid_bundle_ids.add(candidate_id)
             invalid_bundle_codes.add(exc.code)
-            contradictory.append(candidate_id)
+            contradictory.add(candidate_id)
     if contradictory or handling_conflict:
         if invalid_bundle_ids:
             diagnostic = {
@@ -373,7 +373,7 @@ def admit_v2(
         return _v2_receipt(
             envelope_ref,
             "quarantined",
-            unresolved_record_ids=sorted(set(declared) | invalid_bundle_ids),
+            unresolved_record_ids=sorted(set(declared) | invalid_bundle_ids | contradictory),
             artifact_refs=manifest["artifact_refs"],
             diagnostics=[diagnostic],
             extensions=preserved_extensions,

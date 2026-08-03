@@ -469,6 +469,35 @@ class ExchangeTests(unittest.TestCase):
         self.assertEqual(receipt["unresolved_record_ids"], [malformed_record["record_id"]])
         self.assertEqual(receipt["diagnostics"][0]["code"], "bundled-record-invalid")
 
+    def test_v2_quarantine_preserves_undeclared_bundled_record_identity(self):
+        declared = canonical_record(
+            record_id="record://synthetic/exchange-declared-bundle",
+            sensitivity="public",
+        )
+        extra = canonical_record(
+            record_id="record://synthetic/exchange-undeclared-bundle",
+            sensitivity="public",
+        )
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-undeclared-bundled-record",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(declared)],
+            [],
+            record_bundle=[declared, extra],
+        )
+        receipt = admit_v2(
+            envelope,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(receipt["outcome"], "quarantined")
+        self.assertEqual(
+            receipt["unresolved_record_ids"],
+            sorted([declared["record_id"], extra["record_id"]]),
+        )
+        self.assertEqual(receipt["diagnostics"][0]["code"], "contradictory-bundle")
+
     def test_v2_malformed_availability_metadata_is_typed_quarantine(self):
         record = canonical_record(
             record_id="record://synthetic/exchange-availability",
