@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import re
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
 from .canonical import canonical_bytes, receipt_with_digest
+from .extensions import ExtensionFailure, preserve_extensions
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -15,6 +17,7 @@ AUTHORITY_BOUNDARY = "knowledge exchange grants no execution, disclosure, routin
 
 
 _canonical = canonical_bytes
+_LEDGER_LOCK = threading.Lock()
 _PROTECTED_KEYS = frozenset(
     {
         "access_token",
@@ -79,15 +82,15 @@ def admit(envelope: dict[str, Any], seen_envelope_ids: set[str] | None = None, s
     return receipt_with_digest("artifact-memory/admission-receipt/v1", "admission-receipt://", receipt_body)
 
 
-def _contains_bearer_material(value: Any) -> bool:
+def _contains_protected_material(value: Any) -> bool:
     if isinstance(value, dict):
         return any(
             key.casefold() in _PROTECTED_KEYS
-            or _contains_bearer_material(item)
+            or _contains_protected_material(item)
             for key, item in value.items()
         )
     if isinstance(value, list):
-        return any(_contains_bearer_material(item) for item in value)
+        return any(_contains_protected_material(item) for item in value)
     return isinstance(value, str) and (
         value.casefold().startswith("bearer ")
         or re.fullmatch(r"(?:gh[opusr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})", value)
@@ -137,7 +140,11 @@ def make_envelope_v2(
     if record_bundle is not None:
         body["record_bundle"] = sorted(
             record_bundle,
-            key=lambda item: item.get("record_id", "") if isinstance(item, dict) else "",
+            key=lambda item: (
+                item.get("record_id", "")
+                if isinstance(item, dict) and isinstance(item.get("record_id"), str)
+                else ""
+            ),
         )
     if extensions is not None:
         body["extensions"] = extensions
@@ -175,7 +182,10 @@ def _v2_receipt(
     return receipt
 
 
-def _record_revision(record: dict[str, Any]) -> tuple[str, str, str]:
+def _record_revision(
+    record: dict[str, Any],
+    supported_required_extensions: set[tuple[str, str]],
+) -> tuple[str, str, str]:
     record_id = record.get("record_id")
     schema_id = record.get("schema_id")
     if not isinstance(record_id, str) or not isinstance(schema_id, str):
@@ -187,14 +197,32 @@ def _record_revision(record: dict[str, Any]) -> tuple[str, str, str]:
     if schema_name is None:
         raise ValidationFailure("unsupported-record", "bundled record schema is unsupported")
     validate(record, load_schema("core", schema_name))
+    extensions = record.get("extensions", {})
+    for declaration in extensions.values():
+        if isinstance(declaration, dict) and declaration.get("required") is True:
+            try:
+                preserve_extensions(
+                    {},
+                    {
+                        "schema_id": "artifact-memory/extension-bundle/v1",
+                        "extensions": extensions,
+                    },
+                    supported_required_extensions,
+                )
+            except ExtensionFailure as exc:
+                raise ValidationFailure(exc.code, exc.message, exc.path) from exc
+            break
     sensitivity = record.get("sensitivity", "restricted")
     if sensitivity not in {"public", "private", "restricted"}:
         raise ValidationFailure("invalid-record", "bundled record sensitivity is invalid")
-    return (
-        record_id,
-        "sha-256:" + hashlib.sha256(_canonical(record)).hexdigest(),
-        sensitivity,
-    )
+    try:
+        revision = "sha-256:" + hashlib.sha256(_canonical(record)).hexdigest()
+    except ValueError as exc:
+        raise ValidationFailure(
+            "invalid-record",
+            "bundled record bytes are not canonicalizable",
+        ) from exc
+    return (record_id, revision, sensitivity)
 
 
 def admit_v2(
@@ -206,9 +234,25 @@ def admit_v2(
     now: str | None = None,
     available_record_revisions: set[tuple[str, str]] | None = None,
     available_record_sensitivities: dict[tuple[str, str], str] | None = None,
+    supported_required_extensions: set[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Admit one v2 envelope with deterministic replay and resolution truth."""
     envelope_ref = _safe_envelope_ref(envelope)
+    if envelope_ref == "exchange://" + "0" * 64:
+        return _v2_receipt(
+            envelope_ref,
+            "rejected",
+            diagnostics=[{"code": "invalid-envelope", "message": "exchange envelope is not canonicalizable"}],
+        )
+    ledger = seen_envelope_ids if seen_envelope_ids is not None else set()
+    with _LEDGER_LOCK:
+        if envelope_ref in ledger:
+            return _v2_receipt(
+                envelope_ref,
+                "duplicate",
+                diagnostics=[{"code": "replay", "message": "envelope was already processed"}],
+            )
+        ledger.add(envelope_ref)
     if not supported_schema:
         return _v2_receipt(
             envelope_ref,
@@ -241,22 +285,13 @@ def admit_v2(
             "rejected",
             diagnostics=[{"code": "bundle-id-mismatch", "message": "bundle manifest identity does not match its canonical body"}],
         )
-    ledger = seen_envelope_ids if seen_envelope_ids is not None else set()
-    if envelope_ref in ledger:
-        return _v2_receipt(
-            envelope_ref,
-            "duplicate",
-            diagnostics=[{"code": "replay", "message": "envelope was already processed"}],
-        )
     if envelope["audience_ref"] != expected_audience_ref:
-        ledger.add(envelope_ref)
         return _v2_receipt(
             envelope_ref,
             "rejected",
             diagnostics=[{"code": "audience-mismatch", "message": "exchange audience does not match this receiver"}],
         )
-    if _contains_bearer_material(envelope):
-        ledger.add(envelope_ref)
+    if _contains_protected_material(envelope):
         return _v2_receipt(
             envelope_ref,
             "rejected",
@@ -270,13 +305,12 @@ def admit_v2(
             else datetime.now(timezone.utc)
         )
         if expiry <= current:
-            ledger.add(envelope_ref)
             return _v2_receipt(
                 envelope_ref,
                 "rejected",
                 diagnostics=[{"code": "expired", "message": "exchange envelope is expired"}],
             )
-    except (ValueError, TypeError):
+    except (AttributeError, ValueError, TypeError):
         return _v2_receipt(
             envelope_ref,
             "rejected",
@@ -297,7 +331,10 @@ def admit_v2(
     handling_sensitivity = envelope["handling"]["sensitivity"]
     try:
         for record in envelope.get("record_bundle", []):
-            record_id, revision, sensitivity = _record_revision(record)
+            record_id, revision, sensitivity = _record_revision(
+                record,
+                supported_required_extensions or set(),
+            )
             if record_id in bundled or record_id not in declared or declared[record_id] != revision:
                 contradictory.append(record_id)
             elif sensitivity_rank[sensitivity] > sensitivity_rank[handling_sensitivity]:
@@ -307,7 +344,6 @@ def admit_v2(
     except ValidationFailure:
         contradictory.append("record://invalid/bundled-record")
     if contradictory or handling_conflict:
-        ledger.add(envelope_ref)
         diagnostic = (
             {"code": "contradictory-bundle", "message": "bundle declarations or bytes contradict each other"}
             if contradictory
@@ -353,7 +389,6 @@ def admit_v2(
     else:
         outcome = "quarantined"
         diagnostics = [{"code": "empty-bundle", "message": "bundle contains no knowledge or artifact references"}]
-    ledger.add(envelope_ref)
     return _v2_receipt(
         envelope_ref,
         outcome,

@@ -1,6 +1,7 @@
 import ast
 import json
 import hashlib
+import threading
 import unittest
 from pathlib import Path
 
@@ -283,6 +284,112 @@ class ExchangeTests(unittest.TestCase):
         )
         self.assertEqual(replay["outcome"], "duplicate")
         self.assertNotIn("Bearer", json.dumps(replay))
+
+    def test_v2_required_extensions_fail_closed_until_support_is_declared(self):
+        identifier = "https://synthetic.example/required-exchange"
+        record = canonical_record(
+            record_id="record://synthetic/exchange-required-extension",
+            sensitivity="public",
+            extensions={identifier: {"version": "v1", "required": True, "value": {}}},
+        )
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-required-extension",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(record)],
+            [],
+            record_bundle=[record],
+        )
+        unsupported = admit_v2(
+            envelope,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(unsupported["outcome"], "quarantined")
+        supported = admit_v2(
+            envelope,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+            supported_required_extensions={(identifier, "v1")},
+        )
+        self.assertEqual(supported["outcome"], "admitted")
+
+    def test_v2_noncanonical_envelope_and_invalid_time_fail_closed(self):
+        record = canonical_record(
+            record_id="record://synthetic/exchange-surrogate",
+            sensitivity="public",
+            meaning={"summary": "synthetic-\ud800"},
+        )
+        malformed = {
+            "schema_id": "artifact-memory/exchange-envelope/v2",
+            "envelope_id": "exchange://" + "0" * 64,
+            "audience_ref": "system://synthetic-receiver",
+            "correlation_id": "v2-surrogate",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "bundle_manifest": {
+                "bundle_id": "exchange-bundle://" + "a" * 64,
+                "records": [{"record_id": record["record_id"], "revision_digest": "sha-256:" + "a" * 64}],
+                "artifact_refs": [],
+            },
+            "record_bundle": [record],
+            "handling": {
+                "sensitivity": "public",
+                "disclosure": "informational-only",
+                "artifact_retrieval": "separately-authorized",
+            },
+            "authority_boundary": AUTHORITY_BOUNDARY,
+        }
+        receipt = admit_v2(
+            malformed,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(receipt["outcome"], "rejected")
+
+        valid = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-invalid-now",
+            "2099-01-01T00:00:00Z",
+            [],
+            ["artifact://synthetic/reference"],
+        )
+        invalid_now = admit_v2(
+            valid,
+            expected_audience_ref="system://synthetic-receiver",
+            now=object(),  # type: ignore[arg-type]
+        )
+        self.assertEqual(invalid_now["outcome"], "rejected")
+        self.assertEqual(invalid_now["diagnostics"][0]["code"], "invalid-expiry")
+
+    def test_v2_ledger_claim_is_atomic_for_concurrent_replay(self):
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-concurrent-replay",
+            "2099-01-01T00:00:00Z",
+            [],
+            ["artifact://synthetic/reference"],
+        )
+        ledger: set[str] = set()
+        barrier = threading.Barrier(2)
+        outcomes: list[str] = []
+
+        def admit_once() -> None:
+            barrier.wait()
+            outcomes.append(
+                admit_v2(
+                    envelope,
+                    ledger,
+                    expected_audience_ref="system://synthetic-receiver",
+                    now="2026-08-03T00:00:00Z",
+                )["outcome"]
+            )
+
+        workers = [threading.Thread(target=admit_once) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+        self.assertCountEqual(outcomes, ["admitted", "duplicate"])
 
     def test_independent_reader_has_no_reference_runtime_imports(self):
         source = (ROOT / "artifact_memory/independent_reader.py").read_text(encoding="utf-8")

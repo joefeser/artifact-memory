@@ -122,30 +122,48 @@ def run_exchange_conformance(fixture: Path) -> dict[str, Any]:
         supported_schema=False,
     )
 
-    ledger: set[str] = set()
-    admit_v2(
-        admitted_envelope,
-        ledger,
-        expected_audience_ref=common["audience_ref"],
-        now=vectors["evaluation_time"],
-    )
-    duplicate = admit_v2(
-        admitted_envelope,
-        ledger,
-        expected_audience_ref=common["audience_ref"],
-        now=vectors["evaluation_time"],
-    )
-    repeated_duplicate = admit_v2(
-        admitted_envelope,
-        ledger,
-        expected_audience_ref=common["audience_ref"],
-        now=vectors["evaluation_time"],
-    )
-    if duplicate != repeated_duplicate:
-        raise ValidationFailure(
-            "replay-not-idempotent",
-            "repeated exchange replay did not return the same duplicate receipt",
+    replay_vectors = {
+        "admitted": (admitted_envelope, {}),
+        "partially-resolved": (partial_envelope, {}),
+        "quarantined": (contradictory_envelope, {}),
+        "rejected": (expired_envelope, {}),
+        "unsupported": (admitted_envelope, {"supported_schema": False}),
+    }
+    duplicate = None
+    for expected_outcome, (replay_envelope, options) in replay_vectors.items():
+        ledger: set[str] = set()
+        first_attempt = admit_v2(
+            replay_envelope,
+            ledger,
+            expected_audience_ref=common["audience_ref"],
+            now=vectors["evaluation_time"],
+            **options,
         )
+        if first_attempt["outcome"] != expected_outcome:
+            raise ValidationFailure("replay-vector-mismatch", "replay source outcome changed")
+        first_duplicate = admit_v2(
+            replay_envelope,
+            ledger,
+            expected_audience_ref=common["audience_ref"],
+            now=vectors["evaluation_time"],
+            **options,
+        )
+        repeated_duplicate = admit_v2(
+            replay_envelope,
+            ledger,
+            expected_audience_ref=common["audience_ref"],
+            now=vectors["evaluation_time"],
+            **options,
+        )
+        if first_duplicate != repeated_duplicate or first_duplicate["outcome"] != "duplicate":
+            raise ValidationFailure(
+                "replay-not-idempotent",
+                "repeated exchange replay did not return the same duplicate receipt",
+            )
+        if expected_outcome == "admitted":
+            duplicate = first_duplicate
+    if duplicate is None:
+        raise ValidationFailure("replay-vector-mismatch", "duplicate vector was not exercised")
 
     protected_envelope = make_envelope_v2(
         common["audience_ref"],
