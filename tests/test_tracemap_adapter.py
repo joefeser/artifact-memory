@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from artifact_memory.tracemap_adapter import AdapterFailure, INTEGRITY_STATE, _is_link_or_reparse_point, bind_trace_map_evidence
+from artifact_memory.tracemap_adapter import AdapterFailure, INTEGRITY_STATE, _is_link_or_reparse_point, bind_trace_map_evidence, bind_trace_map_evidence_receipted
 from artifact_memory.schema_resources import load_schema
 from artifact_memory.validator import validate
 
@@ -64,6 +64,26 @@ def materialize_packet(root: Path) -> Path:
 
 
 class TraceMapAdapterTests(unittest.TestCase):
+    def test_malformed_selected_fact_ids_are_typed_in_both_apis(self):
+        malformed = ["fact-synthetic-status-declaration", 7]
+        with tempfile.TemporaryDirectory() as temporary:
+            packet = materialize_packet(Path(temporary))
+            with self.assertRaises(AdapterFailure) as raised:
+                bind(packet, malformed)  # type: ignore[list-item]
+            self.assertEqual(raised.exception.outcome, "trace-output-invalid")
+            binding, receipt = bind_trace_map_evidence_receipted(
+                SOURCE_REF,
+                packet,
+                "SyntheticOrders",
+                COMMIT,
+                malformed,  # type: ignore[arg-type]
+                tool_source_commit=TOOL_COMMIT,
+                configuration_digest=CONFIG_DIGEST,
+                rule_catalog_digest=RULE_CATALOG_DIGEST,
+            )
+        self.assertIsNone(binding)
+        self.assertEqual(receipt["outcome"], "trace-output-invalid")
+
     def test_legacy_identity_failures_remain_trace_output_invalid(self):
         with tempfile.TemporaryDirectory() as temporary:
             packet = materialize_packet(Path(temporary))

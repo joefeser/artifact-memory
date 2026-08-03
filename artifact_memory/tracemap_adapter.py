@@ -278,6 +278,14 @@ def _bind_trace_map_evidence_impl(
     rule_catalog_digest: str | None = None,
 ) -> dict[str, Any]:
     """Validate and bind one packet with the receipted API's full outcomes."""
+    if selected_fact_ids is not None and (
+        not isinstance(selected_fact_ids, list)
+        or any(not isinstance(fact_id, str) for fact_id in selected_fact_ids)
+    ):
+        raise AdapterFailure(
+            "trace-output-invalid",
+            "selected provider record identities are invalid",
+        )
     if not re.fullmatch(r"artifact-version://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+/[0-9]+", source_version_ref):
         raise AdapterFailure("source-version-unavailable", "source artifact-version reference is invalid")
     if not re.fullmatch(r"[0-9a-f]{40}", tool_source_commit):
