@@ -178,7 +178,7 @@ def _inspect_open_zip(
     seen_exact: set[str] = set()
     seen_casefolded: set[str] = set()
     seen_files: set[str] = set()
-    total_charged = 0
+    total_read = 0
     try:
         with zipfile.ZipFile(stream) as archive:
             for index, info in enumerate(archive.infolist()):
@@ -217,28 +217,16 @@ def _inspect_open_zip(
                     continue
                 seen_files.add(normalized)
 
-                remaining = max_uncompressed_bytes - total_charged
-                if info.file_size > remaining:
-                    diagnostics.append(_diagnostic("decompression-limit", "archive exceeds the v0 uncompressed-byte limit", normalized))
-                    break
+                remaining = max_uncompressed_bytes - total_read
                 try:
                     digest = hashlib.sha256()
                     byte_size = 0
                     limit_exceeded = False
-                    charged_for_entry = info.file_size
-                    total_charged += charged_for_entry
                     with archive.open(info) as entry_stream:
-                        while chunk := entry_stream.read(
-                            min(
-                                64 * 1024,
-                                info.file_size - byte_size + max_uncompressed_bytes - total_charged + 1,
-                            )
-                        ):
+                        while chunk := entry_stream.read(min(64 * 1024, remaining - byte_size + 1)):
                             byte_size += len(chunk)
-                            if byte_size > charged_for_entry:
-                                total_charged += byte_size - charged_for_entry
-                                charged_for_entry = byte_size
-                            if total_charged > max_uncompressed_bytes:
+                            total_read += len(chunk)
+                            if byte_size > remaining:
                                 limit_exceeded = True
                                 break
                             digest.update(chunk)
@@ -247,13 +235,13 @@ def _inspect_open_zip(
                     continue
                 except (OSError, RuntimeError, zipfile.BadZipFile):
                     diagnostics.append(_diagnostic("corrupt-entry", "archive entry failed integrity verification", normalized))
-                    continue
+                    break
                 if limit_exceeded:
                     diagnostics.append(_diagnostic("decompression-limit", "archive exceeds the v0 uncompressed-byte limit", normalized))
                     break
                 if byte_size != info.file_size:
                     diagnostics.append(_diagnostic("corrupt-entry", "archive entry size does not match its central-directory claim", normalized))
-                    continue
+                    break
                 entries.append(
                     {
                         "path": normalized,

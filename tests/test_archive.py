@@ -85,7 +85,7 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual([entry["path"] for entry in conflict_receipt["entries"]], ["node"])
             self.assertEqual([item["code"] for item in conflict_receipt["diagnostics"]], ["path-conflict"])
 
-    def test_corrupt_entries_consume_the_global_decompression_budget(self):
+    def test_corrupt_entry_stops_further_decompression_work(self):
         with tempfile.TemporaryDirectory() as temporary:
             archive_path = Path(temporary) / "budget.zip"
             with zipfile.ZipFile(archive_path, "w") as archive:
@@ -97,10 +97,23 @@ class ArchiveTests(unittest.TestCase):
             data[position] ^= 0x01
             archive_path.write_bytes(data)
             receipt = inspect_zip(archive_path, max_uncompressed_bytes=6)
-            self.assertEqual(
-                [item["code"] for item in receipt["diagnostics"]],
-                ["corrupt-entry", "decompression-limit"],
-            )
+            self.assertEqual([item["code"] for item in receipt["diagnostics"]], ["corrupt-entry"])
+            self.assertEqual(receipt["entries"], [])
+
+    def test_inflated_and_undersized_metadata_report_corruption_not_limits(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            for declared_size in (1, 1_000_000):
+                archive_path = Path(temporary) / f"size-{declared_size}.zip"
+                with zipfile.ZipFile(archive_path, "w") as archive:
+                    archive.writestr("entry.bin", b"1234")
+                data = bytearray(archive_path.read_bytes())
+                central = data.find(b"PK\x01\x02")
+                self.assertGreaterEqual(central, 0)
+                data[central + 24 : central + 28] = declared_size.to_bytes(4, "little")
+                archive_path.write_bytes(data)
+                receipt = inspect_zip(archive_path, max_uncompressed_bytes=8)
+                self.assertEqual(receipt["outcome"], "partial")
+                self.assertEqual([item["code"] for item in receipt["diagnostics"]], ["corrupt-entry"])
 
     def test_entry_count_limit_stops_with_partial_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
