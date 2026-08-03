@@ -446,6 +446,58 @@ class ExchangeTests(unittest.TestCase):
         self.assertEqual(receipt["outcome"], "admitted")
         self.assertEqual(receipt["accepted_record_ids"], [record["record_id"]])
 
+    def test_v2_quarantine_preserves_known_invalid_bundled_record_identity(self):
+        malformed_record = canonical_record(
+            record_id="record://synthetic/exchange-malformed-bundle",
+            sensitivity="public",
+        )
+        malformed_record["meaning"] = []
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-malformed-known-record",
+            "2099-01-01T00:00:00Z",
+            [],
+            [],
+            record_bundle=[malformed_record],
+        )
+        receipt = admit_v2(
+            envelope,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(receipt["outcome"], "quarantined")
+        self.assertEqual(receipt["unresolved_record_ids"], [malformed_record["record_id"]])
+        self.assertEqual(receipt["diagnostics"][0]["code"], "bundled-record-invalid")
+
+    def test_v2_malformed_availability_metadata_is_typed_quarantine(self):
+        record = canonical_record(
+            record_id="record://synthetic/exchange-availability",
+            sensitivity="public",
+        )
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-malformed-availability",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(record)],
+            [],
+        )
+        cases = (
+            {"available_record_revisions": []},
+            {"available_record_revisions": {("bad", "revision")}},
+            {"available_record_sensitivities": []},
+            {"available_record_sensitivities": {revision_ref(record)["record_id"]: "public"}},
+        )
+        for options in cases:
+            with self.subTest(options=options):
+                receipt = admit_v2(
+                    envelope,
+                    expected_audience_ref="system://synthetic-receiver",
+                    now="2026-08-03T00:00:00Z",
+                    **options,  # type: ignore[arg-type]
+                )
+                self.assertEqual(receipt["outcome"], "quarantined")
+                self.assertEqual(receipt["diagnostics"][0]["code"], "availability-metadata-invalid")
+
     def test_v2_noncanonical_envelope_and_invalid_time_fail_closed(self):
         record = canonical_record(
             record_id="record://synthetic/exchange-surrogate",

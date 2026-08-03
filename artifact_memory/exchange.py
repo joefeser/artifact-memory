@@ -22,6 +22,8 @@ _PRIVATE_KEY_HEADER = re.compile(
     r"-----BEGIN (?:[A-Z0-9][A-Z0-9 -]* )?" + r"PRIVATE" + r" KEY-----",
     re.IGNORECASE,
 )
+_RECORD_ID = re.compile(r"^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$")
+_REVISION_DIGEST = re.compile(r"^sha-256:[0-9a-f]{64}$")
 
 
 def make_envelope(audience_ref: str, correlation_id: str, expires_at: str, record_refs: list[dict[str, str]], artifact_refs: list[str], sensitivity: str = "public", record_bundle: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -335,10 +337,12 @@ def admit_v2(
             declared[item["record_id"]] = item["revision_digest"]
     bundled: dict[str, str] = {}
     handling_conflict = False
+    invalid_bundle_ids: set[str] = set()
+    invalid_bundle_codes: set[str] = set()
     sensitivity_rank = {"public": 0, "private": 1, "restricted": 2}
     handling_sensitivity = envelope["handling"]["sensitivity"]
-    try:
-        for record in envelope.get("record_bundle", []):
+    for record in envelope.get("record_bundle", []):
+        try:
             record_id, revision, sensitivity = _record_revision(
                 record,
                 supported_required_extensions or set(),
@@ -349,25 +353,66 @@ def admit_v2(
                 handling_conflict = True
             else:
                 bundled[record_id] = revision
-    except ValidationFailure:
-        contradictory.append("record://invalid/bundled-record")
+        except ValidationFailure as exc:
+            candidate_id = record.get("record_id") if isinstance(record, dict) else None
+            if not isinstance(candidate_id, str) or _RECORD_ID.fullmatch(candidate_id) is None:
+                candidate_id = "record://invalid/bundled-record"
+            invalid_bundle_ids.add(candidate_id)
+            invalid_bundle_codes.add(exc.code)
+            contradictory.append(candidate_id)
     if contradictory or handling_conflict:
-        diagnostic = (
-            {"code": "contradictory-bundle", "message": "bundle declarations or bytes contradict each other"}
-            if contradictory
-            else {"code": "handling-sensitivity-mismatch", "message": "bundle handling is weaker than a record sensitivity"}
-        )
+        if invalid_bundle_ids:
+            diagnostic = {
+                "code": "bundled-record-invalid",
+                "message": "bundled record validation failed (" + ",".join(sorted(invalid_bundle_codes)) + ")",
+            }
+        elif contradictory:
+            diagnostic = {"code": "contradictory-bundle", "message": "bundle declarations or bytes contradict each other"}
+        else:
+            diagnostic = {"code": "handling-sensitivity-mismatch", "message": "bundle handling is weaker than a record sensitivity"}
         return _v2_receipt(
             envelope_ref,
             "quarantined",
-            unresolved_record_ids=sorted(declared),
+            unresolved_record_ids=sorted(set(declared) | invalid_bundle_ids),
             artifact_refs=manifest["artifact_refs"],
             diagnostics=[diagnostic],
             extensions=preserved_extensions,
         )
 
-    available = available_record_revisions or set()
-    available_sensitivities = available_record_sensitivities or {}
+    available = set() if available_record_revisions is None else available_record_revisions
+    available_sensitivities = {} if available_record_sensitivities is None else available_record_sensitivities
+    availability_valid = (
+        isinstance(available, set)
+        and all(
+            isinstance(item, tuple)
+            and len(item) == 2
+            and isinstance(item[0], str)
+            and _RECORD_ID.fullmatch(item[0]) is not None
+            and isinstance(item[1], str)
+            and _REVISION_DIGEST.fullmatch(item[1]) is not None
+            for item in available
+        )
+        and isinstance(available_sensitivities, dict)
+        and all(
+            isinstance(item, tuple)
+            and len(item) == 2
+            and isinstance(item[0], str)
+            and _RECORD_ID.fullmatch(item[0]) is not None
+            and isinstance(item[1], str)
+            and _REVISION_DIGEST.fullmatch(item[1]) is not None
+            and sensitivity in sensitivity_rank
+            for item, sensitivity in available_sensitivities.items()
+        )
+    )
+    if not availability_valid:
+        return _v2_receipt(
+            envelope_ref,
+            "quarantined",
+            unresolved_record_ids=sorted(declared),
+            artifact_refs=manifest["artifact_refs"],
+            diagnostics=[{"code": "availability-metadata-invalid", "message": "local record availability metadata is malformed"}],
+            extensions=preserved_extensions,
+        )
 
     def locally_available(record_id: str, revision: str) -> bool:
         sensitivity = available_sensitivities.get((record_id, revision))
