@@ -55,6 +55,22 @@ against the named container digest. The reference inspector hashes the same open
 file before and after inspection; a changed stream fails without retaining a
 container or tree identity claim.
 
+`archive-receipt/v1` is retained only so historical inputs can be recognized and
+schema-checked. The reference inspector emits v2 exclusively. A valid v1 receipt
+passed to `validate_archive_receipt` fails with the typed
+`archive-receipt-migration-required` outcome: v1 lacks the completeness,
+unavailable-container, entry-set, and explicit container/tree bindings required
+for a safe automatic conversion. Consumers must re-inspect the named container
+bytes to produce v2 evidence; they must not relabel or mechanically upgrade a v1
+receipt. This is an explicit migration boundary, not transparent v1 support.
+
+Both the top-level `entries` and extracted-tree manifest publish the same closed
+file-entry shape. Entries are unique and sorted lexicographically by normalized
+`path`; paths must also satisfy the safety and collision rules above. JSON Schema
+enforces each item shape. Ordering, unique paths, exact manifest equality, and
+cross-entry path conflicts are semantic constraints enforced by
+`validate_archive_receipt`; the v0 schema subset cannot express those comparisons.
+
 ## Checked synthetic evidence
 
 `fixtures/synthetic/archives/v1/vectors.json` is a newly authored recipe set. It

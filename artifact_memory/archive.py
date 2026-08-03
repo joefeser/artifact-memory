@@ -121,6 +121,13 @@ def _base_receipt(
 
 def validate_archive_receipt(receipt: dict[str, Any]) -> None:
     """Validate schema, receipt identity, and container/tree semantic bindings."""
+    if isinstance(receipt, dict) and receipt.get("schema_id") == "artifact-memory/archive-receipt/v1":
+        validate(receipt, load_schema("core", "archive-receipt.v1.schema.json"))
+        raise ValidationFailure(
+            "archive-receipt-migration-required",
+            "v1 archive receipts are retained historical inputs and cannot establish v2 completeness or container/tree claims",
+            "$.schema_id",
+        )
     validate(receipt, load_schema("core", "archive-receipt.v2.schema.json"))
     body = {key: value for key, value in receipt.items() if key not in {"schema_id", "receipt_id"}}
     expected = receipt_with_digest(receipt["schema_id"], "archive-inspection-receipt://", body)

@@ -205,6 +205,31 @@ class ArchiveTests(unittest.TestCase):
             validate_archive_receipt(substituted)
         self.assertEqual(failure.exception.code, "archive-tree-entry-mismatch")
 
+    def test_manifest_entry_shape_matches_published_entry_contract(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive_path = Path(temporary) / "safe.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("one.txt", b"one")
+            receipt = inspect_zip(archive_path)
+        malformed = copy.deepcopy(receipt)
+        malformed["extracted_tree_manifest"]["entries"] = [{}]
+        malformed = _reseal(malformed)
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_archive_receipt(malformed)
+        self.assertEqual(failure.exception.code, "constraint-failed")
+
+    def test_v1_receipt_requires_explicit_migration(self):
+        historical = {
+            "schema_id": "artifact-memory/archive-receipt/v1",
+            "outcome": "supported",
+            "container_digest": "sha-256:" + "0" * 64,
+            "entries": [],
+            "limitations": ["synthetic historical receipt"],
+        }
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_archive_receipt(historical)
+        self.assertEqual(failure.exception.code, "archive-receipt-migration-required")
+
     def test_semantic_validator_rejects_resealed_unsorted_entries(self):
         with tempfile.TemporaryDirectory() as temporary:
             archive_path = Path(temporary) / "safe.zip"
