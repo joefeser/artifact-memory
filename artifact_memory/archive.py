@@ -293,7 +293,8 @@ def inspect_zip(
 
     try:
         with path.open("rb") as stream:
-            before_size = os.fstat(stream.fileno()).st_size
+            before_stat = os.fstat(stream.fileno())
+            before_size = before_stat.st_size
             before_digest = sha256_stream(stream)
             stream.seek(0)
             receipt = _inspect_open_zip(
@@ -305,7 +306,8 @@ def inspect_zip(
             )
             stream.seek(0)
             after_digest = sha256_stream(stream)
-            after_size = os.fstat(stream.fileno()).st_size
+            after_stat = os.fstat(stream.fileno())
+            after_size = after_stat.st_size
     except OSError:
         return _base_receipt(
             outcome="failed",
@@ -317,7 +319,35 @@ def inspect_zip(
             entries=[],
             diagnostics=[_diagnostic("container-unavailable", "archive container bytes are unavailable")],
         )
-    if before_digest != after_digest or before_size != after_size:
+    if before_digest != after_digest or before_size != after_size or not os.path.samestat(before_stat, after_stat):
+        return _base_receipt(
+            outcome="failed",
+            container_digest=None,
+            container_size=None,
+            max_entries=max_entries,
+            max_uncompressed_bytes=max_uncompressed_bytes,
+            completeness="unavailable",
+            entries=[],
+            diagnostics=[_diagnostic("container-changed-during-inspection", "archive container did not remain stable during inspection")],
+        )
+    try:
+        with path.open("rb") as named_stream:
+            named_before_stat = os.fstat(named_stream.fileno())
+            named_digest = sha256_stream(named_stream)
+            named_after_stat = os.fstat(named_stream.fileno())
+    except OSError:
+        named_digest = None
+        named_before_stat = None
+        named_after_stat = None
+    if (
+        named_before_stat is None
+        or named_after_stat is None
+        or named_digest != before_digest
+        or named_before_stat.st_size != before_size
+        or named_after_stat.st_size != before_size
+        or not os.path.samestat(before_stat, named_before_stat)
+        or not os.path.samestat(named_before_stat, named_after_stat)
+    ):
         return _base_receipt(
             outcome="failed",
             container_digest=None,

@@ -154,6 +154,26 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual(receipt["diagnostics"][0]["code"], "container-changed-during-inspection")
             self.assertIsNone(receipt["container"]["content_digest"])
 
+    def test_atomic_path_replacement_invalidates_identity_claim(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive_path = Path(temporary) / "changing.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("safe.txt", b"safe")
+            replacement_path = Path(temporary) / "replacement.zip"
+            replacement_path.write_bytes(archive_path.read_bytes())
+            original = archive_module._inspect_open_zip
+
+            def inspect_then_replace(*args, **kwargs):
+                receipt = original(*args, **kwargs)
+                replacement_path.replace(archive_path)
+                return receipt
+
+            with patch("artifact_memory.archive._inspect_open_zip", side_effect=inspect_then_replace):
+                receipt = inspect_zip(archive_path)
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertEqual(receipt["diagnostics"][0]["code"], "container-changed-during-inspection")
+            self.assertIsNone(receipt["container"]["content_digest"])
+
     def test_missing_archive_reports_unavailable_without_fabricated_digest(self):
         with tempfile.TemporaryDirectory() as temporary:
             receipt = inspect_zip(Path(temporary) / "missing.zip")
