@@ -85,6 +85,20 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual([entry["path"] for entry in conflict_receipt["entries"]], ["node"])
             self.assertEqual([item["code"] for item in conflict_receipt["diagnostics"]], ["path-conflict"])
 
+    def test_file_and_directory_namespace_conflicts_are_order_independent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            for name, members in (
+                ("directory-first.zip", (("node/subdir/", b""), ("node", b"file"))),
+                ("file-first.zip", (("node", b"file"), ("node/subdir/", b""))),
+            ):
+                archive_path = Path(temporary) / name
+                with zipfile.ZipFile(archive_path, "w") as archive:
+                    for path, content in members:
+                        archive.writestr(path, content)
+                receipt = inspect_zip(archive_path)
+                with self.subTest(name=name):
+                    self.assertEqual([item["code"] for item in receipt["diagnostics"]], ["path-conflict"])
+
     def test_corrupt_entry_stops_further_decompression_work(self):
         with tempfile.TemporaryDirectory() as temporary:
             archive_path = Path(temporary) / "budget.zip"

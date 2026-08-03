@@ -185,6 +185,7 @@ def _inspect_open_zip(
     seen_exact: set[str] = set()
     seen_casefolded: set[str] = set()
     seen_files: set[str] = set()
+    seen_directories: set[str] = set()
     total_read = 0
     try:
         with zipfile.ZipFile(stream) as archive:
@@ -205,11 +206,16 @@ def _inspect_open_zip(
                 if folded in seen_casefolded:
                     diagnostics.append(_diagnostic("case-collision", "archive entry collides under Unicode case folding", normalized))
                     continue
-                if _path_conflicts(normalized, seen_files, current_is_file=kind == "file"):
+                directory_descendant_conflict = kind == "file" and any(
+                    directory.startswith(normalized + "/") for directory in seen_directories
+                )
+                if _path_conflicts(normalized, seen_files, current_is_file=kind == "file") or directory_descendant_conflict:
                     diagnostics.append(_diagnostic("path-conflict", "archive file and descendant paths conflict", normalized))
                     continue
                 seen_exact.add(normalized)
                 seen_casefolded.add(folded)
+                if kind == "directory":
+                    seen_directories.add(normalized)
 
                 if kind == "link":
                     diagnostics.append(_diagnostic("link-entry", "archive links are unsupported", normalized))
