@@ -30,7 +30,7 @@ def validate_extension_bundle(extension_bundle: dict[str, Any]) -> None:
     """Validate the public declaration shape and optional digest binding."""
     extensions = extension_bundle.get("extensions") if isinstance(extension_bundle, dict) else None
     if isinstance(extensions, dict):
-        invalid_identifiers = sorted(identifier for identifier in extensions if EXTENSION_ID.fullmatch(identifier) is None)
+        invalid_identifiers = [identifier for identifier in extensions if not isinstance(identifier, str) or EXTENSION_ID.fullmatch(identifier) is None]
         if invalid_identifiers:
             identifier = invalid_identifiers[0]
             raise ExtensionFailure(

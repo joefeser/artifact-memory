@@ -79,6 +79,19 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "invalid-extension-identifier")
         self.assertEqual(raised.exception.path, "$.extensions['local-name']")
 
+    def test_property_names_fail_closed_for_non_string_python_keys(self):
+        schema = json.loads((ROOT / "artifact_memory/schemas/core/extension-bundle.v1.schema.json").read_text(encoding="utf-8"))
+        declaration = {"version": "v1", "required": False, "value": {}}
+        bundle = {"schema_id": "artifact-memory/extension-bundle/v1", "extensions": {1: declaration, "local-name": declaration}}
+        with self.assertRaises(ValidationFailure) as schema_failure:
+            validate(bundle, schema)
+        self.assertEqual(schema_failure.exception.code, "type-mismatch")
+        self.assertEqual(schema_failure.exception.path, "$.extensions[1]")
+        with self.assertRaises(ExtensionFailure) as runtime_failure:
+            validate_extension_bundle(bundle)
+        self.assertEqual(runtime_failure.exception.code, "invalid-extension-identifier")
+        self.assertEqual(runtime_failure.exception.path, "$.extensions[1]")
+
     def test_declared_digest_and_existing_extension_conflicts_fail_closed(self):
         bundle = json.loads((ROOT / "fixtures/synthetic/extensions/v1/optional-extension.json").read_text(encoding="utf-8"))
         invalid_digest = {**bundle, "extensions_digest": "sha-256:" + "0" * 64}
