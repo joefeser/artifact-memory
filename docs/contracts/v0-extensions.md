@@ -26,6 +26,9 @@ continues to preserve arbitrary extension values opaquely. The independent
 reader interprets required/optional semantics only when a value is a complete,
 valid structured declaration; all other v1 values remain uninterpreted. Reader
 support declarations are validated as exact `(identifier, version)` pairs.
+The reference runtime derives identifier and version validity from the public
+extension-bundle schema. The materially separate stdlib reader reimplements
+that grammar locally so conformance does not merely exercise shared code.
 
 V0 has no registry, discovery, marketplace, inheritance, or generalized
 metadata framework. These two synthetic fixtures are the complete initial

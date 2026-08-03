@@ -60,18 +60,25 @@ def _validated_supported_required(supported_required: Iterable[tuple[str, str]] 
     except TypeError as exc:
         raise ExtensionFailure("invalid-supported-required", "supported required extensions must be iterable", "$.supported_required") from exc
     for index, entry in enumerate(entries):
-        if (
-            not isinstance(entry, tuple)
-            or len(entry) != 2
-            or not all(isinstance(part, str) for part in entry)
-            or EXTENSION_ID.fullmatch(entry[0]) is None
-            or re.fullmatch(r"v[0-9]+", entry[1]) is None
-        ):
+        if not isinstance(entry, tuple) or len(entry) != 2 or not all(isinstance(part, str) for part in entry):
             raise ExtensionFailure(
                 "invalid-supported-required",
                 "supported required extensions must be valid (identifier, version) pairs",
                 f"$.supported_required[{index}]",
             )
+        identifier, version = entry
+        support_probe = {
+            "schema_id": "artifact-memory/extension-bundle/v1",
+            "extensions": {identifier: {"version": version, "required": True, "value": {}}},
+        }
+        try:
+            validate_extension_bundle(support_probe)
+        except ExtensionFailure as exc:
+            raise ExtensionFailure(
+                "invalid-supported-required",
+                "supported required extensions must be valid (identifier, version) pairs",
+                f"$.supported_required[{index}]",
+            ) from exc
     return set(entries)
 
 
