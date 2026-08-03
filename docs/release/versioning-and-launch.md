@@ -1,32 +1,60 @@
 # Versioning and launch policy
 
-Artifact Memory has three separately versioned surfaces:
+Artifact Memory versions five surfaces independently:
 
-- protocol and schema identifiers, such as `artifact-memory/knowledge-record/v1`;
-- adapter/provider contracts, which retain their owning provider boundary;
-- the reference implementation, currently `0.1.0.dev0` (development
-  metadata; it is not a release).
+| Surface | Version rule | Compatibility boundary |
+| --- | --- | --- |
+| Protocol | Product protocol generation such as `v0`. | Describes the supported product contract set; it is not an implementation API promise. |
+| Schemas | Every schema identifier ends in its own `/vN`. | Breaking field, identity, authority, or required-behavior changes require a new schema version. |
+| Reference CLI/package | Python package semantic version, currently `0.1.0.dev0`. | Before 1.0, implementation APIs may change; versioned record and receipt contracts are not silently reinterpreted. |
+| Adapters/providers | Provider-owned contract `/vN` plus the Artifact Memory adapter-manifest version. | Provider schemas remain provider contracts and never become core schemas implicitly. |
+| Fixtures/receipts | Each vector and receipt schema has its own `/vN`. | Checked receipts bind exact fixture bytes and cannot be carried forward after vectors change. |
 
-Adding optional fields or extensions must preserve unknown optional data and
-must not reinterpret unknown required behavior. Breaking schema or authority
-changes require a new schema version and a documented migration or rejection
-rule. A v0 implementation does not promise stable APIs beyond the contracts
-explicitly marked supported.
+Unknown optional extensions are preserved without interpretation. Unknown
+required extensions fail closed. A breaking change requires a new version plus
+an explicit migration or rejection rule.
 
-A release candidate is not a release. A public release requires, in one
-reviewed change set:
+Once a supported surface is deprecated, Artifact Memory retains it for at
+least one subsequent minor release and 90 days after the public deprecation
+announcement, whichever is later. Security fixes may reject unsafe input
+immediately, but the rejection and migration boundary must be documented.
 
-1. a signed `v0.1.0` tag made with the owner's controlled signing key;
-2. a release manifest naming the source commit, protocol versions, artifacts,
-   SHA-256 checksums, and provenance;
-3. an anonymous clone/install/verify smoke using the quickstart;
-4. the public-history and visibility checklist in
-   `docs/release/public-readiness-audit.md`;
-5. explicit release notes, support scope, limitations, and known gaps.
+## Preview versus release
 
-No unsigned tag, generated index, CI success, or valid digest is a substitute
-for the owner's signing, publication, or authority decision.
+A development preview is not a release. `release-manifest/v2` requires preview
+manifests to be `unsigned-preview` with no tag, fingerprint, or key generation.
+A manifest may claim `status: release` only with an owner-signed annotated tag,
+the dedicated SSH Ed25519 public fingerprint and key generation, and a tag that
+matches the release identifier.
 
-The checked-in preview manifest demonstrates the intended checksum and
-provenance shape without pretending that an unsigned preview is a release:
-`fixtures/synthetic/release/v0-preview-manifest.json`.
+A public release requires one reviewed exact-head set containing:
+
+1. an owner-signed annotated `v0.1.0` tag made with the dedicated release key;
+2. a v2 release manifest naming the source commit and reproducible source-tree
+   digest, all five versioned surfaces, artifacts, byte sizes, SHA-256 digests,
+   checksum manifest, provenance, signature generation, and limitations;
+3. a canonical `SHA256SUMS` asset covering every release asset except itself;
+4. an anonymous clone/install/verify smoke using the quickstart;
+5. the final public-history and visibility audit, including Actions history and
+   artifact review plus push-rule restoration;
+6. release notes, support scope, roadmap, known gaps, and explicit historical
+   WhereAreMyFiles lineage and attribution.
+
+No unsigned tag, generated index, CI success, digest, preview receipt, or agent
+action substitutes for owner signing or publication authority. Keyless build
+and artifact attestations are added only after public workflow review supports
+them.
+
+## Reproducible unsigned preview
+
+The checked v2 preview reproduces a source archive, `sha256sum-v1` file, Git
+tree digest, canonical sorted-schema-ID inventory digest, and CLI package
+version from an exact public-safe commit. It remains explicitly unsigned and
+not authorized for publication:
+
+```sh
+python3 scripts/run_release_conformance.py --check
+```
+
+The final release must be regenerated from the owner-approved release commit;
+preview checksums and receipts cannot be relabeled as release evidence.
