@@ -70,6 +70,8 @@ def main() -> None:
                 "['properties']['schema_id']['const'] == 'artifact-memory/adapter-manifest-conformance-receipt/v1'; "
                 "assert load_schema('core', 'vault-intake-receipt.v1.schema.json')"
                 "['properties']['schema_id']['const'] == 'artifact-memory/vault-intake-receipt/v1'; "
+                "assert load_schema('core', 'vault-intake-vector.v1.schema.json')"
+                "['properties']['schema_id']['const'] == 'artifact-memory/vault-intake-vector/v1'; "
                 "assert load_schema('core', 'vault-intake-conformance-receipt.v1.schema.json')"
                 "['properties']['schema_id']['const'] == 'artifact-memory/vault-intake-conformance-receipt/v1'",
             ],

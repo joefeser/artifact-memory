@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from artifact_memory.tracemap_adapter import INTEGRITY_STATE
 from artifact_memory.schema_resources import load_schema
@@ -82,6 +83,26 @@ class TraceMapVerticalSliceTests(unittest.TestCase):
                 selected_access_fact_id="access",
                 passphrase="synthetic-test-passphrase",
             )
+
+    def test_failed_source_registration_stops_the_proof(self):
+        failed = {"outcome": "failed", "diagnostics": ["object-write-failed"]}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch("artifact_memory.vertical_slice.register_bytes", return_value=failed):
+                with self.assertRaisesRegex(RuntimeError, "content registration failed"):
+                    run_vertical_slice(
+                        SOURCE,
+                        materialize_packet(root),
+                        root / "proof",
+                        expected_repo="SyntheticOrders",
+                        expected_commit=COMMIT,
+                        tool_source_commit=TOOL_COMMIT,
+                        configuration_digest=CONFIG_DIGEST,
+                        rule_catalog_digest=RULE_CATALOG_DIGEST,
+                        selected_declaration_fact_id="fact-synthetic-status-declaration",
+                        selected_access_fact_id="fact-synthetic-status-access",
+                        passphrase="synthetic-test-passphrase",
+                    )
 
 
 if __name__ == "__main__":

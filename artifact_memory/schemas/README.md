@@ -42,6 +42,6 @@ issue #10 optional/required extension surface and its checked evidence.
 capability declaration, typed success/failure receipts, and checked synthetic
 evidence. These schemas grant no execution authority or loading behavior.
 
-`vault-intake-receipt.v1.schema.json` and
+`vault-intake-vector.v1.schema.json`, `vault-intake-receipt.v1.schema.json`, and
 `vault-intake-conformance-receipt.v1.schema.json` define the issue #18 private
 filesystem intake outcomes and checked public-safe synthetic evidence.

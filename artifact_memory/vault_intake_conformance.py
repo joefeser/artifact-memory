@@ -15,8 +15,10 @@ from .vault import INTAKE_AUTHORITY_BOUNDARY, intake_bytes
 
 def run_vault_intake_conformance(fixture: Path) -> dict[str, Any]:
     vector = load_json(fixture / "vector.json")
-    if not isinstance(vector, dict) or vector.get("schema_id") != "artifact-memory/vault-intake-vector/v1" or vector.get("payload") != "payload.txt" or not isinstance(vector.get("intake"), dict):
-        raise ValidationFailure("vector-invalid", "vault intake vector is malformed")
+    try:
+        validate(vector, load_schema("core", "vault-intake-vector.v1.schema.json"))
+    except ValidationFailure as exc:
+        raise ValidationFailure("vector-invalid", "vault intake vector is malformed", exc.path) from exc
     payload_path = fixture / vector["payload"]
     if payload_path.is_symlink() or not payload_path.is_file():
         raise ValidationFailure("vector-invalid", "vault intake payload must be a regular fixture file")
@@ -26,12 +28,22 @@ def run_vault_intake_conformance(fixture: Path) -> dict[str, Any]:
         vault = Path(temporary) / "vault"
         registered = intake_bytes(vault, payload, **arguments)
         duplicate = intake_bytes(vault, payload, **arguments)
+        quarantine_vault = Path(temporary) / "quarantine-vault"
         quarantined = intake_bytes(
-            vault,
+            quarantine_vault,
             payload,
             **arguments,
             expected_digest="sha-256:" + "0" * 64,
         )
+        quarantine_files = [path for path in (quarantine_vault / "quarantine").rglob("*") if path.is_file()]
+        if (
+            (quarantine_vault / "objects").exists()
+            or (quarantine_vault / "records").exists()
+            or len(quarantine_files) != 1
+            or quarantined["registration_outcome"] != "not-attempted"
+            or quarantined["canonical_records"] != "not-created"
+        ):
+            raise RuntimeError("vault intake quarantine was not isolated")
     if (registered["outcome"], duplicate["outcome"], quarantined["outcome"]) != ("registered", "duplicate", "quarantined"):
         raise RuntimeError("vault intake vector did not produce the required outcomes")
     body = {

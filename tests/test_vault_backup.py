@@ -1,4 +1,5 @@
 import io
+import errno
 import hashlib
 import json
 import os
@@ -106,6 +107,62 @@ class VaultBackupTests(unittest.TestCase):
             self.assertEqual(receipt["artifact_ref"], "artifact://unknown/unknown")
             self.assertNotIn("/private/local/path", json.dumps(receipt))
             self.assertFalse(vault.exists())
+
+    def test_intake_rejects_nonportable_source_references_without_write(self):
+        for source_ref in (
+            "file:///private/local/path",
+            "https://example.test/object?token=secret",
+            "https://user:secret@example.test/object",
+            "sftp://example.test/private/object",
+        ):
+            with self.subTest(source_ref=source_ref), tempfile.TemporaryDirectory() as temporary:
+                vault = Path(temporary) / "vault"
+                receipt = self._intake(vault, source_ref=source_ref)
+                self.assertEqual(receipt["outcome"], "failed")
+                self.assertEqual(receipt["diagnostics"], ["intake-metadata-invalid"])
+                self.assertNotIn(source_ref, json.dumps(receipt))
+                self.assertFalse(vault.exists())
+
+    def test_intake_rejects_non_string_expected_digest_with_receipt(self):
+        for expected_digest in (7, ["sha-256:" + "0" * 64]):
+            with self.subTest(expected_digest=expected_digest), tempfile.TemporaryDirectory() as temporary:
+                receipt = self._intake(Path(temporary) / "vault", expected_digest=expected_digest)
+                self.assertEqual(receipt["outcome"], "failed")
+                self.assertEqual(receipt["diagnostics"], ["expected-digest-invalid"])
+
+    def test_mixed_canonical_record_recovery_requires_replay(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary) / "vault"
+            self.assertEqual(self._intake(vault)["outcome"], "registered")
+            next((vault / "records/versions").glob("*.json")).unlink()
+            mixed = self._intake(vault)
+            replayed = self._intake(vault)
+            self.assertEqual(mixed["outcome"], "failed")
+            self.assertEqual(mixed["canonical_records"], "failed")
+            self.assertEqual(mixed["diagnostics"], ["canonical-record-state-mixed-replay-required"])
+            self.assertEqual(replayed["outcome"], "duplicate")
+
+    def test_hardlink_unavailable_uses_locked_atomic_fallback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary) / "vault"
+            unavailable = OSError(errno.EOPNOTSUPP, "synthetic hardlink unavailable")
+            with patch("artifact_memory.vault.os.link", side_effect=unavailable):
+                receipt = register_bytes(vault, b"synthetic fallback bytes")
+            self.assertEqual(receipt["outcome"], "registered")
+            self.assertEqual(receipt["diagnostics"], [])
+            self.assertEqual([path for path in vault.rglob("*") if ".publish-lock" in path.name], [])
+
+    def test_cleanup_failure_is_explicit_and_preserves_unsafe_partial(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary) / "vault"
+            with (
+                patch("artifact_memory.vault.os.link", side_effect=OSError(errno.EIO, "synthetic publish failure")),
+                patch("artifact_memory.vault.os.unlink", side_effect=OSError(errno.EACCES, "synthetic cleanup failure")),
+            ):
+                receipt = register_bytes(vault, b"synthetic cleanup failure bytes")
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertEqual(receipt["diagnostics"], ["object-write-cleanup-failed"])
+            self.assertEqual(len([path for path in vault.rglob("*") if path.name.startswith(".partial-")]), 1)
 
     def test_interrupted_object_write_is_receipted_and_leaves_no_partial(self):
         with tempfile.TemporaryDirectory() as temporary:

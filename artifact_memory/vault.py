@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import re
@@ -19,19 +20,71 @@ AUTHORITY_BOUNDARY = "registration does not grant execution, disclosure, or muta
 INTAKE_AUTHORITY_BOUNDARY = "intake and registration grant no execution, disclosure, mutation, authenticity, trust, or authorization"
 SHA256_DIGEST = re.compile(r"^sha-256:[0-9a-f]{64}$")
 ARTIFACT_ID = re.compile(r"^artifact://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$")
+PORTABLE_SOURCE_REF = re.compile(r"^[a-z][a-z0-9+.-]*://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$")
+LOCATION_SOURCE_SCHEMES = {"file", "ftp", "ftps", "http", "https", "nfs", "sftp", "smb", "ssh"}
+HARDLINK_UNAVAILABLE = {
+    errno.EACCES,
+    errno.EPERM,
+    errno.ENOSYS,
+    getattr(errno, "ENOTSUP", errno.EOPNOTSUPP),
+    errno.EOPNOTSUPP,
+}
+
+
+class ImmutableWriteFailure(Exception):
+    """Typed publication failure that can preserve cleanup state."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 def _object_path(vault_root: Path, digest_hex: str, area: str = "objects") -> Path:
     return vault_root / area / "sha256" / digest_hex[:2] / digest_hex[2:]
 
 
+def _existing_matches(path: Path, data: bytes) -> bool:
+    if path.is_symlink() or not path.is_file() or path.stat().st_size != len(data):
+        return False
+    return sha256_path(path) == "sha-256:" + hashlib.sha256(data).hexdigest()
+
+
+def _publish_with_lock(temporary: str, path: Path, data: bytes) -> str:
+    """Fallback for filesystems without hard links, serialized by atomic mkdir."""
+    lock = path.with_name(f".{path.name}.publish-lock")
+    lock.mkdir()
+    result: str | None = None
+    primary_error: Exception | None = None
+    try:
+        if path.exists() or path.is_symlink():
+            if not _existing_matches(path, data):
+                raise ValueError("immutable-record-collision")
+            result = "duplicate"
+        else:
+            os.replace(temporary, path)
+            result = "created"
+    except Exception as exc:
+        primary_error = exc
+    try:
+        lock.rmdir()
+    except OSError as exc:
+        raise ImmutableWriteFailure("object-write-cleanup-failed") from (primary_error or exc)
+    if primary_error is not None:
+        raise primary_error
+    if result is None:
+        raise ImmutableWriteFailure("object-write-failed")
+    return result
+
+
 def _write_immutable(path: Path, data: bytes) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        if path.is_symlink() or not path.is_file() or path.read_bytes() != data:
+    if path.exists() or path.is_symlink():
+        if not _existing_matches(path, data):
             raise ValueError("immutable-record-collision")
         return "duplicate"
     fd, temporary = tempfile.mkstemp(prefix=".partial-", dir=path.parent)
+    result: str | None = None
+    primary_error: Exception | None = None
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(data)
@@ -40,13 +93,27 @@ def _write_immutable(path: Path, data: bytes) -> str:
         try:
             os.link(temporary, path)
         except FileExistsError:
-            if path.is_symlink() or not path.is_file() or path.read_bytes() != data:
+            if not _existing_matches(path, data):
                 raise ValueError("immutable-record-collision")
-            return "duplicate"
-    finally:
+            result = "duplicate"
+        except OSError as exc:
+            if exc.errno not in HARDLINK_UNAVAILABLE:
+                raise
+            result = _publish_with_lock(temporary, path, data)
+        else:
+            result = "created"
+    except Exception as exc:
+        primary_error = exc
+    try:
         if os.path.exists(temporary):
             os.unlink(temporary)
-    return "created"
+    except OSError as exc:
+        raise ImmutableWriteFailure("object-write-cleanup-failed") from (primary_error or exc)
+    if primary_error is not None:
+        raise primary_error
+    if result is None:
+        raise ImmutableWriteFailure("object-write-failed")
+    return result
 
 
 def register_bytes(vault_root: Path, data: bytes, media_type: str = "application/octet-stream") -> dict[str, Any]:
@@ -68,6 +135,9 @@ def register_bytes(vault_root: Path, data: bytes, media_type: str = "application
         try:
             if _write_immutable(target, data) == "duplicate":
                 outcome = "duplicate"
+        except ImmutableWriteFailure as exc:
+            outcome = "failed"
+            diagnostics.append(exc.code)
         except (OSError, ValueError):
             outcome = "failed"
             diagnostics.append("object-write-failed")
@@ -115,12 +185,14 @@ def intake_bytes(
         validate(result, load_schema("core", "vault-intake-receipt.v1.schema.json"))
         return result
 
-    if expected_digest is not None and not SHA256_DIGEST.fullmatch(expected_digest):
+    if expected_digest is not None and (
+        not isinstance(expected_digest, str) or not SHA256_DIGEST.fullmatch(expected_digest)
+    ):
         return intake_receipt("failed", "not-attempted", "not-checked", "not-created", ["expected-digest-invalid"])
     if expected_digest is not None and expected_digest != digest:
         try:
             state = _write_immutable(_object_path(vault_root, digest_hex, "quarantine"), data)
-        except (OSError, ValueError):
+        except (ImmutableWriteFailure, OSError, ValueError):
             return intake_receipt("failed", "not-attempted", "not-checked", "not-created", ["quarantine-write-failed"])
         return intake_receipt("quarantined", "not-attempted", "not-checked", "not-created", [f"digest-mismatch-{state}"])
 
@@ -153,6 +225,12 @@ def intake_bytes(
         "authority_boundary": VERSION_AUTHORITY_BOUNDARY,
     }
     try:
+        if (
+            not isinstance(source_ref, str)
+            or PORTABLE_SOURCE_REF.fullmatch(source_ref) is None
+            or source_ref.partition("://")[0] in LOCATION_SOURCE_SCHEMES
+        ):
+            raise ValidationFailure("invalid-logical-reference", "source_ref is not portable", "$.source_ref")
         validate(content_object, load_schema("core", "content-object.v2.schema.json"))
         validate_artifact(artifact)
         validate_artifact_version(version)
@@ -172,8 +250,19 @@ def intake_bytes(
             _write_immutable(vault_root / "records" / "artifacts" / artifact_name, canonical_bytes(artifact)),
             _write_immutable(vault_root / "records" / "versions" / version_name, canonical_bytes(version)),
         }
-    except (OSError, ValueError):
+    except (ImmutableWriteFailure, OSError, ValueError):
         return intake_receipt("failed", registration["outcome"], "verified", "failed", ["canonical-record-write-failed"])
-    records_state = "duplicate" if states == {"duplicate"} else "created"
+    if states == {"duplicate"}:
+        records_state = "duplicate"
+    elif states == {"created"}:
+        records_state = "created"
+    else:
+        return intake_receipt(
+            "failed",
+            registration["outcome"],
+            "verified",
+            "failed",
+            ["canonical-record-state-mixed-replay-required"],
+        )
     outcome = "duplicate" if registration["outcome"] == "duplicate" and records_state == "duplicate" else "registered"
     return intake_receipt(outcome, registration["outcome"], "verified", records_state, [])
