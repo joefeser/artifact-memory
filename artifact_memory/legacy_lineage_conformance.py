@@ -10,14 +10,25 @@ from .lineage import SOURCE_REF, observe_legacy_file
 from .schema_resources import load_schema
 from .validator import ValidationFailure, load_json, validate
 
+SOURCE_COMMIT = "3a18550fa52526e1a440a1e9264bd9f17638d89e"
+
 
 def run_legacy_lineage_conformance(vector_path: Path) -> dict[str, Any]:
     vectors = load_json(vector_path)
+    if not isinstance(vectors, dict):
+        raise ValidationFailure("invalid-vector", "legacy lineage vectors must be an object")
     if vectors.get("synthetic") is not True or vectors.get("source_ref") != SOURCE_REF:
         raise ValidationFailure("invalid-vector", "legacy lineage vectors require synthetic provenance and the attributed source")
+    source_commit = vectors.get("source_commit")
+    if source_commit != SOURCE_COMMIT:
+        raise ValidationFailure(
+            "invalid-vector",
+            "legacy lineage vectors require the reviewed source commit",
+            "$.source_commit",
+        )
     rows = vectors.get("rows")
-    if not isinstance(rows, list) or not rows:
-        raise ValidationFailure("invalid-vector", "legacy lineage vectors require rows")
+    if not isinstance(rows, list) or not rows or not all(isinstance(row, dict) for row in rows):
+        raise ValidationFailure("invalid-vector", "legacy lineage vectors require object rows")
 
     observations = [observe_legacy_file(row, SOURCE_REF) for row in rows]
     states = [item["historical_fields"]["legacy_hash"]["state"] for item in observations]
@@ -25,7 +36,7 @@ def run_legacy_lineage_conformance(vector_path: Path) -> dict[str, Any]:
         "outcome": "pass",
         "synthetic": True,
         "source_ref": SOURCE_REF,
-        "source_commit": vectors["source_commit"],
+        "source_commit": source_commit,
         "observation_count": len(observations),
         "hash_states": states,
         "artifact_identities_established": 0,

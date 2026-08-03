@@ -17,12 +17,29 @@ class LineageTests(unittest.TestCase):
 
     def test_none_hash_is_observed_without_identity_upgrade(self):
         root = Path(__file__).resolve().parents[1]
-        schema = json.loads((root / "artifact_memory/schemas/core/legacy-observation.v1.schema.json").read_text(encoding="utf-8"))
+        schema = json.loads((root / "artifact_memory/schemas/core/legacy-observation.v2.schema.json").read_text(encoding="utf-8"))
         observation = observe_legacy_file({"path": "synthetic/legacy/file.bin", "size": 1024, "created": "2010", "modified": "2010", "sha1": "NONE"}, SOURCE_REF)
         validate(observation, schema)
         self.assertEqual(observation["historical_fields"]["legacy_hash"]["state"], "none-recorded")
         self.assertEqual(observation["historical_fields"]["legacy_hash"]["value"], "NONE")
         self.assertEqual(observation["artifact_identity"], "not-established")
+
+    def test_v1_schema_remains_compatible_with_existing_observations(self):
+        root = Path(__file__).resolve().parents[1]
+        schema = json.loads((root / "artifact_memory/schemas/core/legacy-observation.v1.schema.json").read_text(encoding="utf-8"))
+        observation = json.loads((root / "fixtures/synthetic/lineage/v0-legacy-none-observation.json").read_text(encoding="utf-8"))
+        validate(observation, schema)
+
+    def test_malformed_conformance_vectors_fail_closed(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            vector_path = Path(directory) / "vectors.json"
+            for malformed in ([], {"synthetic": True, "source_ref": SOURCE_REF}, {"synthetic": True, "source_ref": SOURCE_REF, "source_commit": "3a18550fa52526e1a440a1e9264bd9f17638d89e", "rows": [None]}):
+                vector_path.write_text(json.dumps(malformed), encoding="utf-8")
+                with self.subTest(malformed=malformed), self.assertRaises(ValidationFailure) as failure:
+                    run_legacy_lineage_conformance(vector_path)
+                self.assertEqual(failure.exception.code, "invalid-vector")
 
     def test_sha1_remains_historical_and_establishes_no_identity(self):
         observation = observe_legacy_file(
