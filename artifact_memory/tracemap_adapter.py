@@ -13,13 +13,37 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .canonical import CHUNK_SIZE, canonical_bytes
+from .canonical import CHUNK_SIZE, canonical_bytes, receipt_with_digest
+from .schema_resources import load_schema
+from .validator import validate
 
 TRACE_MAP_CONTRACT_ANCHOR = "9a252f12f781ae2a0aab52b5faa53601440a2a3b"
 REQUIRED_ARTIFACTS = ("scan-manifest.json", "facts.ndjson", "index.sqlite", "report.md", "logs/analyzer.log")
 FACT_SCHEMA_ID = "https://tracemap.tools/contracts/code-fact.v1.schema.json"
 MANIFEST_SCHEMA_ID = "https://tracemap.tools/contracts/scan-manifest.v1.schema.json"
 INTEGRITY_STATE = "integrity-verified / issuer-unverified"
+AUTHORITY_BOUNDARY = (
+    "informational evidence only; no execution, routing, disclosure, approval, or mutation authority"
+)
+DECLARED_OUTCOMES = frozenset(
+    {
+        "complete",
+        "required-artifact-missing",
+        "schema-unsupported",
+        "trace-output-invalid",
+        "digest-mismatch",
+        "repository-binding-mismatch",
+        "commit-binding-mismatch",
+        "source-version-unavailable",
+        "rule-catalog-unavailable",
+        "configuration-identity-unavailable",
+        "unsafe-provenance-rejected",
+        "provider-record-not-found",
+        "partial-evidence-admitted",
+        "adapter-failed",
+    }
+)
+ADMITTED_OUTCOMES = frozenset({"complete", "partial-evidence-admitted"})
 
 
 class AdapterFailure(Exception):
@@ -73,9 +97,9 @@ def _safe_relative(value: Any) -> bool:
     return bool(normalized) and not re.match(r"^[A-Za-z]:/", normalized) and not path.is_absolute() and ".." not in path.parts
 
 
-def _require_digest(value: str, label: str) -> None:
-    if not re.fullmatch(r"sha-256:[0-9a-f]{64}", value):
-        raise AdapterFailure("trace-output-invalid", f"{label} is not a SHA-256 content identity")
+def _require_digest(value: Any, label: str, outcome: str = "trace-output-invalid") -> None:
+    if not isinstance(value, str) or not re.fullmatch(r"sha-256:[0-9a-f]{64}", value):
+        raise AdapterFailure(outcome, f"{label} is not a SHA-256 content identity")
 
 
 def _is_link_or_reparse_point(path: Path) -> bool:
@@ -258,9 +282,17 @@ def bind_trace_map_evidence(
         raise AdapterFailure("source-version-unavailable", "source artifact-version reference is invalid")
     if not re.fullmatch(r"[0-9a-f]{40}", tool_source_commit):
         raise AdapterFailure("trace-output-invalid", "provider tool source commit is invalid")
-    _require_digest(configuration_digest, "provider configuration digest")
+    _require_digest(
+        configuration_digest,
+        "provider configuration digest",
+        "configuration-identity-unavailable",
+    )
     if rule_catalog_digest is not None:
-        _require_digest(rule_catalog_digest, "provider rule catalog digest")
+        _require_digest(
+            rule_catalog_digest,
+            "provider rule catalog digest",
+            "rule-catalog-unavailable",
+        )
     with tempfile.TemporaryDirectory(prefix="artifact-memory-tracemap-packet-") as temporary:
         snapshot_dir = Path(temporary)
         file_digests = _snapshot_required_artifacts(packet_dir, snapshot_dir)
@@ -338,3 +370,69 @@ def bind_trace_map_evidence(
         "content_objects": file_digests,
         "relations": [{"type": "produced-from", "source": f"artifact-version://tracemap/evidence/{packet_digest.removeprefix('sha-256:')}/1", "target": source_version_ref, "supports_claim": False}],
     }
+
+
+def _adapter_receipt(outcome: str, binding_id: str | None = None) -> dict[str, Any]:
+    admitted = outcome in ADMITTED_OUTCOMES
+    body: dict[str, Any] = {
+        "outcome": outcome,
+        "provider": "tracemap",
+        "provider_contract_anchor": TRACE_MAP_CONTRACT_ANCHOR,
+        "admitted": admitted,
+        "integrity_state": INTEGRITY_STATE if admitted else "not-assessed",
+        "diagnostics": [] if admitted else [{"code": outcome}],
+        "protected_input_echoed": False,
+        "local_path_echoed": False,
+        "authority_boundary": AUTHORITY_BOUNDARY,
+    }
+    if binding_id is not None:
+        body["binding_id"] = binding_id
+    receipt = receipt_with_digest(
+        "artifact-memory/tracemap-adapter-receipt/v1",
+        "tracemap-adapter-receipt://",
+        body,
+    )
+    validate(
+        receipt,
+        load_schema("adapters", "tracemap-adapter-receipt.v1.schema.json"),
+    )
+    return receipt
+
+
+def bind_trace_map_evidence_receipted(
+    source_version_ref: str,
+    packet_dir: Path,
+    expected_repo: str,
+    expected_commit: str,
+    selected_fact_ids: list[str] | None = None,
+    *,
+    tool_source_commit: str,
+    configuration_digest: str,
+    rule_catalog_digest: str | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Bind one packet and always return a public-safe typed adapter receipt.
+
+    Detailed provider input, protected bytes, exception text, and local paths are
+    intentionally absent from failure receipts. Unexpected implementation faults
+    collapse to ``adapter-failed`` instead of escaping as an untyped exception.
+    """
+    try:
+        binding = bind_trace_map_evidence(
+            source_version_ref,
+            packet_dir,
+            expected_repo,
+            expected_commit,
+            selected_fact_ids,
+            tool_source_commit=tool_source_commit,
+            configuration_digest=configuration_digest,
+            rule_catalog_digest=rule_catalog_digest,
+        )
+    except AdapterFailure as exc:
+        outcome = exc.outcome if exc.outcome in DECLARED_OUTCOMES else "adapter-failed"
+        return None, _adapter_receipt(outcome)
+    except Exception:
+        return None, _adapter_receipt("adapter-failed")
+    outcome = binding["receipt"]["outcome"]
+    if outcome not in ADMITTED_OUTCOMES:
+        return None, _adapter_receipt("adapter-failed")
+    return binding, _adapter_receipt(outcome, binding["binding_id"])

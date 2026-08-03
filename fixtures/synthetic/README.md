@@ -22,6 +22,9 @@ one declaration of each kind and checked machine/human receipts.
 `adapters/v1/` proves one synthetic reference-adapter success receipt, one
 authority-boundary failure receipt, and the local-read-only TraceMap manifest.
 
+`tracemap-evidence/v1/` proves the provider-preserving TraceMap binding shape
+and every declared adapter outcome without echoing protected input or paths.
+
 `vault-intake/v1/` proves immutable registration, verification, canonical
 artifact/version records, duplicate replay, and digest-mismatch quarantine.
 

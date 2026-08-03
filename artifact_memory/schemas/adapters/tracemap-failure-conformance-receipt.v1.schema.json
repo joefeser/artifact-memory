@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/adapters/tracemap-failure-conformance-receipt/v1",
+  "title": "Artifact Memory TraceMap failure-surface conformance receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "receipt_id",
+    "synthetic",
+    "outcome",
+    "provider_contract_anchor",
+    "declared_outcomes",
+    "cases",
+    "protected_input_echoed",
+    "local_path_echoed",
+    "authority_boundary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/tracemap-failure-conformance-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^tracemap-failure-conformance-receipt://[0-9a-f]{64}$"},
+    "synthetic": {"const": true},
+    "outcome": {"const": "complete"},
+    "provider_contract_anchor": {"const": "9a252f12f781ae2a0aab52b5faa53601440a2a3b"},
+    "declared_outcomes": {
+      "const": [
+        "adapter-failed",
+        "commit-binding-mismatch",
+        "complete",
+        "configuration-identity-unavailable",
+        "digest-mismatch",
+        "partial-evidence-admitted",
+        "provider-record-not-found",
+        "repository-binding-mismatch",
+        "required-artifact-missing",
+        "rule-catalog-unavailable",
+        "schema-unsupported",
+        "source-version-unavailable",
+        "trace-output-invalid",
+        "unsafe-provenance-rejected"
+      ]
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 14,
+      "maxItems": 14,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["case_id", "expected_outcome", "observed_outcome", "receipt_id", "passed"],
+        "properties": {
+          "case_id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+          "expected_outcome": {"type": "string", "minLength": 1},
+          "observed_outcome": {"type": "string", "minLength": 1},
+          "receipt_id": {"type": "string", "pattern": "^tracemap-adapter-receipt://[0-9a-f]{64}$"},
+          "passed": {"const": true}
+        }
+      }
+    },
+    "protected_input_echoed": {"const": false},
+    "local_path_echoed": {"const": false},
+    "authority_boundary": {
+      "const": "informational evidence only; no execution, routing, disclosure, approval, or mutation authority"
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}
