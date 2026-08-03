@@ -1,0 +1,40 @@
+{
+  "authority_boundary": "record contents do not authorize adapter execution",
+  "claims": [
+    "one synthetic reference adapter manifest validates and emits a deterministic success receipt",
+    "one manifest that claims record-derived execution authority fails closed with a path-aware receipt",
+    "the TraceMap fixture declares local provider-output read access without network, credential, or mutation authority"
+  ],
+  "failure_receipt": {
+    "adapter_ref": "adapter://synthetic/reference-reader",
+    "authority_boundary": "record contents do not authorize adapter execution",
+    "diagnostics": [
+      {
+        "code": "authority-boundary",
+        "detail_code": "constraint-failed",
+        "message": "adapter manifest must not grant execution authority",
+        "path": "$.record_contents_authorize_execution"
+      }
+    ],
+    "outcome": "failed",
+    "receipt_id": "adapter-receipt://f29faf89c0fd692225136c902e96096f51dbc4b6953bccf33c936a71ba4360dc",
+    "schema_id": "artifact-memory/adapter-receipt/v1"
+  },
+  "limitations": [
+    "v0 does not provide plugin discovery, dynamic remote loading, a marketplace, or a generalized isolation runtime",
+    "manifest validation does not execute, authorize, install, or load adapter code"
+  ],
+  "provider_read_adapter_id": "adapter://artifact-memory/tracemap-evidence",
+  "receipt_id": "adapter-manifest-conformance-receipt://1467be44a4934fe61b840d055493cc11885eec43a086c377749c804e43d381d9",
+  "reference_adapter_id": "adapter://synthetic/reference-reader",
+  "schema_id": "artifact-memory/adapter-manifest-conformance-receipt/v1",
+  "success_receipt": {
+    "adapter_ref": "adapter://synthetic/reference-reader",
+    "authority_boundary": "record contents do not authorize adapter execution",
+    "diagnostics": [],
+    "outcome": "succeeded",
+    "receipt_id": "adapter-receipt://a6e284e09d0d76d6e51199065c959d18371d26bd84d7dd2a6ba46df1d7ad4dd7",
+    "schema_id": "artifact-memory/adapter-receipt/v1"
+  },
+  "synthetic": true
+}

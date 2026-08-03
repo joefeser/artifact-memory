@@ -11,6 +11,6 @@
     "adapter_ref": {"type": "string", "pattern": "^adapter://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
     "outcome": {"enum": ["succeeded", "failed", "unsupported", "not-authorized"]},
     "authority_boundary": {"const": "record contents do not authorize adapter execution"},
-    "diagnostics": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": {"code": {"type": "string"}, "message": {"type": "string"}}}}
+    "diagnostics": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": {"code": {"type": "string", "minLength": 1}, "detail_code": {"type": "string", "minLength": 1}, "message": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}}}}
   }
 }

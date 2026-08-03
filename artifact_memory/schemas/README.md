@@ -36,3 +36,8 @@ results, and representative class coverage are in
 `extension-bundle.v1.schema.json` and
 `extension-conformance-receipt.v1.schema.json` define the deliberately narrow
 issue #10 optional/required extension surface and its checked evidence.
+
+`adapter-manifest.v1.schema.json`, `adapter-receipt.v1.schema.json`, and
+`adapter-manifest-conformance-receipt.v1.schema.json` define the issue #11
+capability declaration, typed success/failure receipts, and checked synthetic
+evidence. These schemas grant no execution authority or loading behavior.

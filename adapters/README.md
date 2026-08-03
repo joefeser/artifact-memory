@@ -1,7 +1,7 @@
 # Adapter Boundary
 
-Adapters connect Artifact Memory contracts to filesystems, vaults, transports,
-indexes, policy engines, and agent context systems.
+Adapters connect Artifact Memory contracts to scanners, resolvers, vaults,
+transports, indexers, policy engines, and context exporters.
 
 An adapter manifest should eventually declare:
 
@@ -16,3 +16,5 @@ An adapter manifest should eventually declare:
 Adapters cannot acquire authority from record contents. A receiving system
 must authorize adapter execution independently.
 
+The v0 runtime validates manifests and emits receipts only. It does not provide
+adapter discovery, installation, dynamic loading, execution, or isolation.
