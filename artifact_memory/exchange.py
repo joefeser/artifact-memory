@@ -26,11 +26,14 @@ _PROTECTED_KEYS = frozenset(
         "bearer_token",
         "credential",
         "credentials",
+        "cookie",
         "password",
+        "private_key",
         "refresh_token",
         "secret",
     }
 )
+_NORMALIZED_PROTECTED_KEYS = frozenset(re.sub(r"[^a-z0-9]", "", key.casefold()) for key in _PROTECTED_KEYS)
 
 
 def make_envelope(audience_ref: str, correlation_id: str, expires_at: str, record_refs: list[dict[str, str]], artifact_refs: list[str], sensitivity: str = "public", record_bundle: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -85,7 +88,7 @@ def admit(envelope: dict[str, Any], seen_envelope_ids: set[str] | None = None, s
 def _contains_protected_material(value: Any) -> bool:
     if isinstance(value, dict):
         return any(
-            key.casefold() in _PROTECTED_KEYS
+            re.sub(r"[^a-z0-9]", "", key.casefold()) in _NORMALIZED_PROTECTED_KEYS
             or _contains_protected_material(item)
             for key, item in value.items()
         )
@@ -93,6 +96,7 @@ def _contains_protected_material(value: Any) -> bool:
         return any(_contains_protected_material(item) for item in value)
     return isinstance(value, str) and (
         value.casefold().startswith("bearer ")
+        or "".join(("-----begin ", "private key-----")) in value.casefold()
         or re.fullmatch(r"(?:gh[opusr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})", value)
         is not None
     )
@@ -339,9 +343,9 @@ def admit_v2(
     contradictory: list[str] = []
     for item in manifest["records"]:
         prior = declared.get(item["record_id"])
-        if prior is not None:
+        if prior is not None and prior != item["revision_digest"]:
             contradictory.append(item["record_id"])
-        else:
+        elif prior is None:
             declared[item["record_id"]] = item["revision_digest"]
     bundled: dict[str, str] = {}
     handling_conflict = False

@@ -333,6 +333,52 @@ class ExchangeTests(unittest.TestCase):
         self.assertEqual(receipt["outcome"], "admitted")
         self.assertEqual(receipt["extensions"], {identifier: declaration})
 
+    def test_v2_rejects_normalized_credential_keys_without_echo(self):
+        for key in ("api-key", "private_key", "cookie"):
+            envelope = make_envelope_v2(
+                "system://synthetic-receiver",
+                f"v2-protected-{key.replace('_', '-').replace(' ', '-')}",
+                "2099-01-01T00:00:00Z",
+                [],
+                ["artifact://synthetic/reference"],
+                extensions={
+                    "https://synthetic.example/protected": {
+                        "version": "v1",
+                        "required": False,
+                        "value": {key: "synthetic-placeholder"},
+                    }
+                },
+            )
+            receipt = admit_v2(
+                envelope,
+                expected_audience_ref="system://synthetic-receiver",
+                now="2026-08-03T00:00:00Z",
+            )
+            self.assertEqual(receipt["outcome"], "rejected")
+            self.assertNotIn("synthetic-placeholder", json.dumps(receipt))
+
+    def test_v2_deduplicates_identical_revision_declarations(self):
+        record = canonical_record(
+            record_id="record://synthetic/exchange-identical-duplicate",
+            sensitivity="public",
+        )
+        reference = revision_ref(record)
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-identical-duplicate",
+            "2099-01-01T00:00:00Z",
+            [reference, reference],
+            [],
+            record_bundle=[record],
+        )
+        receipt = admit_v2(
+            envelope,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(receipt["outcome"], "admitted")
+        self.assertEqual(receipt["accepted_record_ids"], [record["record_id"]])
+
     def test_v2_noncanonical_envelope_and_invalid_time_fail_closed(self):
         record = canonical_record(
             record_id="record://synthetic/exchange-surrogate",
