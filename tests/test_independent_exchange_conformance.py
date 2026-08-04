@@ -90,6 +90,38 @@ class IndependentExchangeConformanceTests(unittest.TestCase):
         )
         self.assertNotIn(synthetic_value, json.dumps(receipt))
 
+    def test_reference_and_independent_receivers_reject_underscore_secret_values(self):
+        synthetic_value = "sk" + "_live_" + "S" * 24
+        extension = {
+            "https://synthetic.example/extensions/protected-value": {
+                "version": "v1",
+                "required": False,
+                "value": {"opaque": synthetic_value},
+            }
+        }
+        envelope = make_envelope_v2(
+            "system://synthetic-independent-receiver",
+            "independent-protected-underscore-value",
+            "2099-01-01T00:00:00Z",
+            [],
+            ["artifact://synthetic/independent-exchange-evidence"],
+            extensions=extension,
+        )
+        reference = admit_v2(
+            envelope,
+            SyntheticReplayLedger(),
+            expected_audience_ref="system://synthetic-independent-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        independent = admit_bundle_v2(
+            json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
+            expected_audience_ref="system://synthetic-independent-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(independent, reference)
+        self.assertEqual(independent["outcome"], "rejected")
+        self.assertNotIn(synthetic_value, json.dumps(independent))
+
     def test_noncanonical_envelope_returns_fail_closed_receipt(self):
         envelope = make_envelope_v2(
             "system://synthetic-independent-receiver",
@@ -113,6 +145,35 @@ class IndependentExchangeConformanceTests(unittest.TestCase):
         self.assertEqual(receipt["outcome"], "rejected")
         self.assertEqual(receipt["envelope_ref"], "exchange://" + "0" * 64)
         self.assertEqual(receipt["diagnostics"][0]["code"], "invalid-envelope")
+
+    def test_malformed_unsupported_schema_is_rejected_as_invalid(self):
+        envelope = make_envelope_v2(
+            "system://synthetic-independent-receiver",
+            "independent-malformed-unsupported",
+            "2099-01-01T00:00:00Z",
+            [],
+            ["artifact://synthetic/independent-exchange-evidence"],
+        )
+        envelope["schema_id"] = "artifact-memory/exchange-envelope/future"
+        envelope["handling"] = {"sensitivity": "public"}
+        body = {key: value for key, value in envelope.items() if key != "envelope_id"}
+        envelope["envelope_id"] = "exchange://" + hashlib.sha256(
+            json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        reference = admit_v2(
+            envelope,
+            SyntheticReplayLedger(),
+            expected_audience_ref="system://synthetic-independent-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        independent = admit_bundle_v2(
+            json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
+            expected_audience_ref="system://synthetic-independent-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(independent, reference)
+        self.assertEqual(independent["outcome"], "rejected")
+        self.assertEqual(independent["diagnostics"][0]["code"], "invalid-envelope")
 
     def test_extensions_precede_expiry_and_remain_in_receipt(self):
         extension = {
@@ -178,6 +239,38 @@ class IndependentExchangeConformanceTests(unittest.TestCase):
         )
         self.assertEqual(independent, reference)
         self.assertIn("required-extension-unsupported", independent["diagnostics"][0]["message"])
+
+    def test_incomplete_embedded_bundle_is_quarantined(self):
+        vectors = json.loads((FIXTURE / "vectors.json").read_text(encoding="utf-8"))
+        first = vectors["record"]
+        second = deepcopy(first)
+        second["record_id"] = "record://synthetic/independent-exchange-unresolved"
+
+        def revision(record):
+            return {
+                "record_id": record["record_id"],
+                "revision_digest": "sha-256:"
+                + hashlib.sha256(
+                    json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest(),
+            }
+
+        envelope = make_envelope_v2(
+            vectors["audience_ref"],
+            "independent-incomplete-bundle",
+            vectors["expires_at"],
+            [revision(first), revision(second)],
+            [vectors["artifact_ref"]],
+            record_bundle=[first],
+        )
+        receipt = admit_bundle_v2(
+            json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
+            expected_audience_ref=vectors["audience_ref"],
+            now=vectors["evaluation_time"],
+        )
+        self.assertEqual(receipt["outcome"], "quarantined")
+        self.assertEqual(receipt["accepted_record_ids"], [])
+        self.assertEqual(receipt["diagnostics"][0]["code"], "incomplete-bundle")
 
     def test_independent_receiver_fails_closed_on_unhashable_metadata(self):
         malformed_handling = make_envelope_v2(

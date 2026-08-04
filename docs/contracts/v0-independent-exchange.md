@@ -17,10 +17,13 @@ For each case, both sides emit an identical schema-valid v2 admission receipt:
 - the same required extension is admitted and preserved after support is
   explicitly declared;
 - repeated identical manifest declarations are deduplicated and admitted;
-- a v1 record's opaque extension remains uninterpreted and is admitted.
+- a v1 record's opaque extension remains uninterpreted and is admitted;
+- complete and malformed required-looking v1 declarations fail closed when
+  carried through the v2 admission boundary.
 
 Artifact retrieval is never attempted and remains separately authorized. The
-fixture does not claim durable replay, external artifact resolution,
+independent receiver quarantines incomplete embedded bundles instead of
+claiming partial resolution. The fixture does not claim durable replay, external artifact resolution,
 cross-party authenticity, provider trust, or a universal second
 implementation. Compatible receipts are informational evidence only and grant
 no execution, disclosure, routing, spending, credential, deployment, merge,

@@ -21,7 +21,7 @@ PRIVATE_KEY_HEADER = re.compile(
 )
 TOKEN_VALUE = re.compile(
     r"(?:gh[opusr]_[A-Za-z0-9_]{20,}|github"
-    + r"_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})"
+    + r"_pat_[A-Za-z0-9_]{20,}|sk[-_][A-Za-z0-9_-]{20,})"
 )
 BEARER_VALUE = re.compile(
     r"(?:authorization\s*:\s*)?bearer\s+[A-Za-z0-9._~+/=-]{16,}",
@@ -403,12 +403,10 @@ def admit_bundle_v2(
             "exchange envelope does not satisfy the v2 contract",
         )
     if envelope.get("schema_id") != "artifact-memory/exchange-envelope/v2":
-        return _receipt_v2(
+        return _rejected_v2(
             envelope_ref,
-            "unsupported",
-            diagnostics=[
-                {"code": "schema-unsupported", "message": "exchange schema is unsupported"}
-            ],
+            "invalid-envelope",
+            "exchange envelope does not satisfy the v2 contract",
         )
     if envelope.get("envelope_id") != envelope_ref:
         return _rejected_v2(
@@ -595,16 +593,32 @@ def admit_bundle_v2(
             if not isinstance(extensions, dict):
                 raise ReaderFailure("record extensions must be an object")
             if record["schema_id"] == "artifact-memory/knowledge-record/v1":
-                _preserve_record_extensions(extensions, supported)
+                if any(
+                    isinstance(declaration, dict)
+                    and declaration.get("required") is True
+                    for declaration in extensions.values()
+                ):
+                    _v2_extensions(extensions, supported)
+                else:
+                    _preserve_record_extensions(extensions, supported)
             else:
                 _v2_extensions(extensions, supported)
             revision = _strict_revision_digest(record)
         except ReaderFailure as exc:
-            failure_code = (
-                "required-extension-unsupported"
-                if str(exc) == "required extension is unsupported"
-                else "invalid-record"
-            )
+            if str(exc) == "required extension is unsupported":
+                failure_code = "required-extension-unsupported"
+            elif (
+                record.get("schema_id") == "artifact-memory/knowledge-record/v1"
+                and any(
+                    isinstance(declaration, dict)
+                    and declaration.get("required") is True
+                    and not {"version", "required", "value"}.issubset(declaration)
+                    for declaration in extensions.values()
+                )
+            ):
+                failure_code = "required-field-missing"
+            else:
+                failure_code = "invalid-record"
             return _receipt_v2(
                 envelope_ref,
                 "quarantined",
@@ -669,20 +683,14 @@ def admit_bundle_v2(
 
     unresolved = sorted(set(declared) - bundled)
     accepted = sorted(bundled)
-    if accepted and unresolved:
-        outcome = "partially-resolved"
-        diagnostics = [
-            {
-                "code": "record-unresolved",
-                "message": "one or more declared records are unresolved",
-            }
-        ]
-    elif unresolved:
+    if unresolved:
         outcome = "quarantined"
+        accepted = []
+        unresolved = sorted(declared)
         diagnostics = [
             {
-                "code": "bundle-unresolved",
-                "message": "no declared record revision could be resolved",
+                "code": "incomplete-bundle",
+                "message": "the independent receiver requires a complete embedded bundle",
             }
         ]
     elif accepted or artifact_refs:

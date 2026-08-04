@@ -179,6 +179,57 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
         expected_outcome="admitted",
     )
 
+    legacy_declaration_record = {
+        **legacy_record,
+        "record_id": "record://synthetic/independent-exchange-legacy-declaration",
+        "extensions": {
+            "https://synthetic.example/extensions/legacy-required": {
+                "version": "v1",
+                "required": True,
+                "value": {"behavior": "explicit-support-required"},
+            }
+        },
+    }
+    legacy_declaration_envelope = make_envelope_v2(
+        correlation_id="independent-legacy-declaration",
+        audience_ref=audience_ref,
+        expires_at=vectors["expires_at"],
+        record_refs=[_revision(legacy_declaration_record)],
+        artifact_refs=[vectors["artifact_ref"]],
+        record_bundle=[legacy_declaration_record],
+    )
+    _, _, legacy_declaration_case = _run_case(
+        legacy_declaration_envelope,
+        audience_ref=audience_ref,
+        evaluation_time=vectors["evaluation_time"],
+        expected_outcome="quarantined",
+    )
+
+    legacy_malformed_record = {
+        **legacy_record,
+        "record_id": "record://synthetic/independent-exchange-legacy-malformed",
+        "extensions": {
+            "https://synthetic.example/extensions/legacy-required": {
+                "required": True,
+                "legacy": "missing-v2-declaration-fields",
+            }
+        },
+    }
+    legacy_malformed_envelope = make_envelope_v2(
+        correlation_id="independent-legacy-malformed",
+        audience_ref=audience_ref,
+        expires_at=vectors["expires_at"],
+        record_refs=[_revision(legacy_malformed_record)],
+        artifact_refs=[vectors["artifact_ref"]],
+        record_bundle=[legacy_malformed_record],
+    )
+    _, _, legacy_malformed_case = _run_case(
+        legacy_malformed_envelope,
+        audience_ref=audience_ref,
+        evaluation_time=vectors["evaluation_time"],
+        expected_outcome="quarantined",
+    )
+
     body = {
         "outcome": "complete",
         "synthetic": True,
@@ -191,6 +242,8 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
             "explicitly_supported_required": supported_case,
             "identical_manifest_declaration": duplicate_case,
             "legacy_opaque_record_extension": legacy_case,
+            "legacy_required_declaration": legacy_declaration_case,
+            "legacy_malformed_required_declaration": legacy_malformed_case,
         },
         "artifact_retrieval": "not-attempted/separately-authorized",
         "authority_boundary": AUTHORITY_BOUNDARY,
@@ -201,6 +254,7 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
             "one unknown required extension fails closed and is admitted only after explicit support",
             "identical manifest declarations are deduplicated without changing admission",
             "a v1 record's opaque extension is preserved without v2 interpretation",
+            "v1 required-looking declarations fail closed at the v2 admission boundary",
             "artifact retrieval remains unattempted and separately authorized",
         ],
         "limitations": [
