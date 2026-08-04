@@ -37,6 +37,11 @@ and every declared adapter outcome without echoing protected input or paths.
 `vault-intake/v1/` proves immutable registration, verification, canonical
 artifact/version records, duplicate replay, and digest-mismatch quarantine.
 
+`benchmarks/v1/` is the benchmark-profile v1 namespace. Its expected receipt
+declares benchmark-receipt v2 in `schema_id`; directory names do not select a
+receipt schema. Projection records in this fixture are generated ephemeral
+inputs whose versioned generator and exact record-set digest are receipt-bound.
+
 The wider fixture set covers or is expected to cover:
 
 - equivalent logical trees under Windows, macOS, and Linux paths;

@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
-from .canonical import canonical_bytes, receipt_with_digest
+from .canonical import canonical_bytes, expected_receipt_id, receipt_with_digest
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -389,17 +389,9 @@ def import_task_export(task: dict[str, Any], policy: dict[str, Any]) -> dict[str
 
 
 def _require_receipt_integrity(receipt: dict[str, Any]) -> None:
-    receipt_body = {
-        key: value
-        for key, value in receipt.items()
-        if key not in {"schema_id", "receipt_id"}
-    }
-    expected_receipt = receipt_with_digest(
-        "artifact-memory/declassification-receipt/v2",
-        "declassification-receipt://",
-        receipt_body,
-    )
-    if receipt["receipt_id"] != expected_receipt["receipt_id"]:
+    if receipt["receipt_id"] != expected_receipt_id(
+        receipt, "declassification-receipt://"
+    ):
         raise ValidationFailure(
             "declassification-receipt-integrity-failed",
             "declassification receipt identity does not match its canonical body",

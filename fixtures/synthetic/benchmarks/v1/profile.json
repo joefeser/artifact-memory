@@ -1,0 +1,15 @@
+{
+  "schema_id": "artifact-memory/benchmark-profile/v1",
+  "profile_id": "synthetic-v0-resource-baseline",
+  "file_count": 1024,
+  "small_file_size_bytes": 4096,
+  "large_file_size_bytes": 8388608,
+  "depth": 32,
+  "projection_record_count": 1024,
+  "projection_record_generator": "artifact-memory/synthetic-benchmark-record-generator/v1",
+  "scan_byte_limit": 16384,
+  "scan_entry_limit": 16,
+  "archive_max_entries": 16,
+  "archive_max_uncompressed_bytes": 1048576,
+  "nested_archive_depth": 8
+}
