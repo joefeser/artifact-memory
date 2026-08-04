@@ -34,9 +34,12 @@ A public release requires one reviewed exact-head set containing:
    digest, all five versioned surfaces, artifacts, byte sizes, SHA-256 digests,
    checksum manifest, provenance, signature generation, and limitations;
 3. a canonical `SHA256SUMS` asset covering every release asset except itself;
-4. an anonymous clone/install/verify smoke using the quickstart;
-5. the final public-history and visibility audit, including Actions history and
-   artifact review plus push-rule restoration;
+4. a final pre-public history and repository-surface audit, including Actions
+   history and artifact review;
+5. after explicit owner visibility approval, an anonymous clone/install/verify
+   smoke using the quickstart and restoration of public push rules; if either
+   fails, stop release publication and return the repository to private while
+   correcting the failure;
 6. release notes, support scope, roadmap, known gaps, and explicit historical
    WhereAreMyFiles lineage and attribution.
 

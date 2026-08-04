@@ -42,6 +42,6 @@ Before creating a worktree, run the ACK worktree collision check described in
 the repository coordinator handoff. Before requesting merge readiness, run the
 repo-local `agent-control pr-loop` command and preserve its exact-head result.
 
-There are no dependency manifests or runtime packages yet. New dependencies
-must be justified in the issue or decision record, use a lockfile when a
-runtime is selected, and be covered by reproducible CI and provenance notes.
+The reference package currently uses only the Python standard library. New
+dependencies must be justified in the issue or decision record, use a lockfile
+when appropriate, and be covered by reproducible CI and provenance notes.
