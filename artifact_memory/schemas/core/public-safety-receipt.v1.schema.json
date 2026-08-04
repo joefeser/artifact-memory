@@ -26,7 +26,7 @@
     },
     "commit_count": {"type": "integer", "minimum": 1},
     "historical_object_count": {"type": "integer", "minimum": 1},
-    "current_path_count": {"type": "integer", "minimum": 1},
+    "current_path_count": {"type": "integer", "minimum": 0},
     "current_path_scope": {"const": "clean-index-and-worktree"},
     "worktree_clean": {"const": true},
     "limitations": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}}

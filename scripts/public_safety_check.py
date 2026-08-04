@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,7 +90,7 @@ def public_refs() -> list[dict[str, str]]:
     refs = []
     for line in output.splitlines():
         ref, object_id = line.split("\t", 1)
-        if ref.endswith("/HEAD"):
+        if ref.startswith("refs/remotes/") and ref.endswith("/HEAD"):
             continue
         refs.append({"ref": ref, "object_id": object_id})
     return sorted(refs, key=lambda item: item["ref"])
@@ -114,6 +116,54 @@ def repository_root() -> Path:
 def require_external_path(path: Path, purpose: str) -> None:
     if path.resolve().is_relative_to(repository_root()):
         raise ValueError(f"{purpose} must be outside the audited repository")
+
+
+def _repository_file_inodes(root: Path) -> set[tuple[int, int]]:
+    inodes: set[tuple[int, int]] = set()
+    for candidate in root.rglob("*"):
+        try:
+            metadata = candidate.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        if candidate.is_file() and not candidate.is_symlink():
+            inodes.add((metadata.st_dev, metadata.st_ino))
+    return inodes
+
+
+def write_external_receipt(path: Path, content: str) -> None:
+    """Atomically replace an external receipt without following its final entry."""
+
+    root = repository_root()
+    parent = path.parent.resolve(strict=True)
+    if parent.is_relative_to(root):
+        raise ValueError("receipt output must be outside the audited repository")
+    destination = parent / path.name
+    if destination.is_symlink():
+        raise ValueError("receipt output must not be a symbolic link")
+    if destination.exists():
+        metadata = destination.stat(follow_symlinks=False)
+        if (metadata.st_dev, metadata.st_ino) in _repository_file_inodes(root):
+            raise ValueError("receipt output must not share a repository file inode")
+
+    temporary_name: str | None = None
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_name, destination)
+        temporary_name = None
+    finally:
+        if temporary_name is not None:
+            try:
+                Path(temporary_name).unlink()
+            except OSError:
+                pass
 
 
 def current_paths() -> list[str]:
@@ -286,6 +336,7 @@ def exact_candidate_receipt(candidate: str) -> tuple[dict[str, object], list[str
     refs = public_refs()
     revisions = [candidate, *(item["object_id"] for item in refs)]
     history, current, findings = scan(revisions, refs)
+    commit_ids = commits(revisions)
     final_head = head_commit()
     final_refs = public_refs()
     final_clean = worktree_is_clean()
@@ -303,7 +354,7 @@ def exact_candidate_receipt(candidate: str) -> tuple[dict[str, object], list[str
         "head_commit": head,
         "ref_scope": "candidate-plus-remote-refs-and-tags-v1",
         "scanned_refs": refs,
-        "commit_count": len(commits(revisions)),
+        "commit_count": len(commit_ids),
         "historical_object_count": len(history),
         "current_path_count": len(current),
         "current_path_scope": "clean-index-and-worktree",
@@ -388,9 +439,9 @@ def main(argv: list[str] | None = None) -> int:
             receipt = {}
         if not findings and args.receipt_out:
             try:
-                args.receipt_out.write_text(
+                write_external_receipt(
+                    args.receipt_out,
                     json.dumps(receipt, sort_keys=True, indent=2) + "\n",
-                    encoding="utf-8",
                 )
             except OSError:
                 findings = ["exact-candidate receipt could not be written"]

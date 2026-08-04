@@ -189,11 +189,16 @@ def _require_canonical_owner_fingerprint(value: Any) -> str:
     return value
 
 
-def _matching_allowed_signer_lines(path: Path, expected_fingerprint: str) -> list[str]:
+def _matching_allowed_signer_lines(
+    path: Path,
+    expected_fingerprint: str,
+) -> tuple[list[str], bytes, Path]:
     """Select direct Ed25519 keys matching the manifest fingerprint."""
 
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        resolved_path = path.resolve(strict=True)
+        source_bytes = resolved_path.read_bytes()
+        lines = source_bytes.decode("utf-8").splitlines()
     except (OSError, UnicodeError) as exc:
         raise ValidationFailure(
             "release-candidate-allowed-signers-invalid",
@@ -219,7 +224,7 @@ def _matching_allowed_signer_lines(path: Path, expected_fingerprint: str) -> lis
             "release-candidate-expected-signer-unavailable",
             "configured SSH allowed signers file does not contain the manifest's direct Ed25519 key",
         )
-    return matches
+    return matches, source_bytes, resolved_path
 
 
 def _signed_manifest_digest(tag_object: bytes) -> str:
@@ -392,7 +397,9 @@ def verify_checked_out_release_candidate(
     allowed_signers_path = Path(allowed_signers_setting)
     if not allowed_signers_path.is_absolute():
         allowed_signers_path = repository_root / allowed_signers_path
-    matching_signers = _matching_allowed_signer_lines(allowed_signers_path, owner_fingerprint)
+    matching_signers, allowed_signers_bytes, resolved_allowed_signers_path = (
+        _matching_allowed_signer_lines(allowed_signers_path, owner_fingerprint)
+    )
     try:
         with tempfile.TemporaryDirectory(prefix="artifact-memory-release-") as temporary:
             filtered_allowed_signers = Path(temporary) / "allowed_signers"
@@ -443,6 +450,16 @@ def verify_checked_out_release_candidate(
             cwd=repository_root,
             text=True,
         ).strip()
+        final_allowed_signers_setting = subprocess.check_output(
+            ["git", "config", "--path", "--get", "gpg.ssh.allowedSignersFile"],
+            cwd=repository_root,
+            text=True,
+        ).strip()
+        final_allowed_signers_path = Path(final_allowed_signers_setting)
+        if not final_allowed_signers_path.is_absolute():
+            final_allowed_signers_path = repository_root / final_allowed_signers_path
+        final_resolved_allowed_signers_path = final_allowed_signers_path.resolve(strict=True)
+        final_allowed_signers_bytes = final_resolved_allowed_signers_path.read_bytes()
     except OSError as exc:
         raise ValidationFailure(
             "release-candidate-git-verification-failed",
@@ -457,6 +474,14 @@ def verify_checked_out_release_candidate(
         raise ValidationFailure(
             "release-candidate-tag-ref-changed",
             "release tag ref changed during verification",
+        )
+    if (
+        final_resolved_allowed_signers_path != resolved_allowed_signers_path
+        or final_allowed_signers_bytes != allowed_signers_bytes
+    ):
+        raise ValidationFailure(
+            "release-candidate-signer-policy-changed",
+            "configured SSH allowed-signers policy changed during verification",
         )
     if head_symbolic_name != "HEAD" or final_head_symbolic_name != "HEAD":
         raise ValidationFailure(

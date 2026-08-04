@@ -168,7 +168,10 @@ authority boundary, caller-asserted isolation, endpoint-only concurrency scope,
 and explicit unevaluated owner-authorization and repository-settings gates.
 Preserve the external
 receipt with the release audit evidence; the second command rejects schema,
-duplicate-key, or canonical-identity tampering. The
+duplicate-key, canonical-identity, or internal-coherence tampering and reports
+`integrity-verified`; it does not replay Git, signature, manifest, package, or
+owner-policy verification and therefore does not independently establish the
+receipt's factual claims. The
 installed-package smoke runs the console script and packaged-schema checks from
 a temporary directory outside the source checkout.
 

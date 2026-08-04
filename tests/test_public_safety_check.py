@@ -79,6 +79,22 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
 
 
 class PublicSafetyCandidateReceiptTests(unittest.TestCase):
+    def test_public_refs_excludes_only_remote_head_and_keeps_head_tag(self):
+        output = (
+            "refs/remotes/origin/HEAD\t" + "a" * 40 + "\n"
+            "refs/tags/HEAD\t" + "b" * 40 + "\n"
+        )
+        with patch.object(
+            public_safety_check.subprocess,
+            "check_output",
+            return_value=output,
+        ):
+            refs = public_safety_check.public_refs()
+        self.assertEqual(
+            refs,
+            [{"ref": "refs/tags/HEAD", "object_id": "b" * 40}],
+        )
+
     def test_checked_synthetic_receipt_and_human_rendering(self):
         fixture = ROOT / "fixtures/synthetic/public-safety/v1"
         receipt = json.loads((fixture / "expected-receipt.json").read_text(encoding="utf-8"))
@@ -257,6 +273,23 @@ class PublicSafetyCandidateReceiptTests(unittest.TestCase):
         self.assertTrue(receipt["worktree_clean"])
         self.assertRegex(receipt["receipt_id"], r"^public-safety-receipt://[0-9a-f]{64}$")
 
+    def test_receipt_accepts_an_empty_current_tree(self):
+        candidate = "a" * 40
+        with (
+            patch.object(public_safety_check, "head_commit", return_value=candidate),
+            patch.object(public_safety_check, "worktree_is_clean", return_value=True),
+            patch.object(public_safety_check, "public_refs", return_value=[]),
+            patch.object(
+                public_safety_check,
+                "scan",
+                return_value=({candidate: set()}, [], []),
+            ),
+            patch.object(public_safety_check, "commits", return_value=[candidate]),
+        ):
+            receipt, findings = public_safety_check.exact_candidate_receipt(candidate)
+        self.assertEqual(findings, [])
+        self.assertEqual(receipt["current_path_count"], 0)
+
     def test_receipt_rejects_cross_candidate_head(self):
         with patch.object(public_safety_check, "head_commit", return_value="b" * 40):
             with self.assertRaisesRegex(ValueError, "HEAD does not equal"):
@@ -284,9 +317,43 @@ class PublicSafetyCandidateReceiptTests(unittest.TestCase):
                 "scan",
                 return_value=({"object": {"tracked.txt"}}, ["tracked.txt"], []),
             ),
+            patch.object(public_safety_check, "commits", return_value=[candidate]),
         ):
             with self.assertRaisesRegex(ValueError, "public refs changed"):
                 public_safety_check.exact_candidate_receipt(candidate)
+
+    def test_external_receipt_write_rejects_repository_hard_link(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = root / "repo"
+            repository.mkdir()
+            tracked = repository / "tracked.txt"
+            tracked.write_text("synthetic\n", encoding="utf-8")
+            destination = root / "receipt.json"
+            destination.hardlink_to(tracked)
+            with patch.object(
+                public_safety_check,
+                "repository_root",
+                return_value=repository,
+            ):
+                with self.assertRaisesRegex(ValueError, "share a repository file inode"):
+                    public_safety_check.write_external_receipt(destination, "{}\n")
+            self.assertEqual(tracked.read_text(encoding="utf-8"), "synthetic\n")
+
+    def test_external_receipt_write_atomically_replaces_regular_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = root / "repo"
+            repository.mkdir()
+            destination = root / "receipt.json"
+            destination.write_text("old\n", encoding="utf-8")
+            with patch.object(
+                public_safety_check,
+                "repository_root",
+                return_value=repository,
+            ):
+                public_safety_check.write_external_receipt(destination, "new\n")
+            self.assertEqual(destination.read_text(encoding="utf-8"), "new\n")
 
 
 if __name__ == "__main__":

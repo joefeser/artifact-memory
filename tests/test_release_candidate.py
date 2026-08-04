@@ -160,6 +160,20 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             (fixture_root / "v0-release-candidate-verification-receipt.md").read_text(encoding="utf-8"),
         )
 
+    def test_receipt_cli_reports_integrity_without_replaying_live_evidence(self):
+        fixture = Path(__file__).resolve().parents[1] / (
+            "fixtures/synthetic/release/v0-release-candidate-verification-receipt.json"
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            result = main(
+                ["validate-release-candidate-receipt", str(fixture), "--json"]
+            )
+        self.assertEqual(result, 0)
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(receipt["outcome"], "integrity-verified")
+        self.assertFalse(receipt["live_release_evidence_verified"])
+
     def test_receipt_rejects_rehashed_incoherent_release_identity(self):
         fixture = (
             Path(__file__).resolve().parents[1]
@@ -376,6 +390,43 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         isolated_checkout=True,
                     )
             self.assertEqual(failure.exception.code, "release-candidate-expected-signer-unavailable")
+
+    def test_verifier_rejects_signer_policy_change_during_verification(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_bytes = json.dumps(release_manifest()).encode("utf-8")
+            manifest_path = root / "release.json"
+            manifest_path.write_bytes(manifest_bytes)
+            allowed_signers = write_allowed_signers(root)
+
+            def mutate_policy(*args, **kwargs):
+                allowed_signers.write_text(
+                    allowed_signers.read_text(encoding="utf-8") + "# changed\n",
+                    encoding="utf-8",
+                )
+                return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.__version__", "0.1.0"),
+                patch("artifact_memory.release.subprocess.run", side_effect=mutate_policy),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    side_effect=git_output_for(manifest_bytes),
+                ),
+            ):
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=True,
+                    )
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-signer-policy-changed",
+            )
 
     def test_verifier_does_not_parse_human_diagnostics(self):
         with tempfile.TemporaryDirectory() as temporary:

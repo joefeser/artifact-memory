@@ -158,7 +158,15 @@ def main(argv: list[str] | None = None) -> int:
                 args.as_json,
             )
             return EXIT_INVALID
-        _receipt({"outcome": "pass", "receipt_id": receipt["receipt_id"]}, args.as_json)
+        _receipt(
+            {
+                "outcome": "integrity-verified",
+                "receipt_id": receipt["receipt_id"],
+                "verification_scope": "receipt-schema-canonical-identity-and-internal-coherence-only",
+                "live_release_evidence_verified": False,
+            },
+            args.as_json,
+        )
         return EXIT_OK
     if args.command == "scan":
         manifest, receipt = scan_path(args.root)
