@@ -103,6 +103,10 @@ def public_refs() -> list[dict[str, str]]:
             or GIT_OBJECT_ID_PATTERN.fullmatch(object_id) is None
         ):
             raise PublicSafetyInvalidGitOutput("Git public ref output is invalid")
+        if FORBIDDEN_PATH.search(ref) or SECRET_LIKE.search(ref):
+            raise PublicSafetyInvalidGitOutput(
+                "Git public ref name violates public-safety policy"
+            )
         if ref.startswith("refs/remotes/") and ref.endswith("/HEAD"):
             continue
         refs.append({"ref": ref, "object_id": object_id})
@@ -187,9 +191,40 @@ def current_paths() -> list[str]:
     ).splitlines()
 
 
-def check_paths(history: dict[str, set[str]], current: list[str]) -> list[str]:
+def historical_paths(revisions: list[str] | None = None) -> list[str]:
+    """Enumerate every changed path without rename collapsing."""
+
+    output = subprocess.check_output(
+        [
+            "git",
+            "log",
+            "--format=",
+            "--name-only",
+            "--no-renames",
+            "-z",
+            *_revision_arguments(revisions),
+        ],
+        stderr=subprocess.STDOUT,
+    )
+    return sorted(
+        {
+            record.decode("utf-8", errors="surrogateescape")
+            for record in output.split(b"\0")
+            if record
+        }
+    )
+
+
+def check_paths(
+    history: dict[str, set[str]],
+    current: list[str],
+    exact_historical_paths: list[str] | None = None,
+) -> list[str]:
     findings = []
-    for path in [path for paths in history.values() for path in paths] + current:
+    paths = [path for names in history.values() for path in names]
+    paths.extend(exact_historical_paths or [])
+    paths.extend(current)
+    for path in paths:
         if FORBIDDEN_PATH.search(path):
             findings.append(f"forbidden repository path: {path}")
     return sorted(set(findings))
@@ -330,7 +365,7 @@ def scan(
     current = current_paths()
     metadata_refs = public_refs() if refs is None else refs
     findings = (
-        check_paths(history, current)
+        check_paths(history, current, historical_paths(revisions))
         + check_historical_content(history)
         + check_revision_metadata(revisions, metadata_refs)
         + check_current_content(current)

@@ -121,6 +121,23 @@ class PublicSafetyCandidateReceiptTests(unittest.TestCase):
             with self.assertRaises(public_safety_check.PublicSafetyInvalidGitOutput):
                 public_safety_check.public_refs()
 
+    def test_public_refs_rejects_protected_names_before_receipt_use(self):
+        for ref in (
+            "refs/remotes/origin/private/vault",
+            "refs/tags/" + "sk" + "-" + "a" * 16,
+        ):
+            with self.subTest(ref=ref):
+                with patch.object(
+                    public_safety_check.subprocess,
+                    "check_output",
+                    return_value=f"{ref}\t{'a' * 40}\n",
+                ):
+                    with self.assertRaisesRegex(
+                        public_safety_check.PublicSafetyInvalidGitOutput,
+                        "violates public-safety policy",
+                    ):
+                        public_safety_check.public_refs()
+
     def test_checked_synthetic_receipt_and_human_rendering(self):
         fixture = ROOT / "fixtures/synthetic/public-safety/v1"
         receipt = json.loads((fixture / "expected-receipt.json").read_text(encoding="utf-8"))
@@ -253,6 +270,30 @@ class PublicSafetyCandidateReceiptTests(unittest.TestCase):
             self.assertEqual(tagged.returncode, 1)
             self.assertIn("secret-like revision metadata: tag object", tagged.stderr)
             self.assertNotIn("synthetic-tag-message", tagged.stderr)
+
+    def test_real_git_audit_rejects_forbidden_name_after_same_blob_rename(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "Synthetic Fixture"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "fixture@example.invalid"], cwd=repo, check=True)
+            (repo / ".env").write_text("synthetic public fixture\n", encoding="utf-8")
+            subprocess.run(["git", "add", ".env"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "Add synthetic old name"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(["git", "mv", ".env", "public.txt"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "Rename synthetic path"], cwd=repo, check=True, capture_output=True)
+            candidate = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+
+            result = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "--candidate", candidate],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("forbidden repository path: .env", result.stderr)
 
     def test_cli_normalizes_git_failures_without_traceback(self):
         with (
