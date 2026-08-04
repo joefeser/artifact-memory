@@ -24,6 +24,13 @@ class ReleaseManifestTests(unittest.TestCase):
         self.assertEqual(manifest["status"], "preview")
         self.assertEqual(manifest["signature"]["state"], "not-signed")
 
+    def test_v1_manifest_cannot_claim_release_status(self):
+        manifest = json.loads((FIXTURE / "v0-preview-manifest.json").read_text(encoding="utf-8"))
+        manifest["status"] = "release"
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_release_manifest(manifest)
+        self.assertEqual(failure.exception.code, "release-manifest-migration-required")
+
     def test_v2_preview_reproduces_public_safe_release_materials(self):
         manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
         validate_release_manifest(manifest)
@@ -179,6 +186,28 @@ class ReleaseManifestTests(unittest.TestCase):
         with self.assertRaises(ValidationFailure) as failure:
             validate_release_manifest(released)
         self.assertEqual(failure.exception.code, "release-tag-mismatch")
+
+    def test_legacy_v2_fingerprint_is_schema_readable_but_requires_migration(self):
+        manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
+        manifest["status"] = "release"
+        manifest["release_id"] = "artifact-memory/v0.1.0"
+        manifest["signature"] = {
+            "state": "owner-signed",
+            "tag": "v0.1.0",
+            "algorithm": "ssh-ed25519",
+            "public_key_fingerprint": "SHA256:" + "A" * 20 + "==",
+            "key_generation": "legacy-generation",
+            "owner_signed_annotated_tag": True,
+        }
+        schema = json.loads(
+            (ROOT / "artifact_memory/schemas/core/release-manifest.v2.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        validate(manifest, schema)
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_release_manifest(manifest)
+        self.assertEqual(failure.exception.code, "release-fingerprint-migration-required")
 
 
 if __name__ == "__main__":

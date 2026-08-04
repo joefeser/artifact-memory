@@ -16,12 +16,21 @@ The supported v0 surface is deliberately small:
 - `artifact-memory inspect RECORD` reports the record schema and top-level
   field names without echoing local paths or record contents;
 - `artifact-memory validate RECORD` validates JSON syntax, duplicate-key
-  rejection, the selected v0 schema, and the supported JSON Schema keywords.
+  rejection, the selected v0 schema, the supported JSON Schema keywords, and
+  schema-specific semantic rules exposed by the reference implementation. For
+  `release-manifest/v1` and `/v2`, acceptance also requires
+  `validate_release_manifest()` to pass. A legacy v2 release fingerprint can
+  remain schema-readable for compatibility while `validate` rejects it with
+  exit status 2 and `release-fingerprint-migration-required`; schema shape
+  alone is not evidence that a manifest is releasable. `inspect` is the
+  non-validating metadata surface for callers that only need schema and field
+  names.
 
-The validator fails closed for an unknown schema identifier and reports
-unsupported schema constructs as a typed outcome. It does not resolve files,
-execute adapters, infer authority, or make authenticity claims. Generated
-indexes and private-vault configuration are outside this package.
+The validator fails closed for an unknown schema identifier, reports
+unsupported schema constructs as a typed outcome, and returns exit status 2
+for schema or supported semantic rejection. It does not resolve files, execute
+adapters, infer authority, or make authenticity claims. Generated indexes and
+private-vault configuration are outside this package.
 
 The single canonical schema tree lives under `artifact_memory/schemas/` so the
 same versioned text is available in a source checkout and as installed package

@@ -1,0 +1,4 @@
+valid: False
+outcome: rejected
+diagnostics: [{'code': 'release-fingerprint-migration-required', 'path': '$.signature.public_key_fingerprint', 'message': 'legacy v2 release fingerprint must be replaced by the canonical owner-published fingerprint before release use'}]
+schema_id: artifact-memory/release-manifest/v2

@@ -82,6 +82,12 @@ and [the readiness audit](docs/release/public-readiness-audit.md). The current
 [support boundary](SUPPORT.md) and [preview notes](docs/release/v0.1.0-preview-notes.md)
 remain explicitly pre-release.
 
+`artifact-memory validate RECORD` applies schema validation plus the supported
+semantic rules for recognized contracts. In particular, a schema-readable
+release manifest can still be rejected as unreleasable. Use
+`artifact-memory inspect RECORD` when only schema and top-level field metadata
+are needed; `inspect` does not validate record semantics.
+
 ## Design
 
 - [Foundation and rewrite concept](docs/architecture/foundation.md)

@@ -15,6 +15,12 @@ from .codex_history import (
 )
 from .context import ContextFailure, build_selection_policy, export_context
 from .projection import project_records, records_with_provenance, related_records, search_records
+from .release import (
+    render_release_candidate_verification_receipt,
+    validate_release_manifest,
+    validate_release_candidate_verification_receipt,
+    verify_checked_out_release_candidate,
+)
 from .scan import diff_manifests, scan_path, verify_path
 from .schema_resources import core_schemas
 from .validator import ValidationFailure, load_json, validate
@@ -39,8 +45,15 @@ def _receipt(payload: dict[str, object], as_json: bool) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="artifact-memory")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name in ("validate", "inspect"):
-        command = subparsers.add_parser(name)
+    record_commands = {
+        "validate": (
+            "validate JSON syntax, duplicate keys, schema constraints, and supported "
+            "semantic rules (including release-manifest releasability)"
+        ),
+        "inspect": "report schema and field names without validating record semantics",
+    }
+    for name, description in record_commands.items():
+        command = subparsers.add_parser(name, help=description, description=description)
         command.add_argument("record", type=Path)
         command.add_argument("--schema", type=Path)
         command.add_argument("--json", action="store_true", dest="as_json")
@@ -94,10 +107,66 @@ def main(argv: list[str] | None = None) -> int:
     dogfood_receipt.add_argument("--json", action="store_true", dest="as_json")
     version = subparsers.add_parser("version")
     version.add_argument("--json", action="store_true", dest="as_json")
+    release_candidate = subparsers.add_parser("verify-release-candidate")
+    release_candidate.add_argument("manifest", type=Path)
+    release_candidate.add_argument("--tag", required=True)
+    release_candidate.add_argument("--repo", required=True, type=Path)
+    release_candidate.add_argument("--owner-fingerprint", required=True)
+    release_candidate.add_argument(
+        "--isolated-checkout",
+        action="store_true",
+        help="assert exclusive control of this fresh checkout during verification",
+    )
+    release_candidate.add_argument("--json", action="store_true", dest="as_json")
+    release_receipt = subparsers.add_parser("validate-release-candidate-receipt")
+    release_receipt.add_argument("receipt", type=Path)
+    release_receipt.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args(argv)
 
     if args.command == "version":
         _receipt({"implementation": "artifact-memory-python", "version": __version__, "contract_version": CONTRACT_VERSION}, args.as_json)
+        return EXIT_OK
+    if args.command == "verify-release-candidate":
+        try:
+            result = verify_checked_out_release_candidate(
+                args.manifest,
+                args.tag,
+                args.repo,
+                owner_fingerprint=args.owner_fingerprint,
+                isolated_checkout=args.isolated_checkout,
+            )
+        except ValidationFailure as exc:
+            _receipt(
+                {"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]},
+                args.as_json,
+            )
+            return EXIT_INVALID
+        if args.as_json:
+            _receipt(result, True)
+        else:
+            print(render_release_candidate_verification_receipt(result), end="")
+        return EXIT_OK
+    if args.command == "validate-release-candidate-receipt":
+        try:
+            receipt = load_json(args.receipt)
+            if not isinstance(receipt, dict):
+                raise ValidationFailure("invalid-input", "release verification receipt must be an object")
+            validate_release_candidate_verification_receipt(receipt)
+        except ValidationFailure as exc:
+            _receipt(
+                {"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]},
+                args.as_json,
+            )
+            return EXIT_INVALID
+        _receipt(
+            {
+                "outcome": "integrity-verified",
+                "receipt_id": receipt["receipt_id"],
+                "verification_scope": "receipt-schema-canonical-identity-and-internal-coherence-only",
+                "live_release_evidence_verified": False,
+            },
+            args.as_json,
+        )
         return EXIT_OK
     if args.command == "scan":
         manifest, receipt = scan_path(args.root)
@@ -282,6 +351,11 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(schema, dict):
             raise ValidationFailure("invalid-input", "schema must be a JSON object")
         validate(record, schema)
+        if schema_id in {
+            "artifact-memory/release-manifest/v1",
+            "artifact-memory/release-manifest/v2",
+        }:
+            validate_release_manifest(record)
     except ValidationFailure as exc:
         result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}
     else:

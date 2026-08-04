@@ -3,10 +3,21 @@
 
 from __future__ import annotations
 
+import argparse
+import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from artifact_memory.canonical import receipt_with_digest
+from artifact_memory.schema_resources import load_schema
+from artifact_memory.validator import ValidationFailure, load_json, validate
 
 
 FORBIDDEN_PATH = re.compile(
@@ -27,24 +38,149 @@ SECRET_LIKE = re.compile(
 )
 
 SCANNER_PATH = "scripts/public_safety_check.py"
+RECEIPT_SCHEMA_ID = "artifact-memory/public-safety-receipt/v1"
+RECEIPT_ID_PREFIX = "public-safety-receipt://"
+PUBLIC_REF_PATTERN = re.compile(r"^refs/(?:remotes/[^/]+/[^/].*|tags/[^/].*)$")
+GIT_OBJECT_ID_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 
-def history_entries() -> dict[str, set[str]]:
+class PublicSafetyInvalidGitOutput(RuntimeError):
+    """Raised when Git emits data outside the exact public-audit contract."""
+
+
+def _revision_arguments(revisions: list[str] | None) -> list[str]:
+    return ["--all"] if revisions is None else revisions
+
+
+def history_entries(revisions: list[str] | None = None) -> dict[str, set[str]]:
     entries: dict[str, set[str]] = {}
     output = subprocess.check_output(
-        ["git", "rev-list", "--objects", "--all"], text=True, stderr=subprocess.STDOUT
+        ["git", "rev-list", "--objects", *_revision_arguments(revisions)],
+        text=True,
+        stderr=subprocess.STDOUT,
     )
     for line in output.splitlines():
         parts = line.split(" ", 1)
+        entries.setdefault(parts[0], set())
         if len(parts) == 2:
-            entries.setdefault(parts[0], set()).add(parts[1])
+            entries[parts[0]].add(parts[1])
     return entries
 
 
-def commits() -> list[str]:
+def commits(revisions: list[str] | None = None) -> list[str]:
     return subprocess.check_output(
-        ["git", "rev-list", "--all"], text=True, stderr=subprocess.STDOUT
+        ["git", "rev-list", *_revision_arguments(revisions)],
+        text=True,
+        stderr=subprocess.STDOUT,
     ).splitlines()
+
+
+def head_commit() -> str:
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.STDOUT
+    ).strip()
+
+
+def public_refs() -> list[dict[str, str]]:
+    output = subprocess.check_output(
+        [
+            "git",
+            "for-each-ref",
+            "--format=%(refname)%09%(objectname)",
+            "refs/remotes",
+            "refs/tags",
+        ],
+        text=True,
+        stderr=subprocess.STDOUT,
+    )
+    refs = []
+    for line in output.splitlines():
+        if line.count("\t") != 1:
+            raise PublicSafetyInvalidGitOutput("Git public ref output is invalid")
+        ref, object_id = line.split("\t", 1)
+        if (
+            PUBLIC_REF_PATTERN.fullmatch(ref) is None
+            or GIT_OBJECT_ID_PATTERN.fullmatch(object_id) is None
+        ):
+            raise PublicSafetyInvalidGitOutput("Git public ref output is invalid")
+        if FORBIDDEN_PATH.search(ref) or SECRET_LIKE.search(ref):
+            raise PublicSafetyInvalidGitOutput(
+                "Git public ref name violates public-safety policy"
+            )
+        if ref.startswith("refs/remotes/") and ref.endswith("/HEAD"):
+            continue
+        refs.append({"ref": ref, "object_id": object_id})
+    return sorted(refs, key=lambda item: item["ref"])
+
+
+def worktree_is_clean() -> bool:
+    return not subprocess.check_output(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        stderr=subprocess.STDOUT,
+    )
+
+
+def repository_root() -> Path:
+    return Path(
+        subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            text=True,
+            stderr=subprocess.STDOUT,
+        ).strip()
+    ).resolve()
+
+
+def require_external_path(path: Path, purpose: str) -> None:
+    if path.resolve().is_relative_to(repository_root()):
+        raise ValueError(f"{purpose} must be outside the audited repository")
+
+
+def _repository_file_inodes(root: Path) -> set[tuple[int, int]]:
+    inodes: set[tuple[int, int]] = set()
+    for candidate in root.rglob("*"):
+        try:
+            metadata = candidate.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        if candidate.is_file() and not candidate.is_symlink():
+            inodes.add((metadata.st_dev, metadata.st_ino))
+    return inodes
+
+
+def write_external_receipt(path: Path, content: str) -> None:
+    """Atomically replace an external receipt without following its final entry."""
+
+    root = repository_root()
+    parent = path.parent.resolve(strict=True)
+    if parent.is_relative_to(root):
+        raise ValueError("receipt output must be outside the audited repository")
+    destination = parent / path.name
+    if destination.is_symlink():
+        raise ValueError("receipt output must not be a symbolic link")
+    if destination.exists():
+        metadata = destination.stat(follow_symlinks=False)
+        if (metadata.st_dev, metadata.st_ino) in _repository_file_inodes(root):
+            raise ValueError("receipt output must not share a repository file inode")
+
+    temporary_name: str | None = None
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_name, destination)
+        temporary_name = None
+    finally:
+        if temporary_name is not None:
+            try:
+                Path(temporary_name).unlink()
+            except OSError:
+                pass
 
 
 def current_paths() -> list[str]:
@@ -55,15 +191,46 @@ def current_paths() -> list[str]:
     ).splitlines()
 
 
-def check_paths(history: dict[str, set[str]], current: list[str]) -> list[str]:
+def historical_paths(revisions: list[str] | None = None) -> list[str]:
+    """Enumerate every changed path without rename collapsing."""
+
+    output = subprocess.check_output(
+        [
+            "git",
+            "log",
+            "--format=",
+            "--name-only",
+            "--no-renames",
+            "-z",
+            *_revision_arguments(revisions),
+        ],
+        stderr=subprocess.STDOUT,
+    )
+    return sorted(
+        {
+            record.decode("utf-8", errors="surrogateescape")
+            for record in output.split(b"\0")
+            if record
+        }
+    )
+
+
+def check_paths(
+    history: dict[str, set[str]],
+    current: list[str],
+    exact_historical_paths: list[str] | None = None,
+) -> list[str]:
     findings = []
-    for path in [path for paths in history.values() for path in paths] + current:
+    paths = [path for names in history.values() for path in names]
+    paths.extend(exact_historical_paths or [])
+    paths.extend(current)
+    for path in paths:
         if FORBIDDEN_PATH.search(path):
             findings.append(f"forbidden repository path: {path}")
     return sorted(set(findings))
 
 
-def read_blobs(object_ids: list[str]) -> dict[str, bytes]:
+def read_objects(object_ids: list[str]) -> dict[str, tuple[str, bytes]]:
     if not object_ids:
         return {}
     process = subprocess.Popen(
@@ -76,7 +243,7 @@ def read_blobs(object_ids: list[str]) -> dict[str, bytes]:
     if process.returncode:
         raise RuntimeError(error.decode("utf-8", errors="replace").strip())
 
-    blobs = {}
+    objects = {}
     offset = 0
     for object_id in object_ids:
         header_end = output.find(b"\n", offset)
@@ -90,9 +257,16 @@ def read_blobs(object_ids: list[str]) -> dict[str, bytes]:
         size = int(size_text)
         content = output[offset : offset + size]
         offset += size + 1
-        if object_type == "blob":
-            blobs[object_id] = content
-    return blobs
+        objects[object_id] = (object_type, content)
+    return objects
+
+
+def read_blobs(object_ids: list[str]) -> dict[str, bytes]:
+    return {
+        object_id: content
+        for object_id, (object_type, content) in read_objects(object_ids).items()
+        if object_type == "blob"
+    }
 
 
 def check_historical_content(history: dict[str, set[str]]) -> list[str]:
@@ -101,12 +275,38 @@ def check_historical_content(history: dict[str, set[str]]) -> list[str]:
     blobs = read_blobs(list(history))
     findings = []
     for object_id, paths in history.items():
-        if object_id not in blobs or all(path == SCANNER_PATH for path in paths):
+        non_scanner_paths = sorted(path for path in paths if path != SCANNER_PATH)
+        if object_id not in blobs or (paths and not non_scanner_paths):
             continue
         text = blobs[object_id].decode("utf-8", errors="replace")
         if SECRET_LIKE.search(text):
-            path = sorted(path for path in paths if path != SCANNER_PATH)[0]
-            findings.append(f"secret-like historical content: object {object_id}, path {path}")
+            path_evidence = f", path {non_scanner_paths[0]}" if non_scanner_paths else ""
+            findings.append(f"secret-like historical content: object {object_id}{path_evidence}")
+    return findings
+
+
+def check_revision_metadata(
+    revisions: list[str] | None,
+    refs: list[dict[str, str]],
+) -> list[str]:
+    commit_ids = commits(revisions)
+    tag_refs = [item for item in refs if item["ref"].startswith("refs/tags/")]
+    object_ids = sorted(set(commit_ids) | {item["object_id"] for item in tag_refs})
+    objects = read_objects(object_ids)
+    findings = []
+    for object_id in object_ids:
+        object_record = objects.get(object_id)
+        if object_record is None:
+            continue
+        object_type, content = object_record
+        matching_refs = sorted(item["ref"] for item in tag_refs if item["object_id"] == object_id)
+        if object_type not in {"commit", "tag"} and not matching_refs:
+            continue
+        if SECRET_LIKE.search(content.decode("utf-8", errors="replace")):
+            ref_evidence = f", ref {matching_refs[0]}" if matching_refs else ""
+            findings.append(
+                f"secret-like revision metadata: {object_type} object {object_id}{ref_evidence}"
+            )
     return findings
 
 
@@ -157,14 +357,156 @@ def check_current_content(paths: list[str]) -> list[str]:
     return findings
 
 
-def main() -> int:
-    history = history_entries()
+def scan(
+    revisions: list[str] | None = None,
+    refs: list[dict[str, str]] | None = None,
+) -> tuple[dict[str, set[str]], list[str], list[str]]:
+    history = history_entries(revisions)
     current = current_paths()
+    metadata_refs = public_refs() if refs is None else refs
     findings = (
-        check_paths(history, current)
+        check_paths(history, current, historical_paths(revisions))
         + check_historical_content(history)
+        + check_revision_metadata(revisions, metadata_refs)
         + check_current_content(current)
     )
+    return history, current, findings
+
+
+def exact_candidate_receipt(candidate: str) -> tuple[dict[str, object], list[str]]:
+    if re.fullmatch(r"[0-9a-f]{40}", candidate) is None:
+        raise ValueError("candidate commit must be a full lowercase Git object ID")
+    head = head_commit()
+    if head != candidate:
+        raise ValueError("checked-out HEAD does not equal the requested candidate commit")
+    if not worktree_is_clean():
+        raise ValueError("exact-candidate audit requires a clean index and worktree")
+    refs = public_refs()
+    revisions = [candidate, *(item["object_id"] for item in refs)]
+    history, current, findings = scan(revisions, refs)
+    commit_ids = commits(revisions)
+    final_head = head_commit()
+    final_refs = public_refs()
+    final_clean = worktree_is_clean()
+    if final_head != head:
+        raise ValueError("checked-out HEAD changed during the exact-candidate audit")
+    if final_refs != refs:
+        raise ValueError("public refs changed during the exact-candidate audit")
+    if not final_clean:
+        raise ValueError("index or worktree changed during the exact-candidate audit")
+    if findings:
+        return {}, findings
+    body = {
+        "outcome": "pass",
+        "candidate_commit": candidate,
+        "head_commit": head,
+        "ref_scope": "candidate-plus-remote-refs-and-tags-v1",
+        "scanned_refs": refs,
+        "commit_count": len(commit_ids),
+        "historical_object_count": len(history),
+        "current_path_count": len(current),
+        "current_path_scope": "clean-index-and-worktree",
+        "worktree_clean": True,
+        "limitations": [
+            "high-confidence pattern scanning does not prove absence of every protected value",
+            "GitHub issues, reviews, logs, artifacts, releases, and repository settings require separate audit evidence",
+        ],
+    }
+    receipt = receipt_with_digest(RECEIPT_SCHEMA_ID, RECEIPT_ID_PREFIX, body)
+    validate(receipt, load_schema("core", "public-safety-receipt.v1.schema.json"))
+    return receipt, []
+
+
+def _load_expected_receipt(path: Path) -> dict[str, object]:
+    try:
+        value = load_json(path)
+    except ValidationFailure as exc:
+        raise ValueError("expected receipt is unavailable or invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError("expected receipt must be a JSON object")
+    try:
+        validate(value, load_schema("core", "public-safety-receipt.v1.schema.json"))
+    except ValidationFailure as exc:
+        raise ValueError("expected receipt fails schema validation") from exc
+    body = {key: item for key, item in value.items() if key not in {"schema_id", "receipt_id"}}
+    if value != receipt_with_digest(RECEIPT_SCHEMA_ID, RECEIPT_ID_PREFIX, body):
+        raise ValueError("expected receipt canonical identity does not match its content")
+    return value
+
+
+def render_candidate_receipt(receipt: dict[str, object]) -> str:
+    refs = receipt["scanned_refs"]
+    assert isinstance(refs, list)
+    ref_label = "ref" if len(refs) == 1 else "refs"
+    return (
+        "# Public safety candidate receipt\n\n"
+        f"- Outcome: `{receipt['outcome']}`\n"
+        f"- Receipt: `{receipt['receipt_id']}`\n"
+        f"- Candidate/HEAD: `{receipt['candidate_commit']}`\n"
+        f"- Ref scope: `{receipt['ref_scope']}` ({len(refs)} {ref_label})\n"
+        f"- Reachable commits: {receipt['commit_count']}\n"
+        f"- Historical objects: {receipt['historical_object_count']}\n"
+        f"- Current paths: {receipt['current_path_count']}\n"
+        f"- Worktree clean: `{str(receipt['worktree_clean']).lower()}`\n"
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--candidate", help="full exact commit for a clean candidate receipt")
+    parser.add_argument("--receipt-out", type=Path, help="external path for the generated receipt")
+    parser.add_argument("--expect-receipt", type=Path, help="external receipt that the current run must equal")
+    parser.add_argument("--json", action="store_true", dest="as_json")
+    args = parser.parse_args(argv)
+    if (args.receipt_out or args.expect_receipt or args.as_json) and not args.candidate:
+        parser.error("--candidate is required for receipt operations")
+
+    if args.candidate:
+        try:
+            if args.receipt_out:
+                require_external_path(args.receipt_out, "receipt output")
+            if args.expect_receipt:
+                require_external_path(args.expect_receipt, "expected receipt")
+            receipt, findings = exact_candidate_receipt(args.candidate)
+            if not findings and args.expect_receipt and receipt != _load_expected_receipt(args.expect_receipt):
+                findings = ["exact-candidate receipt does not match the frozen receipt"]
+        except ValueError as exc:
+            findings = [str(exc)]
+            receipt = {}
+        except subprocess.CalledProcessError:
+            findings = ["Git audit command failed"]
+            receipt = {}
+        except OSError:
+            findings = ["audit input or Git executable is unavailable"]
+            receipt = {}
+        except RuntimeError:
+            findings = ["Git object audit failed"]
+            receipt = {}
+        except ValidationFailure as exc:
+            findings = [f"audit receipt validation failed: {exc.code}"]
+            receipt = {}
+        if not findings and args.receipt_out:
+            try:
+                write_external_receipt(
+                    args.receipt_out,
+                    json.dumps(receipt, sort_keys=True, indent=2) + "\n",
+                )
+            except ValueError as exc:
+                findings = [str(exc)]
+            except OSError:
+                findings = ["exact-candidate receipt could not be written"]
+        if findings:
+            print("PUBLIC SAFETY CHECK FAILED", file=sys.stderr)
+            for finding in sorted(set(findings)):
+                print(f"- {finding}", file=sys.stderr)
+            return 1
+        if args.as_json:
+            print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
+        else:
+            print(render_candidate_receipt(receipt), end="")
+        return 0
+
+    history, current, findings = scan()
     if findings:
         print("PUBLIC SAFETY CHECK FAILED", file=sys.stderr)
         for finding in sorted(set(findings)):

@@ -1,0 +1,30 @@
+# Release candidate verification receipt
+
+- Outcome: `pass`
+- Receipt: `release-candidate-verification-receipt://4907b570b21011d70ea0d3823dc9686b582423efa966e7c2a12870e4cfa7e381`
+- Release/tag: `artifact-memory/v0.1.0` / `v0.1.0`
+- Tag object: `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`
+- Tag commit: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- HEAD commit: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- Manifest source commit: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- Manifest SHA-256: `sha-256:5052709316e39ee38cc4fc969a9ce4b8360d2737a8515d568f1adbd1e42dada2`
+- Manifest binding: `signed-annotated-tag-trailer-v1`
+- Manifest tree digest: `sha-256:d30bf7fb2e85d9083251f7a5339025306ac517ee64bce79350588486156df03e`
+- Manifest package version: `0.1.0`
+- Installed package version: `0.1.0`
+- Verified signer: `SHA256:3DdhLCMCRK7PRnTYHUlTiWPN9KijGyATZHW0fB5n6yY`
+- Signing key generation: `generation-1`
+- Annotated tag verified: `true`
+- Verification output profile: `git-verify-tag-filtered-allowed-signers-v1`
+- Repository scope: `explicit-git-checkout`
+- Checkout isolation: `caller-asserted-exclusive-fresh-checkout`
+- Concurrent mutation detection: `initial-final-endpoint-equality-no-aba-detection`
+- Owner publication authorization evaluated: `false`
+- Repository settings evidence evaluated: `false`
+- Authority boundary: release preparation grants no signing, tag, publication, visibility, or deployment authority
+- Limitations:
+  - verification proves only the identities and cryptographic bindings represented in this receipt
+  - publication, visibility, deployment, and release authority remain absent
+  - owner publication authorization and explicit visibility approval were not evaluated
+  - required repository-settings evidence was not evaluated
+  - checkout isolation is caller-asserted and endpoint checks do not detect ABA mutations

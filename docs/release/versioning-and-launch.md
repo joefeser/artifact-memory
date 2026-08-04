@@ -27,6 +27,14 @@ A manifest may claim `status: release` only with an owner-signed annotated tag,
 the dedicated SSH Ed25519 public fingerprint and key generation, and a tag that
 matches the release identifier.
 
+The published v2 schema remains able to read its earlier permissive fingerprint
+shape, but such a value is not releasable evidence. Semantic validation returns
+`release-fingerprint-migration-required`; migration means replacing the claim
+with the canonical 43-character unpadded fingerprint obtained independently
+from the owner-published key, then regenerating and owner-signing the manifest
+binding. Candidate verification reports a noncanonical claim as
+`release-candidate-owner-fingerprint-invalid` and never normalizes it silently.
+
 A public release requires one reviewed exact-head set containing:
 
 1. an owner-signed annotated `v0.1.0` tag made with the dedicated release key;
@@ -34,9 +42,12 @@ A public release requires one reviewed exact-head set containing:
    digest, all five versioned surfaces, artifacts, byte sizes, SHA-256 digests,
    checksum manifest, provenance, signature generation, and limitations;
 3. a canonical `SHA256SUMS` asset covering every release asset except itself;
-4. an anonymous clone/install/verify smoke using the quickstart;
-5. the final public-history and visibility audit, including Actions history and
-   artifact review plus push-rule restoration;
+4. a final pre-public history and repository-surface audit, including Actions
+   history and artifact review;
+5. after explicit owner visibility approval, an anonymous clone/install/verify
+   smoke using the quickstart and restoration of public push rules; if either
+   fails, stop release publication and return the repository to private while
+   correcting the failure;
 6. release notes, support scope, roadmap, known gaps, and explicit historical
    WhereAreMyFiles lineage and attribution.
 

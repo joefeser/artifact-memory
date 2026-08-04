@@ -1,0 +1,23 @@
+{
+  "candidate_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "commit_count": 1,
+  "current_path_count": 1,
+  "current_path_scope": "clean-index-and-worktree",
+  "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "historical_object_count": 1,
+  "limitations": [
+    "synthetic fixture demonstrates the receipt contract without approving repository visibility",
+    "GitHub surfaces and settings remain outside this synthetic Git-only fixture"
+  ],
+  "outcome": "pass",
+  "receipt_id": "public-safety-receipt://84f81c8d4307f18d97b1dd4958665b704079d122954f64f92e272a321535536f",
+  "ref_scope": "candidate-plus-remote-refs-and-tags-v1",
+  "scanned_refs": [
+    {
+      "object_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "ref": "refs/remotes/origin/dev"
+    }
+  ],
+  "schema_id": "artifact-memory/public-safety-receipt/v1",
+  "worktree_clean": true
+}
