@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
-import os
 import re
 import subprocess
+import tempfile
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -17,11 +19,7 @@ from .schema_resources import load_schema
 from .validator import ValidationFailure, load_json_bytes, validate
 
 
-SSH_VERIFICATION_LINE = re.compile(
-    r'^Good "git" signature for .+ with ED25519 key '
-    r'(?P<fingerprint>SHA256:[A-Za-z0-9+/]{20,}={0,2})$'
-)
-SSH_VERIFICATION_OUTPUT_PROFILE = "git-verify-tag-ssh-c-locale-v1"
+SSH_VERIFICATION_OUTPUT_PROFILE = "git-verify-tag-filtered-allowed-signers-v1"
 SIGNED_MANIFEST_TRAILER = "Artifact-Memory-Manifest-SHA256:"
 RELEASE_VERIFICATION_SCHEMA_ID = "artifact-memory/release-candidate-verification-receipt/v1"
 RELEASE_VERIFICATION_RECEIPT_PREFIX = "release-candidate-verification-receipt://"
@@ -109,9 +107,14 @@ def validate_release_candidate_identity(
     }
 
 
-def _validate_v2_release_candidate_manifest(manifest: dict[str, Any]) -> None:
+def _validate_v2_release_candidate_manifest(manifest: Any) -> None:
     """Apply the shared non-Git release-candidate contract."""
 
+    if not isinstance(manifest, dict):
+        raise ValidationFailure(
+            "release-candidate-manifest-not-object",
+            "release candidate manifest must be a JSON object",
+        )
     if manifest.get("schema_id") != "artifact-memory/release-manifest/v2":
         raise ValidationFailure(
             "release-candidate-schema-unsupported",
@@ -137,33 +140,70 @@ def _repository_root(repository: Path) -> Path:
     return Path(output.strip()).resolve()
 
 
-def _verified_ssh_fingerprint(output: str) -> str:
-    matches = [
-        match.group("fingerprint")
-        for line in output.splitlines()
-        if (match := SSH_VERIFICATION_LINE.fullmatch(line.strip())) is not None
-    ]
-    if len(matches) != 1:
+def _ssh_ed25519_fingerprint(encoded_key: str) -> str:
+    try:
+        key_blob = base64.b64decode(encoded_key, validate=True)
+    except (ValueError, binascii.Error) as exc:
         raise ValidationFailure(
-            "release-candidate-signer-evidence-invalid",
-            f"Git verification must emit exactly one SSH signer record supported by {SSH_VERIFICATION_OUTPUT_PROFILE}",
+            "release-candidate-allowed-signers-invalid",
+            "allowed signers file contains an invalid SSH public key",
+        ) from exc
+    return "SHA256:" + base64.b64encode(hashlib.sha256(key_blob).digest()).decode("ascii").rstrip("=")
+
+
+def _matching_allowed_signer_lines(path: Path, expected_fingerprint: str) -> list[str]:
+    """Select direct Ed25519 keys matching the manifest fingerprint."""
+
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise ValidationFailure(
+            "release-candidate-allowed-signers-invalid",
+            "configured SSH allowed signers file could not be read as UTF-8 text",
+        ) from exc
+    expected = expected_fingerprint.rstrip("=")
+    matches: list[str] = []
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split()
+        for index, field in enumerate(fields[:-1]):
+            if field != "ssh-ed25519":
+                continue
+            if any("cert-authority" in option for option in fields[:index]):
+                continue
+            if _ssh_ed25519_fingerprint(fields[index + 1]) == expected:
+                matches.append(raw_line)
+            break
+    if not matches:
+        raise ValidationFailure(
+            "release-candidate-expected-signer-unavailable",
+            "configured SSH allowed signers file does not contain the manifest's direct Ed25519 key",
         )
-    return matches[0]
+    return matches
 
 
 def _signed_manifest_digest(tag_object: bytes) -> str:
     """Extract the one manifest digest covered by the annotated-tag signature."""
 
     try:
-        unsigned_diagnostics = tag_object.decode("utf-8").split("-----BEGIN SSH SIGNATURE-----", 1)[0]
+        tag_text = tag_object.decode("utf-8")
     except UnicodeError as exc:
         raise ValidationFailure(
             "release-candidate-manifest-binding-invalid",
             "annotated tag manifest binding must be UTF-8 text",
         ) from exc
+    signature_boundary = "-----BEGIN SSH SIGNATURE-----"
+    if tag_text.count(signature_boundary) != 1:
+        raise ValidationFailure(
+            "release-candidate-manifest-binding-invalid",
+            "annotated tag must contain exactly one SSH signature boundary",
+        )
+    signed_text = tag_text.split(signature_boundary, 1)[0]
     matches = [
         line.removeprefix(SIGNED_MANIFEST_TRAILER).strip()
-        for line in unsigned_diagnostics.splitlines()
+        for line in signed_text.splitlines()
         if line.startswith(SIGNED_MANIFEST_TRAILER)
     ]
     if len(matches) != 1 or re.fullmatch(r"sha-256:[0-9a-f]{64}", matches[0]) is None:
@@ -232,44 +272,117 @@ def verify_checked_out_release_candidate(
     manifest = load_json_bytes(manifest_bytes)
     if not isinstance(manifest, dict):
         raise ValidationFailure("release-candidate-manifest-invalid", "release manifest must be an object")
+    repository_root = _repository_root(repository)
+    tag_ref = f"refs/tags/{tag}"
+    try:
+        object_format = subprocess.check_output(
+            ["git", "rev-parse", "--show-object-format"], cwd=repository_root, text=True
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValidationFailure(
+            "release-candidate-object-format-unavailable",
+            "Git object format could not be determined for the explicit checkout",
+        ) from exc
+    if object_format != "sha1":
+        raise ValidationFailure(
+            "release-candidate-object-format-unsupported",
+            "v0 release verification supports only SHA-1 Git object identifiers",
+        )
     _validate_v2_release_candidate_manifest(manifest)
     if manifest["signature"]["tag"] != tag:
         raise ValidationFailure(
             "release-candidate-tag-mismatch",
             "requested tag must match the v2 release manifest signature",
         )
-    repository_root = _repository_root(repository)
-    tag_ref = f"refs/tags/{tag}"
+    expected_fingerprint = manifest["signature"]["public_key_fingerprint"]
     try:
-        verification = subprocess.run(
-            ["git", "verify-tag", "--raw", tag_ref],
-            check=True,
+        allowed_signers_setting = subprocess.check_output(
+            ["git", "config", "--path", "--get", "gpg.ssh.allowedSignersFile"],
             cwd=repository_root,
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env={**os.environ, "LC_ALL": "C", "LANG": "C"},
-        )
-        head_commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=repository_root, text=True
-        ).strip()
-        tag_commit = subprocess.check_output(
-            ["git", "rev-parse", f"{tag_ref}^{{commit}}"], cwd=repository_root, text=True
         ).strip()
         tag_object_id = subprocess.check_output(
             ["git", "rev-parse", tag_ref], cwd=repository_root, text=True
         ).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValidationFailure(
+            "release-candidate-git-verification-failed",
+            "release tag or SSH allowed-signers configuration could not be resolved",
+        ) from exc
+    allowed_signers_path = Path(allowed_signers_setting)
+    if not allowed_signers_path.is_absolute():
+        allowed_signers_path = repository_root / allowed_signers_path
+    matching_signers = _matching_allowed_signer_lines(allowed_signers_path, expected_fingerprint)
+    try:
+        with tempfile.TemporaryDirectory(prefix="artifact-memory-release-") as temporary:
+            filtered_allowed_signers = Path(temporary) / "allowed_signers"
+            filtered_allowed_signers.write_text("\n".join(matching_signers) + "\n", encoding="utf-8")
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    f"gpg.ssh.allowedSignersFile={filtered_allowed_signers}",
+                    "verify-tag",
+                    "--raw",
+                    tag_object_id,
+                ],
+                check=True,
+                cwd=repository_root,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        head_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repository_root, text=True
+        ).strip()
+        head_symbolic_name = subprocess.check_output(
+            ["git", "rev-parse", "--symbolic-full-name", "HEAD"],
+            cwd=repository_root,
+            text=True,
+        ).strip()
+        tag_commit = subprocess.check_output(
+            ["git", "rev-parse", f"{tag_object_id}^{{commit}}"], cwd=repository_root, text=True
+        ).strip()
         tag_type = subprocess.check_output(
-            ["git", "cat-file", "-t", tag_ref], cwd=repository_root, text=True
+            ["git", "cat-file", "-t", tag_object_id], cwd=repository_root, text=True
         ).strip()
         tag_object = subprocess.check_output(
-            ["git", "cat-file", "tag", tag_ref], cwd=repository_root
+            ["git", "cat-file", "tag", tag_object_id], cwd=repository_root
         )
         tree_listing = subprocess.check_output(
-            ["git", "ls-tree", "-r", "--full-tree", f"{tag_ref}^{{commit}}"], cwd=repository_root
+            ["git", "ls-tree", "-r", "--full-tree", f"{tag_object_id}^{{commit}}"], cwd=repository_root
         )
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise ValidationFailure("release-candidate-git-verification-failed", "signed release tag or Git identity could not be verified") from exc
+        final_tag_object_id = subprocess.check_output(
+            ["git", "rev-parse", tag_ref], cwd=repository_root, text=True
+        ).strip()
+        final_head_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repository_root, text=True
+        ).strip()
+    except OSError as exc:
+        raise ValidationFailure(
+            "release-candidate-git-verification-failed",
+            "signed release tag or Git identity could not be verified",
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        raise ValidationFailure(
+            "release-candidate-git-verification-failed",
+            "signed release tag or Git identity could not be verified",
+        ) from exc
+    if final_tag_object_id != tag_object_id:
+        raise ValidationFailure(
+            "release-candidate-tag-ref-changed",
+            "release tag ref changed during verification",
+        )
+    if head_symbolic_name != "HEAD":
+        raise ValidationFailure(
+            "release-candidate-head-not-detached",
+            "release verification requires a detached HEAD",
+        )
+    if final_head_commit != head_commit:
+        raise ValidationFailure(
+            "release-candidate-head-changed",
+            "HEAD changed during release verification",
+        )
     if tag_type != "tag":
         raise ValidationFailure(
             "release-candidate-tag-not-annotated",
@@ -286,13 +399,6 @@ def verify_checked_out_release_candidate(
         raise ValidationFailure(
             "release-candidate-tree-digest-mismatch",
             "manifest source tree digest must match the verified tag tree",
-        )
-    verified_fingerprint = _verified_ssh_fingerprint(verification.stderr)
-    expected_fingerprint = manifest["signature"]["public_key_fingerprint"]
-    if verified_fingerprint != expected_fingerprint:
-        raise ValidationFailure(
-            "release-candidate-signer-mismatch",
-            "verified SSH signer fingerprint must match the release manifest",
         )
     identity = validate_release_candidate_identity(
         manifest,

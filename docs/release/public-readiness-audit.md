@@ -148,9 +148,13 @@ matches the tagged commit's full tree, and the signed tag target, detached
 HEAD, manifest `release_id`, manifest source commit, manifest package version,
 and installed package version all identify `v0.1.0` / `0.1.0`. Every Git call
 is scoped to the explicit checkout, the tag is confirmed as annotated, and
-the verified SSH fingerprint must exactly match the manifest. SSH diagnostic
-parsing is pinned to the `git-verify-tag-ssh-c-locale-v1` compatibility profile
-and fails closed for unsupported output. Its pass evidence
+the verified SSH fingerprint must exactly match the manifest. The verifier
+does not parse human diagnostics: it filters the configured allowed-signers
+file to the manifest's direct Ed25519 key, verifies one pinned tag object
+against that key, and rejects a concurrent tag-ref change. This behavior is
+the `git-verify-tag-filtered-allowed-signers-v1` profile and is covered by a
+real ephemeral Git/SSH signing regression test. Git SHA-256 object-format
+repositories receive an explicit unsupported outcome in v0. Its pass evidence
 is a digest-bound
 `artifact-memory/release-candidate-verification-receipt/v1` containing that
 fingerprint, signed tag object, exact manifest digest, key generation,

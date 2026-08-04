@@ -1,6 +1,8 @@
+import base64
 import copy
 import hashlib
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -9,7 +11,7 @@ from unittest.mock import patch
 
 from artifact_memory.release import (
     _signed_manifest_digest,
-    _verified_ssh_fingerprint,
+    _ssh_ed25519_fingerprint,
     render_release_candidate_verification_receipt,
     validate_release_candidate_identity,
     validate_release_candidate_verification_receipt,
@@ -24,6 +26,9 @@ MANIFEST = json.loads(
     )
 )
 TREE_LISTING = b"100644 blob 0123456789abcdef0123456789abcdef01234567\tdocs/release/v0.1.0-release-manifest.json\n"
+SYNTHETIC_KEY_BLOB = b"synthetic-ed25519-public-key-blob"
+SYNTHETIC_PUBLIC_KEY = base64.b64encode(SYNTHETIC_KEY_BLOB).decode("ascii")
+SYNTHETIC_FINGERPRINT = _ssh_ed25519_fingerprint(SYNTHETIC_PUBLIC_KEY)
 
 
 def release_manifest() -> dict:
@@ -38,7 +43,7 @@ def release_manifest() -> dict:
         "state": "owner-signed",
         "tag": "v0.1.0",
         "algorithm": "ssh-ed25519",
-        "public_key_fingerprint": "SHA256:abcdefghijklmnopqrstuvwx",
+        "public_key_fingerprint": SYNTHETIC_FINGERPRINT,
         "key_generation": "generation-1",
         "owner_signed_annotated_tag": True,
     }
@@ -64,12 +69,15 @@ def git_output_for(manifest_bytes: bytes):
     def output(args, **kwargs):
         command = tuple(args[1:])
         values = {
+            ("rev-parse", "--show-object-format"): "sha1\n",
+            ("config", "--path", "--get", "gpg.ssh.allowedSignersFile"): "allowed_signers\n",
             ("rev-parse", "HEAD"): "a" * 40 + "\n",
-            ("rev-parse", "refs/tags/v0.1.0^{commit}"): "a" * 40 + "\n",
+            ("rev-parse", "--symbolic-full-name", "HEAD"): "HEAD\n",
             ("rev-parse", "refs/tags/v0.1.0"): "b" * 40 + "\n",
-            ("cat-file", "-t", "refs/tags/v0.1.0"): "tag\n",
-            ("cat-file", "tag", "refs/tags/v0.1.0"): tag_object,
-            ("ls-tree", "-r", "--full-tree", "refs/tags/v0.1.0^{commit}"): TREE_LISTING,
+            ("rev-parse", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb^{commit}"): "a" * 40 + "\n",
+            ("cat-file", "-t", "b" * 40): "tag\n",
+            ("cat-file", "tag", "b" * 40): tag_object,
+            ("ls-tree", "-r", "--full-tree", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb^{commit}"): TREE_LISTING,
         }
         value = values[command]
         if kwargs.get("text") and isinstance(value, bytes):
@@ -81,28 +89,26 @@ def git_output_for(manifest_bytes: bytes):
     return output
 
 
+def write_allowed_signers(root: Path, *, public_key: str = SYNTHETIC_PUBLIC_KEY) -> Path:
+    path = root / "allowed_signers"
+    path.write_text(
+        f"release-owner@example.invalid ssh-ed25519 {public_key} synthetic-release-key\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 class ReleaseCandidateIdentityTests(unittest.TestCase):
-    def test_supported_c_locale_ssh_verification_record(self):
-        fingerprint = "SHA256:abcdefghijklmnopqrstuvwx"
-        recorded_output = (
-            'Good "git" signature for release-owner@example.invalid '
-            f"with ED25519 key {fingerprint}\n"
-        )
-        self.assertEqual(_verified_ssh_fingerprint(recorded_output), fingerprint)
-
-    def test_rejects_ambiguous_ssh_verification_records(self):
-        line = (
-            'Good "git" signature for release-owner@example.invalid '
-            "with ED25519 key SHA256:abcdefghijklmnopqrstuvwx\n"
-        )
-        with self.assertRaises(ValidationFailure) as failure:
-            _verified_ssh_fingerprint(line + line)
-        self.assertEqual(failure.exception.code, "release-candidate-signer-evidence-invalid")
-
     def test_rejects_ambiguous_signed_manifest_trailers(self):
         trailer = "Artifact-Memory-Manifest-SHA256: sha-256:" + "0" * 64 + "\n"
         with self.assertRaises(ValidationFailure) as failure:
             _signed_manifest_digest((trailer + trailer).encode("utf-8"))
+        self.assertEqual(failure.exception.code, "release-candidate-manifest-binding-invalid")
+
+    def test_rejects_missing_ssh_signature_boundary(self):
+        trailer = "Artifact-Memory-Manifest-SHA256: sha-256:" + "0" * 64 + "\n"
+        with self.assertRaises(ValidationFailure) as failure:
+            _signed_manifest_digest(trailer.encode("utf-8"))
         self.assertEqual(failure.exception.code, "release-candidate-manifest-binding-invalid")
 
     def test_checked_synthetic_verification_receipt_and_rendering(self):
@@ -117,6 +123,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             manifest_bytes = json.dumps(release_manifest()).encode("utf-8")
             manifest_path = root / "release.json"
             manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(root)
             fingerprint = release_manifest()["signature"]["public_key_fingerprint"]
             verification = subprocess.CompletedProcess(
                 args=["git", "verify-tag"],
@@ -198,6 +205,19 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 package_version="0.1.0",
             )
 
+    def test_rejects_non_object_candidate_identity_inputs(self):
+        for candidate in (None, [], "release"):
+            with self.subTest(candidate=candidate):
+                with self.assertRaises(ValidationFailure) as failure:
+                    validate_release_candidate_identity(
+                        candidate,  # type: ignore[arg-type]
+                        tag="v0.1.0",
+                        head_commit="a" * 40,
+                        tag_commit="a" * 40,
+                        package_version="0.1.0",
+                    )
+                self.assertEqual(failure.exception.code, "release-candidate-manifest-not-object")
+
     def test_duplicate_manifest_key_fails_before_git_verification(self):
         with tempfile.TemporaryDirectory() as temporary:
             manifest = Path(temporary) / "release.json"
@@ -218,6 +238,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             manifest_path = root / "release.json"
             manifest_bytes = json.dumps(release_manifest()).encode("utf-8")
             manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(root)
             fingerprint = release_manifest()["signature"]["public_key_fingerprint"]
             verification = subprocess.CompletedProcess(
                 args=["git", "verify-tag"],
@@ -252,8 +273,8 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             )
             validate_release_candidate_verification_receipt(result)
             self.assertEqual(verify_tag.call_args.kwargs["cwd"], root)
-            self.assertEqual(verify_tag.call_args.args[0][-1], "refs/tags/v0.1.0")
-            self.assertEqual(verify_tag.call_args.kwargs["env"]["LC_ALL"], "C")
+            self.assertEqual(verify_tag.call_args.args[0][-1], "b" * 40)
+            self.assertIn("gpg.ssh.allowedSignersFile=", verify_tag.call_args.args[0][2])
             self.assertTrue(all(call.kwargs["cwd"] == root for call in git_read.call_args_list))
 
             tampered = dict(result)
@@ -265,12 +286,16 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 "release-candidate-receipt-identity-mismatch",
             )
 
-    def test_verifier_rejects_unexpected_signer_fingerprint(self):
+    def test_verifier_rejects_allowed_signers_without_expected_key(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             manifest_path = root / "release.json"
             manifest_bytes = json.dumps(release_manifest()).encode("utf-8")
             manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(
+                root,
+                public_key=base64.b64encode(b"different-public-key").decode("ascii"),
+            )
             verification = subprocess.CompletedProcess(
                 args=["git", "verify-tag"],
                 returncode=0,
@@ -282,6 +307,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             )
             with (
                 patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.__version__", "0.1.0"),
                 patch("artifact_memory.release.subprocess.run", return_value=verification),
                 patch(
                     "artifact_memory.release.subprocess.check_output",
@@ -290,15 +316,16 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             ):
                 with self.assertRaises(ValidationFailure) as failure:
                     verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
-            self.assertEqual(failure.exception.code, "release-candidate-signer-mismatch")
+            self.assertEqual(failure.exception.code, "release-candidate-expected-signer-unavailable")
 
-    def test_verifier_rejects_incidental_expected_fingerprint_token(self):
+    def test_verifier_does_not_parse_human_diagnostics(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             manifest = release_manifest()
             manifest_path = root / "release.json"
             manifest_bytes = json.dumps(manifest).encode("utf-8")
             manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(root)
             fingerprint = manifest["signature"]["public_key_fingerprint"]
             verification = subprocess.CompletedProcess(
                 args=["git", "verify-tag"],
@@ -308,18 +335,15 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             )
             with (
                 patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.__version__", "0.1.0"),
                 patch("artifact_memory.release.subprocess.run", return_value=verification),
                 patch(
                     "artifact_memory.release.subprocess.check_output",
                     side_effect=git_output_for(manifest_bytes),
                 ),
             ):
-                with self.assertRaises(ValidationFailure) as failure:
-                    verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
-            self.assertEqual(
-                failure.exception.code,
-                "release-candidate-signer-evidence-invalid",
-            )
+                result = verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
+            self.assertEqual(result["verified_signer_fingerprint"], fingerprint)
 
     def test_verifier_rejects_manifest_digest_not_in_signed_tag(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -327,6 +351,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             manifest_bytes = json.dumps(release_manifest()).encode("utf-8")
             manifest_path = root / "release.json"
             manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(root)
             fingerprint = release_manifest()["signature"]["public_key_fingerprint"]
             verification = subprocess.CompletedProcess(
                 args=["git", "verify-tag"], returncode=0, stdout="",
@@ -353,6 +378,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             manifest_bytes = json.dumps(manifest).encode("utf-8")
             manifest_path = root / "release.json"
             manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(root)
             fingerprint = manifest["signature"]["public_key_fingerprint"]
             verification = subprocess.CompletedProcess(
                 args=["git", "verify-tag"], returncode=0, stdout="",
@@ -369,6 +395,144 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 with self.assertRaises(ValidationFailure) as failure:
                     verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
             self.assertEqual(failure.exception.code, "release-candidate-tree-digest-mismatch")
+
+    def test_verifier_rejects_unsupported_git_object_format_explicitly(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = release_manifest()
+            manifest["source"]["commit"] = "a" * 64
+            manifest_path = root / "release.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    return_value="sha256\n",
+                ),
+            ):
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
+            self.assertEqual(failure.exception.code, "release-candidate-object-format-unsupported")
+
+    def test_verifier_rejects_tag_ref_change_during_verification(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_bytes = json.dumps(release_manifest()).encode("utf-8")
+            manifest_path = root / "release.json"
+            manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(root)
+            base_output = git_output_for(manifest_bytes)
+            tag_reads = 0
+
+            def changing_output(args, **kwargs):
+                nonlocal tag_reads
+                if tuple(args[1:]) == ("rev-parse", "refs/tags/v0.1.0"):
+                    tag_reads += 1
+                    value = ("b" if tag_reads == 1 else "c") * 40 + "\n"
+                    return value if kwargs.get("text") else value.encode("utf-8")
+                return base_output(args, **kwargs)
+
+            verification = subprocess.CompletedProcess(
+                args=["git", "verify-tag"], returncode=0, stdout="", stderr=""
+            )
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.subprocess.run", return_value=verification),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    side_effect=changing_output,
+                ),
+            ):
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
+            self.assertEqual(failure.exception.code, "release-candidate-tag-ref-changed")
+
+    @unittest.skipUnless(shutil.which("git") and shutil.which("ssh-keygen"), "Git SSH tools required")
+    def test_real_git_ssh_tag_verification_contract(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = root / "checkout"
+            subprocess.run(["git", "init", "-q", str(repository)], check=True)
+            subprocess.run(
+                ["git", "config", "user.name", "Synthetic Release Owner"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "release-owner@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            tracked = repository / "synthetic.txt"
+            tracked.write_text("synthetic release content\n", encoding="utf-8")
+            subprocess.run(["git", "add", "synthetic.txt"], cwd=repository, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "synthetic"], cwd=repository, check=True)
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+            ).strip()
+            tree_listing = subprocess.check_output(
+                ["git", "ls-tree", "-r", "--full-tree", commit], cwd=repository
+            )
+
+            key_path = root / "synthetic_release_key"
+            subprocess.run(
+                ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key_path)],
+                check=True,
+            )
+            public_key_fields = key_path.with_suffix(".pub").read_text(encoding="utf-8").split()
+            public_key = public_key_fields[1]
+            fingerprint = _ssh_ed25519_fingerprint(public_key)
+            allowed_signers = root / "allowed_signers"
+            allowed_signers.write_text(
+                f"release-owner@example.invalid ssh-ed25519 {public_key} synthetic-release-key\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "config", "gpg.format", "ssh"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "config", "user.signingkey", str(key_path)], cwd=repository, check=True
+            )
+            subprocess.run(
+                ["git", "config", "gpg.ssh.allowedSignersFile", str(allowed_signers)],
+                cwd=repository,
+                check=True,
+            )
+
+            manifest = release_manifest()
+            manifest["source"]["commit"] = commit
+            manifest["source"]["tree_digest"] = (
+                f"sha-256:{hashlib.sha256(tree_listing).hexdigest()}"
+            )
+            manifest["signature"]["public_key_fingerprint"] = fingerprint
+            manifest_bytes = json.dumps(manifest).encode("utf-8")
+            manifest_path = root / "release.json"
+            manifest_path.write_bytes(manifest_bytes)
+            manifest_digest = f"sha-256:{hashlib.sha256(manifest_bytes).hexdigest()}"
+            subprocess.run(
+                [
+                    "git",
+                    "tag",
+                    "-s",
+                    "-m",
+                    "Synthetic release",
+                    "-m",
+                    f"Artifact-Memory-Manifest-SHA256: {manifest_digest}",
+                    "v0.1.0",
+                ],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "checkout", "-q", "--detach", "v0.1.0"],
+                cwd=repository,
+                check=True,
+            )
+            with patch("artifact_memory.release.__version__", "0.1.0"):
+                receipt = verify_checked_out_release_candidate(
+                    manifest_path, "v0.1.0", repository
+                )
+            self.assertEqual(receipt["verified_signer_fingerprint"], fingerprint)
+            self.assertEqual(receipt["manifest_sha256"], manifest_digest)
+            validate_release_candidate_verification_receipt(receipt)
 
 
 if __name__ == "__main__":

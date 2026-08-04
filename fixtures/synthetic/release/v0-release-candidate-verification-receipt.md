@@ -1,21 +1,21 @@
 # Release candidate verification receipt
 
 - Outcome: `pass`
-- Receipt: `release-candidate-verification-receipt://94ca25a2618364a44486123c600e928df460d4c33c9daf9ef11d4ce82a462890`
+- Receipt: `release-candidate-verification-receipt://038a8e12bd831887afd037a3a025ed75a9113fdff351bdf2a01321f321fcec96`
 - Release/tag: `artifact-memory/v0.1.0` / `v0.1.0`
 - Tag object: `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`
 - Tag commit: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
 - HEAD commit: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
 - Manifest source commit: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
-- Manifest SHA-256: `sha-256:01c03122e537acb59d31b28c8bf67ca21a8f9248898f6da499213189dcdbdc2e`
+- Manifest SHA-256: `sha-256:5052709316e39ee38cc4fc969a9ce4b8360d2737a8515d568f1adbd1e42dada2`
 - Manifest binding: `signed-annotated-tag-trailer-v1`
 - Manifest tree digest: `sha-256:d30bf7fb2e85d9083251f7a5339025306ac517ee64bce79350588486156df03e`
 - Manifest package version: `0.1.0`
 - Installed package version: `0.1.0`
-- Verified signer: `SHA256:abcdefghijklmnopqrstuvwx`
+- Verified signer: `SHA256:3DdhLCMCRK7PRnTYHUlTiWPN9KijGyATZHW0fB5n6yY`
 - Signing key generation: `generation-1`
 - Annotated tag verified: `true`
-- Verification output profile: `git-verify-tag-ssh-c-locale-v1`
+- Verification output profile: `git-verify-tag-filtered-allowed-signers-v1`
 - Repository scope: `explicit-git-checkout`
 - Authority boundary: release preparation grants no signing, tag, publication, visibility, or deployment authority
 - Limitations:

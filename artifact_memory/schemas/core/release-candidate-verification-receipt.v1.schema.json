@@ -24,7 +24,7 @@
     "signing_key_generation": {"type": "string", "minLength": 1},
     "annotated_tag_verified": {"const": true},
     "signature_algorithm": {"const": "ssh-ed25519"},
-    "verification_output_profile": {"const": "git-verify-tag-ssh-c-locale-v1"},
+    "verification_output_profile": {"const": "git-verify-tag-filtered-allowed-signers-v1"},
     "repository_scope": {"const": "explicit-git-checkout"},
     "authority_boundary": {"const": "release preparation grants no signing, tag, publication, visibility, or deployment authority"},
     "limitations": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}}
