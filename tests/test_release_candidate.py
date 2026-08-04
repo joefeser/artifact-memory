@@ -140,7 +140,9 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                     side_effect=git_output_for(manifest_bytes),
                 ),
             ):
-                receipt = verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
+                receipt = verify_checked_out_release_candidate(
+                    manifest_path, "v0.1.0", root, owner_fingerprint=SYNTHETIC_FINGERPRINT
+                )
         self.assertEqual(receipt, expected_receipt)
         validate_release_candidate_verification_receipt(receipt)
         self.assertEqual(
@@ -228,7 +230,12 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             )
             with patch("artifact_memory.release.subprocess.run") as git_verify:
                 with self.assertRaises(ValidationFailure) as failure:
-                    verify_checked_out_release_candidate(manifest, "v0.1.0", Path(temporary))
+                    verify_checked_out_release_candidate(
+                        manifest,
+                        "v0.1.0",
+                        Path(temporary),
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    )
             self.assertEqual(failure.exception.code, "duplicate-key")
             git_verify.assert_not_called()
 
@@ -255,7 +262,9 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                     side_effect=git_output_for(manifest_bytes),
                 ) as git_read,
             ):
-                result = verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
+                result = verify_checked_out_release_candidate(
+                    manifest_path, "v0.1.0", root, owner_fingerprint=SYNTHETIC_FINGERPRINT
+                )
             self.assertEqual(result["verified_signer_fingerprint"], fingerprint)
             self.assertEqual(result["signing_key_generation"], "generation-1")
             self.assertEqual(result["tag_object_id"], "b" * 40)
@@ -315,7 +324,12 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 ),
             ):
                 with self.assertRaises(ValidationFailure) as failure:
-                    verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    )
             self.assertEqual(failure.exception.code, "release-candidate-expected-signer-unavailable")
 
     def test_verifier_does_not_parse_human_diagnostics(self):
@@ -342,7 +356,9 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                     side_effect=git_output_for(manifest_bytes),
                 ),
             ):
-                result = verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
+                result = verify_checked_out_release_candidate(
+                    manifest_path, "v0.1.0", root, owner_fingerprint=SYNTHETIC_FINGERPRINT
+                )
             self.assertEqual(result["verified_signer_fingerprint"], fingerprint)
 
     def test_verifier_rejects_manifest_digest_not_in_signed_tag(self):
@@ -367,7 +383,12 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 ),
             ):
                 with self.assertRaises(ValidationFailure) as failure:
-                    verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    )
             self.assertEqual(failure.exception.code, "release-candidate-manifest-binding-mismatch")
 
     def test_verifier_rejects_wrong_tag_tree_digest(self):
@@ -393,7 +414,12 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 ),
             ):
                 with self.assertRaises(ValidationFailure) as failure:
-                    verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    )
             self.assertEqual(failure.exception.code, "release-candidate-tree-digest-mismatch")
 
     def test_verifier_rejects_unsupported_git_object_format_explicitly(self):
@@ -411,8 +437,74 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 ),
             ):
                 with self.assertRaises(ValidationFailure) as failure:
-                    verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    )
             self.assertEqual(failure.exception.code, "release-candidate-object-format-unsupported")
+
+    def test_verifier_rejects_manifest_key_different_from_owner_policy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_path = root / "release.json"
+            manifest_path.write_text(json.dumps(release_manifest()), encoding="utf-8")
+            other_fingerprint = _ssh_ed25519_fingerprint(
+                base64.b64encode(b"independent-other-owner-key").decode("ascii")
+            )
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    return_value="sha1\n",
+                ),
+            ):
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        owner_fingerprint=other_fingerprint,
+                    )
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-owner-fingerprint-mismatch",
+            )
+
+    def test_verifier_rejects_non_string_owner_fingerprint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_path = root / "release.json"
+            manifest_path.write_text(json.dumps(release_manifest()), encoding="utf-8")
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    return_value="sha1\n",
+                ),
+            ):
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        owner_fingerprint=None,  # type: ignore[arg-type]
+                    )
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-owner-fingerprint-invalid",
+            )
+
+    def test_receipt_rejects_noncanonical_signer_fingerprint(self):
+        fixture = Path(__file__).resolve().parents[1] / (
+            "fixtures/synthetic/release/v0-release-candidate-verification-receipt.json"
+        )
+        receipt = json.loads(fixture.read_text(encoding="utf-8"))
+        receipt["verified_signer_fingerprint"] = "SHA256:" + "A" * 20
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_release_candidate_verification_receipt(receipt)
+        self.assertEqual(failure.exception.code, "constraint-failed")
 
     def test_verifier_rejects_tag_ref_change_during_verification(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -444,7 +536,12 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 ),
             ):
                 with self.assertRaises(ValidationFailure) as failure:
-                    verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    )
             self.assertEqual(failure.exception.code, "release-candidate-tag-ref-changed")
 
     @unittest.skipUnless(shutil.which("git") and shutil.which("ssh-keygen"), "Git SSH tools required")
@@ -528,7 +625,10 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             )
             with patch("artifact_memory.release.__version__", "0.1.0"):
                 receipt = verify_checked_out_release_candidate(
-                    manifest_path, "v0.1.0", repository
+                    manifest_path,
+                    "v0.1.0",
+                    repository,
+                    owner_fingerprint=fingerprint,
                 )
             self.assertEqual(receipt["verified_signer_fingerprint"], fingerprint)
             self.assertEqual(receipt["manifest_sha256"], manifest_digest)

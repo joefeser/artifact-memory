@@ -103,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     release_candidate.add_argument("manifest", type=Path)
     release_candidate.add_argument("--tag", required=True)
     release_candidate.add_argument("--repo", required=True, type=Path)
+    release_candidate.add_argument("--owner-fingerprint", required=True)
     release_candidate.add_argument("--json", action="store_true", dest="as_json")
     release_receipt = subparsers.add_parser("validate-release-candidate-receipt")
     release_receipt.add_argument("receipt", type=Path)
@@ -114,7 +115,12 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_OK
     if args.command == "verify-release-candidate":
         try:
-            result = verify_checked_out_release_candidate(args.manifest, args.tag, args.repo)
+            result = verify_checked_out_release_candidate(
+                args.manifest,
+                args.tag,
+                args.repo,
+                owner_fingerprint=args.owner_fingerprint,
+            )
         except ValidationFailure as exc:
             _receipt(
                 {"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]},

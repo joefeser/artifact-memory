@@ -19,7 +19,7 @@
       "then": {
         "properties": {
           "release_id": {"pattern": "^artifact-memory/v[0-9]+\\.[0-9]+\\.[0-9]+$"},
-          "signature": {"properties": {"state": {"const": "owner-signed"}, "tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"}, "public_key_fingerprint": {"type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{20,}={0,2}$"}, "key_generation": {"type": "string", "minLength": 1}, "owner_signed_annotated_tag": {"const": true}}}
+          "signature": {"properties": {"state": {"const": "owner-signed"}, "tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"}, "public_key_fingerprint": {"type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$"}, "key_generation": {"type": "string", "minLength": 1}, "owner_signed_annotated_tag": {"const": true}}}
         }
       }
     }

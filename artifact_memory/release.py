@@ -13,13 +13,14 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .canonical import receipt_with_digest
+from .canonical import expected_receipt_id, receipt_with_digest
 from .extensions import ExtensionFailure, preserve_extensions
 from .schema_resources import load_schema
 from .validator import ValidationFailure, load_json_bytes, validate
 
 
 SSH_VERIFICATION_OUTPUT_PROFILE = "git-verify-tag-filtered-allowed-signers-v1"
+SSH_FINGERPRINT_PATTERN = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
 SIGNED_MANIFEST_TRAILER = "Artifact-Memory-Manifest-SHA256:"
 RELEASE_VERIFICATION_SCHEMA_ID = "artifact-memory/release-candidate-verification-receipt/v1"
 RELEASE_VERIFICATION_RECEIPT_PREFIX = "release-candidate-verification-receipt://"
@@ -148,7 +149,13 @@ def _ssh_ed25519_fingerprint(encoded_key: str) -> str:
             "release-candidate-allowed-signers-invalid",
             "allowed signers file contains an invalid SSH public key",
         ) from exc
-    return "SHA256:" + base64.b64encode(hashlib.sha256(key_blob).digest()).decode("ascii").rstrip("=")
+    fingerprint = "SHA256:" + base64.b64encode(hashlib.sha256(key_blob).digest()).decode("ascii").rstrip("=")
+    if SSH_FINGERPRINT_PATTERN.fullmatch(fingerprint) is None:
+        raise ValidationFailure(
+            "release-candidate-allowed-signers-invalid",
+            "SSH public key did not produce a canonical SHA-256 fingerprint",
+        )
+    return fingerprint
 
 
 def _matching_allowed_signer_lines(path: Path, expected_fingerprint: str) -> list[str]:
@@ -161,7 +168,14 @@ def _matching_allowed_signer_lines(path: Path, expected_fingerprint: str) -> lis
             "release-candidate-allowed-signers-invalid",
             "configured SSH allowed signers file could not be read as UTF-8 text",
         ) from exc
-    expected = expected_fingerprint.rstrip("=")
+    if (
+        not isinstance(expected_fingerprint, str)
+        or SSH_FINGERPRINT_PATTERN.fullmatch(expected_fingerprint) is None
+    ):
+        raise ValidationFailure(
+            "release-candidate-owner-fingerprint-invalid",
+            "owner-published fingerprint must use canonical unpadded SHA-256 form",
+        )
     matches: list[str] = []
     for raw_line in lines:
         line = raw_line.strip()
@@ -173,7 +187,7 @@ def _matching_allowed_signer_lines(path: Path, expected_fingerprint: str) -> lis
                 continue
             if any("cert-authority" in option for option in fields[:index]):
                 continue
-            if _ssh_ed25519_fingerprint(fields[index + 1]) == expected:
+            if _ssh_ed25519_fingerprint(fields[index + 1]) == expected_fingerprint:
                 matches.append(raw_line)
             break
     if not matches:
@@ -219,13 +233,9 @@ def validate_release_candidate_verification_receipt(receipt: dict[str, Any]) -> 
         receipt,
         load_schema("core", "release-candidate-verification-receipt.v1.schema.json"),
     )
-    body = {key: value for key, value in receipt.items() if key not in {"schema_id", "receipt_id"}}
-    expected = receipt_with_digest(
-        RELEASE_VERIFICATION_SCHEMA_ID,
-        RELEASE_VERIFICATION_RECEIPT_PREFIX,
-        body,
-    )
-    if receipt != expected:
+    if receipt["receipt_id"] != expected_receipt_id(
+        receipt, RELEASE_VERIFICATION_RECEIPT_PREFIX
+    ):
         raise ValidationFailure(
             "release-candidate-receipt-identity-mismatch",
             "release verification receipt identity does not match its content",
@@ -263,6 +273,8 @@ def verify_checked_out_release_candidate(
     manifest_path: Path,
     tag: str,
     repository: Path,
+    *,
+    owner_fingerprint: str,
 ) -> dict[str, Any]:
     resolved_manifest = manifest_path.resolve()
     try:
@@ -294,7 +306,20 @@ def verify_checked_out_release_candidate(
             "release-candidate-tag-mismatch",
             "requested tag must match the v2 release manifest signature",
         )
-    expected_fingerprint = manifest["signature"]["public_key_fingerprint"]
+    if (
+        not isinstance(owner_fingerprint, str)
+        or SSH_FINGERPRINT_PATTERN.fullmatch(owner_fingerprint) is None
+    ):
+        raise ValidationFailure(
+            "release-candidate-owner-fingerprint-invalid",
+            "owner-published fingerprint must use canonical unpadded SHA-256 form",
+        )
+    manifest_fingerprint = manifest["signature"]["public_key_fingerprint"]
+    if manifest_fingerprint != owner_fingerprint:
+        raise ValidationFailure(
+            "release-candidate-owner-fingerprint-mismatch",
+            "release manifest signer must match the independently supplied owner fingerprint",
+        )
     try:
         allowed_signers_setting = subprocess.check_output(
             ["git", "config", "--path", "--get", "gpg.ssh.allowedSignersFile"],
@@ -312,7 +337,7 @@ def verify_checked_out_release_candidate(
     allowed_signers_path = Path(allowed_signers_setting)
     if not allowed_signers_path.is_absolute():
         allowed_signers_path = repository_root / allowed_signers_path
-    matching_signers = _matching_allowed_signer_lines(allowed_signers_path, expected_fingerprint)
+    matching_signers = _matching_allowed_signer_lines(allowed_signers_path, owner_fingerprint)
     try:
         with tempfile.TemporaryDirectory(prefix="artifact-memory-release-") as temporary:
             filtered_allowed_signers = Path(temporary) / "allowed_signers"
@@ -413,7 +438,7 @@ def verify_checked_out_release_candidate(
         "manifest_sha256": manifest_digest,
         "manifest_binding": "signed-annotated-tag-trailer-v1",
         "manifest_tree_digest": tree_digest,
-        "verified_signer_fingerprint": expected_fingerprint,
+        "verified_signer_fingerprint": owner_fingerprint,
         "signing_key_generation": manifest["signature"]["key_generation"],
         "annotated_tag_verified": True,
         "signature_algorithm": "ssh-ed25519",

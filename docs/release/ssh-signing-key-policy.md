@@ -32,7 +32,9 @@ to that public key, and does not parse human-readable signer diagnostics.
    owner-published fingerprint.
 6. Run the candidate verifier to confirm the manifest digest trailer, source
    tree digest, tag object and target, detached HEAD, versions, and signer all
-   agree. Preserve its external receipt.
+   agree. Supply the owner-published canonical fingerprint independently with
+   `--owner-fingerprint`; do not copy it from the candidate manifest being
+   verified. Preserve the external receipt.
 7. Publish the tag/release only after Joe separately authorizes publication.
 
 The v0 verifier explicitly supports SHA-1-format Git repositories. A SHA-256
