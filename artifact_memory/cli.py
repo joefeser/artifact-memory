@@ -45,8 +45,15 @@ def _receipt(payload: dict[str, object], as_json: bool) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="artifact-memory")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name in ("validate", "inspect"):
-        command = subparsers.add_parser(name)
+    record_commands = {
+        "validate": (
+            "validate JSON syntax, duplicate keys, schema constraints, and supported "
+            "semantic rules (including release-manifest releasability)"
+        ),
+        "inspect": "report schema and field names without validating record semantics",
+    }
+    for name, description in record_commands.items():
+        command = subparsers.add_parser(name, help=description, description=description)
         command.add_argument("record", type=Path)
         command.add_argument("--schema", type=Path)
         command.add_argument("--json", action="store_true", dest="as_json")
