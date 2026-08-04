@@ -9,12 +9,18 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .canonical import receipt_with_digest
 from .extensions import ExtensionFailure, preserve_extensions
 from .schema_resources import load_schema
 from .validator import ValidationFailure, load_json, validate
 
 
-SSH_FINGERPRINT = re.compile(r"SHA256:[A-Za-z0-9+/]{20,}={0,2}")
+SSH_VERIFICATION_LINE = re.compile(
+    r'^Good "git" signature for .+ with ED25519 key '
+    r'(?P<fingerprint>SHA256:[A-Za-z0-9+/]{20,}={0,2})$'
+)
+RELEASE_VERIFICATION_SCHEMA_ID = "artifact-memory/release-candidate-verification-receipt/v1"
+RELEASE_VERIFICATION_RECEIPT_PREFIX = "release-candidate-verification-receipt://"
 
 
 def validate_release_manifest(
@@ -119,6 +125,54 @@ def _repository_root(repository: Path) -> Path:
     return Path(output.strip()).resolve()
 
 
+def _verified_ssh_fingerprint(output: str) -> str:
+    matches = [
+        match.group("fingerprint")
+        for line in output.splitlines()
+        if (match := SSH_VERIFICATION_LINE.fullmatch(line.strip())) is not None
+    ]
+    if len(matches) != 1:
+        raise ValidationFailure(
+            "release-candidate-signer-evidence-invalid",
+            "Git verification must emit exactly one authoritative SSH signer record",
+        )
+    return matches[0]
+
+
+def validate_release_candidate_verification_receipt(receipt: dict[str, Any]) -> None:
+    validate(
+        receipt,
+        load_schema("core", "release-candidate-verification-receipt.v1.schema.json"),
+    )
+    body = {key: value for key, value in receipt.items() if key not in {"schema_id", "receipt_id"}}
+    expected = receipt_with_digest(
+        RELEASE_VERIFICATION_SCHEMA_ID,
+        RELEASE_VERIFICATION_RECEIPT_PREFIX,
+        body,
+    )
+    if receipt != expected:
+        raise ValidationFailure(
+            "release-candidate-receipt-identity-mismatch",
+            "release verification receipt identity does not match its content",
+        )
+
+
+def render_release_candidate_verification_receipt(receipt: dict[str, Any]) -> str:
+    validate_release_candidate_verification_receipt(receipt)
+    return (
+        "# Release candidate verification receipt\n\n"
+        f"- Outcome: `{receipt['outcome']}`\n"
+        f"- Receipt: `{receipt['receipt_id']}`\n"
+        f"- Release/tag: `{receipt['release_id']}` / `{receipt['tag']}`\n"
+        f"- Tag, HEAD, and manifest commit: `{receipt['head_commit']}`\n"
+        f"- Package version: `{receipt['package_version']}`\n"
+        f"- Verified signer: `{receipt['verified_signer_fingerprint']}`\n"
+        f"- Signing key generation: `{receipt['signing_key_generation']}`\n"
+        f"- Annotated tag verified: `{str(receipt['annotated_tag_verified']).lower()}`\n"
+        f"- Repository scope: `{receipt['repository_scope']}`\n"
+    )
+
+
 def verify_checked_out_release_candidate(
     manifest_path: Path,
     tag: str,
@@ -164,9 +218,9 @@ def verify_checked_out_release_candidate(
             "release-candidate-tag-not-annotated",
             "release tag must be an owner-signed annotated tag object",
         )
-    fingerprints = set(SSH_FINGERPRINT.findall(f"{verification.stdout}\n{verification.stderr}"))
+    verified_fingerprint = _verified_ssh_fingerprint(verification.stderr)
     expected_fingerprint = manifest["signature"]["public_key_fingerprint"]
-    if fingerprints != {expected_fingerprint}:
+    if verified_fingerprint != expected_fingerprint:
         raise ValidationFailure(
             "release-candidate-signer-mismatch",
             "verified SSH signer fingerprint must match the release manifest",
@@ -178,9 +232,18 @@ def verify_checked_out_release_candidate(
         tag_commit=tag_commit,
         package_version=__version__,
     )
-    return {
+    body: dict[str, str | bool] = {
         **identity,
         "verified_signer_fingerprint": expected_fingerprint,
         "signing_key_generation": manifest["signature"]["key_generation"],
         "annotated_tag_verified": True,
+        "signature_algorithm": "ssh-ed25519",
+        "repository_scope": "explicit-git-checkout",
     }
+    receipt = receipt_with_digest(
+        RELEASE_VERIFICATION_SCHEMA_ID,
+        RELEASE_VERIFICATION_RECEIPT_PREFIX,
+        body,
+    )
+    validate_release_candidate_verification_receipt(receipt)
+    return receipt

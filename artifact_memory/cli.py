@@ -15,7 +15,11 @@ from .codex_history import (
 )
 from .context import ContextFailure, build_selection_policy, export_context
 from .projection import project_records, records_with_provenance, related_records, search_records
-from .release import verify_checked_out_release_candidate
+from .release import (
+    render_release_candidate_verification_receipt,
+    validate_release_candidate_verification_receipt,
+    verify_checked_out_release_candidate,
+)
 from .scan import diff_manifests, scan_path, verify_path
 from .schema_resources import core_schemas
 from .validator import ValidationFailure, load_json, validate
@@ -100,6 +104,9 @@ def main(argv: list[str] | None = None) -> int:
     release_candidate.add_argument("--tag", required=True)
     release_candidate.add_argument("--repo", required=True, type=Path)
     release_candidate.add_argument("--json", action="store_true", dest="as_json")
+    release_receipt = subparsers.add_parser("validate-release-candidate-receipt")
+    release_receipt.add_argument("receipt", type=Path)
+    release_receipt.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args(argv)
 
     if args.command == "version":
@@ -114,7 +121,24 @@ def main(argv: list[str] | None = None) -> int:
                 args.as_json,
             )
             return EXIT_INVALID
-        _receipt(result, args.as_json)
+        if args.as_json:
+            _receipt(result, True)
+        else:
+            print(render_release_candidate_verification_receipt(result), end="")
+        return EXIT_OK
+    if args.command == "validate-release-candidate-receipt":
+        try:
+            receipt = load_json(args.receipt)
+            if not isinstance(receipt, dict):
+                raise ValidationFailure("invalid-input", "release verification receipt must be an object")
+            validate_release_candidate_verification_receipt(receipt)
+        except ValidationFailure as exc:
+            _receipt(
+                {"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]},
+                args.as_json,
+            )
+            return EXIT_INVALID
+        _receipt({"outcome": "pass", "receipt_id": receipt["receipt_id"]}, args.as_json)
         return EXIT_OK
     if args.command == "scan":
         manifest, receipt = scan_path(args.root)

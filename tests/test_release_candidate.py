@@ -6,7 +6,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from artifact_memory.release import validate_release_candidate_identity, verify_checked_out_release_candidate
+from artifact_memory.release import (
+    render_release_candidate_verification_receipt,
+    validate_release_candidate_identity,
+    validate_release_candidate_verification_receipt,
+    verify_checked_out_release_candidate,
+)
 from artifact_memory.validator import ValidationFailure
 
 
@@ -36,6 +41,21 @@ def release_manifest() -> dict:
 
 
 class ReleaseCandidateIdentityTests(unittest.TestCase):
+    def test_checked_synthetic_verification_receipt_and_rendering(self):
+        fixture_root = Path(__file__).resolve().parents[1] / "fixtures/synthetic/release"
+        receipt = json.loads(
+            (fixture_root / "v0-release-candidate-verification-receipt.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        validate_release_candidate_verification_receipt(receipt)
+        self.assertEqual(
+            render_release_candidate_verification_receipt(receipt),
+            (fixture_root / "v0-release-candidate-verification-receipt.md").read_text(
+                encoding="utf-8"
+            ),
+        )
+
     def test_accepts_one_exact_release_identity(self):
         result = validate_release_candidate_identity(
             release_manifest(),
@@ -117,7 +137,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 args=["git", "verify-tag"],
                 returncode=0,
                 stdout="",
-                stderr=f'Good "git" signature with ED25519 key {fingerprint}\n',
+                stderr=f'Good "git" signature for release-owner@example.invalid with ED25519 key {fingerprint}\n',
             )
             with (
                 patch("artifact_memory.release._repository_root", return_value=root),
@@ -132,8 +152,22 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             self.assertEqual(result["verified_signer_fingerprint"], fingerprint)
             self.assertEqual(result["signing_key_generation"], "generation-1")
             self.assertTrue(result["annotated_tag_verified"])
+            self.assertEqual(
+                result["schema_id"],
+                "artifact-memory/release-candidate-verification-receipt/v1",
+            )
+            validate_release_candidate_verification_receipt(result)
             self.assertEqual(verify_tag.call_args.kwargs["cwd"], root)
             self.assertTrue(all(call.kwargs["cwd"] == root for call in git_read.call_args_list))
+
+            tampered = dict(result)
+            tampered["signing_key_generation"] = "generation-2"
+            with self.assertRaises(ValidationFailure) as failure:
+                validate_release_candidate_verification_receipt(tampered)
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-receipt-identity-mismatch",
+            )
 
     def test_verifier_rejects_unexpected_signer_fingerprint(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -144,7 +178,10 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 args=["git", "verify-tag"],
                 returncode=0,
                 stdout="",
-                stderr='Good "git" signature with ED25519 key SHA256:ZZZZZZZZZZZZZZZZZZZZZZZZ\n',
+                stderr=(
+                    'Good "git" signature for release-owner@example.invalid '
+                    "with ED25519 key SHA256:ZZZZZZZZZZZZZZZZZZZZZZZZ\n"
+                ),
             )
             with (
                 patch("artifact_memory.release._repository_root", return_value=root),
@@ -157,6 +194,34 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 with self.assertRaises(ValidationFailure) as failure:
                     verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
             self.assertEqual(failure.exception.code, "release-candidate-signer-mismatch")
+
+    def test_verifier_rejects_incidental_expected_fingerprint_token(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = release_manifest()
+            manifest_path = root / "release.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            fingerprint = manifest["signature"]["public_key_fingerprint"]
+            verification = subprocess.CompletedProcess(
+                args=["git", "verify-tag"],
+                returncode=0,
+                stdout="",
+                stderr=f"unrelated diagnostic mentions {fingerprint}\n",
+            )
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.subprocess.run", return_value=verification),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    side_effect=["a" * 40 + "\n", "a" * 40 + "\n", "tag\n"],
+                ),
+            ):
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(manifest_path, "v0.1.0", root)
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-signer-evidence-invalid",
+            )
 
 
 if __name__ == "__main__":

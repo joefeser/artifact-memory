@@ -1,0 +1,17 @@
+{
+  "annotated_tag_verified": true,
+  "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "manifest_package_version": "0.1.0",
+  "manifest_source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "outcome": "pass",
+  "package_version": "0.1.0",
+  "receipt_id": "release-candidate-verification-receipt://49d858089d4c23a5ceecac16092312dfd215022c1590cbf85a84fef26f5abbbe",
+  "release_id": "artifact-memory/v0.1.0",
+  "repository_scope": "explicit-git-checkout",
+  "schema_id": "artifact-memory/release-candidate-verification-receipt/v1",
+  "signature_algorithm": "ssh-ed25519",
+  "signing_key_generation": "generation-1",
+  "tag": "v0.1.0",
+  "tag_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "verified_signer_fingerprint": "SHA256:abcdefghijklmnopqrstuvwx"
+}

@@ -133,7 +133,10 @@ git verify-tag v0.1.0
 git checkout --detach v0.1.0
 git fsck --full --no-reflogs
 python -m pip install --no-deps .
-artifact-memory verify-release-candidate <release-manifest.json> --tag v0.1.0 --repo . --json
+release_manifest_path=/external/release/release-manifest.json
+release_verification_path=/external/audit/release-candidate-verification.json
+artifact-memory verify-release-candidate "$release_manifest_path" --tag v0.1.0 --repo . --json > "$release_verification_path"
+artifact-memory validate-release-candidate-receipt "$release_verification_path" --json
 python tests/smoke_installed_package.py
 python -m unittest discover -s tests -v
 ```
@@ -143,9 +146,18 @@ HEAD, manifest `release_id`, manifest source commit, manifest package version,
 and installed package version all identify `v0.1.0` / `0.1.0`; every Git call
 is scoped to the explicit checkout, the tag is confirmed as annotated, and the
 verified SSH fingerprint must exactly match the manifest. Its pass evidence
-includes that fingerprint and the signed manifest's key generation. The
+is a digest-bound
+`artifact-memory/release-candidate-verification-receipt/v1` containing that
+fingerprint and the signed manifest's key generation. Preserve the external
+receipt with the release audit evidence; the second command rejects schema,
+duplicate-key, or canonical-identity tampering. The
 installed-package smoke runs the console script and packaged-schema checks from
 a temporary directory outside the source checkout.
+
+The newly authored synthetic contract evidence at
+`fixtures/synthetic/release/v0-release-candidate-verification-receipt.json` and
+its `.md` rendering demonstrates the receipt shape without claiming that a real
+key, tag, release, or visibility decision exists.
 
 Inspect the clone for real paths, credentials, customer material, raw task
 transcripts, generated-only knowledge, unexpected network access, and mutation
