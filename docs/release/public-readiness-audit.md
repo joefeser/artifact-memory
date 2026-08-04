@@ -12,7 +12,7 @@ merged:
 
 - The complete reachable Git-object scan passed over 184 commits, 2,330
   historical objects, and 441 current paths. `git fsck` found no integrity
-  error in reachable history; local dangling worktree objects are not remote
+  errors in reachable history; local dangling worktree objects are not remote
   refs or public repository content.
 - The provider-free suite passed 364 tests, the aggregate conformance suite
   passed, 183 public JSON files validated, compilation passed, and
@@ -52,9 +52,10 @@ approving visibility.
 The following are intentionally incomplete and must not be inferred from this
 pre-public pass:
 
-- issue #21 still needs the first encrypted write to the approved
-  `joe-home-proxmox-vault-1` guest, integrity verification, and an isolated
-  restore receipt after the owner confirms its address, account, and storage;
+- issue #21 still needs the first encrypted write to the approved logical
+  endpoint `endpoint://joe-home-proxmox-vault-1`, integrity verification, and
+  an isolated restore receipt after the owner confirms its guest address,
+  account, and storage;
 - the final candidate must repeat the Git, GitHub prose, Actions log/artifact,
   release, tag, and settings audit after its last merge;
 - Joe must provide the dedicated release-signing public key and fingerprint,
@@ -89,20 +90,32 @@ pre-public pass:
 ## Post-visibility anonymous clone
 
 Only after Joe explicitly approves and performs the visibility change, use a
-machine or environment with no repository credentials or vault mounts:
+machine or environment with no repository credentials or vault mounts. First
+configure SSH signature verification with the owner-published release public
+key as described in `ssh-signing-key-policy.md`, then run:
 
 ```shell
-git clone https://github.com/joefeser/artifact-memory.git artifact-memory-public-check
+git clone --no-checkout https://github.com/joefeser/artifact-memory.git artifact-memory-public-check
 cd artifact-memory-public-check
+git fetch --tags --force
+git verify-tag v0.1.0
+git checkout --detach v0.1.0
+git rev-parse HEAD
 git fsck --full --no-reflogs
-python3 -m unittest discover -s tests -v
-bash scripts/run_conformance.sh
-python3 -m artifact_memory version --json
+python -m pip install --no-deps .
+artifact-memory version --json
+python tests/smoke_installed_package.py
+python -m unittest discover -s tests -v
 ```
+
+Stop unless the verified tag and `git rev-parse HEAD` both identify the exact
+owner-approved commit recorded in the release manifest. The installed-package
+smoke runs the console script and packaged-schema checks from a temporary
+directory outside the source checkout.
 
 Inspect the clone for real paths, credentials, customer material, raw task
 transcripts, generated-only knowledge, unexpected network access, and mutation
-behavior. Record the source commit and command results. Restore branch
-protection, push rules, secret scanning, and private vulnerability reporting as
-available. Do not publish the release if this smoke or settings restoration
-fails.
+behavior. Record the tag, source commit, signer fingerprint, and command
+results. Restore branch protection, push rules, secret scanning, and private
+vulnerability reporting as available. Do not publish the release if this smoke
+or settings restoration fails.
