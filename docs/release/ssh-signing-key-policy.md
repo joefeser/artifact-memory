@@ -18,12 +18,19 @@ the public fingerprint in the policy manifest and release documentation.
 1. Review the exact release commit, release manifest, SHA-256 asset manifest,
    provenance, tests, and public-history audit.
 2. Configure Git's SSH signing support locally for the dedicated key.
-3. Create an owner-signed annotated tag, for example `v0.1.0`, on the exact
-   approved commit. Agents do not run this command.
-4. Verify locally with `git verify-tag --raw` and
+3. Compute the SHA-256 of the exact final release-manifest bytes. Include it
+   exactly once in the annotated-tag message as
+   `Artifact-Memory-Manifest-SHA256: sha-256:<64 lowercase hex digits>`.
+4. Create an owner-signed annotated tag, for example `v0.1.0`, on the exact
+   approved commit. The signed tag thereby binds the external manifest bytes
+   to that commit. Agents do not run this command.
+5. Verify locally with `git verify-tag --raw` and
    `git show --show-signature`, then compare the signer fingerprint with the
    owner-published fingerprint.
-5. Publish the tag/release only after Joe separately authorizes publication.
+6. Run the candidate verifier to confirm the manifest digest trailer, source
+   tree digest, tag object and target, detached HEAD, versions, and signer all
+   agree. Preserve its external receipt.
+7. Publish the tag/release only after Joe separately authorizes publication.
 
 ## Verification, rotation, revocation, and recovery
 

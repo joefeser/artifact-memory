@@ -1,11 +1,23 @@
 # Release candidate verification receipt
 
 - Outcome: `pass`
-- Receipt: `release-candidate-verification-receipt://49d858089d4c23a5ceecac16092312dfd215022c1590cbf85a84fef26f5abbbe`
+- Receipt: `release-candidate-verification-receipt://94ca25a2618364a44486123c600e928df460d4c33c9daf9ef11d4ce82a462890`
 - Release/tag: `artifact-memory/v0.1.0` / `v0.1.0`
-- Tag, HEAD, and manifest commit: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
-- Package version: `0.1.0`
+- Tag object: `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`
+- Tag commit: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- HEAD commit: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- Manifest source commit: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- Manifest SHA-256: `sha-256:01c03122e537acb59d31b28c8bf67ca21a8f9248898f6da499213189dcdbdc2e`
+- Manifest binding: `signed-annotated-tag-trailer-v1`
+- Manifest tree digest: `sha-256:d30bf7fb2e85d9083251f7a5339025306ac517ee64bce79350588486156df03e`
+- Manifest package version: `0.1.0`
+- Installed package version: `0.1.0`
 - Verified signer: `SHA256:abcdefghijklmnopqrstuvwx`
 - Signing key generation: `generation-1`
 - Annotated tag verified: `true`
+- Verification output profile: `git-verify-tag-ssh-c-locale-v1`
 - Repository scope: `explicit-git-checkout`
+- Authority boundary: release preparation grants no signing, tag, publication, visibility, or deployment authority
+- Limitations:
+  - verification proves only the identities and cryptographic bindings represented in this receipt
+  - publication, visibility, deployment, and release authority remain absent

@@ -4,15 +4,19 @@
   "title": "Artifact Memory release candidate verification receipt v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_id", "receipt_id", "outcome", "tag", "head_commit", "tag_commit", "manifest_source_commit", "release_id", "manifest_package_version", "package_version", "verified_signer_fingerprint", "signing_key_generation", "annotated_tag_verified", "signature_algorithm", "repository_scope"],
+  "required": ["schema_id", "receipt_id", "outcome", "tag", "tag_object_id", "head_commit", "tag_commit", "manifest_source_commit", "manifest_sha256", "manifest_binding", "manifest_tree_digest", "release_id", "manifest_package_version", "package_version", "verified_signer_fingerprint", "signing_key_generation", "annotated_tag_verified", "signature_algorithm", "verification_output_profile", "repository_scope", "authority_boundary", "limitations"],
   "properties": {
     "schema_id": {"const": "artifact-memory/release-candidate-verification-receipt/v1"},
     "receipt_id": {"type": "string", "pattern": "^release-candidate-verification-receipt://[0-9a-f]{64}$"},
     "outcome": {"const": "pass"},
     "tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "tag_object_id": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "head_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "tag_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "manifest_source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "manifest_sha256": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "manifest_binding": {"const": "signed-annotated-tag-trailer-v1"},
+    "manifest_tree_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
     "release_id": {"type": "string", "pattern": "^artifact-memory/v[0-9]+\\.[0-9]+\\.[0-9]+$"},
     "manifest_package_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
     "package_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
@@ -20,6 +24,9 @@
     "signing_key_generation": {"type": "string", "minLength": 1},
     "annotated_tag_verified": {"const": true},
     "signature_algorithm": {"const": "ssh-ed25519"},
-    "repository_scope": {"const": "explicit-git-checkout"}
+    "verification_output_profile": {"const": "git-verify-tag-ssh-c-locale-v1"},
+    "repository_scope": {"const": "explicit-git-checkout"},
+    "authority_boundary": {"const": "release preparation grants no signing, tag, publication, visibility, or deployment authority"},
+    "limitations": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}}
   }
 }

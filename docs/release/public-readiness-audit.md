@@ -141,14 +141,20 @@ python tests/smoke_installed_package.py
 python -m unittest discover -s tests -v
 ```
 
-The executable candidate verifier fails unless the signed tag target, detached
+The executable candidate verifier fails unless the manifest's exact SHA-256 is
+present once in the signed annotated tag as an
+`Artifact-Memory-Manifest-SHA256:` trailer, its declared source-tree digest
+matches the tagged commit's full tree, and the signed tag target, detached
 HEAD, manifest `release_id`, manifest source commit, manifest package version,
-and installed package version all identify `v0.1.0` / `0.1.0`; every Git call
-is scoped to the explicit checkout, the tag is confirmed as annotated, and the
-verified SSH fingerprint must exactly match the manifest. Its pass evidence
+and installed package version all identify `v0.1.0` / `0.1.0`. Every Git call
+is scoped to the explicit checkout, the tag is confirmed as annotated, and
+the verified SSH fingerprint must exactly match the manifest. SSH diagnostic
+parsing is pinned to the `git-verify-tag-ssh-c-locale-v1` compatibility profile
+and fails closed for unsupported output. Its pass evidence
 is a digest-bound
 `artifact-memory/release-candidate-verification-receipt/v1` containing that
-fingerprint and the signed manifest's key generation. Preserve the external
+fingerprint, signed tag object, exact manifest digest, key generation,
+authority boundary, and limitations. Preserve the external
 receipt with the release audit evidence; the second command rejects schema,
 duplicate-key, or canonical-identity tampering. The
 installed-package smoke runs the console script and packaged-schema checks from
