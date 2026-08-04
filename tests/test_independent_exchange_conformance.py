@@ -249,6 +249,40 @@ class IndependentExchangeConformanceTests(unittest.TestCase):
         self.assertEqual(independent, reference)
         self.assertIn("required-extension-unsupported", independent["diagnostics"][0]["message"])
 
+    def test_v2_opaque_optional_record_extension_matches_reference(self):
+        vectors = json.loads((FIXTURE / "vectors.json").read_text(encoding="utf-8"))
+        record = deepcopy(vectors["record"])
+        record["schema_id"] = "artifact-memory/knowledge-record/v2"
+        record["extensions"] = {
+            "https://synthetic.example/extensions/opaque-record-value": {
+                "provider_shape": ["preserved", 7, True]
+            }
+        }
+        revision = "sha-256:" + hashlib.sha256(
+            json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        envelope = make_envelope_v2(
+            vectors["audience_ref"],
+            "independent-v2-opaque-record-extension",
+            vectors["expires_at"],
+            [{"record_id": record["record_id"], "revision_digest": revision}],
+            [vectors["artifact_ref"]],
+            record_bundle=[record],
+        )
+        reference = admit_v2(
+            envelope,
+            SyntheticReplayLedger(),
+            expected_audience_ref=vectors["audience_ref"],
+            now=vectors["evaluation_time"],
+        )
+        independent = admit_bundle_v2(
+            json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
+            expected_audience_ref=vectors["audience_ref"],
+            now=vectors["evaluation_time"],
+        )
+        self.assertEqual(independent, reference)
+        self.assertEqual(independent["outcome"], "admitted")
+
     def test_incomplete_embedded_bundle_is_quarantined(self):
         vectors = json.loads((FIXTURE / "vectors.json").read_text(encoding="utf-8"))
         first = vectors["record"]

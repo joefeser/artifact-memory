@@ -592,17 +592,14 @@ def admit_bundle_v2(
             extensions = record.get("extensions", {})
             if not isinstance(extensions, dict):
                 raise ReaderFailure("record extensions must be an object")
-            if record["schema_id"] == "artifact-memory/knowledge-record/v1":
-                if any(
-                    isinstance(declaration, dict)
-                    and declaration.get("required") is True
-                    for declaration in extensions.values()
-                ):
-                    _v2_extensions(extensions, supported)
-                else:
-                    _preserve_record_extensions(extensions, supported)
-            else:
+            if any(
+                isinstance(declaration, dict)
+                and declaration.get("required") is True
+                for declaration in extensions.values()
+            ):
                 _v2_extensions(extensions, supported)
+            else:
+                _preserve_record_extensions(extensions, supported)
             revision = _strict_revision_digest(record)
         except ReaderFailure as exc:
             if str(exc) == "required extension is unsupported":
