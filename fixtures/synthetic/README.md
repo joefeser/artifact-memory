@@ -23,6 +23,11 @@ one declaration of each kind and checked machine/human receipts.
 outcomes, idempotent replay, contradictory-input quarantine, prohibited bearer
 material handling, and separate artifact-retrieval authority.
 
+`exchange/independent-v1/` proves that a v2 reference-sender bundle produces
+compatible admission receipts under both the reference receiver and a
+materially separate stdlib-only receiver. It covers one unknown optional and
+one unknown required extension without retrieving artifact bytes.
+
 `adapters/v1/` proves one synthetic reference-adapter success receipt, one
 authority-boundary failure receipt, and the local-read-only TraceMap manifest.
 

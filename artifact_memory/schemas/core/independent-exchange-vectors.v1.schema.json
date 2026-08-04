@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/independent-exchange-vectors/v1",
+  "title": "Artifact Memory independent exchange vectors v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "audience_ref",
+    "expires_at",
+    "evaluation_time",
+    "artifact_ref",
+    "record",
+    "optional_extension",
+    "required_extension"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/independent-exchange-vectors/v1"},
+    "audience_ref": {"type": "string", "minLength": 1},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "evaluation_time": {"type": "string", "format": "date-time"},
+    "artifact_ref": {"type": "string", "pattern": "^artifact://[A-Za-z0-9._~/-]+$"},
+    "record": {"type": "object", "additionalProperties": true},
+    "optional_extension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identifier", "declaration"],
+      "properties": {
+        "identifier": {"type": "string", "pattern": "^https://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~/-]+)?$"},
+        "declaration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "required", "value"],
+          "properties": {
+            "version": {"type": "string", "pattern": "^v[0-9]+$"},
+            "required": {"const": false},
+            "value": {"type": "object", "additionalProperties": true}
+          }
+        }
+      }
+    },
+    "required_extension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identifier", "declaration"],
+      "properties": {
+        "identifier": {"type": "string", "pattern": "^https://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~/-]+)?$"},
+        "declaration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "required", "value"],
+          "properties": {
+            "version": {"type": "string", "pattern": "^v[0-9]+$"},
+            "required": {"const": true},
+            "value": {"type": "object", "additionalProperties": true}
+          }
+        }
+      }
+    }
+  }
+}

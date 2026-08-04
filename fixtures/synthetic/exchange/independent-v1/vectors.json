@@ -1,0 +1,41 @@
+{
+  "schema_id": "artifact-memory/independent-exchange-vectors/v1",
+  "audience_ref": "system://synthetic-independent-receiver",
+  "expires_at": "2099-01-01T00:00:00Z",
+  "evaluation_time": "2026-08-03T00:00:00Z",
+  "artifact_ref": "artifact://synthetic/independent-exchange-evidence",
+  "record": {
+    "schema_id": "artifact-memory/knowledge-record/v2",
+    "record_id": "record://synthetic/independent-exchange",
+    "record_type": "claim",
+    "lifecycle": "accepted",
+    "meaning": {
+      "summary": "A synthetic bounded record crosses an independent receiver boundary.",
+      "labels": ["exchange", "independent", "synthetic"]
+    },
+    "artifact_refs": ["artifact://synthetic/independent-exchange-evidence"],
+    "provenance": [
+      {
+        "kind": "author",
+        "source_ref": "fixture://synthetic/exchange/independent-v1"
+      }
+    ],
+    "sensitivity": "public"
+  },
+  "optional_extension": {
+    "identifier": "https://synthetic.example/extensions/independent-optional",
+    "declaration": {
+      "version": "v1",
+      "required": false,
+      "value": {"opaque": "preserve-unchanged"}
+    }
+  },
+  "required_extension": {
+    "identifier": "https://synthetic.example/extensions/independent-required",
+    "declaration": {
+      "version": "v1",
+      "required": true,
+      "value": {"behavior": "explicit-support-required"}
+    }
+  }
+}

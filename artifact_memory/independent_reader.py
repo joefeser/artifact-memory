@@ -6,10 +6,27 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable
+from datetime import datetime, timezone
 from typing import Any
 
 
 EXTENSION_ID = re.compile(r"^https://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~/-]+)?$")
+RECORD_ID = re.compile(r"^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$")
+REVISION_DIGEST = re.compile(r"^sha-256:[0-9a-f]{64}$")
+ARTIFACT_REF = re.compile(r"^artifact://[A-Za-z0-9._~/-]+$")
+AUTHORITY_BOUNDARY = "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"
+MAX_INTEROPERABLE_INTEGER = 9_007_199_254_740_991
+PRIVATE_KEY_HEADER = re.compile(
+    r"-----BEGIN (?:[A-Z0-9][A-Z0-9 -]* )?PRIVATE KEY-----", re.IGNORECASE
+)
+TOKEN_VALUE = re.compile(
+    r"(?:gh[opusr]_[A-Za-z0-9_]{20,}|github"
+    + r"_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})"
+)
+BEARER_VALUE = re.compile(
+    r"(?:authorization\s*:\s*)?bearer\s+[A-Za-z0-9._~+/=-]{16,}",
+    re.IGNORECASE,
+)
 
 
 class ReaderFailure(Exception):
@@ -31,14 +48,31 @@ def _validate_record(record: dict[str, Any]) -> None:
     if set(record) - allowed or required - set(record):
         raise ReaderFailure("canonical record fields are invalid")
     schema_id = record.get("schema_id")
-    if schema_id not in {"artifact-memory/knowledge-record/v1", "artifact-memory/knowledge-record/v2"}:
+    if not isinstance(schema_id, str) or schema_id not in {
+        "artifact-memory/knowledge-record/v1",
+        "artifact-memory/knowledge-record/v2",
+    }:
         raise ReaderFailure("unsupported canonical record schema")
     record_id = record.get("record_id")
     if not isinstance(record_id, str) or re.fullmatch(r"record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+", record_id) is None:
         raise ReaderFailure("canonical record identity is invalid")
-    if record.get("record_type") not in {"note", "decision", "claim", "question", "workstream"}:
+    record_type = record.get("record_type")
+    if not isinstance(record_type, str) or record_type not in {
+        "note",
+        "decision",
+        "claim",
+        "question",
+        "workstream",
+    }:
         raise ReaderFailure("canonical record type is invalid")
-    if record.get("lifecycle") not in {"draft", "accepted", "sealed", "superseded", "rejected"}:
+    lifecycle = record.get("lifecycle")
+    if not isinstance(lifecycle, str) or lifecycle not in {
+        "draft",
+        "accepted",
+        "sealed",
+        "superseded",
+        "rejected",
+    }:
         raise ReaderFailure("canonical record lifecycle is invalid")
     meaning = record.get("meaning")
     if not isinstance(meaning, dict) or set(meaning) - {"summary", "labels"} or not isinstance(meaning.get("summary"), str) or not meaning["summary"]:
@@ -55,7 +89,8 @@ def _validate_record(record: dict[str, Any]) -> None:
         if (
             not isinstance(entry, dict)
             or set(entry) != {"kind", "source_ref"}
-            or entry.get("kind") not in {"author", "observation", "import", "derivation"}
+            or not isinstance(entry.get("kind"), str)
+            or entry["kind"] not in {"author", "observation", "import", "derivation"}
             or not isinstance(entry.get("source_ref"), str)
             or not entry["source_ref"]
         ):
@@ -67,7 +102,8 @@ def _validate_record(record: dict[str, Any]) -> None:
         if (
             not isinstance(relationship, dict)
             or set(relationship) != {"type", "target_ref"}
-            or relationship.get("type") not in (
+            or not isinstance(relationship.get("type"), str)
+            or relationship["type"] not in (
                 {"related-to", "produced-from", "supported-by-external-evidence"}
                 if schema_id == "artifact-memory/knowledge-record/v1"
                 else {"related-to", "produced-from", "redacted-from", "supported-by-external-evidence"}
@@ -81,13 +117,122 @@ def _validate_record(record: dict[str, Any]) -> None:
         derivative_fields = {"source_task_ref", "transformation_ref", "uncertainty"}
         if not isinstance(derivative, dict) or set(derivative) != derivative_fields or not all(isinstance(derivative[key], str) and derivative[key] for key in derivative_fields):
             raise ReaderFailure("canonical derivative record is invalid")
-    if "sensitivity" in record and record["sensitivity"] not in {"public", "private", "restricted"}:
+    if "sensitivity" in record and (
+        not isinstance(record["sensitivity"], str)
+        or record["sensitivity"] not in {"public", "private", "restricted"}
+    ):
         raise ReaderFailure("canonical record sensitivity is invalid")
 
 
 def _revision_digest(record: dict[str, Any]) -> str:
-    canonical = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return "sha-256:" + hashlib.sha256(canonical).hexdigest()
+    return "sha-256:" + hashlib.sha256(_canonical(record)).hexdigest()
+
+
+def _check_canonical_value(value: Any, ancestors: set[int] | None = None) -> None:
+    ancestors = set() if ancestors is None else ancestors
+    if value is None or isinstance(value, (bool, str)):
+        if isinstance(value, str) and any(
+            0xD800 <= ord(character) <= 0xDFFF for character in value
+        ):
+            raise ValueError("unpaired Unicode surrogate")
+        return
+    if isinstance(value, int):
+        if abs(value) > MAX_INTEROPERABLE_INTEGER:
+            raise ValueError("integer outside interoperable range")
+        return
+    if isinstance(value, float):
+        raise ValueError("fractional numbers are unsupported")
+    if isinstance(value, (list, dict)):
+        identity = id(value)
+        if identity in ancestors:
+            raise ValueError("cyclic container")
+        ancestors.add(identity)
+        try:
+            items = value if isinstance(value, list) else value.values()
+            for item in items:
+                _check_canonical_value(item, ancestors)
+        finally:
+            ancestors.remove(identity)
+        return
+    raise ValueError("non-JSON value")
+
+
+def _canonical(value: Any) -> bytes:
+    """Implement the v0 canonical JSON profile without reference-runtime imports."""
+    _check_canonical_value(value)
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def _contains_protected_material(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_contains_protected_material(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_protected_material(item) for item in value)
+    return isinstance(value, str) and (
+        BEARER_VALUE.fullmatch(value) is not None
+        or PRIVATE_KEY_HEADER.search(value) is not None
+        or TOKEN_VALUE.fullmatch(value) is not None
+    )
+
+
+def _receipt_v2(
+    envelope_ref: str,
+    outcome: str,
+    *,
+    accepted_record_ids: list[str] | None = None,
+    unresolved_record_ids: list[str] | None = None,
+    artifact_refs: list[str] | None = None,
+    diagnostics: list[dict[str, str]] | None = None,
+    extensions: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    body = {
+        "envelope_ref": envelope_ref,
+        "outcome": outcome,
+        "accepted_record_ids": sorted(accepted_record_ids or []),
+        "unresolved_record_ids": sorted(unresolved_record_ids or []),
+        "artifact_refs": sorted(artifact_refs or []),
+        "artifact_retrieval": "not-attempted/separately-authorized",
+        "diagnostics": diagnostics or [],
+        "extensions": extensions or {},
+        "authority_boundary": AUTHORITY_BOUNDARY,
+    }
+    return {
+        "schema_id": "artifact-memory/admission-receipt/v2",
+        "receipt_id": "admission-receipt://" + hashlib.sha256(_canonical(body)).hexdigest(),
+        **body,
+    }
+
+
+def _v2_extensions(
+    extensions: Any,
+    supported_required: set[tuple[str, str]],
+) -> dict[str, Any]:
+    if not isinstance(extensions, dict):
+        raise ReaderFailure("extension declarations are invalid")
+    for identifier, declaration in extensions.items():
+        if (
+            not isinstance(identifier, str)
+            or EXTENSION_ID.fullmatch(identifier) is None
+            or not isinstance(declaration, dict)
+            or set(declaration) != {"version", "required", "value"}
+            or not isinstance(declaration.get("version"), str)
+            or re.fullmatch(r"v[0-9]+", declaration["version"]) is None
+            or not isinstance(declaration.get("required"), bool)
+            or not isinstance(declaration.get("value"), dict)
+        ):
+            raise ReaderFailure("extension declarations are invalid")
+        if declaration["required"] and (
+            identifier,
+            declaration["version"],
+        ) not in supported_required:
+            raise ReaderFailure("required extension is unsupported")
+    return extensions
 
 
 def _supported_required_pairs(value: Iterable[tuple[str, str]] | None) -> set[tuple[str, str]]:
@@ -181,3 +326,362 @@ def read_bundle(envelope_json: bytes, supported_required_extensions: Iterable[tu
     if bundle_present and bundled_ids != set(declared_revisions):
         raise ReaderFailure("record bundle does not match declared record references")
     return {"outcome": "accepted", "record_ids": [item["record_id"] for item in accepted], "preserved_extensions": [item["extensions"] for item in accepted], "artifact_refs": list(artifact_refs), "artifact_retrieval": "separately-authorized"}
+
+
+def admit_bundle_v2(
+    envelope_json: bytes,
+    *,
+    expected_audience_ref: str,
+    now: str,
+    supported_required_extensions: Iterable[tuple[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Independently validate one complete v2 bundle and emit a compatible receipt.
+
+    This intentionally implements only the issue #23 exact-bundle interoperability
+    profile. The reference runtime remains responsible for replay, partial local
+    resolution, and the wider issue #22 outcome matrix.
+    """
+    supported = _supported_required_pairs(supported_required_extensions)
+    try:
+        envelope = json.loads(envelope_json, object_pairs_hook=_pairs)
+    except (json.JSONDecodeError, ReaderFailure) as exc:
+        raise ReaderFailure("invalid exchange JSON") from exc
+    if not isinstance(envelope, dict):
+        raise ReaderFailure("exchange envelope must be an object")
+
+    body = {key: value for key, value in envelope.items() if key != "envelope_id"}
+    try:
+        envelope_ref = "exchange://" + hashlib.sha256(_canonical(body)).hexdigest()
+    except (TypeError, ValueError) as exc:
+        raise ReaderFailure("exchange envelope is not canonicalizable") from exc
+
+    allowed = {
+        "schema_id",
+        "envelope_id",
+        "audience_ref",
+        "correlation_id",
+        "expires_at",
+        "bundle_manifest",
+        "record_bundle",
+        "handling",
+        "authority_boundary",
+        "extensions",
+    }
+    required = allowed - {"record_bundle", "extensions"}
+    if set(envelope) - allowed or required - set(envelope):
+        return _receipt_v2(
+            envelope_ref,
+            "rejected",
+            diagnostics=[
+                {
+                    "code": "invalid-envelope",
+                    "message": "exchange envelope does not satisfy the v2 contract",
+                }
+            ],
+        )
+    if envelope.get("schema_id") != "artifact-memory/exchange-envelope/v2":
+        return _receipt_v2(
+            envelope_ref,
+            "unsupported",
+            diagnostics=[
+                {"code": "schema-unsupported", "message": "exchange schema is unsupported"}
+            ],
+        )
+    if envelope.get("envelope_id") != envelope_ref:
+        return _receipt_v2(
+            envelope_ref,
+            "rejected",
+            diagnostics=[
+                {
+                    "code": "envelope-id-mismatch",
+                    "message": "exchange envelope identity does not match its canonical body",
+                }
+            ],
+        )
+    if envelope.get("audience_ref") != expected_audience_ref:
+        return _receipt_v2(
+            envelope_ref,
+            "rejected",
+            diagnostics=[
+                {
+                    "code": "audience-mismatch",
+                    "message": "exchange audience does not match this receiver",
+                }
+            ],
+        )
+    if (
+        not isinstance(envelope.get("correlation_id"), str)
+        or re.fullmatch(r"[A-Za-z0-9._~-]+", envelope["correlation_id"]) is None
+        or envelope.get("authority_boundary") != AUTHORITY_BOUNDARY
+    ):
+        return _receipt_v2(
+            envelope_ref,
+            "rejected",
+            diagnostics=[
+                {
+                    "code": "invalid-envelope",
+                    "message": "exchange envelope does not satisfy the v2 contract",
+                }
+            ],
+        )
+    if _contains_protected_material(envelope):
+        return _receipt_v2(
+            envelope_ref,
+            "rejected",
+            diagnostics=[
+                {
+                    "code": "bearer-material-prohibited",
+                    "message": "exchange envelope contains prohibited bearer material",
+                }
+            ],
+        )
+
+    handling = envelope.get("handling")
+    handling_fields = {"sensitivity", "disclosure", "artifact_retrieval"}
+    if (
+        not isinstance(handling, dict)
+        or set(handling) != handling_fields
+        or not isinstance(handling.get("sensitivity"), str)
+        or handling["sensitivity"] not in {"public", "private", "restricted"}
+        or not isinstance(handling.get("disclosure"), str)
+        or handling["disclosure"]
+        not in {"informational-only", "receiver-policy-required"}
+        or handling.get("artifact_retrieval") != "separately-authorized"
+    ):
+        return _receipt_v2(
+            envelope_ref,
+            "rejected",
+            diagnostics=[
+                {
+                    "code": "invalid-envelope",
+                    "message": "exchange envelope does not satisfy the v2 contract",
+                }
+            ],
+        )
+
+    try:
+        expiry = datetime.fromisoformat(envelope["expires_at"].replace("Z", "+00:00"))
+        current = datetime.fromisoformat(now.replace("Z", "+00:00"))
+        if expiry.tzinfo is None or current.tzinfo is None:
+            raise ValueError("timezone required")
+        if expiry <= current.astimezone(timezone.utc):
+            return _receipt_v2(
+                envelope_ref,
+                "rejected",
+                diagnostics=[{"code": "expired", "message": "exchange envelope is expired"}],
+            )
+    except (AttributeError, TypeError, ValueError):
+        return _receipt_v2(
+            envelope_ref,
+            "rejected",
+            diagnostics=[{"code": "invalid-expiry", "message": "exchange expiry is invalid"}],
+        )
+
+    manifest = envelope.get("bundle_manifest")
+    if not isinstance(manifest, dict) or set(manifest) != {
+        "bundle_id",
+        "records",
+        "artifact_refs",
+    }:
+        return _receipt_v2(
+            envelope_ref,
+            "rejected",
+            diagnostics=[
+                {
+                    "code": "invalid-envelope",
+                    "message": "exchange envelope does not satisfy the v2 contract",
+                }
+            ],
+        )
+    record_refs = manifest.get("records")
+    artifact_refs = manifest.get("artifact_refs")
+    if (
+        not isinstance(record_refs, list)
+        or not isinstance(artifact_refs, list)
+        or not all(isinstance(item, str) and ARTIFACT_REF.fullmatch(item) for item in artifact_refs)
+    ):
+        return _receipt_v2(
+            envelope_ref,
+            "rejected",
+            diagnostics=[
+                {
+                    "code": "invalid-envelope",
+                    "message": "exchange envelope does not satisfy the v2 contract",
+                }
+            ],
+        )
+    manifest_body = {"records": record_refs, "artifact_refs": artifact_refs}
+    expected_bundle_id = "exchange-bundle://" + hashlib.sha256(
+        _canonical(manifest_body)
+    ).hexdigest()
+    if manifest.get("bundle_id") != expected_bundle_id:
+        return _receipt_v2(
+            envelope_ref,
+            "rejected",
+            diagnostics=[
+                {
+                    "code": "bundle-id-mismatch",
+                    "message": "bundle manifest identity does not match its canonical body",
+                }
+            ],
+        )
+
+    declared: dict[str, str] = {}
+    for item in record_refs:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"record_id", "revision_digest"}
+            or not isinstance(item.get("record_id"), str)
+            or RECORD_ID.fullmatch(item["record_id"]) is None
+            or not isinstance(item.get("revision_digest"), str)
+            or REVISION_DIGEST.fullmatch(item["revision_digest"]) is None
+            or item["record_id"] in declared
+        ):
+            return _receipt_v2(
+                envelope_ref,
+                "quarantined",
+                diagnostics=[
+                    {
+                        "code": "contradictory-bundle",
+                        "message": "bundle declarations or bytes contradict each other",
+                    }
+                ],
+                artifact_refs=artifact_refs,
+            )
+        declared[item["record_id"]] = item["revision_digest"]
+
+    try:
+        preserved_extensions = _v2_extensions(
+            envelope.get("extensions", {}), supported
+        )
+    except ReaderFailure as exc:
+        code = (
+            "required-extension-unsupported"
+            if str(exc) == "required extension is unsupported"
+            else "invalid-extension"
+        )
+        return _receipt_v2(
+            envelope_ref,
+            "quarantined",
+            diagnostics=[{"code": code, "message": str(exc)}],
+        )
+
+    record_bundle = envelope.get("record_bundle", [])
+    if not isinstance(record_bundle, list):
+        return _receipt_v2(
+            envelope_ref,
+            "rejected",
+            diagnostics=[
+                {
+                    "code": "invalid-envelope",
+                    "message": "exchange envelope does not satisfy the v2 contract",
+                }
+            ],
+        )
+    bundled: set[str] = set()
+    sensitivity_rank = {"public": 0, "private": 1, "restricted": 2}
+    for record in record_bundle:
+        if not isinstance(record, dict):
+            return _receipt_v2(
+                envelope_ref,
+                "quarantined",
+                unresolved_record_ids=list(declared),
+                artifact_refs=artifact_refs,
+                diagnostics=[
+                    {
+                        "code": "bundled-record-invalid",
+                        "message": "bundled record validation failed (invalid-record)",
+                    }
+                ],
+                extensions=preserved_extensions,
+            )
+        try:
+            _validate_record(record)
+            _v2_extensions(record.get("extensions", {}), supported)
+        except ReaderFailure:
+            return _receipt_v2(
+                envelope_ref,
+                "quarantined",
+                unresolved_record_ids=list(declared),
+                artifact_refs=artifact_refs,
+                diagnostics=[
+                    {
+                        "code": "bundled-record-invalid",
+                        "message": "bundled record validation failed (invalid-record)",
+                    }
+                ],
+                extensions=preserved_extensions,
+            )
+        record_id = record["record_id"]
+        sensitivity = record.get("sensitivity", "restricted")
+        if (
+            record_id in bundled
+            or declared.get(record_id) != _revision_digest(record)
+        ):
+            return _receipt_v2(
+                envelope_ref,
+                "quarantined",
+                unresolved_record_ids=sorted(set(declared) | {record_id}),
+                artifact_refs=artifact_refs,
+                diagnostics=[
+                    {
+                        "code": "contradictory-bundle",
+                        "message": "bundle declarations or bytes contradict each other",
+                    }
+                ],
+                extensions=preserved_extensions,
+            )
+        if sensitivity_rank[sensitivity] > sensitivity_rank[handling["sensitivity"]]:
+            return _receipt_v2(
+                envelope_ref,
+                "quarantined",
+                unresolved_record_ids=list(declared),
+                artifact_refs=artifact_refs,
+                diagnostics=[
+                    {
+                        "code": "handling-sensitivity-mismatch",
+                        "message": "bundle handling is weaker than a record sensitivity",
+                    }
+                ],
+                extensions=preserved_extensions,
+            )
+        bundled.add(record_id)
+
+    unresolved = sorted(set(declared) - bundled)
+    accepted = sorted(bundled)
+    if accepted and unresolved:
+        outcome = "partially-resolved"
+        diagnostics = [
+            {
+                "code": "record-unresolved",
+                "message": "one or more declared records are unresolved",
+            }
+        ]
+    elif unresolved:
+        outcome = "quarantined"
+        diagnostics = [
+            {
+                "code": "bundle-unresolved",
+                "message": "no declared record revision could be resolved",
+            }
+        ]
+    elif accepted or artifact_refs:
+        outcome = "admitted"
+        diagnostics = []
+    else:
+        outcome = "quarantined"
+        diagnostics = [
+            {
+                "code": "empty-bundle",
+                "message": "bundle contains no knowledge or artifact references",
+            }
+        ]
+    return _receipt_v2(
+        envelope_ref,
+        outcome,
+        accepted_record_ids=accepted,
+        unresolved_record_ids=unresolved,
+        artifact_refs=artifact_refs,
+        diagnostics=diagnostics,
+        extensions=preserved_extensions,
+    )

@@ -1,0 +1,46 @@
+{
+  "artifact_retrieval": "not-attempted/separately-authorized",
+  "authority_boundary": "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority",
+  "cases": {
+    "explicitly_supported_required": {
+      "expected_outcome": "admitted",
+      "independent_receipt_ref": "admission-receipt://80b98113a67aae95d3d2cc6e094d8aa251ae1896c0303ab3b7510a49ba0354d6",
+      "observed_outcome": "admitted",
+      "receipts_compatible": true,
+      "reference_receipt_ref": "admission-receipt://80b98113a67aae95d3d2cc6e094d8aa251ae1896c0303ab3b7510a49ba0354d6"
+    },
+    "unknown_optional": {
+      "expected_outcome": "admitted",
+      "independent_receipt_ref": "admission-receipt://14aeff5f8ad626da8dad041d6ce11b52e16b92904bbe60e0c54d837511c04130",
+      "observed_outcome": "admitted",
+      "receipts_compatible": true,
+      "reference_receipt_ref": "admission-receipt://14aeff5f8ad626da8dad041d6ce11b52e16b92904bbe60e0c54d837511c04130"
+    },
+    "unknown_required": {
+      "expected_outcome": "quarantined",
+      "independent_receipt_ref": "admission-receipt://583b99717d4a3de9c110b814018fe04da8a93fa8f35fbc0691803ae3c0c522ff",
+      "observed_outcome": "quarantined",
+      "receipts_compatible": true,
+      "reference_receipt_ref": "admission-receipt://583b99717d4a3de9c110b814018fe04da8a93fa8f35fbc0691803ae3c0c522ff"
+    }
+  },
+  "claims": [
+    "a reference-sender v2 bundle validates under a materially separate stdlib-only receiver",
+    "reference and independent receivers emit identical schema-valid admission receipts for the checked cases",
+    "one unknown optional extension is preserved unchanged",
+    "one unknown required extension fails closed and is admitted only after explicit support",
+    "artifact retrieval remains unattempted and separately authorized"
+  ],
+  "independent_receiver_implementation": "stdlib-only-independent-reader-v2",
+  "limitations": [
+    "the fixture is synthetic and does not establish cross-party authenticity or trust",
+    "the independent receiver proves the complete embedded-bundle profile, not durable replay or external artifact resolution",
+    "compatible informational receipts grant no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"
+  ],
+  "outcome": "complete",
+  "receipt_id": "independent-exchange-conformance-receipt://d734ba8208b9a5b40c8654b507998b621ea3406e9fd04902a90e2049deecf520",
+  "reference_receiver_implementation": "artifact-memory-reference-admission-v2",
+  "schema_id": "artifact-memory/independent-exchange-conformance-receipt/v1",
+  "sender_implementation": "artifact-memory-reference-sender-v2",
+  "synthetic": true
+}

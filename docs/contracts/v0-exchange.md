@@ -45,5 +45,8 @@ authority is not hidden in this envelope or receipt.
 
 The checked fixture under `fixtures/synthetic/exchange/v2/` independently
 replays all six outcomes, including contradictory and repeated input, and
-produces machine- and human-readable receipts. It does not establish
-cross-party authenticity or #23 independent implementation interoperability.
+produces machine- and human-readable receipts. The separate issue #23 fixture
+under `fixtures/synthetic/exchange/independent-v1/` proves compatible v2
+receipts across the reference receiver and a materially separate stdlib-only
+receiver for the complete embedded-bundle extension seam. Neither fixture
+establishes cross-party authenticity or trust.

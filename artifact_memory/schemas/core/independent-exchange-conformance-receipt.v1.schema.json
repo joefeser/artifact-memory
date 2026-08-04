@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/independent-exchange-conformance-receipt/v1",
+  "title": "Artifact Memory independent exchange conformance receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "receipt_id",
+    "outcome",
+    "synthetic",
+    "sender_implementation",
+    "reference_receiver_implementation",
+    "independent_receiver_implementation",
+    "cases",
+    "artifact_retrieval",
+    "authority_boundary",
+    "claims",
+    "limitations"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/independent-exchange-conformance-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^independent-exchange-conformance-receipt://[0-9a-f]{64}$"},
+    "outcome": {"const": "complete"},
+    "synthetic": {"const": true},
+    "sender_implementation": {"const": "artifact-memory-reference-sender-v2"},
+    "reference_receiver_implementation": {"const": "artifact-memory-reference-admission-v2"},
+    "independent_receiver_implementation": {"const": "stdlib-only-independent-reader-v2"},
+    "cases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unknown_optional", "unknown_required", "explicitly_supported_required"],
+      "properties": {
+        "unknown_optional": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expected_outcome", "observed_outcome", "reference_receipt_ref", "independent_receipt_ref", "receipts_compatible"],
+          "properties": {
+            "expected_outcome": {"const": "admitted"},
+            "observed_outcome": {"const": "admitted"},
+            "reference_receipt_ref": {"type": "string", "pattern": "^admission-receipt://[0-9a-f]{64}$"},
+            "independent_receipt_ref": {"type": "string", "pattern": "^admission-receipt://[0-9a-f]{64}$"},
+            "receipts_compatible": {"const": true}
+          }
+        },
+        "unknown_required": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expected_outcome", "observed_outcome", "reference_receipt_ref", "independent_receipt_ref", "receipts_compatible"],
+          "properties": {
+            "expected_outcome": {"const": "quarantined"},
+            "observed_outcome": {"const": "quarantined"},
+            "reference_receipt_ref": {"type": "string", "pattern": "^admission-receipt://[0-9a-f]{64}$"},
+            "independent_receipt_ref": {"type": "string", "pattern": "^admission-receipt://[0-9a-f]{64}$"},
+            "receipts_compatible": {"const": true}
+          }
+        },
+        "explicitly_supported_required": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expected_outcome", "observed_outcome", "reference_receipt_ref", "independent_receipt_ref", "receipts_compatible"],
+          "properties": {
+            "expected_outcome": {"const": "admitted"},
+            "observed_outcome": {"const": "admitted"},
+            "reference_receipt_ref": {"type": "string", "pattern": "^admission-receipt://[0-9a-f]{64}$"},
+            "independent_receipt_ref": {"type": "string", "pattern": "^admission-receipt://[0-9a-f]{64}$"},
+            "receipts_compatible": {"const": true}
+          }
+        }
+      }
+    },
+    "artifact_retrieval": {"const": "not-attempted/separately-authorized"},
+    "authority_boundary": {"const": "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"},
+    "claims": {"type": "array", "minItems": 5, "items": {"type": "string", "minLength": 1}},
+    "limitations": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}}
+  }
+}
