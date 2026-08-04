@@ -12,7 +12,7 @@ from typing import Any, Callable, Iterator
 from uuid import uuid4
 
 from . import __version__
-from .canonical import CHUNK_SIZE, CanonicalizationFailure, canonical_bytes, receipt_with_digest
+from .canonical import CHUNK_SIZE, CanonicalizationFailure, canonical_bytes, expected_receipt_id, receipt_with_digest
 from .extensions import ExtensionFailure, preserve_extensions
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
@@ -299,9 +299,9 @@ def validate_scan_receipt(receipt: dict[str, Any], policy: dict[str, Any] | None
         raise ValidationFailure("scan-receipt-time-invalid", "scan end time precedes start time", "$.ended_at")
     if receipt["excluded_entry_count"] != len(receipt["exclusions"]):
         raise ValidationFailure("scan-receipt-count-invalid", "excluded entry count does not match exclusions", "$.excluded_entry_count")
-    body = {key: value for key, value in receipt.items() if key not in {"schema_id", "receipt_id"}}
-    expected = receipt_with_digest("artifact-memory/scan-receipt/v2", "scan-receipt://sha-256/", body)
-    if receipt["receipt_id"] != expected["receipt_id"]:
+    if receipt["receipt_id"] != expected_receipt_id(
+        receipt, "scan-receipt://sha-256/"
+    ):
         raise ValidationFailure("scan-receipt-identity-invalid", "scan receipt identity does not match its canonical body")
     if policy is not None:
         validate_scan_policy(policy)

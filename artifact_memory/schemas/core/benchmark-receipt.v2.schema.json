@@ -15,13 +15,14 @@
     "corpus": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["file_count", "small_file_size_bytes", "large_file_size_bytes", "total_file_bytes", "depth", "repeated_content", "projection_record_count", "tree_digest", "source_record_set_digest"],
+      "required": ["file_count", "small_file_size_bytes", "large_file_size_bytes", "total_file_bytes", "directory_depth", "deepest_path_components", "repeated_content", "projection_record_count", "tree_digest", "source_record_set_digest"],
       "properties": {
         "file_count": {"type": "integer", "minimum": 1},
         "small_file_size_bytes": {"type": "integer", "minimum": 1},
         "large_file_size_bytes": {"type": "integer", "minimum": 1},
         "total_file_bytes": {"type": "integer", "minimum": 1},
-        "depth": {"type": "integer", "minimum": 1},
+        "directory_depth": {"type": "integer", "minimum": 1},
+        "deepest_path_components": {"type": "integer", "minimum": 2},
         "repeated_content": {"const": true},
         "projection_record_count": {"type": "integer", "minimum": 1},
         "tree_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
@@ -75,7 +76,23 @@
         "large_file_hash_exemption_bytes": {"const": 0}
       }
     },
-    "claims": {"type": "array", "minItems": 4, "items": {"type": "string", "minLength": 1}},
+    "claims": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim_id", "summary", "evidence_refs", "provenance_ref", "authenticity"],
+        "properties": {
+          "claim_id": {"enum": ["synthetic-corpus-coverage", "measured-resource-use", "distinct-bounded-outcomes", "complete-byte-hashing"]},
+          "summary": {"type": "string", "minLength": 1},
+          "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^\\$\\.[A-Za-z0-9_.]+$"}},
+          "provenance_ref": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+          "authenticity": {"const": "integrity-verified / issuer-unverified"}
+        }
+      }
+    },
     "authority_boundary": {"type": "string", "minLength": 1},
     "limitations": {"type": "array", "minItems": 5, "items": {"type": "string", "minLength": 1}}
   }

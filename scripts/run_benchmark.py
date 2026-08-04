@@ -29,11 +29,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--write", action="store_true")
     parser.add_argument("--format", choices=("json", "markdown"), default="json")
     args = parser.parse_args(argv)
     try:
         profile = validate_profile(load_json(args.fixture / "profile.json"))
         observed = run_baseline(profile)
+        if args.write:
+            (args.fixture / "expected-receipt.json").write_text(
+                json.dumps(observed, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            (args.fixture / "receipt.md").write_text(
+                render_baseline(observed), encoding="utf-8"
+            )
         if args.check:
             committed = load_json(args.fixture / "expected-receipt.json")
             validate_benchmark_receipt(committed)

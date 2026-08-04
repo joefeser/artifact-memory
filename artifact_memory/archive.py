@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from .canonical import canonical_bytes, receipt_with_digest, sha256_bytes, sha256_stream
+from .canonical import canonical_bytes, expected_receipt_id, receipt_with_digest, sha256_bytes, sha256_stream
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -129,9 +129,9 @@ def validate_archive_receipt(receipt: dict[str, Any]) -> None:
             "$.schema_id",
         )
     validate(receipt, load_schema("core", "archive-receipt.v2.schema.json"))
-    body = {key: value for key, value in receipt.items() if key not in {"schema_id", "receipt_id"}}
-    expected = receipt_with_digest(receipt["schema_id"], "archive-inspection-receipt://", body)
-    if receipt["receipt_id"] != expected["receipt_id"]:
+    if receipt["receipt_id"] != expected_receipt_id(
+        receipt, "archive-inspection-receipt://"
+    ):
         raise ValidationFailure("archive-receipt-id-mismatch", "archive receipt identity does not match its canonical body", "$.receipt_id")
     entries = receipt["entries"]
     paths = [entry["path"] for entry in entries]

@@ -6,9 +6,12 @@ Status: accepted for v0
 
 Artifact Memory benchmark receipts bind two kinds of evidence without
 pretending they are interchangeable. Synthetic profile dimensions, corpus
-identities, bounded outcomes, resource policy, claims, and limitations are
-cross-run invariants. Wall time, throughput, SQLite size, and traced Python
-allocation peaks are observations from one named runtime family.
+identities, bounded outcomes, resource policy, structured claims, and
+limitations are cross-run invariants. Each claim names its evidence fields,
+binds the synthetic profile digest as provenance, and remains explicitly
+`integrity-verified / issuer-unverified`. Wall time, throughput, SQLite size,
+and traced Python allocation peaks are observations from one named runtime
+family.
 
 Checked conformance reruns the full synthetic profile and requires the
 invariant projection to match. It validates the committed receipt identity and

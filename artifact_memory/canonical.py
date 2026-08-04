@@ -98,3 +98,13 @@ def receipt_with_digest(schema_id: str, id_prefix: str, body: dict[str, Any]) ->
         "receipt_id": id_prefix + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:"),
         **body,
     }
+
+
+def expected_receipt_id(receipt: dict[str, Any], id_prefix: str) -> str:
+    """Recompute a canonical digest receipt identifier from its nonidentity body."""
+    body = {
+        key: value
+        for key, value in receipt.items()
+        if key not in {"schema_id", "receipt_id"}
+    }
+    return receipt_with_digest(receipt["schema_id"], id_prefix, body)["receipt_id"]

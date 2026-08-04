@@ -15,7 +15,12 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 from .archive import inspect_zip
-from .canonical import canonical_bytes, receipt_with_digest, sha256_bytes
+from .canonical import (
+    canonical_bytes,
+    expected_receipt_id,
+    receipt_with_digest,
+    sha256_bytes,
+)
 from .projection import _create_sqlite, _record_lines, canonical_records, project_records
 from .scan import ScanLimits, scan_path
 from .scan_conformance import run_scan_conformance
@@ -28,6 +33,11 @@ MAX_BENCHMARK_BYTES = 512 * 1024 * 1024
 MAX_BENCHMARK_FILES = 100_000
 MAX_BENCHMARK_DEPTH = 64
 MAX_BENCHMARK_RECORDS = 100_000
+SUPPORTED_RUNTIME_FAMILIES = {
+    "Darwin": "darwin",
+    "Linux": "linux",
+    "Windows": "windows",
+}
 DEFAULT_PROFILE = {
     "schema_id": "artifact-memory/benchmark-profile/v1",
     "profile_id": "synthetic-v0-resource-baseline",
@@ -95,12 +105,20 @@ def validate_profile(profile: Any) -> dict[str, Any]:
     small_size = _positive_integer(profile, "small_file_size_bytes", MAX_BENCHMARK_BYTES)
     large_size = _positive_integer(profile, "large_file_size_bytes", MAX_BENCHMARK_BYTES)
     _positive_integer(profile, "depth", MAX_BENCHMARK_DEPTH)
-    _positive_integer(profile, "projection_record_count", MAX_BENCHMARK_RECORDS)
+    record_count = _positive_integer(
+        profile, "projection_record_count", MAX_BENCHMARK_RECORDS
+    )
     scan_byte_limit = _positive_integer(profile, "scan_byte_limit", MAX_BENCHMARK_BYTES)
-    _positive_integer(profile, "scan_entry_limit", MAX_BENCHMARK_FILES)
+    scan_entry_limit = _positive_integer(
+        profile, "scan_entry_limit", MAX_BENCHMARK_FILES
+    )
     _positive_integer(profile, "archive_max_entries", MAX_BENCHMARK_FILES)
-    _positive_integer(profile, "archive_max_uncompressed_bytes", MAX_BENCHMARK_BYTES)
-    _positive_integer(profile, "nested_archive_depth", MAX_BENCHMARK_DEPTH)
+    archive_max_uncompressed_bytes = _positive_integer(
+        profile, "archive_max_uncompressed_bytes", MAX_BENCHMARK_BYTES
+    )
+    nested_archive_depth = _positive_integer(
+        profile, "nested_archive_depth", MAX_BENCHMARK_DEPTH
+    )
     corpus_bytes = max(file_count - 1, 0) * small_size + large_size
     if corpus_bytes > MAX_BENCHMARK_BYTES:
         raise ValidationFailure(
@@ -113,6 +131,25 @@ def validate_profile(profile: Any) -> dict[str, Any]:
             "benchmark-profile-invalid",
             "scan byte limit must exercise a partial result",
             "$.scan_byte_limit",
+        )
+    if scan_entry_limit >= file_count:
+        raise ValidationFailure(
+            "benchmark-profile-invalid",
+            "scan entry limit must exercise a partial result",
+            "$.scan_entry_limit",
+        )
+    if file_count + record_count > MAX_BENCHMARK_FILES:
+        raise ValidationFailure(
+            "benchmark-profile-invalid",
+            "benchmark corpus and projection records exceed the aggregate file ceiling",
+            "$.projection_record_count",
+        )
+    _, _, nested_entry_size = _nested_archive_payload(nested_archive_depth)
+    if archive_max_uncompressed_bytes < nested_entry_size:
+        raise ValidationFailure(
+            "benchmark-profile-invalid",
+            "archive byte limit cannot admit the generated outer archive entry",
+            "$.archive_max_uncompressed_bytes",
         )
     return dict(profile)
 
@@ -129,7 +166,11 @@ def _make_corpus(
     large_file_size: int,
     depth: int,
 ) -> int:
-    repeated = _repeat_to_size(b"synthetic-repeat\n", small_file_size)
+    repeated = (
+        _repeat_to_size(b"synthetic-repeat\n", small_file_size)
+        if file_count > 1
+        else b""
+    )
     for index in range(file_count - 1):
         if index == 0:
             directory = root.joinpath(*(f"d{level:02d}" for level in range(depth)))
@@ -167,6 +208,20 @@ def _measure(action: Callable[[], T]) -> tuple[T, float, int]:
     return result, elapsed, peak
 
 
+def _nested_archive_payload(depth: int) -> tuple[bytes, str, int]:
+    payload = b"synthetic nested archive leaf\n"
+    entry_name = "leaf.txt"
+    embedded_size = len(payload)
+    for level in range(depth):
+        buffer = io.BytesIO()
+        embedded_size = len(payload)
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(entry_name, payload)
+        payload = buffer.getvalue()
+        entry_name = f"level-{level:02d}.zip"
+    return payload, entry_name, embedded_size
+
+
 def _nested_archive(
     path: Path,
     depth: int,
@@ -174,14 +229,7 @@ def _nested_archive(
     max_entries: int,
     max_uncompressed_bytes: int,
 ) -> dict[str, Any]:
-    payload = b"synthetic nested archive leaf\n"
-    entry_name = "leaf.txt"
-    for level in range(depth):
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr(entry_name, payload)
-        payload = buffer.getvalue()
-        entry_name = f"level-{level:02d}.zip"
+    payload, _, _ = _nested_archive_payload(depth)
     path.write_bytes(payload)
     receipt = inspect_zip(
         path,
@@ -240,8 +288,18 @@ def _synthetic_concurrent_change(temporary_root: Path) -> dict[str, str]:
     )
     receipt = run_scan_conformance(vector_path)
     observed = next(
-        case for case in receipt["cases"] if case["id"] == "concurrent-change"
+        (
+            case
+            for case in receipt["cases"]
+            if case["id"] == "concurrent-change"
+        ),
+        None,
     )
+    if observed is None:
+        raise ValidationFailure(
+            "benchmark-conformance-case-missing",
+            "scan conformance did not return the concurrent-change case",
+        )
     return {
         "evidence_kind": "synthetic-observer-event",
         "outcome": observed["outcome"],
@@ -253,9 +311,106 @@ def _profile_digest(profile: dict[str, Any]) -> str:
     return sha256_bytes(canonical_bytes(profile))
 
 
+def _runtime_family() -> str:
+    observed = platform.system()
+    runtime_family = SUPPORTED_RUNTIME_FAMILIES.get(observed)
+    if runtime_family is None:
+        raise ValidationFailure(
+            "benchmark-unsupported-platform",
+            f"benchmark runtime platform is unsupported: {observed or '<empty>'}",
+        )
+    return runtime_family
+
+
+def _bounded_outcome(
+    receipt: dict[str, Any],
+    *,
+    name: str,
+    expected_outcome: str,
+    expected_diagnostic: str,
+) -> dict[str, str]:
+    diagnostics = receipt.get("diagnostics")
+    if (
+        receipt.get("outcome") != expected_outcome
+        or not isinstance(diagnostics, list)
+        or not diagnostics
+        or not isinstance(diagnostics[0], dict)
+        or diagnostics[0].get("code") != expected_diagnostic
+    ):
+        raise ValidationFailure(
+            "benchmark-run-failed",
+            f"{name} did not produce the required bounded outcome",
+        )
+    return {
+        "outcome": expected_outcome,
+        "diagnostic": expected_diagnostic,
+    }
+
+
+def _benchmark_claims(receipt_body: dict[str, Any]) -> list[dict[str, Any]]:
+    corpus = receipt_body["corpus"]
+    profile_digest = receipt_body["profile_digest"]
+    authenticity = "integrity-verified / issuer-unverified"
+    return [
+        {
+            "claim_id": "synthetic-corpus-coverage",
+            "summary": (
+                f"the synthetic corpus contains {corpus['file_count']} files, "
+                f"one designated {corpus['large_file_size_bytes']}-byte file, "
+                f"{corpus['directory_depth']} directory levels, and repeated content"
+            ),
+            "evidence_refs": [
+                "$.corpus.file_count",
+                "$.corpus.large_file_size_bytes",
+                "$.corpus.directory_depth",
+                "$.corpus.repeated_content",
+            ],
+            "provenance_ref": profile_digest,
+            "authenticity": authenticity,
+        },
+        {
+            "claim_id": "measured-resource-use",
+            "summary": "scan, projection, and SQLite measurements include traced Python allocation peaks",
+            "evidence_refs": [
+                "$.measurements.scan_peak_traced_memory_bytes",
+                "$.measurements.projection_peak_traced_memory_bytes",
+                "$.measurements.sqlite_rebuild_peak_traced_memory_bytes",
+            ],
+            "provenance_ref": profile_digest,
+            "authenticity": authenticity,
+        },
+        {
+            "claim_id": "distinct-bounded-outcomes",
+            "summary": "resource limits, cancellation, unavailable roots, unstable observations, and nested archives retain distinct outcomes",
+            "evidence_refs": [
+                "$.bounded_outcomes.byte_limit",
+                "$.bounded_outcomes.entry_limit",
+                "$.bounded_outcomes.cancellation",
+                "$.bounded_outcomes.unavailable_root",
+                "$.bounded_outcomes.concurrent_change",
+                "$.bounded_outcomes.nested_archive",
+            ],
+            "provenance_ref": profile_digest,
+            "authenticity": authenticity,
+        },
+        {
+            "claim_id": "complete-byte-hashing",
+            "summary": "every admitted regular-file byte is hashed without a large-file exemption",
+            "evidence_refs": [
+                "$.measurements.hashing_bytes",
+                "$.corpus.total_file_bytes",
+                "$.resource_policy.large_file_hash_exemption_bytes",
+            ],
+            "provenance_ref": profile_digest,
+            "authenticity": authenticity,
+        },
+    ]
+
+
 def run_baseline(profile: dict[str, Any] | None = None) -> dict[str, Any]:
     """Run the bounded profile without exposing temporary machine paths."""
     profile = validate_profile(DEFAULT_PROFILE if profile is None else profile)
+    runtime_family = _runtime_family()
     file_count = profile["file_count"]
     small_size = profile["small_file_size_bytes"]
     large_size = profile["large_file_size_bytes"]
@@ -278,11 +433,33 @@ def run_baseline(profile: dict[str, Any] | None = None) -> dict[str, Any]:
         )
         if scan_receipt["outcome"] != "complete" or scanned_bytes != expected_bytes:
             raise ValidationFailure("benchmark-run-failed", "unbounded synthetic scan was incomplete")
+        file_paths = [
+            entry["path"]
+            for entry in manifest["entries"]
+            if entry["kind"] == "file"
+        ]
+        deepest_path_components = max(
+            len(relative_path.split("/")) for relative_path in file_paths
+        )
+        directory_depth = deepest_path_components - 1
 
         _, byte_limited = scan_path(root, ScanLimits(max_bytes=profile["scan_byte_limit"]))
         _, entry_limited = scan_path(root, ScanLimits(max_entries=profile["scan_entry_limit"]))
         _, cancelled = scan_path(root, ScanLimits(cancellation_check=lambda: True))
         _, missing = scan_path(temporary_root / "missing-root")
+        missing_diagnostics = missing.get("diagnostics")
+        if (
+            not isinstance(missing_diagnostics, list)
+            or not missing_diagnostics
+            or not isinstance(missing_diagnostics[0], dict)
+            or missing_diagnostics[0].get("code")
+            not in {"unreadable", "resolver-unavailable"}
+        ):
+            raise ValidationFailure(
+                "benchmark-run-failed",
+                "unavailable root did not produce the required bounded outcome",
+            )
+        missing_diagnostic = missing_diagnostics[0]["code"]
         concurrent = _synthetic_concurrent_change(temporary_root)
 
         records_dir = temporary_root / "records"
@@ -314,7 +491,7 @@ def run_baseline(profile: dict[str, Any] | None = None) -> dict[str, Any]:
 
     body = {
         "outcome": "complete",
-        "runtime_family": platform.system().lower(),
+        "runtime_family": runtime_family,
         "profile_id": profile["profile_id"],
         "profile_digest": _profile_digest(profile),
         "corpus": {
@@ -322,7 +499,8 @@ def run_baseline(profile: dict[str, Any] | None = None) -> dict[str, Any]:
             "small_file_size_bytes": small_size,
             "large_file_size_bytes": large_size,
             "total_file_bytes": expected_bytes,
-            "depth": profile["depth"],
+            "directory_depth": directory_depth,
+            "deepest_path_components": deepest_path_components,
             "repeated_content": True,
             "projection_record_count": record_count,
             "tree_digest": manifest["tree_digest"],
@@ -342,22 +520,30 @@ def run_baseline(profile: dict[str, Any] | None = None) -> dict[str, Any]:
             "projected_record_count": projection_receipt["record_count"],
         },
         "bounded_outcomes": {
-            "byte_limit": {
-                "outcome": byte_limited["outcome"],
-                "diagnostic": byte_limited["diagnostics"][0]["code"],
-            },
-            "entry_limit": {
-                "outcome": entry_limited["outcome"],
-                "diagnostic": entry_limited["diagnostics"][0]["code"],
-            },
-            "cancellation": {
-                "outcome": cancelled["outcome"],
-                "diagnostic": cancelled["diagnostics"][0]["code"],
-            },
-            "unavailable_root": {
-                "outcome": missing["outcome"],
-                "diagnostic": missing["diagnostics"][0]["code"],
-            },
+            "byte_limit": _bounded_outcome(
+                byte_limited,
+                name="byte limit",
+                expected_outcome="partial",
+                expected_diagnostic="resource-limit",
+            ),
+            "entry_limit": _bounded_outcome(
+                entry_limited,
+                name="entry limit",
+                expected_outcome="partial",
+                expected_diagnostic="resource-limit",
+            ),
+            "cancellation": _bounded_outcome(
+                cancelled,
+                name="cancellation",
+                expected_outcome="cancelled",
+                expected_diagnostic="cancelled",
+            ),
+            "unavailable_root": _bounded_outcome(
+                missing,
+                name="unavailable root",
+                expected_outcome="failed",
+                expected_diagnostic=missing_diagnostic,
+            ),
             "concurrent_change": concurrent,
             "nested_archive": nested,
         },
@@ -374,12 +560,6 @@ def run_baseline(profile: dict[str, Any] | None = None) -> dict[str, Any]:
             ],
             "large_file_hash_exemption_bytes": 0,
         },
-        "claims": [
-            "the synthetic corpus covers large counts, one multi-chunk file, deep paths, and repeated content",
-            "scan and SQLite projection rebuild measurements include traced Python allocation peaks",
-            "byte limits, entry limits, cancellation, unavailable roots, unstable observations, and nested archives retain distinct bounded outcomes",
-            "every admitted regular-file byte is hashed without a large-file exemption",
-        ],
         "authority_boundary": AUTHORITY_BOUNDARY,
         "limitations": [
             "timings and traced Python allocations are descriptive for this runner and corpus",
@@ -389,6 +569,7 @@ def run_baseline(profile: dict[str, Any] | None = None) -> dict[str, Any]:
             "no universal throughput, memory, scale, or capacity guarantee is made",
         ],
     }
+    body["claims"] = _benchmark_claims(body)
     receipt = receipt_with_digest(
         "artifact-memory/benchmark-receipt/v2", "benchmark-receipt://", body
     )
@@ -413,14 +594,19 @@ def validate_benchmark_receipt(receipt: dict[str, Any]) -> None:
         for key, value in receipt.items()
         if key not in {"schema_id", "receipt_id"}
     }
-    expected = receipt_with_digest(
-        receipt["schema_id"], "benchmark-receipt://", body
-    )
-    if receipt["receipt_id"] != expected["receipt_id"]:
+    if receipt["receipt_id"] != expected_receipt_id(
+        receipt, "benchmark-receipt://"
+    ):
         raise ValidationFailure(
             "benchmark-receipt-id-mismatch",
             "benchmark receipt identity does not match its canonical body",
             "$.receipt_id",
+        )
+    if receipt["claims"] != _benchmark_claims(body):
+        raise ValidationFailure(
+            "benchmark-claim-binding-invalid",
+            "benchmark claims do not match their profile and evidence references",
+            "$.claims",
         )
 
 
@@ -433,7 +619,8 @@ def render_baseline(receipt: dict[str, Any]) -> str:
         f"- Runtime family: `{receipt['runtime_family']}`\n"
         f"- Profile: `{receipt['profile_id']}`\n"
         f"- Files: {corpus['file_count']} ({corpus['total_file_bytes']} bytes)\n"
-        f"- Deepest synthetic path: {corpus['depth']} components\n"
+        f"- Deepest synthetic path: {corpus['deepest_path_components']} components "
+        f"({corpus['directory_depth']} directory levels)\n"
         f"- Projection records: {corpus['projection_record_count']}\n"
         f"- Scan: {measurements['scan_wall_microseconds']}µs, "
         f"{measurements['hashing_bytes_per_second']} bytes/s, "
