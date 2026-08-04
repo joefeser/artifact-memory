@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .canonical import expected_receipt_id, receipt_with_digest
+from .canonical import CanonicalizationFailure, expected_receipt_id, receipt_with_digest
 from .extensions import ExtensionFailure, preserve_extensions
 from .schema_resources import load_schema
 from .validator import ValidationFailure, load_json_bytes, validate
@@ -158,6 +158,15 @@ def _ssh_ed25519_fingerprint(encoded_key: str) -> str:
     return fingerprint
 
 
+def _require_canonical_owner_fingerprint(value: Any) -> str:
+    if not isinstance(value, str) or SSH_FINGERPRINT_PATTERN.fullmatch(value) is None:
+        raise ValidationFailure(
+            "release-candidate-owner-fingerprint-invalid",
+            "owner-published fingerprint must use canonical unpadded SHA-256 form",
+        )
+    return value
+
+
 def _matching_allowed_signer_lines(path: Path, expected_fingerprint: str) -> list[str]:
     """Select direct Ed25519 keys matching the manifest fingerprint."""
 
@@ -168,14 +177,7 @@ def _matching_allowed_signer_lines(path: Path, expected_fingerprint: str) -> lis
             "release-candidate-allowed-signers-invalid",
             "configured SSH allowed signers file could not be read as UTF-8 text",
         ) from exc
-    if (
-        not isinstance(expected_fingerprint, str)
-        or SSH_FINGERPRINT_PATTERN.fullmatch(expected_fingerprint) is None
-    ):
-        raise ValidationFailure(
-            "release-candidate-owner-fingerprint-invalid",
-            "owner-published fingerprint must use canonical unpadded SHA-256 form",
-        )
+    expected_fingerprint = _require_canonical_owner_fingerprint(expected_fingerprint)
     matches: list[str] = []
     for raw_line in lines:
         line = raw_line.strip()
@@ -233,9 +235,14 @@ def validate_release_candidate_verification_receipt(receipt: dict[str, Any]) -> 
         receipt,
         load_schema("core", "release-candidate-verification-receipt.v1.schema.json"),
     )
-    if receipt["receipt_id"] != expected_receipt_id(
-        receipt, RELEASE_VERIFICATION_RECEIPT_PREFIX
-    ):
+    try:
+        expected_id = expected_receipt_id(receipt, RELEASE_VERIFICATION_RECEIPT_PREFIX)
+    except CanonicalizationFailure as exc:
+        raise ValidationFailure(
+            "release-candidate-receipt-noncanonical",
+            "release verification receipt contains noncanonical content",
+        ) from exc
+    if receipt["receipt_id"] != expected_id:
         raise ValidationFailure(
             "release-candidate-receipt-identity-mismatch",
             "release verification receipt identity does not match its content",
@@ -306,14 +313,7 @@ def verify_checked_out_release_candidate(
             "release-candidate-tag-mismatch",
             "requested tag must match the v2 release manifest signature",
         )
-    if (
-        not isinstance(owner_fingerprint, str)
-        or SSH_FINGERPRINT_PATTERN.fullmatch(owner_fingerprint) is None
-    ):
-        raise ValidationFailure(
-            "release-candidate-owner-fingerprint-invalid",
-            "owner-published fingerprint must use canonical unpadded SHA-256 form",
-        )
+    owner_fingerprint = _require_canonical_owner_fingerprint(owner_fingerprint)
     manifest_fingerprint = manifest["signature"]["public_key_fingerprint"]
     if manifest_fingerprint != owner_fingerprint:
         raise ValidationFailure(
@@ -383,6 +383,11 @@ def verify_checked_out_release_candidate(
         final_head_commit = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=repository_root, text=True
         ).strip()
+        final_head_symbolic_name = subprocess.check_output(
+            ["git", "rev-parse", "--symbolic-full-name", "HEAD"],
+            cwd=repository_root,
+            text=True,
+        ).strip()
     except OSError as exc:
         raise ValidationFailure(
             "release-candidate-git-verification-failed",
@@ -398,7 +403,7 @@ def verify_checked_out_release_candidate(
             "release-candidate-tag-ref-changed",
             "release tag ref changed during verification",
         )
-    if head_symbolic_name != "HEAD":
+    if head_symbolic_name != "HEAD" or final_head_symbolic_name != "HEAD":
         raise ValidationFailure(
             "release-candidate-head-not-detached",
             "release verification requires a detached HEAD",

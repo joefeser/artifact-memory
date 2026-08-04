@@ -126,6 +126,7 @@ configure SSH signature verification with the owner-published release public
 key as described in `ssh-signing-key-policy.md`, then run:
 
 ```shell
+set -eu
 git clone --no-checkout https://github.com/joefeser/artifact-memory.git artifact-memory-public-check
 cd artifact-memory-public-check
 git fetch --tags --force

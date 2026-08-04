@@ -1,14 +1,17 @@
 import base64
 import copy
 import hashlib
+import io
 import json
 import shutil
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+from artifact_memory.cli import EXIT_INVALID, main
 from artifact_memory.release import (
     _signed_manifest_digest,
     _ssh_ed25519_fingerprint,
@@ -506,6 +509,28 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             validate_release_candidate_verification_receipt(receipt)
         self.assertEqual(failure.exception.code, "constraint-failed")
 
+    def test_receipt_cli_rejects_noncanonical_surrogate_without_traceback(self):
+        fixture = Path(__file__).resolve().parents[1] / (
+            "fixtures/synthetic/release/v0-release-candidate-verification-receipt.json"
+        )
+        receipt = json.loads(fixture.read_text(encoding="utf-8"))
+        receipt["limitations"][0] = "\ud800"
+        with tempfile.TemporaryDirectory() as temporary:
+            receipt_path = Path(temporary) / "receipt.json"
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = main(
+                    ["validate-release-candidate-receipt", str(receipt_path), "--json"]
+                )
+        self.assertEqual(result, EXIT_INVALID)
+        rendered = json.loads(output.getvalue())
+        self.assertEqual(rendered["outcome"], "rejected")
+        self.assertEqual(
+            rendered["diagnostics"][0]["code"],
+            "release-candidate-receipt-noncanonical",
+        )
+
     def test_verifier_rejects_tag_ref_change_during_verification(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -543,6 +568,44 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
                     )
             self.assertEqual(failure.exception.code, "release-candidate-tag-ref-changed")
+
+    def test_verifier_rejects_head_becoming_attached_during_verification(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_bytes = json.dumps(release_manifest()).encode("utf-8")
+            manifest_path = root / "release.json"
+            manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(root)
+            base_output = git_output_for(manifest_bytes)
+            symbolic_reads = 0
+
+            def attaching_output(args, **kwargs):
+                nonlocal symbolic_reads
+                if tuple(args[1:]) == ("rev-parse", "--symbolic-full-name", "HEAD"):
+                    symbolic_reads += 1
+                    value = "HEAD\n" if symbolic_reads == 1 else "refs/heads/main\n"
+                    return value if kwargs.get("text") else value.encode("utf-8")
+                return base_output(args, **kwargs)
+
+            verification = subprocess.CompletedProcess(
+                args=["git", "verify-tag"], returncode=0, stdout="", stderr=""
+            )
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.subprocess.run", return_value=verification),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    side_effect=attaching_output,
+                ),
+            ):
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    )
+            self.assertEqual(failure.exception.code, "release-candidate-head-not-detached")
 
     @unittest.skipUnless(shutil.which("git") and shutil.which("ssh-keygen"), "Git SSH tools required")
     def test_real_git_ssh_tag_verification_contract(self):
