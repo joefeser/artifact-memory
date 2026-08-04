@@ -15,7 +15,7 @@
     "corpus": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["file_count", "small_file_size_bytes", "large_file_size_bytes", "total_file_bytes", "directory_depth", "deepest_path_components", "repeated_content", "projection_record_count", "tree_digest", "source_record_set_digest"],
+      "required": ["file_count", "small_file_size_bytes", "large_file_size_bytes", "total_file_bytes", "directory_depth", "deepest_path_components", "repeated_content", "projection_record_count", "tree_digest", "projection_input"],
       "properties": {
         "file_count": {"type": "integer", "minimum": 1},
         "small_file_size_bytes": {"type": "integer", "minimum": 1},
@@ -26,7 +26,16 @@
         "repeated_content": {"const": true},
         "projection_record_count": {"type": "integer", "minimum": 1},
         "tree_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
-        "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+        "projection_input": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "generator_id", "record_set_digest"],
+          "properties": {
+            "kind": {"const": "generated-ephemeral"},
+            "generator_id": {"const": "artifact-memory/synthetic-benchmark-record-generator/v1"},
+            "record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+          }
+        }
       }
     },
     "measurements": {

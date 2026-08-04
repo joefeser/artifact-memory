@@ -13,6 +13,7 @@ from artifact_memory.benchmark import (
     MAX_BENCHMARK_DEPTH,
     MAX_BENCHMARK_FILES,
     MAX_BENCHMARK_RECORDS,
+    RECORD_GENERATOR_ID,
     _make_corpus,
     _synthetic_concurrent_change,
     invariant_projection,
@@ -55,6 +56,13 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(receipt["bounded_outcomes"]["nested_archive"]["recursion"], "not-attempted")
         self.assertEqual(receipt["measurements"]["hashing_bytes"], receipt["corpus"]["total_file_bytes"])
         self.assertEqual(receipt["resource_policy"]["large_file_hash_exemption_bytes"], 0)
+        self.assertEqual(
+            receipt["corpus"]["projection_input"]["kind"], "generated-ephemeral"
+        )
+        self.assertEqual(
+            receipt["corpus"]["projection_input"]["generator_id"],
+            RECORD_GENERATOR_ID,
+        )
 
     def test_profile_is_exact_and_bounded_before_allocating(self):
         for mutation in (
@@ -67,6 +75,7 @@ class BenchmarkTests(unittest.TestCase):
             lambda value: value.update(
                 file_count=60_000, projection_record_count=60_000
             ),
+            lambda value: value.update(projection_record_generator="unsupported"),
             lambda value: value.update(archive_max_uncompressed_bytes=1),
         ):
             profile = deepcopy(self._small_profile())
@@ -133,6 +142,10 @@ class BenchmarkTests(unittest.TestCase):
     def test_profile_schema_direct_bounds_match_runtime_constants(self):
         schema = load_schema("core", "benchmark-profile.v1.schema.json")
         properties = schema["properties"]
+        self.assertEqual(
+            properties["projection_record_generator"]["const"],
+            RECORD_GENERATOR_ID,
+        )
         self.assertEqual(properties["file_count"]["maximum"], MAX_BENCHMARK_FILES)
         self.assertEqual(
             properties["projection_record_count"]["maximum"],

@@ -5,7 +5,7 @@
   "$comment": "JSON Schema enforces direct resource ceilings. validate_profile() additionally enforces derived corpus-byte, partial-result, aggregate file/record, and generated nested-archive constraints that standard JSON Schema cannot express by comparing sibling values.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_id", "profile_id", "file_count", "small_file_size_bytes", "large_file_size_bytes", "depth", "projection_record_count", "scan_byte_limit", "scan_entry_limit", "archive_max_entries", "archive_max_uncompressed_bytes", "nested_archive_depth"],
+  "required": ["schema_id", "profile_id", "file_count", "small_file_size_bytes", "large_file_size_bytes", "depth", "projection_record_count", "projection_record_generator", "scan_byte_limit", "scan_entry_limit", "archive_max_entries", "archive_max_uncompressed_bytes", "nested_archive_depth"],
   "properties": {
     "schema_id": {"const": "artifact-memory/benchmark-profile/v1"},
     "profile_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
@@ -14,6 +14,7 @@
     "large_file_size_bytes": {"type": "integer", "minimum": 1, "maximum": 536870912},
     "depth": {"type": "integer", "minimum": 1, "maximum": 64},
     "projection_record_count": {"type": "integer", "minimum": 1, "maximum": 100000},
+    "projection_record_generator": {"const": "artifact-memory/synthetic-benchmark-record-generator/v1"},
     "scan_byte_limit": {"type": "integer", "minimum": 1, "maximum": 536870912},
     "scan_entry_limit": {"type": "integer", "minimum": 1, "maximum": 100000},
     "archive_max_entries": {"type": "integer", "minimum": 1, "maximum": 100000},

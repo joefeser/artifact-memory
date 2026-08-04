@@ -33,6 +33,7 @@ MAX_BENCHMARK_BYTES = 512 * 1024 * 1024
 MAX_BENCHMARK_FILES = 100_000
 MAX_BENCHMARK_DEPTH = 64
 MAX_BENCHMARK_RECORDS = 100_000
+RECORD_GENERATOR_ID = "artifact-memory/synthetic-benchmark-record-generator/v1"
 SUPPORTED_RUNTIME_FAMILIES = {
     "Darwin": "darwin",
     "Linux": "linux",
@@ -46,6 +47,7 @@ DEFAULT_PROFILE = {
     "large_file_size_bytes": 8 * 1024 * 1024,
     "depth": 32,
     "projection_record_count": 1_024,
+    "projection_record_generator": RECORD_GENERATOR_ID,
     "scan_byte_limit": 16_384,
     "scan_entry_limit": 16,
     "archive_max_entries": 16,
@@ -108,6 +110,12 @@ def validate_profile(profile: Any) -> dict[str, Any]:
     record_count = _positive_integer(
         profile, "projection_record_count", MAX_BENCHMARK_RECORDS
     )
+    if profile.get("projection_record_generator") != RECORD_GENERATOR_ID:
+        raise ValidationFailure(
+            "benchmark-profile-invalid",
+            "projection record generator is not supported",
+            "$.projection_record_generator",
+        )
     scan_byte_limit = _positive_integer(profile, "scan_byte_limit", MAX_BENCHMARK_BYTES)
     scan_entry_limit = _positive_integer(
         profile, "scan_entry_limit", MAX_BENCHMARK_FILES
@@ -504,7 +512,11 @@ def run_baseline_v2(profile: dict[str, Any] | None = None) -> dict[str, Any]:
             "repeated_content": True,
             "projection_record_count": record_count,
             "tree_digest": manifest["tree_digest"],
-            "source_record_set_digest": projection_receipt["source_record_set_digest"],
+            "projection_input": {
+                "kind": "generated-ephemeral",
+                "generator_id": profile["projection_record_generator"],
+                "record_set_digest": projection_receipt["source_record_set_digest"],
+            },
         },
         "measurements": {
             "scan_wall_microseconds": max(round(scan_seconds * 1_000_000), 1),

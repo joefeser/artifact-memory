@@ -39,7 +39,7 @@
         "$.corpus.directory_depth",
         "$.corpus.repeated_content"
       ],
-      "provenance_ref": "sha-256:41cf2179e4965b16c56ec59349fd88b96c4cd9b2eb767096cfd7b88c37f40893",
+      "provenance_ref": "sha-256:49f536783da580853bc341ab003568c3e5237728cbb5f49319a962dc13f1914f",
       "summary": "the synthetic corpus contains 1024 files, one designated 8388608-byte file, 32 directory levels, and repeated content"
     },
     {
@@ -50,7 +50,7 @@
         "$.measurements.projection_peak_traced_memory_bytes",
         "$.measurements.sqlite_rebuild_peak_traced_memory_bytes"
       ],
-      "provenance_ref": "sha-256:41cf2179e4965b16c56ec59349fd88b96c4cd9b2eb767096cfd7b88c37f40893",
+      "provenance_ref": "sha-256:49f536783da580853bc341ab003568c3e5237728cbb5f49319a962dc13f1914f",
       "summary": "scan, projection, and SQLite measurements include traced Python allocation peaks"
     },
     {
@@ -64,7 +64,7 @@
         "$.bounded_outcomes.concurrent_change",
         "$.bounded_outcomes.nested_archive"
       ],
-      "provenance_ref": "sha-256:41cf2179e4965b16c56ec59349fd88b96c4cd9b2eb767096cfd7b88c37f40893",
+      "provenance_ref": "sha-256:49f536783da580853bc341ab003568c3e5237728cbb5f49319a962dc13f1914f",
       "summary": "resource limits, cancellation, unavailable roots, unstable observations, and nested archives retain distinct outcomes"
     },
     {
@@ -75,7 +75,7 @@
         "$.corpus.total_file_bytes",
         "$.resource_policy.large_file_hash_exemption_bytes"
       ],
-      "provenance_ref": "sha-256:41cf2179e4965b16c56ec59349fd88b96c4cd9b2eb767096cfd7b88c37f40893",
+      "provenance_ref": "sha-256:49f536783da580853bc341ab003568c3e5237728cbb5f49319a962dc13f1914f",
       "summary": "every admitted regular-file byte is hashed without a large-file exemption"
     }
   ],
@@ -84,10 +84,14 @@
     "directory_depth": 32,
     "file_count": 1024,
     "large_file_size_bytes": 8388608,
+    "projection_input": {
+      "generator_id": "artifact-memory/synthetic-benchmark-record-generator/v1",
+      "kind": "generated-ephemeral",
+      "record_set_digest": "sha-256:12d864e19c2d664c40482a200573d85eba83c9dc3733aebf723069a51ab0e899"
+    },
     "projection_record_count": 1024,
     "repeated_content": true,
     "small_file_size_bytes": 4096,
-    "source_record_set_digest": "sha-256:12d864e19c2d664c40482a200573d85eba83c9dc3733aebf723069a51ab0e899",
     "total_file_bytes": 12578816,
     "tree_digest": "sha-256:ad54fe3f45c4a24aaff8f97cc77c4d3dde3f41e034ae99fbb4aea60c112aca21"
   },
@@ -100,21 +104,21 @@
   ],
   "measurements": {
     "hashing_bytes": 12578816,
-    "hashing_bytes_per_second": 19509471,
+    "hashing_bytes_per_second": 17530947,
     "projected_record_count": 1024,
-    "projection_peak_traced_memory_bytes": 3258703,
-    "projection_wall_microseconds": 444571,
-    "scan_peak_traced_memory_bytes": 2776287,
-    "scan_wall_microseconds": 644754,
+    "projection_peak_traced_memory_bytes": 3254145,
+    "projection_wall_microseconds": 494164,
+    "scan_peak_traced_memory_bytes": 2776237,
+    "scan_wall_microseconds": 717521,
     "scanned_entry_count": 1089,
     "sqlite_index_bytes": 1241088,
     "sqlite_rebuild_peak_traced_memory_bytes": 139591,
-    "sqlite_rebuild_wall_microseconds": 106440
+    "sqlite_rebuild_wall_microseconds": 111673
   },
   "outcome": "complete",
-  "profile_digest": "sha-256:41cf2179e4965b16c56ec59349fd88b96c4cd9b2eb767096cfd7b88c37f40893",
+  "profile_digest": "sha-256:49f536783da580853bc341ab003568c3e5237728cbb5f49319a962dc13f1914f",
   "profile_id": "synthetic-v0-resource-baseline",
-  "receipt_id": "benchmark-receipt://0836d5aa9c0e99f51640a5c0d520ebfe6f5f03225fc796b4dd404757856ad4e3",
+  "receipt_id": "benchmark-receipt://85ab3583b001b524c6bf9084e855063ed001df748a9475a1ef9a00d4f4ff686e",
   "resource_policy": {
     "archive_max_entries": 16,
     "archive_max_uncompressed_bytes": 1048576,

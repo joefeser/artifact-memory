@@ -6,6 +6,7 @@
   "large_file_size_bytes": 8388608,
   "depth": 32,
   "projection_record_count": 1024,
+  "projection_record_generator": "artifact-memory/synthetic-benchmark-record-generator/v1",
   "scan_byte_limit": 16384,
   "scan_entry_limit": 16,
   "archive_max_entries": 16,

@@ -20,6 +20,19 @@ on `schema_id`; a v2 caller that needs profile provenance binding supplies the
 expected profile or digest. Without that external input, validation proves
 only structural and internal integrity, not who selected the profile.
 
+The `fixtures/synthetic/benchmarks/v1/` directory is versioned for the
+`artifact-memory/benchmark-profile/v1` contract. It contains a
+`artifact-memory/benchmark-receipt/v2` expected receipt; consumers select that
+receipt schema from its `schema_id`, not from the directory suffix.
+
+Projection records used for timing are explicitly generated, ephemeral
+benchmark inputs—not durable canonical knowledge. The profile declares the
+versioned `artifact-memory/synthetic-benchmark-record-generator/v1`; the v2
+receipt binds that generator and the digest of the exact generated record set.
+Changing record-generation semantics requires a new generator identifier and
+updated checked evidence. The temporary records and SQLite projection remain
+replaceable after the receipt is produced.
+
 The v2 receipt separates reproducible facts from observations:
 
 - `profile_digest`, tree identity, record-set identity, corpus dimensions,
