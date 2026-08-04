@@ -19,6 +19,18 @@ An envelope with some resolvable and some unresolved record revisions returns
 Expired or malformed envelopes are rejected, and unsupported schemas remain
 explicit.
 
+Envelope-schema validation and bundled-record validation are deliberately two
+separate mandatory stages. `record_bundle` is structurally an array of objects
+because it may contain either supported knowledge-record version and unknown
+optional extension values must remain opaque. Schema validation of the
+envelope alone never admits those objects. Before admission, every receiver
+MUST select the supported knowledge-record schema from each item's `schema_id`,
+validate the complete record with no extra core fields, apply required-extension
+semantics, and verify the declared revision digest. An item that fails this
+stage is invalid for admission and produces a `bundled-record-invalid`
+quarantine receipt. This semantic rule is part of the v2 exchange contract,
+not an implementation convenience or an optional post-validation check.
+
 The receiver must supply its expected audience out of band; a mismatch is
 rejected before record admission. Bundled records may not exceed the envelope's
 handling sensitivity. A v1 record with no explicit sensitivity fails closed as

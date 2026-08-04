@@ -33,6 +33,13 @@ class ReaderFailure(Exception):
     pass
 
 
+def _invalid_bundled_record_id(record: Any) -> str:
+    candidate = record.get("record_id") if isinstance(record, dict) else None
+    if not isinstance(candidate, str) or RECORD_ID.fullmatch(candidate) is None:
+        return "record://invalid/bundled-record"
+    return candidate
+
+
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -577,7 +584,9 @@ def admit_bundle_v2(
             return _receipt_v2(
                 envelope_ref,
                 "quarantined",
-                unresolved_record_ids=list(declared),
+                unresolved_record_ids=sorted(
+                    set(declared) | {_invalid_bundled_record_id(record)}
+                ),
                 artifact_refs=artifact_refs,
                 diagnostics=[
                     {
@@ -619,7 +628,9 @@ def admit_bundle_v2(
             return _receipt_v2(
                 envelope_ref,
                 "quarantined",
-                unresolved_record_ids=list(declared),
+                unresolved_record_ids=sorted(
+                    set(declared) | {_invalid_bundled_record_id(record)}
+                ),
                 artifact_refs=artifact_refs,
                 diagnostics=[
                     {
@@ -633,7 +644,9 @@ def admit_bundle_v2(
             return _receipt_v2(
                 envelope_ref,
                 "quarantined",
-                unresolved_record_ids=list(declared),
+                unresolved_record_ids=sorted(
+                    set(declared) | {_invalid_bundled_record_id(record)}
+                ),
                 artifact_refs=artifact_refs,
                 diagnostics=[
                     {

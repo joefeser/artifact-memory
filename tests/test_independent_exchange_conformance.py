@@ -283,6 +283,42 @@ class IndependentExchangeConformanceTests(unittest.TestCase):
         self.assertEqual(independent, reference)
         self.assertEqual(independent["outcome"], "admitted")
 
+    def test_structurally_valid_envelope_requires_record_validation(self):
+        envelope = make_envelope_v2(
+            "system://synthetic-independent-receiver",
+            "schema-valid-invalid-record",
+            "2099-01-01T00:00:00Z",
+            [],
+            [],
+            record_bundle=[{}],
+        )
+        schema = load_schema("core", "exchange-envelope.v2.schema.json")
+        validate(envelope, schema)
+        exchange_contract = (ROOT / "docs/contracts/v0-exchange.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "every receiver\nMUST select the supported knowledge-record schema",
+            exchange_contract,
+        )
+        reference = admit_v2(
+            envelope,
+            SyntheticReplayLedger(),
+            expected_audience_ref=envelope["audience_ref"],
+            now="2026-08-03T00:00:00Z",
+        )
+        independent = admit_bundle_v2(
+            json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
+            expected_audience_ref=envelope["audience_ref"],
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(independent, reference)
+        self.assertEqual(independent["outcome"], "quarantined")
+        self.assertEqual(
+            independent["unresolved_record_ids"],
+            ["record://invalid/bundled-record"],
+        )
+
     def test_incomplete_embedded_bundle_is_quarantined(self):
         vectors = json.loads((FIXTURE / "vectors.json").read_text(encoding="utf-8"))
         first = vectors["record"]
