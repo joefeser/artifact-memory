@@ -98,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
     release_candidate = subparsers.add_parser("verify-release-candidate")
     release_candidate.add_argument("manifest", type=Path)
     release_candidate.add_argument("--tag", required=True)
+    release_candidate.add_argument("--repo", required=True, type=Path)
     release_candidate.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args(argv)
 
@@ -106,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_OK
     if args.command == "verify-release-candidate":
         try:
-            result = verify_checked_out_release_candidate(args.manifest, args.tag)
+            result = verify_checked_out_release_candidate(args.manifest, args.tag, args.repo)
         except ValidationFailure as exc:
             _receipt(
                 {"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]},

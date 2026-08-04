@@ -133,14 +133,17 @@ git verify-tag v0.1.0
 git checkout --detach v0.1.0
 git fsck --full --no-reflogs
 python -m pip install --no-deps .
-artifact-memory verify-release-candidate <release-manifest.json> --tag v0.1.0 --json
+artifact-memory verify-release-candidate <release-manifest.json> --tag v0.1.0 --repo . --json
 python tests/smoke_installed_package.py
 python -m unittest discover -s tests -v
 ```
 
 The executable candidate verifier fails unless the signed tag target, detached
 HEAD, manifest `release_id`, manifest source commit, manifest package version,
-and installed package version all identify `v0.1.0` / `0.1.0`. The
+and installed package version all identify `v0.1.0` / `0.1.0`; every Git call
+is scoped to the explicit checkout, the tag is confirmed as annotated, and the
+verified SSH fingerprint must exactly match the manifest. Its pass evidence
+includes that fingerprint and the signed manifest's key generation. The
 installed-package smoke runs the console script and packaged-schema checks from
 a temporary directory outside the source checkout.
 

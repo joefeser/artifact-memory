@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
@@ -11,6 +12,9 @@ from . import __version__
 from .extensions import ExtensionFailure, preserve_extensions
 from .schema_resources import load_schema
 from .validator import ValidationFailure, load_json, validate
+
+
+SSH_FINGERPRINT = re.compile(r"SHA256:[A-Za-z0-9+/]{20,}={0,2}")
 
 
 def validate_release_manifest(
@@ -100,25 +104,83 @@ def validate_release_candidate_identity(
     }
 
 
-def verify_checked_out_release_candidate(manifest_path: Path, tag: str) -> dict[str, str]:
+def _repository_root(repository: Path) -> Path:
+    try:
+        output = subprocess.check_output(
+            ["git", "-C", str(repository.resolve()), "rev-parse", "--show-toplevel"],
+            text=True,
+            stderr=subprocess.STDOUT,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValidationFailure(
+            "release-candidate-repository-invalid",
+            "release verification requires an explicit Git checkout",
+        ) from exc
+    return Path(output.strip()).resolve()
+
+
+def verify_checked_out_release_candidate(
+    manifest_path: Path,
+    tag: str,
+    repository: Path,
+) -> dict[str, str | bool]:
     manifest = load_json(manifest_path)
     if not isinstance(manifest, dict):
         raise ValidationFailure("release-candidate-manifest-invalid", "release manifest must be an object")
+    validate_release_manifest(manifest)
+    if manifest.get("schema_id") != "artifact-memory/release-manifest/v2":
+        raise ValidationFailure(
+            "release-candidate-schema-unsupported",
+            "release candidate identity verification requires a v2 release manifest",
+        )
+    if manifest.get("status") != "release" or manifest.get("signature", {}).get("tag") != tag:
+        raise ValidationFailure(
+            "release-candidate-tag-mismatch",
+            "requested tag must match the v2 release manifest signature",
+        )
+    repository_root = _repository_root(repository)
     try:
-        subprocess.run(
+        verification = subprocess.run(
             ["git", "verify-tag", "--raw", tag],
             check=True,
-            stdout=subprocess.DEVNULL,
+            cwd=repository_root,
+            text=True,
+            stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        head_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-        tag_commit = subprocess.check_output(["git", "rev-parse", f"{tag}^{{commit}}"], text=True).strip()
+        head_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repository_root, text=True
+        ).strip()
+        tag_commit = subprocess.check_output(
+            ["git", "rev-parse", f"{tag}^{{commit}}"], cwd=repository_root, text=True
+        ).strip()
+        tag_type = subprocess.check_output(
+            ["git", "cat-file", "-t", f"refs/tags/{tag}"], cwd=repository_root, text=True
+        ).strip()
     except (OSError, subprocess.CalledProcessError) as exc:
         raise ValidationFailure("release-candidate-git-verification-failed", "signed release tag or Git identity could not be verified") from exc
-    return validate_release_candidate_identity(
+    if tag_type != "tag":
+        raise ValidationFailure(
+            "release-candidate-tag-not-annotated",
+            "release tag must be an owner-signed annotated tag object",
+        )
+    fingerprints = set(SSH_FINGERPRINT.findall(f"{verification.stdout}\n{verification.stderr}"))
+    expected_fingerprint = manifest["signature"]["public_key_fingerprint"]
+    if fingerprints != {expected_fingerprint}:
+        raise ValidationFailure(
+            "release-candidate-signer-mismatch",
+            "verified SSH signer fingerprint must match the release manifest",
+        )
+    identity = validate_release_candidate_identity(
         manifest,
         tag=tag,
         head_commit=head_commit,
         tag_commit=tag_commit,
         package_version=__version__,
     )
+    return {
+        **identity,
+        "verified_signer_fingerprint": expected_fingerprint,
+        "signing_key_generation": manifest["signature"]["key_generation"],
+        "annotated_tag_verified": True,
+    }

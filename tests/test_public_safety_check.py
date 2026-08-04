@@ -194,6 +194,24 @@ class PublicSafetyCandidateReceiptTests(unittest.TestCase):
             self.assertEqual(inside.returncode, 1)
             self.assertIn("outside the audited repository", inside.stderr)
 
+            marker = ("pass" + "word") + "=synthetic-tag-message"
+            subprocess.run(
+                ["git", "tag", "-a", "synthetic-v1", "-m", marker],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            tagged = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "--candidate", candidate],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(tagged.returncode, 1)
+            self.assertIn("secret-like revision metadata: tag object", tagged.stderr)
+            self.assertNotIn("synthetic-tag-message", tagged.stderr)
+
     def test_cli_normalizes_git_failures_without_traceback(self):
         with (
             patch.object(

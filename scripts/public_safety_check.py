@@ -53,8 +53,9 @@ def history_entries(revisions: list[str] | None = None) -> dict[str, set[str]]:
     )
     for line in output.splitlines():
         parts = line.split(" ", 1)
+        entries.setdefault(parts[0], set())
         if len(parts) == 2:
-            entries.setdefault(parts[0], set()).add(parts[1])
+            entries[parts[0]].add(parts[1])
     return entries
 
 
@@ -131,7 +132,7 @@ def check_paths(history: dict[str, set[str]], current: list[str]) -> list[str]:
     return sorted(set(findings))
 
 
-def read_blobs(object_ids: list[str]) -> dict[str, bytes]:
+def read_objects(object_ids: list[str]) -> dict[str, tuple[str, bytes]]:
     if not object_ids:
         return {}
     process = subprocess.Popen(
@@ -144,7 +145,7 @@ def read_blobs(object_ids: list[str]) -> dict[str, bytes]:
     if process.returncode:
         raise RuntimeError(error.decode("utf-8", errors="replace").strip())
 
-    blobs = {}
+    objects = {}
     offset = 0
     for object_id in object_ids:
         header_end = output.find(b"\n", offset)
@@ -158,9 +159,16 @@ def read_blobs(object_ids: list[str]) -> dict[str, bytes]:
         size = int(size_text)
         content = output[offset : offset + size]
         offset += size + 1
-        if object_type == "blob":
-            blobs[object_id] = content
-    return blobs
+        objects[object_id] = (object_type, content)
+    return objects
+
+
+def read_blobs(object_ids: list[str]) -> dict[str, bytes]:
+    return {
+        object_id: content
+        for object_id, (object_type, content) in read_objects(object_ids).items()
+        if object_type == "blob"
+    }
 
 
 def check_historical_content(history: dict[str, set[str]]) -> list[str]:
@@ -169,12 +177,38 @@ def check_historical_content(history: dict[str, set[str]]) -> list[str]:
     blobs = read_blobs(list(history))
     findings = []
     for object_id, paths in history.items():
-        if object_id not in blobs or all(path == SCANNER_PATH for path in paths):
+        non_scanner_paths = sorted(path for path in paths if path != SCANNER_PATH)
+        if object_id not in blobs or (paths and not non_scanner_paths):
             continue
         text = blobs[object_id].decode("utf-8", errors="replace")
         if SECRET_LIKE.search(text):
-            path = sorted(path for path in paths if path != SCANNER_PATH)[0]
-            findings.append(f"secret-like historical content: object {object_id}, path {path}")
+            path_evidence = f", path {non_scanner_paths[0]}" if non_scanner_paths else ""
+            findings.append(f"secret-like historical content: object {object_id}{path_evidence}")
+    return findings
+
+
+def check_revision_metadata(
+    revisions: list[str] | None,
+    refs: list[dict[str, str]],
+) -> list[str]:
+    commit_ids = commits(revisions)
+    tag_refs = [item for item in refs if item["ref"].startswith("refs/tags/")]
+    object_ids = sorted(set(commit_ids) | {item["object_id"] for item in tag_refs})
+    objects = read_objects(object_ids)
+    findings = []
+    for object_id in object_ids:
+        object_record = objects.get(object_id)
+        if object_record is None:
+            continue
+        object_type, content = object_record
+        matching_refs = sorted(item["ref"] for item in tag_refs if item["object_id"] == object_id)
+        if object_type not in {"commit", "tag"} and not matching_refs:
+            continue
+        if SECRET_LIKE.search(content.decode("utf-8", errors="replace")):
+            ref_evidence = f", ref {matching_refs[0]}" if matching_refs else ""
+            findings.append(
+                f"secret-like revision metadata: {object_type} object {object_id}{ref_evidence}"
+            )
     return findings
 
 
@@ -225,12 +259,17 @@ def check_current_content(paths: list[str]) -> list[str]:
     return findings
 
 
-def scan(revisions: list[str] | None = None) -> tuple[dict[str, set[str]], list[str], list[str]]:
+def scan(
+    revisions: list[str] | None = None,
+    refs: list[dict[str, str]] | None = None,
+) -> tuple[dict[str, set[str]], list[str], list[str]]:
     history = history_entries(revisions)
     current = current_paths()
+    metadata_refs = public_refs() if refs is None else refs
     findings = (
         check_paths(history, current)
         + check_historical_content(history)
+        + check_revision_metadata(revisions, metadata_refs)
         + check_current_content(current)
     )
     return history, current, findings
@@ -246,7 +285,7 @@ def exact_candidate_receipt(candidate: str) -> tuple[dict[str, object], list[str
         raise ValueError("exact-candidate audit requires a clean index and worktree")
     refs = public_refs()
     revisions = [candidate, *(item["object_id"] for item in refs)]
-    history, current, findings = scan(revisions)
+    history, current, findings = scan(revisions, refs)
     if findings:
         return {}, findings
     body = {
