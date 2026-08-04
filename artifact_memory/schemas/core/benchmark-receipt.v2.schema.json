@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/benchmark-receipt/v2",
+  "title": "Artifact Memory synthetic benchmark receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "runtime_family", "profile_id", "profile_digest", "corpus", "measurements", "bounded_outcomes", "resource_policy", "claims", "authority_boundary", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/benchmark-receipt/v2"},
+    "receipt_id": {"type": "string", "pattern": "^benchmark-receipt://[0-9a-f]{64}$"},
+    "outcome": {"const": "complete"},
+    "runtime_family": {"enum": ["darwin", "linux", "windows"]},
+    "profile_id": {"type": "string", "minLength": 1},
+    "profile_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "corpus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_count", "small_file_size_bytes", "large_file_size_bytes", "total_file_bytes", "depth", "repeated_content", "projection_record_count", "tree_digest", "source_record_set_digest"],
+      "properties": {
+        "file_count": {"type": "integer", "minimum": 1},
+        "small_file_size_bytes": {"type": "integer", "minimum": 1},
+        "large_file_size_bytes": {"type": "integer", "minimum": 1},
+        "total_file_bytes": {"type": "integer", "minimum": 1},
+        "depth": {"type": "integer", "minimum": 1},
+        "repeated_content": {"const": true},
+        "projection_record_count": {"type": "integer", "minimum": 1},
+        "tree_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+        "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scan_wall_microseconds", "scan_peak_traced_memory_bytes", "hashing_bytes", "hashing_bytes_per_second", "projection_wall_microseconds", "projection_peak_traced_memory_bytes", "sqlite_rebuild_wall_microseconds", "sqlite_rebuild_peak_traced_memory_bytes", "sqlite_index_bytes", "scanned_entry_count", "projected_record_count"],
+      "properties": {
+        "scan_wall_microseconds": {"type": "integer", "minimum": 1},
+        "scan_peak_traced_memory_bytes": {"type": "integer", "minimum": 1},
+        "hashing_bytes": {"type": "integer", "minimum": 1},
+        "hashing_bytes_per_second": {"type": "integer", "minimum": 1},
+        "projection_wall_microseconds": {"type": "integer", "minimum": 1},
+        "projection_peak_traced_memory_bytes": {"type": "integer", "minimum": 1},
+        "sqlite_rebuild_wall_microseconds": {"type": "integer", "minimum": 1},
+        "sqlite_rebuild_peak_traced_memory_bytes": {"type": "integer", "minimum": 1},
+        "sqlite_index_bytes": {"type": "integer", "minimum": 1},
+        "scanned_entry_count": {"type": "integer", "minimum": 1},
+        "projected_record_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "bounded_outcomes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["byte_limit", "entry_limit", "cancellation", "unavailable_root", "concurrent_change", "nested_archive"],
+      "properties": {
+        "byte_limit": {"type": "object", "additionalProperties": false, "required": ["outcome", "diagnostic"], "properties": {"outcome": {"const": "partial"}, "diagnostic": {"const": "resource-limit"}}},
+        "entry_limit": {"type": "object", "additionalProperties": false, "required": ["outcome", "diagnostic"], "properties": {"outcome": {"const": "partial"}, "diagnostic": {"const": "resource-limit"}}},
+        "cancellation": {"type": "object", "additionalProperties": false, "required": ["outcome", "diagnostic"], "properties": {"outcome": {"const": "cancelled"}, "diagnostic": {"const": "cancelled"}}},
+        "unavailable_root": {"type": "object", "additionalProperties": false, "required": ["outcome", "diagnostic"], "properties": {"outcome": {"const": "failed"}, "diagnostic": {"enum": ["unreadable", "resolver-unavailable"]}}},
+        "concurrent_change": {"type": "object", "additionalProperties": false, "required": ["evidence_kind", "outcome", "diagnostic"], "properties": {"evidence_kind": {"const": "synthetic-observer-event"}, "outcome": {"const": "partial"}, "diagnostic": {"const": "unstable"}}},
+        "nested_archive": {"type": "object", "additionalProperties": false, "required": ["outcome", "accepted_entry_count", "recursion", "inspection_completeness"], "properties": {"outcome": {"const": "supported"}, "accepted_entry_count": {"const": 1}, "recursion": {"const": "not-attempted"}, "inspection_completeness": {"const": "complete"}}}
+      }
+    },
+    "resource_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["harness_max_bytes", "harness_max_files", "harness_max_depth", "harness_max_records", "scan_byte_limit", "scan_entry_limit", "archive_max_entries", "archive_max_uncompressed_bytes", "large_file_hash_exemption_bytes"],
+      "properties": {
+        "harness_max_bytes": {"type": "integer", "minimum": 1},
+        "harness_max_files": {"type": "integer", "minimum": 1},
+        "harness_max_depth": {"type": "integer", "minimum": 1},
+        "harness_max_records": {"type": "integer", "minimum": 1},
+        "scan_byte_limit": {"type": "integer", "minimum": 1},
+        "scan_entry_limit": {"type": "integer", "minimum": 1},
+        "archive_max_entries": {"type": "integer", "minimum": 1},
+        "archive_max_uncompressed_bytes": {"type": "integer", "minimum": 1},
+        "large_file_hash_exemption_bytes": {"const": 0}
+      }
+    },
+    "claims": {"type": "array", "minItems": 4, "items": {"type": "string", "minLength": 1}},
+    "authority_boundary": {"type": "string", "minLength": 1},
+    "limitations": {"type": "array", "minItems": 5, "items": {"type": "string", "minLength": 1}}
+  }
+}

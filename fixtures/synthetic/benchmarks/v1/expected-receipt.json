@@ -1,0 +1,65 @@
+{
+  "authority_boundary": "benchmark evidence grants no capacity guarantee, execution, mutation, deployment, spending, disclosure, or approval authority",
+  "bounded_outcomes": {
+    "byte_limit": {"diagnostic": "resource-limit", "outcome": "partial"},
+    "cancellation": {"diagnostic": "cancelled", "outcome": "cancelled"},
+    "concurrent_change": {"diagnostic": "unstable", "evidence_kind": "synthetic-observer-event", "outcome": "partial"},
+    "entry_limit": {"diagnostic": "resource-limit", "outcome": "partial"},
+    "nested_archive": {"accepted_entry_count": 1, "inspection_completeness": "complete", "outcome": "supported", "recursion": "not-attempted"},
+    "unavailable_root": {"diagnostic": "unreadable", "outcome": "failed"}
+  },
+  "claims": [
+    "the synthetic corpus covers large counts, one multi-chunk file, deep paths, and repeated content",
+    "scan and SQLite projection rebuild measurements include traced Python allocation peaks",
+    "byte limits, entry limits, cancellation, unavailable roots, unstable observations, and nested archives retain distinct bounded outcomes",
+    "every admitted regular-file byte is hashed without a large-file exemption"
+  ],
+  "corpus": {
+    "depth": 32,
+    "file_count": 1024,
+    "large_file_size_bytes": 8388608,
+    "projection_record_count": 1024,
+    "repeated_content": true,
+    "small_file_size_bytes": 4096,
+    "source_record_set_digest": "sha-256:12d864e19c2d664c40482a200573d85eba83c9dc3733aebf723069a51ab0e899",
+    "total_file_bytes": 12578816,
+    "tree_digest": "sha-256:ad54fe3f45c4a24aaff8f97cc77c4d3dde3f41e034ae99fbb4aea60c112aca21"
+  },
+  "limitations": [
+    "timings and traced Python allocations are descriptive for this runner and corpus",
+    "traced Python allocation peaks exclude operating-system cache and native-library allocation",
+    "synthetic unstable observation proves receipt behavior, not host filesystem race coverage",
+    "nested archive bytes remain opaque because v0 inspection does not recurse",
+    "no universal throughput, memory, scale, or capacity guarantee is made"
+  ],
+  "measurements": {
+    "hashing_bytes": 12578816,
+    "hashing_bytes_per_second": 17763480,
+    "projected_record_count": 1024,
+    "projection_peak_traced_memory_bytes": 3255718,
+    "projection_wall_microseconds": 489413,
+    "scan_peak_traced_memory_bytes": 2776287,
+    "scan_wall_microseconds": 708128,
+    "scanned_entry_count": 1089,
+    "sqlite_index_bytes": 1241088,
+    "sqlite_rebuild_peak_traced_memory_bytes": 139591,
+    "sqlite_rebuild_wall_microseconds": 113468
+  },
+  "outcome": "complete",
+  "profile_digest": "sha-256:41cf2179e4965b16c56ec59349fd88b96c4cd9b2eb767096cfd7b88c37f40893",
+  "profile_id": "synthetic-v0-resource-baseline",
+  "receipt_id": "benchmark-receipt://c9e626bf1a76bd86b9952f5f348120da2ac1e6cf4a3c5ff567376f1980ac2ec6",
+  "resource_policy": {
+    "archive_max_entries": 16,
+    "archive_max_uncompressed_bytes": 1048576,
+    "harness_max_bytes": 536870912,
+    "harness_max_depth": 64,
+    "harness_max_files": 100000,
+    "harness_max_records": 100000,
+    "large_file_hash_exemption_bytes": 0,
+    "scan_byte_limit": 16384,
+    "scan_entry_limit": 16
+  },
+  "runtime_family": "darwin",
+  "schema_id": "artifact-memory/benchmark-receipt/v2"
+}
