@@ -112,6 +112,15 @@ class PublicSafetyCandidateReceiptTests(unittest.TestCase):
                     ):
                         public_safety_check.public_refs()
 
+    def test_public_refs_validates_remote_head_before_excluding_it(self):
+        with patch.object(
+            public_safety_check.subprocess,
+            "check_output",
+            return_value="refs/remotes/origin/HEAD\tbad\n",
+        ):
+            with self.assertRaises(public_safety_check.PublicSafetyInvalidGitOutput):
+                public_safety_check.public_refs()
+
     def test_checked_synthetic_receipt_and_human_rendering(self):
         fixture = ROOT / "fixtures/synthetic/public-safety/v1"
         receipt = json.loads((fixture / "expected-receipt.json").read_text(encoding="utf-8"))

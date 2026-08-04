@@ -125,6 +125,19 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             "release-candidate-expected-signer-unavailable",
         )
 
+    def test_allowed_signer_parser_rejects_malformed_or_incomplete_records(self):
+        for record in ('owner@example.invalid namespaces="unterminated\n', "owner@example.invalid\n"):
+            with self.subTest(record=record):
+                with tempfile.TemporaryDirectory() as temporary:
+                    path = Path(temporary) / "allowed_signers"
+                    path.write_text(record, encoding="utf-8")
+                    with self.assertRaises(ValidationFailure) as failure:
+                        _matching_allowed_signer_lines(path, SYNTHETIC_FINGERPRINT)
+                self.assertEqual(
+                    failure.exception.code,
+                    "release-candidate-allowed-signers-invalid",
+                )
+
     def test_rejects_ambiguous_signed_manifest_trailers(self):
         trailer = "Artifact-Memory-Manifest-SHA256: sha-256:" + "0" * 64 + "\n"
         with self.assertRaises(ValidationFailure) as failure:

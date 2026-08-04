@@ -98,13 +98,13 @@ def public_refs() -> list[dict[str, str]]:
         if line.count("\t") != 1:
             raise PublicSafetyInvalidGitOutput("Git public ref output is invalid")
         ref, object_id = line.split("\t", 1)
-        if ref.startswith("refs/remotes/") and ref.endswith("/HEAD"):
-            continue
         if (
             PUBLIC_REF_PATTERN.fullmatch(ref) is None
             or GIT_OBJECT_ID_PATTERN.fullmatch(object_id) is None
         ):
             raise PublicSafetyInvalidGitOutput("Git public ref output is invalid")
+        if ref.startswith("refs/remotes/") and ref.endswith("/HEAD"):
+            continue
         refs.append({"ref": ref, "object_id": object_id})
     return sorted(refs, key=lambda item: item["ref"])
 

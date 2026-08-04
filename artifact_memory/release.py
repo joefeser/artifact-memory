@@ -214,10 +214,16 @@ def _matching_allowed_signer_lines(
             continue
         try:
             fields = shlex.split(line, comments=False, posix=True)
-        except ValueError:
-            continue
+        except ValueError as exc:
+            raise ValidationFailure(
+                "release-candidate-allowed-signers-invalid",
+                "configured SSH allowed signers file contains malformed syntax",
+            ) from exc
         if len(fields) < 3:
-            continue
+            raise ValidationFailure(
+                "release-candidate-allowed-signers-invalid",
+                "configured SSH allowed signers file contains an incomplete record",
+            )
         key_index = 1
         cert_authority = False
         while key_index < len(fields):
