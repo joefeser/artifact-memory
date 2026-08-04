@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-import threading
 from pathlib import Path
 from typing import Any
 
 from .canonical import canonical_bytes, receipt_with_digest
+from .conformance_helpers import SyntheticReplayLedger
 from .exchange import AUTHORITY_BOUNDARY, admit_v2 as _runtime_admit_v2, make_envelope_v2
 from .schema_resources import load_schema
 from .validator import ValidationFailure, load_json, validate
@@ -23,22 +23,7 @@ OUTCOMES = (
 )
 
 
-class _SyntheticReplayLedger:
-    """Process-local conformance fixture; production callers must inject durability."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._seen: set[str] = set()
-
-    def claim(self, envelope_ref: str) -> bool:
-        with self._lock:
-            if envelope_ref in self._seen:
-                return False
-            self._seen.add(envelope_ref)
-            return True
-
-
-def _admit_v2_fixture(envelope: dict[str, Any], replay_ledger: _SyntheticReplayLedger, **kwargs: Any) -> dict[str, Any]:
+def _admit_v2_fixture(envelope: dict[str, Any], replay_ledger: SyntheticReplayLedger, **kwargs: Any) -> dict[str, Any]:
     """Exercise runtime admission with an explicit synthetic ledger dependency."""
     return _runtime_admit_v2(envelope, replay_ledger, **kwargs)
 
@@ -92,7 +77,7 @@ def run_exchange_conformance(fixture: Path) -> dict[str, Any]:
     )
     admitted = _admit_v2_fixture(
         admitted_envelope,
-        _SyntheticReplayLedger(),
+        SyntheticReplayLedger(),
         expected_audience_ref=common["audience_ref"],
         now=vectors["evaluation_time"],
     )
@@ -106,7 +91,7 @@ def run_exchange_conformance(fixture: Path) -> dict[str, Any]:
     )
     rejected = _admit_v2_fixture(
         expired_envelope,
-        _SyntheticReplayLedger(),
+        SyntheticReplayLedger(),
         expected_audience_ref=common["audience_ref"],
         now=vectors["evaluation_time"],
     )
@@ -121,7 +106,7 @@ def run_exchange_conformance(fixture: Path) -> dict[str, Any]:
     )
     quarantined = _admit_v2_fixture(
         contradictory_envelope,
-        _SyntheticReplayLedger(),
+        SyntheticReplayLedger(),
         expected_audience_ref=common["audience_ref"],
         now=vectors["evaluation_time"],
     )
@@ -136,14 +121,14 @@ def run_exchange_conformance(fixture: Path) -> dict[str, Any]:
     )
     partially_resolved = _admit_v2_fixture(
         partial_envelope,
-        _SyntheticReplayLedger(),
+        SyntheticReplayLedger(),
         expected_audience_ref=common["audience_ref"],
         now=vectors["evaluation_time"],
     )
 
     unsupported = _admit_v2_fixture(
         admitted_envelope,
-        _SyntheticReplayLedger(),
+        SyntheticReplayLedger(),
         expected_audience_ref=common["audience_ref"],
         supported_schema=False,
     )
@@ -157,7 +142,7 @@ def run_exchange_conformance(fixture: Path) -> dict[str, Any]:
     }
     duplicate = None
     for expected_outcome, (replay_envelope, options) in replay_vectors.items():
-        ledger = _SyntheticReplayLedger()
+        ledger = SyntheticReplayLedger()
         first_attempt = _admit_v2_fixture(
             replay_envelope,
             ledger,
@@ -201,7 +186,7 @@ def run_exchange_conformance(fixture: Path) -> dict[str, Any]:
     )
     protected_receipt = _admit_v2_fixture(
         protected_envelope,
-        _SyntheticReplayLedger(),
+        SyntheticReplayLedger(),
         expected_audience_ref=common["audience_ref"],
         now=vectors["evaluation_time"],
     )

@@ -44,6 +44,12 @@ bundle manifest, six admission outcomes, replay behavior, and checked
 contradictory/replayed vectors. Exchange grants no authority and never carries
 bearer credentials.
 
+`independent-exchange-vectors.v1.schema.json` and
+`independent-exchange-conformance-receipt.v1.schema.json` define the issue #23
+reference-sender to stdlib-only receiver fixture. The receipt binds compatible
+v2 admission receipts, optional preservation, required fail-closed behavior,
+and the separately authorized artifact-retrieval boundary.
+
 `adapter-manifest.v1.schema.json`, `adapter-receipt.v1.schema.json`, and
 `adapter-manifest-conformance-receipt.v1.schema.json` define the issue #11
 capability declaration, typed success/failure receipts, and checked synthetic

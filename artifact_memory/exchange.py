@@ -21,7 +21,7 @@ _PRIVATE_KEY_HEADER = re.compile(
     re.IGNORECASE,
 )
 _TOKEN_VALUE = re.compile(
-    r"(?:gh[opusr]_[A-Za-z0-9_]{20,}|github" + r"_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})"
+    r"(?:gh[opusr]_[A-Za-z0-9_]{20,}|github" + r"_pat_[A-Za-z0-9_]{20,}|sk[-_][A-Za-z0-9_-]{20,})"
 )
 _BEARER_VALUE = re.compile(
     r"(?:authorization\s*:\s*)?bearer\s+[A-Za-z0-9._~+/=-]{16,}",
@@ -93,9 +93,9 @@ def _contains_protected_material(value: Any) -> bool:
     if isinstance(value, list):
         return any(_contains_protected_material(item) for item in value)
     return isinstance(value, str) and (
-        _BEARER_VALUE.fullmatch(value) is not None
+        _BEARER_VALUE.search(value) is not None
         or _PRIVATE_KEY_HEADER.search(value) is not None
-        or _TOKEN_VALUE.fullmatch(value) is not None
+        or _TOKEN_VALUE.search(value) is not None
     )
 
 

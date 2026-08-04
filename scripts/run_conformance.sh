@@ -16,6 +16,7 @@ python3 scripts/run_manifest_conformance.py --check >/dev/null
 python3 scripts/run_archive_conformance.py --check >/dev/null
 python3 scripts/run_extension_conformance.py --check >/dev/null
 python3 scripts/run_exchange_conformance.py --check >/dev/null
+python3 scripts/run_independent_exchange_conformance.py --check >/dev/null
 python3 scripts/run_adapter_manifest_conformance.py --check >/dev/null
 python3 scripts/run_tracemap_failure_conformance.py --check >/dev/null
 python3 scripts/run_vault_intake_conformance.py --check >/dev/null

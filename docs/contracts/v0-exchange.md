@@ -19,6 +19,18 @@ An envelope with some resolvable and some unresolved record revisions returns
 Expired or malformed envelopes are rejected, and unsupported schemas remain
 explicit.
 
+Envelope-schema validation and bundled-record validation are deliberately two
+separate mandatory stages. `record_bundle` is structurally an array of objects
+because it may contain either supported knowledge-record version and unknown
+optional extension values must remain opaque. Schema validation of the
+envelope alone never admits those objects. Before admission, every receiver
+MUST select the supported knowledge-record schema from each item's `schema_id`,
+validate the complete record with no extra core fields, apply required-extension
+semantics, and verify the declared revision digest. An item that fails this
+stage is invalid for admission and produces a `bundled-record-invalid`
+quarantine receipt. This semantic rule is part of the v2 exchange contract,
+not an implementation convenience or an optional post-validation check.
+
 The receiver must supply its expected audience out of band; a mismatch is
 rejected before record admission. Bundled records may not exceed the envelope's
 handling sensitivity. A v1 record with no explicit sensitivity fails closed as
@@ -28,8 +40,12 @@ envelope handling policy.
 
 Bearer credentials are prohibited in envelopes. The reference admission
 boundary examines values without interpreting opaque extension keys and rejects
-private-key headers, token-shaped bearer/header values, and recognized token
-prefixes without echoing them into receipts. Receipts contain only stable diagnostics, admitted
+private-key headers, token-shaped bearer/header values, recognized GitHub token
+prefixes, and secret-key prefixes formed by `sk` followed by either `-` or `_`,
+without echoing them into receipts. Detection applies when a recognized token
+is embedded in a larger string as well as when it is the whole value. This is a
+deliberate pre-v0 security tightening: senders must not rely on
+credential-shaped opaque values round-tripping through exchange. Receipts contain only stable diagnostics, admitted
 and unresolved record IDs, artifact references, and the retrieval/authority
 boundary.
 
@@ -45,5 +61,8 @@ authority is not hidden in this envelope or receipt.
 
 The checked fixture under `fixtures/synthetic/exchange/v2/` independently
 replays all six outcomes, including contradictory and repeated input, and
-produces machine- and human-readable receipts. It does not establish
-cross-party authenticity or #23 independent implementation interoperability.
+produces machine- and human-readable receipts. The separate issue #23 fixture
+under `fixtures/synthetic/exchange/independent-v1/` proves compatible v2
+receipts across the reference receiver and a materially separate stdlib-only
+receiver for the complete embedded-bundle extension seam. Neither fixture
+establishes cross-party authenticity or trust.
