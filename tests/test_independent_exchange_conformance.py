@@ -354,6 +354,97 @@ class IndependentExchangeConformanceTests(unittest.TestCase):
             ["record://invalid/bundled-record", later_record_id],
         )
 
+    def test_schema_invalid_envelope_shapes_match_reference_rejection(self):
+        cases = [
+            ("invalid-audience", "", "2099-01-01T00:00:00Z", []),
+            ("invalid-audience-type", 7, "2099-01-01T00:00:00Z", []),
+            ("invalid-expiry-shape", "system://synthetic-independent-receiver", 7, []),
+            (
+                "non-object-record-bundle",
+                "system://synthetic-independent-receiver",
+                "2099-01-01T00:00:00Z",
+                ["not-an-object"],
+            ),
+        ]
+        for correlation_id, audience_ref, expires_at, record_bundle in cases:
+            with self.subTest(correlation_id=correlation_id):
+                envelope = make_envelope_v2(
+                    audience_ref,
+                    correlation_id,
+                    expires_at,
+                    [],
+                    [],
+                    record_bundle=record_bundle,
+                )
+                reference = admit_v2(
+                    envelope,
+                    SyntheticReplayLedger(),
+                    expected_audience_ref=audience_ref,
+                    now="2026-08-03T00:00:00Z",
+                )
+                independent = admit_bundle_v2(
+                    json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
+                    expected_audience_ref=audience_ref,
+                    now="2026-08-03T00:00:00Z",
+                )
+                self.assertEqual(independent, reference)
+                self.assertEqual(independent["outcome"], "rejected")
+                self.assertEqual(
+                    independent["diagnostics"][0]["code"], "invalid-envelope"
+                )
+
+    def test_conflicting_manifest_declarations_preserve_record_identity(self):
+        record_id = "record://synthetic/conflicting-declaration"
+        envelope = make_envelope_v2(
+            "system://synthetic-independent-receiver",
+            "conflicting-manifest-declarations",
+            "2099-01-01T00:00:00Z",
+            [
+                {"record_id": record_id, "revision_digest": "sha-256:" + "0" * 64},
+                {"record_id": record_id, "revision_digest": "sha-256:" + "1" * 64},
+            ],
+            [],
+        )
+        reference = admit_v2(
+            envelope,
+            SyntheticReplayLedger(),
+            expected_audience_ref=envelope["audience_ref"],
+            now="2026-08-03T00:00:00Z",
+        )
+        independent = admit_bundle_v2(
+            json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
+            expected_audience_ref=envelope["audience_ref"],
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(independent, reference)
+        self.assertEqual(independent["unresolved_record_ids"], [record_id])
+
+    def test_malformed_v1_record_cannot_escape_quarantine_diagnostics(self):
+        record_id = "record://synthetic/malformed-v1"
+        malformed_record = {
+            "schema_id": "artifact-memory/knowledge-record/v1",
+            "record_id": record_id,
+            "extensions": [],
+        }
+        envelope = make_envelope_v2(
+            "system://synthetic-independent-receiver",
+            "malformed-v1-record",
+            "2099-01-01T00:00:00Z",
+            [],
+            [],
+            record_bundle=[malformed_record],
+        )
+        independent = admit_bundle_v2(
+            json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
+            expected_audience_ref=envelope["audience_ref"],
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(independent["outcome"], "quarantined")
+        self.assertEqual(independent["unresolved_record_ids"], [record_id])
+        self.assertEqual(
+            independent["diagnostics"][0]["code"], "bundled-record-invalid"
+        )
+
     def test_incomplete_embedded_bundle_is_quarantined(self):
         vectors = json.loads((FIXTURE / "vectors.json").read_text(encoding="utf-8"))
         first = vectors["record"]

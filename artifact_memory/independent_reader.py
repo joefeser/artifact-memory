@@ -415,6 +415,16 @@ def admit_bundle_v2(
             "invalid-envelope",
             "exchange envelope does not satisfy the v2 contract",
         )
+    if (
+        not isinstance(envelope.get("audience_ref"), str)
+        or not envelope["audience_ref"]
+        or not isinstance(envelope.get("expires_at"), str)
+    ):
+        return _rejected_v2(
+            envelope_ref,
+            "invalid-envelope",
+            "exchange envelope does not satisfy the v2 contract",
+        )
     if envelope.get("envelope_id") != envelope_ref:
         return _rejected_v2(
             envelope_ref,
@@ -533,6 +543,7 @@ def admit_bundle_v2(
         )
 
     declared: dict[str, str] = {}
+    contradictory: set[str] = set()
     for item in record_refs:
         if (
             not isinstance(item, dict)
@@ -542,32 +553,15 @@ def admit_bundle_v2(
             or not isinstance(item.get("revision_digest"), str)
             or REVISION_DIGEST.fullmatch(item["revision_digest"]) is None
         ):
-            return _receipt_v2(
+            return _rejected_v2(
                 envelope_ref,
-                "quarantined",
-                diagnostics=[
-                    {
-                        "code": "contradictory-bundle",
-                        "message": "bundle declarations or bytes contradict each other",
-                    }
-                ],
-                artifact_refs=artifact_refs,
+                "invalid-envelope",
+                "exchange envelope does not satisfy the v2 contract",
             )
         prior = declared.get(item["record_id"])
         if prior is not None and prior != item["revision_digest"]:
-            return _receipt_v2(
-                envelope_ref,
-                "quarantined",
-                diagnostics=[
-                    {
-                        "code": "contradictory-bundle",
-                        "message": "bundle declarations or bytes contradict each other",
-                    }
-                ],
-                artifact_refs=artifact_refs,
-                extensions=preserved_extensions,
-            )
-        if prior is None:
+            contradictory.add(item["record_id"])
+        elif prior is None:
             declared[item["record_id"]] = item["revision_digest"]
 
     record_bundle = envelope.get("record_bundle", [])
@@ -577,22 +571,21 @@ def admit_bundle_v2(
             "invalid-envelope",
             "exchange envelope does not satisfy the v2 contract",
         )
+    if not all(isinstance(record, dict) for record in record_bundle):
+        return _rejected_v2(
+            envelope_ref,
+            "invalid-envelope",
+            "exchange envelope does not satisfy the v2 contract",
+        )
     bundled: set[str] = set()
-    contradictory: set[str] = set()
     invalid_bundle_ids: set[str] = set()
     invalid_bundle_codes: set[str] = set()
     handling_conflict = False
     sensitivity_rank = {"public": 0, "private": 1, "restricted": 2}
     for record in record_bundle:
-        if not isinstance(record, dict):
-            candidate_id = _bundled_record_id_or_invalid(record)
-            invalid_bundle_ids.add(candidate_id)
-            invalid_bundle_codes.add("invalid-record")
-            contradictory.add(candidate_id)
-            continue
+        extensions = record.get("extensions", {})
         try:
             _validate_record(record)
-            extensions = record.get("extensions", {})
             if not isinstance(extensions, dict):
                 raise ReaderFailure("record extensions must be an object")
             if any(
@@ -609,6 +602,7 @@ def admit_bundle_v2(
                 failure_code = "required-extension-unsupported"
             elif (
                 record.get("schema_id") == "artifact-memory/knowledge-record/v1"
+                and isinstance(extensions, dict)
                 and any(
                     isinstance(declaration, dict)
                     and declaration.get("required") is True
