@@ -74,12 +74,18 @@ def _validate_selection(selection: Any) -> datetime:
         or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in exclusions.values())
     ):
         raise ContextReaderFailure("selection exclusion counts are invalid")
-    if "revocation" in exclusions and selection.get("revocation_policy") != "validated-tombstone-suppression":
-        raise ContextReaderFailure("revocation selection policy is invalid")
+    revocation_fields_present = {
+        "revocation" in exclusions,
+        "revocation_policy" in selection,
+        "revocation_receipt_refs" in selection,
+    }
+    if len(revocation_fields_present) != 1:
+        raise ContextReaderFailure("revocation selection fields must appear together")
     if "revocation_policy" in selection and selection["revocation_policy"] != "validated-tombstone-suppression":
         raise ContextReaderFailure("revocation selection policy is invalid")
     if "revocation_receipt_refs" in selection and (
         not isinstance(selection["revocation_receipt_refs"], list)
+        or not selection["revocation_receipt_refs"]
         or any(not isinstance(value, str) or not value for value in selection["revocation_receipt_refs"])
         or selection["revocation_receipt_refs"] != sorted(set(selection["revocation_receipt_refs"]))
     ):

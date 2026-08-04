@@ -18,7 +18,7 @@
     "authority_boundary": {"const": "candidate admission grants no execution, disclosure, routing, mutation, merge, deployment, spending, credential, declassification, or approval authority"}
   },
   "allOf": [
-    {"if": {"properties": {"outcome": {"const": "accepted"}}, "required": ["outcome"]}, "then": {"required": ["result_record_ref"], "properties": {"diagnostics": {"maxItems": 0}}}},
+    {"if": {"properties": {"outcome": {"const": "accepted"}}, "required": ["outcome"]}, "then": {"required": ["result_record_ref"], "properties": {"result_record_ref": {"type": "object"}, "diagnostics": {"maxItems": 0}}}},
     {"if": {"properties": {"outcome": {"enum": ["rejected", "quarantined", "duplicate", "stale", "unsupported", "conflict"]}}, "required": ["outcome"]}, "then": {"properties": {"result_record_ref": {"const": null}, "diagnostics": {"minItems": 1}}}}
   ]
 }

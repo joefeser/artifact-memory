@@ -196,6 +196,7 @@ def _record_revision(
     schema_name = {
         "artifact-memory/knowledge-record/v1": "knowledge-record.v1.schema.json",
         "artifact-memory/knowledge-record/v2": "knowledge-record.v2.schema.json",
+        "artifact-memory/knowledge-record/v3": "knowledge-record.v3.schema.json",
     }.get(schema_id)
     if schema_name is None:
         raise ValidationFailure("unsupported-record", "bundled record schema is unsupported")

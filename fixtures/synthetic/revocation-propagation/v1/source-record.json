@@ -1,0 +1,11 @@
+{
+  "artifact_refs": ["artifact://synthetic/order-sample"],
+  "extensions": {"https://example.invalid/synthetic/v1": {"fixture": true}},
+  "lifecycle": "accepted",
+  "meaning": {"labels": ["synthetic", "conformance"], "summary": "Synthetic order content is registered without granting authority."},
+  "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/contracts/v0"}],
+  "record_id": "record://synthetic/record-0001",
+  "record_type": "note",
+  "schema_id": "artifact-memory/knowledge-record/v1",
+  "sensitivity": "public"
+}

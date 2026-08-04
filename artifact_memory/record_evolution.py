@@ -61,8 +61,8 @@ def build_candidate(
 ) -> dict[str, Any]:
     """Build one digest-bound draft candidate without admitting it."""
     validate(candidate_record, _knowledge_schema(candidate_record))
-    if candidate_record["schema_id"] != "artifact-memory/knowledge-record/v2":
-        raise ValidationFailure("candidate-schema-unsupported", "candidate records require knowledge-record/v2")
+    if candidate_record["schema_id"] != "artifact-memory/knowledge-record/v3":
+        raise ValidationFailure("candidate-schema-unsupported", "candidate records require knowledge-record/v3")
     if candidate_record["lifecycle"] != "draft":
         raise ValidationFailure("candidate-lifecycle-invalid", "candidate records must remain draft before admission")
     sources = _source_refs(source_record_refs)
@@ -145,9 +145,10 @@ def admit_candidate(
     authenticate an owner, or authorize any mutation outside the returned objects.
     """
     validate(candidate, load_schema("core", "knowledge-candidate.v1.schema.json"))
-    if candidate["candidate_id"] != _candidate_identity(_candidate_body(candidate))[0]:
+    candidate_id, candidate_digest = _candidate_identity(_candidate_body(candidate))
+    if candidate["candidate_id"] != candidate_id:
         raise ValidationFailure("candidate-identity-mismatch", "candidate identity does not match its canonical body")
-    if candidate["candidate_revision_digest"] != _candidate_identity(_candidate_body(candidate))[1]:
+    if candidate["candidate_revision_digest"] != candidate_digest:
         raise ValidationFailure("candidate-digest-mismatch", "candidate revision digest does not match its canonical body")
     if not isinstance(decision_ref, str) or not decision_ref:
         raise ValidationFailure("candidate-decision-invalid", "candidate decision reference is required")

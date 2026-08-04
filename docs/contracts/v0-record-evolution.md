@@ -8,14 +8,18 @@ The candidate records its exact source record revisions, agent or adapter
 provenance, sensitivity, uncertainty through the draft record, and required
 owner review. Admission records one caller-supplied decision as `accepted`,
 `rejected`, `quarantined`, `duplicate`, `stale`, `unsupported`, or `conflict`.
-An accepted candidate produces a new `knowledge-record/v2` revision; it never
+An accepted candidate produces a new `knowledge-record/v3` revision; it never
 overwrites the candidate or a predecessor.
 
-Knowledge-record v2 now permits explicit `supersedes`, `disputes`, and
+Knowledge-record v3 permits explicit `supersedes`, `disputes`, and
 `contradicts` relationships. The relationship target must be one of the exact
 source records considered by the candidate. Artifact Memory stores the
 relationship and revision binding; WITS owns meaning, owner approval,
 readiness, reconciliation, and conflict resolution.
+
+Knowledge-record v2 remains unchanged for existing consumers. Producers must
+negotiate v3 before emitting the new relationship values; there is no silent
+remapping because that would discard evolution meaning.
 
 The admission receipt binds the candidate identity and candidate revision to
 the exact source references, external decision reference, and resulting record

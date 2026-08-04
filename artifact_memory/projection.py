@@ -43,6 +43,7 @@ def _knowledge_schema(record: Any) -> dict[str, Any]:
     schema_name = {
         "artifact-memory/knowledge-record/v1": "knowledge-record.v1.schema.json",
         "artifact-memory/knowledge-record/v2": "knowledge-record.v2.schema.json",
+        "artifact-memory/knowledge-record/v3": "knowledge-record.v3.schema.json",
     }.get(record.get("schema_id"))
     if schema_name is None:
         raise ValidationFailure("unsupported-record-schema", "canonical record uses an unsupported schema")
@@ -160,11 +161,7 @@ def _read_index(index_path: Path) -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
-def canonical_records(record_paths: Iterable[Path], suppressed_record_ids: Iterable[str] = ()) -> list[dict[str, Any]]:
-    suppressed_values = list(suppressed_record_ids)
-    if any(not isinstance(record_id, str) for record_id in suppressed_values):
-        raise ValidationFailure("suppression-invalid", "suppressed record identities must be strings")
-    suppressed = set(suppressed_values)
+def canonical_records(record_paths: Iterable[Path]) -> list[dict[str, Any]]:
     records = []
     for record_path in record_paths:
         try:
@@ -178,7 +175,7 @@ def canonical_records(record_paths: Iterable[Path], suppressed_record_ids: Itera
     records.sort(key=lambda record: record["record_id"])
     if len({record["record_id"] for record in records}) != len(records):
         raise ValidationFailure("duplicate-record-id", "canonical record IDs must be unique")
-    return [record for record in records if record["record_id"] not in suppressed]
+    return records
 
 
 def _record_lines(records: list[dict[str, Any]]) -> bytes:
@@ -228,9 +225,12 @@ def _create_sqlite(path: Path, records: list[dict[str, Any]], source_digest: str
         connection.close()
 
 
-def project_records(record_paths: Iterable[Path], output_dir: Path, *, suppressed_record_ids: Iterable[str] = ()) -> dict[str, Any]:
-    suppressed = set(suppressed_record_ids)
-    records = canonical_records(record_paths, suppressed)
+def project_records(record_paths: Iterable[Path], output_dir: Path, *, revocation_receipts: Iterable[dict[str, Any]] = ()) -> dict[str, Any]:
+    all_records = canonical_records(record_paths)
+    from .revocation import validated_suppressions
+
+    suppressed = validated_suppressions(all_records, revocation_receipts)
+    records = [record for record in all_records if record["record_id"] not in suppressed]
     lines = _record_lines(records)
     source_digest = "sha-256:" + hashlib.sha256(lines).hexdigest()
     output_dir.mkdir(parents=True, exist_ok=True)

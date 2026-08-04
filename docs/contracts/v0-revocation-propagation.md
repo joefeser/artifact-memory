@@ -11,10 +11,13 @@ whether the audit receipt was retained. Aggregation reports acknowledged and
 unresolved recipients; unavailable or rejected recipients keep the aggregate
 `partially-complete`.
 
-Validated tombstones can suppress matching record identities from generated
-projections and context-export input. Projection receipts bind the suppressed
-set digest without disclosing record identities. Already-issued packs and
-unknown or unmanaged replicas remain outside the local suppression claim.
+Only digest-valid recipient acknowledgements with `outcome: acknowledged`,
+`suppression_state: applied`, and an exact target revision match can suppress a
+record from generated projections and context-export input. Raw record IDs and
+opaque receipt strings are not suppression authority. Projection receipts bind
+the effective suppressed set digest without disclosing record identities.
+Already-issued packs and unknown or unmanaged replicas remain outside the local
+suppression claim.
 
 Artifact Memory owns the portable envelope, recipient state, suppression, and
 receipts. External adapters enforce endpoint behavior. WITS may supply owner

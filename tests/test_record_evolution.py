@@ -30,6 +30,7 @@ class RecordEvolutionTests(unittest.TestCase):
         from artifact_memory.record_evolution import _record_digest
 
         candidate_record = copy.deepcopy(source)
+        candidate_record["schema_id"] = "artifact-memory/knowledge-record/v3"
         candidate_record["lifecycle"] = "draft"
         candidate_record["meaning"] = {"summary": "Use the updated synthetic canonical profile.", "labels": ["synthetic", "corrected"]}
         candidate_record["relationships"] = [{"type": "supersedes", "target_ref": source["record_id"]}]
@@ -61,6 +62,7 @@ class RecordEvolutionTests(unittest.TestCase):
         from artifact_memory.record_evolution import _record_digest
 
         candidate_record = copy.deepcopy(source)
+        candidate_record["schema_id"] = "artifact-memory/knowledge-record/v3"
         candidate_record["lifecycle"] = "draft"
         candidate_record["meaning"] = {"summary": "Synthetic rejected proposal.", "labels": ["synthetic"]}
         candidate = build_candidate(
@@ -89,6 +91,7 @@ class RecordEvolutionTests(unittest.TestCase):
         from artifact_memory.record_evolution import _record_digest
 
         candidate_record = copy.deepcopy(source)
+        candidate_record["schema_id"] = "artifact-memory/knowledge-record/v3"
         candidate_record["lifecycle"] = "draft"
         candidate = build_candidate(
             candidate_record,
@@ -101,9 +104,37 @@ class RecordEvolutionTests(unittest.TestCase):
             admit_candidate(candidate, decision="accepted", decision_ref="decision://synthetic/tampered-0001")
 
     def test_fixture_receipt_is_present_and_public_safe(self):
-        expected = json.loads((ROOT / "fixtures/synthetic/record-evolution/v1/expected-receipt.json").read_text(encoding="utf-8"))
-        self.assertTrue(expected["synthetic"])
+        fixture = ROOT / "fixtures/synthetic/record-evolution/v1"
+        source = json.loads((fixture / "source-record.json").read_text(encoding="utf-8"))
+        candidate = json.loads((fixture / "candidate.json").read_text(encoding="utf-8"))
+        accepted = json.loads((fixture / "accepted-record.json").read_text(encoding="utf-8"))
+        expected = json.loads((fixture / "expected-receipt.json").read_text(encoding="utf-8"))
+        from artifact_memory.record_evolution import _record_digest
+
+        validate(candidate, load_schema("core", "knowledge-candidate.v1.schema.json"))
+        replay = admit_candidate(
+            candidate,
+            decision="accepted",
+            decision_ref="decision://synthetic/wits-owner-0001",
+            current_source_revisions={source["record_id"]: _record_digest(source)},
+        )
+        self.assertEqual(replay, {"record": accepted, "receipt": expected})
+        validate(expected, load_schema("core", "candidate-admission-receipt.v1.schema.json"))
         self.assertNotIn("transcript", json.dumps(expected).lower())
+
+    def test_v2_remains_compatible_and_v3_owns_evolution_relationships(self):
+        legacy = source_record()
+        legacy["relationships"] = [{"type": "supersedes", "target_ref": legacy["record_id"]}]
+        with self.assertRaises(ValidationFailure):
+            validate(legacy, load_schema("core", "knowledge-record.v2.schema.json"))
+        legacy["schema_id"] = "artifact-memory/knowledge-record/v3"
+        validate(legacy, load_schema("core", "knowledge-record.v3.schema.json"))
+
+    def test_accepted_receipt_requires_a_result_record_reference(self):
+        receipt = json.loads((ROOT / "fixtures/synthetic/record-evolution/v1/expected-receipt.json").read_text(encoding="utf-8"))
+        receipt["result_record_ref"] = None
+        with self.assertRaises(ValidationFailure):
+            validate(receipt, load_schema("core", "candidate-admission-receipt.v1.schema.json"))
 
 
 if __name__ == "__main__":

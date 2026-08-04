@@ -98,5 +98,12 @@
         "revocation_receipt_refs": {"type": "array", "items": {"type": "string", "minLength": 1}}
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"selection_receipt": {"properties": {"exclusion_counts": {"required": ["revocation"]}}}}},
+      "then": {"properties": {"selection_receipt": {"required": ["revocation_policy", "revocation_receipt_refs"], "properties": {"revocation_receipt_refs": {"minItems": 1}}}}},
+      "else": {"properties": {"selection_receipt": {"not": {"anyOf": [{"required": ["revocation_policy"]}, {"required": ["revocation_receipt_refs"]}]}}}}
+    }
+  ]
 }
