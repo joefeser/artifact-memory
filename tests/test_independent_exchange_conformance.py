@@ -97,7 +97,7 @@ class IndependentExchangeConformanceTests(unittest.TestCase):
         )
         self.assertEqual(receipt, reference)
 
-    def test_reference_and_independent_receivers_reject_underscore_secret_values(self):
+    def test_receivers_reject_underscore_and_hyphen_secret_values(self):
         for separator in ("_", "-"):
             synthetic_value = "sk" + separator + "live_" + "S" * 24
             embedded_value = "synthetic prefix " + synthetic_value + " suffix"
