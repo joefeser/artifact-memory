@@ -286,6 +286,15 @@ def exact_candidate_receipt(candidate: str) -> tuple[dict[str, object], list[str
     refs = public_refs()
     revisions = [candidate, *(item["object_id"] for item in refs)]
     history, current, findings = scan(revisions, refs)
+    final_head = head_commit()
+    final_refs = public_refs()
+    final_clean = worktree_is_clean()
+    if final_head != head:
+        raise ValueError("checked-out HEAD changed during the exact-candidate audit")
+    if final_refs != refs:
+        raise ValueError("public refs changed during the exact-candidate audit")
+    if not final_clean:
+        raise ValueError("index or worktree changed during the exact-candidate audit")
     if findings:
         return {}, findings
     body = {

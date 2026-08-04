@@ -271,6 +271,23 @@ class PublicSafetyCandidateReceiptTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "clean index and worktree"):
                 public_safety_check.exact_candidate_receipt(candidate)
 
+    def test_receipt_rechecks_candidate_state_after_scan(self):
+        candidate = "a" * 40
+        refs = [{"ref": "refs/remotes/origin/dev", "object_id": "b" * 40}]
+        changed_refs = [{"ref": "refs/remotes/origin/dev", "object_id": "c" * 40}]
+        with (
+            patch.object(public_safety_check, "head_commit", return_value=candidate),
+            patch.object(public_safety_check, "worktree_is_clean", return_value=True),
+            patch.object(public_safety_check, "public_refs", side_effect=[refs, changed_refs]),
+            patch.object(
+                public_safety_check,
+                "scan",
+                return_value=({"object": {"tracked.txt"}}, ["tracked.txt"], []),
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "public refs changed"):
+                public_safety_check.exact_candidate_receipt(candidate)
+
 
 if __name__ == "__main__":
     unittest.main()

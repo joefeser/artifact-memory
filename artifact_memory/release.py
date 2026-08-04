@@ -33,6 +33,12 @@ def validate_release_manifest(
 ) -> None:
     if isinstance(manifest, dict) and manifest.get("schema_id") == "artifact-memory/release-manifest/v1":
         validate(manifest, load_schema("core", "release-manifest.v1.schema.json"))
+        if manifest["status"] == "release":
+            raise ValidationFailure(
+                "release-manifest-migration-required",
+                "v1 manifests lack the identity and signing evidence required for release use",
+                "$.status",
+            )
         return
     validate(manifest, load_schema("core", "release-manifest.v2.schema.json"))
     try:
@@ -251,6 +257,27 @@ def validate_release_candidate_verification_receipt(receipt: dict[str, Any]) -> 
         receipt,
         load_schema("core", "release-candidate-verification-receipt.v1.schema.json"),
     )
+    if len(
+        {
+            receipt["head_commit"],
+            receipt["tag_commit"],
+            receipt["manifest_source_commit"],
+        }
+    ) != 1:
+        raise ValidationFailure(
+            "release-candidate-receipt-evidence-incoherent",
+            "receipt HEAD, tag commit, and manifest source commit must identify one commit",
+        )
+    expected_version = receipt["tag"].removeprefix("v")
+    if (
+        receipt["release_id"] != f"artifact-memory/{receipt['tag']}"
+        or receipt["manifest_package_version"] != expected_version
+        or receipt["package_version"] != expected_version
+    ):
+        raise ValidationFailure(
+            "release-candidate-receipt-evidence-incoherent",
+            "receipt tag, release identifier, and package versions must identify one release",
+        )
     try:
         expected_id = expected_receipt_id(receipt, RELEASE_VERIFICATION_RECEIPT_PREFIX)
     except CanonicalizationFailure as exc:

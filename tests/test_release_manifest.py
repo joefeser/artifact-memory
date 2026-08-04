@@ -24,6 +24,13 @@ class ReleaseManifestTests(unittest.TestCase):
         self.assertEqual(manifest["status"], "preview")
         self.assertEqual(manifest["signature"]["state"], "not-signed")
 
+    def test_v1_manifest_cannot_claim_release_status(self):
+        manifest = json.loads((FIXTURE / "v0-preview-manifest.json").read_text(encoding="utf-8"))
+        manifest["status"] = "release"
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_release_manifest(manifest)
+        self.assertEqual(failure.exception.code, "release-manifest-migration-required")
+
     def test_v2_preview_reproduces_public_safe_release_materials(self):
         manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
         validate_release_manifest(manifest)

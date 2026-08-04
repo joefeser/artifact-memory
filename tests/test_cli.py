@@ -73,6 +73,22 @@ class CliTests(unittest.TestCase):
         self.assertIn("semantic rules", result.stdout)
         self.assertIn("release-manifest releasability", result.stdout)
 
+    def test_validate_rejects_v1_release_claim_that_requires_migration(self):
+        fixture = RELEASE_FIXTURES / "v0-preview-manifest.json"
+        manifest = json.loads(fixture.read_text(encoding="utf-8"))
+        manifest["status"] = "release"
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest_path = Path(temporary) / "release-manifest.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            result = self.run_cli("validate", str(manifest_path), "--json")
+
+        self.assertEqual(result.returncode, 2)
+        receipt = json.loads(result.stdout)
+        self.assertEqual(
+            receipt["diagnostics"][0]["code"],
+            "release-manifest-migration-required",
+        )
+
     def test_inspect_does_not_echo_path(self):
         result = self.run_cli("inspect", str(FIXTURES / "v0-valid-record.json"), "--json")
         self.assertEqual(result.returncode, 0)

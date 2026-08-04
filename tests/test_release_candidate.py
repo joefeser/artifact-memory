@@ -11,8 +11,11 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+from artifact_memory.canonical import receipt_with_digest
 from artifact_memory.cli import EXIT_INVALID, main
 from artifact_memory.release import (
+    RELEASE_VERIFICATION_RECEIPT_PREFIX,
+    RELEASE_VERIFICATION_SCHEMA_ID,
     _signed_manifest_digest,
     _ssh_ed25519_fingerprint,
     render_release_candidate_verification_receipt,
@@ -156,6 +159,35 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             render_release_candidate_verification_receipt(receipt),
             (fixture_root / "v0-release-candidate-verification-receipt.md").read_text(encoding="utf-8"),
         )
+
+    def test_receipt_rejects_rehashed_incoherent_release_identity(self):
+        fixture = (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/synthetic/release/v0-release-candidate-verification-receipt.json"
+        )
+        original = json.loads(fixture.read_text(encoding="utf-8"))
+        for field, value in (
+            ("head_commit", "c" * 40),
+            ("package_version", "0.1.1"),
+        ):
+            body = {
+                key: item
+                for key, item in original.items()
+                if key not in {"schema_id", "receipt_id"}
+            }
+            body[field] = value
+            tampered = receipt_with_digest(
+                RELEASE_VERIFICATION_SCHEMA_ID,
+                RELEASE_VERIFICATION_RECEIPT_PREFIX,
+                body,
+            )
+            with self.subTest(field=field):
+                with self.assertRaises(ValidationFailure) as failure:
+                    validate_release_candidate_verification_receipt(tampered)
+                self.assertEqual(
+                    failure.exception.code,
+                    "release-candidate-receipt-evidence-incoherent",
+                )
 
     def test_accepts_one_exact_release_identity(self):
         result = validate_release_candidate_identity(
