@@ -9,6 +9,20 @@
       "receipts_compatible": true,
       "reference_receipt_ref": "admission-receipt://80b98113a67aae95d3d2cc6e094d8aa251ae1896c0303ab3b7510a49ba0354d6"
     },
+    "identical_manifest_declaration": {
+      "expected_outcome": "admitted",
+      "independent_receipt_ref": "admission-receipt://9c577fc50b0c5ed15a98cc7aafc74418678724f515da45bfe041ed6c35120752",
+      "observed_outcome": "admitted",
+      "receipts_compatible": true,
+      "reference_receipt_ref": "admission-receipt://9c577fc50b0c5ed15a98cc7aafc74418678724f515da45bfe041ed6c35120752"
+    },
+    "legacy_opaque_record_extension": {
+      "expected_outcome": "admitted",
+      "independent_receipt_ref": "admission-receipt://b4f220551203a9e06b24ed61c2f3c24eeac8802ec2f79cdae4f63e303bcd7e1f",
+      "observed_outcome": "admitted",
+      "receipts_compatible": true,
+      "reference_receipt_ref": "admission-receipt://b4f220551203a9e06b24ed61c2f3c24eeac8802ec2f79cdae4f63e303bcd7e1f"
+    },
     "unknown_optional": {
       "expected_outcome": "admitted",
       "independent_receipt_ref": "admission-receipt://14aeff5f8ad626da8dad041d6ce11b52e16b92904bbe60e0c54d837511c04130",
@@ -29,6 +43,8 @@
     "reference and independent receivers emit identical schema-valid admission receipts for the checked cases",
     "one unknown optional extension is preserved unchanged",
     "one unknown required extension fails closed and is admitted only after explicit support",
+    "identical manifest declarations are deduplicated without changing admission",
+    "a v1 record's opaque extension is preserved without v2 interpretation",
     "artifact retrieval remains unattempted and separately authorized"
   ],
   "independent_receiver_implementation": "stdlib-only-independent-reader-v2",
@@ -38,7 +54,7 @@
     "compatible informational receipts grant no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"
   ],
   "outcome": "complete",
-  "receipt_id": "independent-exchange-conformance-receipt://d734ba8208b9a5b40c8654b507998b621ea3406e9fd04902a90e2049deecf520",
+  "receipt_id": "independent-exchange-conformance-receipt://cfba037e703f7738a33a4d4c0fa09a7adbc74a3bd38d20c4f369a9440ed0be0c",
   "reference_receiver_implementation": "artifact-memory-reference-admission-v2",
   "schema_id": "artifact-memory/independent-exchange-conformance-receipt/v1",
   "sender_implementation": "artifact-memory-reference-sender-v2",

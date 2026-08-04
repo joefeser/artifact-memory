@@ -10,7 +10,8 @@ from artifact_memory.independent_exchange_conformance import (
     render_independent_exchange_conformance,
     run_independent_exchange_conformance,
 )
-from artifact_memory.exchange import make_envelope_v2
+from artifact_memory.conformance_helpers import SyntheticReplayLedger
+from artifact_memory.exchange import admit_v2, make_envelope_v2
 from artifact_memory.independent_reader import admit_bundle_v2
 from artifact_memory.schema_resources import load_schema
 from artifact_memory.validator import ValidationFailure, validate
@@ -63,6 +64,7 @@ class IndependentExchangeConformanceTests(unittest.TestCase):
 
     def test_independent_receiver_rejects_credential_shaped_values_without_echo(self):
         synthetic_value = "github" + "_pat_" + "A" * 24
+        embedded_value = "synthetic log prefix " + synthetic_value + " suffix"
         envelope = make_envelope_v2(
             "system://synthetic-independent-receiver",
             "independent-protected-value",
@@ -73,7 +75,7 @@ class IndependentExchangeConformanceTests(unittest.TestCase):
                 "https://synthetic.example/extensions/protected": {
                     "version": "v1",
                     "required": False,
-                    "value": {"opaque": synthetic_value},
+                    "value": {"opaque": embedded_value},
                 }
             },
         )
@@ -87,6 +89,95 @@ class IndependentExchangeConformanceTests(unittest.TestCase):
             receipt["diagnostics"][0]["code"], "bearer-material-prohibited"
         )
         self.assertNotIn(synthetic_value, json.dumps(receipt))
+
+    def test_noncanonical_envelope_returns_fail_closed_receipt(self):
+        envelope = make_envelope_v2(
+            "system://synthetic-independent-receiver",
+            "independent-noncanonical-envelope",
+            "2099-01-01T00:00:00Z",
+            [],
+            ["artifact://synthetic/independent-exchange-evidence"],
+        )
+        envelope["extensions"] = {
+            "https://synthetic.example/extensions/noncanonical": {
+                "version": "v1",
+                "required": False,
+                "value": {"fractional": 1.5},
+            }
+        }
+        receipt = admit_bundle_v2(
+            json.dumps(envelope).encode(),
+            expected_audience_ref="system://synthetic-independent-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(receipt["outcome"], "rejected")
+        self.assertEqual(receipt["envelope_ref"], "exchange://" + "0" * 64)
+        self.assertEqual(receipt["diagnostics"][0]["code"], "invalid-envelope")
+
+    def test_extensions_precede_expiry_and_remain_in_receipt(self):
+        extension = {
+            "https://synthetic.example/extensions/expired-optional": {
+                "version": "v1",
+                "required": False,
+                "value": {"opaque": "preserved"},
+            }
+        }
+        envelope = make_envelope_v2(
+            "system://synthetic-independent-receiver",
+            "independent-expired-extension",
+            "2020-01-01T00:00:00Z",
+            [],
+            ["artifact://synthetic/independent-exchange-evidence"],
+            extensions=extension,
+        )
+        reference = admit_v2(
+            envelope,
+            SyntheticReplayLedger(),
+            expected_audience_ref="system://synthetic-independent-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        independent = admit_bundle_v2(
+            json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
+            expected_audience_ref="system://synthetic-independent-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(independent, reference)
+        self.assertEqual(independent["extensions"], extension)
+
+    def test_required_record_extension_keeps_reference_diagnostic(self):
+        vectors = json.loads((FIXTURE / "vectors.json").read_text(encoding="utf-8"))
+        record = deepcopy(vectors["record"])
+        record["extensions"] = {
+            "https://synthetic.example/extensions/record-required": {
+                "version": "v1",
+                "required": True,
+                "value": {"behavior": "unsupported"},
+            }
+        }
+        revision = "sha-256:" + hashlib.sha256(
+            json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        envelope = make_envelope_v2(
+            vectors["audience_ref"],
+            "independent-record-required",
+            vectors["expires_at"],
+            [{"record_id": record["record_id"], "revision_digest": revision}],
+            [vectors["artifact_ref"]],
+            record_bundle=[record],
+        )
+        reference = admit_v2(
+            envelope,
+            SyntheticReplayLedger(),
+            expected_audience_ref=vectors["audience_ref"],
+            now=vectors["evaluation_time"],
+        )
+        independent = admit_bundle_v2(
+            json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
+            expected_audience_ref=vectors["audience_ref"],
+            now=vectors["evaluation_time"],
+        )
+        self.assertEqual(independent, reference)
+        self.assertIn("required-extension-unsupported", independent["diagnostics"][0]["message"])
 
     def test_independent_receiver_fails_closed_on_unhashable_metadata(self):
         malformed_handling = make_envelope_v2(
@@ -137,6 +228,10 @@ class IndependentExchangeConformanceTests(unittest.TestCase):
         invalid["optional_extension"]["declaration"]["required"] = True
         with self.assertRaises(ValidationFailure):
             validate(invalid, schema)
+        invalid_record = deepcopy(vectors)
+        invalid_record["record"]["unexpected"] = "schema must reject this"
+        with self.assertRaises(ValidationFailure):
+            validate(invalid_record, schema)
 
     def test_checked_cli(self):
         completed = subprocess.run(

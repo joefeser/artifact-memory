@@ -3,30 +3,15 @@
 from __future__ import annotations
 
 import hashlib
-import threading
 from pathlib import Path
 from typing import Any
 
 from .canonical import canonical_bytes, receipt_with_digest
+from .conformance_helpers import SyntheticReplayLedger
 from .exchange import AUTHORITY_BOUNDARY, admit_v2, make_envelope_v2
 from .independent_reader import admit_bundle_v2
 from .schema_resources import load_schema
 from .validator import ValidationFailure, load_json, validate
-
-
-class _SyntheticReplayLedger:
-    """Process-local fixture ledger; production admission requires durable storage."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._seen: set[str] = set()
-
-    def claim(self, envelope_ref: str) -> bool:
-        with self._lock:
-            if envelope_ref in self._seen:
-                return False
-            self._seen.add(envelope_ref)
-            return True
 
 
 def _revision(record: dict[str, Any]) -> dict[str, str]:
@@ -47,7 +32,7 @@ def _run_case(
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     reference_receipt = admit_v2(
         envelope,
-        _SyntheticReplayLedger(),
+        SyntheticReplayLedger(),
         expected_audience_ref=audience_ref,
         now=evaluation_time,
         supported_required_extensions=supported_required_extensions,
@@ -155,6 +140,45 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
             "explicitly supported extension did not round-trip",
         )
 
+    duplicate_envelope = make_envelope_v2(
+        correlation_id="independent-duplicate-declaration",
+        audience_ref=audience_ref,
+        expires_at=vectors["expires_at"],
+        record_refs=[_revision(record), _revision(record)],
+        artifact_refs=[vectors["artifact_ref"]],
+        record_bundle=[record],
+    )
+    _, _, duplicate_case = _run_case(
+        duplicate_envelope,
+        audience_ref=audience_ref,
+        evaluation_time=vectors["evaluation_time"],
+        expected_outcome="admitted",
+    )
+
+    legacy_record = {
+        **record,
+        "schema_id": "artifact-memory/knowledge-record/v1",
+        "record_id": "record://synthetic/independent-exchange-legacy",
+        "extensions": {
+            "legacy-opaque-key": {"opaque": ["preserved", "without-interpretation"]}
+        },
+    }
+    validate(legacy_record, load_schema("core", "knowledge-record.v1.schema.json"))
+    legacy_envelope = make_envelope_v2(
+        correlation_id="independent-legacy-extension",
+        audience_ref=audience_ref,
+        expires_at=vectors["expires_at"],
+        record_refs=[_revision(legacy_record)],
+        artifact_refs=[vectors["artifact_ref"]],
+        record_bundle=[legacy_record],
+    )
+    _, _, legacy_case = _run_case(
+        legacy_envelope,
+        audience_ref=audience_ref,
+        evaluation_time=vectors["evaluation_time"],
+        expected_outcome="admitted",
+    )
+
     body = {
         "outcome": "complete",
         "synthetic": True,
@@ -165,6 +189,8 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
             "unknown_optional": optional_case,
             "unknown_required": required_case,
             "explicitly_supported_required": supported_case,
+            "identical_manifest_declaration": duplicate_case,
+            "legacy_opaque_record_extension": legacy_case,
         },
         "artifact_retrieval": "not-attempted/separately-authorized",
         "authority_boundary": AUTHORITY_BOUNDARY,
@@ -173,6 +199,8 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
             "reference and independent receivers emit identical schema-valid admission receipts for the checked cases",
             "one unknown optional extension is preserved unchanged",
             "one unknown required extension fails closed and is admitted only after explicit support",
+            "identical manifest declarations are deduplicated without changing admission",
+            "a v1 record's opaque extension is preserved without v2 interpretation",
             "artifact retrieval remains unattempted and separately authorized",
         ],
         "limitations": [

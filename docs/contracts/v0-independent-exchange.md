@@ -15,7 +15,9 @@ For each case, both sides emit an identical schema-valid v2 admission receipt:
 - an unknown required extension is quarantined with
   `required-extension-unsupported`;
 - the same required extension is admitted and preserved after support is
-  explicitly declared.
+  explicitly declared;
+- repeated identical manifest declarations are deduplicated and admitted;
+- a v1 record's opaque extension remains uninterpreted and is admitted.
 
 Artifact retrieval is never attempted and remains separately authorized. The
 fixture does not claim durable replay, external artifact resolution,

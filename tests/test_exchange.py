@@ -718,6 +718,25 @@ class ExchangeTests(unittest.TestCase):
         result = read_bundle(json.dumps(envelope).encode())
         self.assertEqual(result["preserved_extensions"], [extensions])
 
+        fractional_record = canonical_record(
+            record_id="record://synthetic/legacy-fractional-extension",
+            extensions={"legacy-number": 1.5},
+        )
+        fractional_envelope = make_envelope(
+            "system://independent-reader",
+            "legacy-fractional",
+            "2099-01-01T00:00:00Z",
+            [],
+            [],
+        )
+        fractional_envelope["record_refs"] = [revision_ref(fractional_record)]
+        fractional_envelope["record_bundle"] = [fractional_record]
+        fractional_result = read_bundle(json.dumps(fractional_envelope).encode())
+        self.assertEqual(
+            fractional_result["preserved_extensions"],
+            [fractional_record["extensions"]],
+        )
+
     def test_independent_reader_rejects_malformed_support_configuration(self):
         record = canonical_record()
         envelope = make_envelope("system://independent-reader", "bad-support", "2099-01-01T00:00:00Z", [revision_ref(record)], [], record_bundle=[record])
