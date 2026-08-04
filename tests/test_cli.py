@@ -1,3 +1,4 @@
+import copy
 import json
 import subprocess
 import sys
@@ -30,6 +31,32 @@ class CliTests(unittest.TestCase):
         result = self.run_cli("validate", str(FIXTURES / "v0-invalid-absolute-path.json"), "--json")
         self.assertEqual(result.returncode, 2)
         self.assertFalse(json.loads(result.stdout)["valid"])
+
+    def test_release_manifest_validation_applies_semantic_migration_gate(self):
+        fixture = ROOT / "fixtures" / "synthetic" / "release" / "v0-preview-manifest.v2.json"
+        manifest = copy.deepcopy(json.loads(fixture.read_text(encoding="utf-8")))
+        manifest["status"] = "release"
+        manifest["release_id"] = "artifact-memory/v0.1.0"
+        manifest["signature"] = {
+            "state": "owner-signed",
+            "tag": "v0.1.0",
+            "algorithm": "ssh-ed25519",
+            "public_key_fingerprint": "SHA256:" + "A" * 20 + "==",
+            "key_generation": "legacy-generation",
+            "owner_signed_annotated_tag": True,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest_path = Path(temporary) / "release-manifest.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            result = self.run_cli("validate", str(manifest_path), "--json")
+
+        self.assertEqual(result.returncode, 2)
+        receipt = json.loads(result.stdout)
+        self.assertFalse(receipt["valid"])
+        self.assertEqual(
+            receipt["diagnostics"][0]["code"],
+            "release-fingerprint-migration-required",
+        )
 
     def test_inspect_does_not_echo_path(self):
         result = self.run_cli("inspect", str(FIXTURES / "v0-valid-record.json"), "--json")

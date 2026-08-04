@@ -17,6 +17,7 @@ from .context import ContextFailure, build_selection_policy, export_context
 from .projection import project_records, records_with_provenance, related_records, search_records
 from .release import (
     render_release_candidate_verification_receipt,
+    validate_release_manifest,
     validate_release_candidate_verification_receipt,
     verify_checked_out_release_candidate,
 )
@@ -335,6 +336,11 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(schema, dict):
             raise ValidationFailure("invalid-input", "schema must be a JSON object")
         validate(record, schema)
+        if schema_id in {
+            "artifact-memory/release-manifest/v1",
+            "artifact-memory/release-manifest/v2",
+        }:
+            validate_release_manifest(record)
     except ValidationFailure as exc:
         result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}
     else:
