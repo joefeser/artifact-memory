@@ -12,7 +12,7 @@ from artifact_memory.independent_exchange_conformance import (
 )
 from artifact_memory.conformance_helpers import SyntheticReplayLedger
 from artifact_memory.exchange import admit_v2, make_envelope_v2
-from artifact_memory.independent_reader import admit_bundle_v2
+from artifact_memory.independent_reader import ReaderFailure, admit_bundle_v2
 from artifact_memory.schema_resources import load_schema
 from artifact_memory.validator import ValidationFailure, validate
 
@@ -22,6 +22,14 @@ FIXTURE = ROOT / "fixtures" / "synthetic" / "exchange" / "independent-v1"
 
 
 class IndependentExchangeConformanceTests(unittest.TestCase):
+    def test_independent_receiver_rejects_invalid_utf8_as_invalid_json(self):
+        with self.assertRaisesRegex(ReaderFailure, "invalid exchange JSON"):
+            admit_bundle_v2(
+                b"\xff",
+                expected_audience_ref="system://synthetic-independent-receiver",
+                now="2026-08-03T00:00:00Z",
+            )
+
     def test_checked_machine_and_human_receipts_replay(self):
         receipt = run_independent_exchange_conformance(FIXTURE)
         expected = json.loads(
@@ -317,6 +325,33 @@ class IndependentExchangeConformanceTests(unittest.TestCase):
         self.assertEqual(
             independent["unresolved_record_ids"],
             ["record://invalid/bundled-record"],
+        )
+
+    def test_malformed_bundle_collects_all_identifiable_record_ids(self):
+        later_record_id = "record://synthetic/later-malformed"
+        envelope = make_envelope_v2(
+            "system://synthetic-independent-receiver",
+            "multiple-malformed-records",
+            "2099-01-01T00:00:00Z",
+            [],
+            [],
+            record_bundle=[{}, {"record_id": "invalid"}, {"record_id": later_record_id}],
+        )
+        reference = admit_v2(
+            envelope,
+            SyntheticReplayLedger(),
+            expected_audience_ref=envelope["audience_ref"],
+            now="2026-08-03T00:00:00Z",
+        )
+        independent = admit_bundle_v2(
+            json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
+            expected_audience_ref=envelope["audience_ref"],
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(independent, reference)
+        self.assertEqual(
+            independent["unresolved_record_ids"],
+            ["record://invalid/bundled-record", later_record_id],
         )
 
     def test_incomplete_embedded_bundle_is_quarantined(self):

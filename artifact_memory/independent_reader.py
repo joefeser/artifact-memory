@@ -33,7 +33,7 @@ class ReaderFailure(Exception):
     pass
 
 
-def _invalid_bundled_record_id(record: Any) -> str:
+def _bundled_record_id_or_invalid(record: Any) -> str:
     candidate = record.get("record_id") if isinstance(record, dict) else None
     if not isinstance(candidate, str) or RECORD_ID.fullmatch(candidate) is None:
         return "record://invalid/bundled-record"
@@ -312,7 +312,7 @@ def read_bundle(envelope_json: bytes, supported_required_extensions: Iterable[tu
     supported_required_extensions = _supported_required_pairs(supported_required_extensions)
     try:
         envelope = json.loads(envelope_json, object_pairs_hook=_pairs)
-    except (json.JSONDecodeError, ReaderFailure) as exc:
+    except (json.JSONDecodeError, ReaderFailure, UnicodeDecodeError) as exc:
         raise ReaderFailure("invalid exchange JSON") from exc
     if not isinstance(envelope, dict):
         raise ReaderFailure("exchange envelope must be an object")
@@ -375,7 +375,7 @@ def admit_bundle_v2(
     supported = _supported_required_pairs(supported_required_extensions)
     try:
         envelope = json.loads(envelope_json, object_pairs_hook=_pairs)
-    except (json.JSONDecodeError, ReaderFailure) as exc:
+    except (json.JSONDecodeError, ReaderFailure, UnicodeDecodeError) as exc:
         raise ReaderFailure("invalid exchange JSON") from exc
     if not isinstance(envelope, dict):
         raise ReaderFailure("exchange envelope must be an object")
@@ -578,24 +578,18 @@ def admit_bundle_v2(
             "exchange envelope does not satisfy the v2 contract",
         )
     bundled: set[str] = set()
+    contradictory: set[str] = set()
+    invalid_bundle_ids: set[str] = set()
+    invalid_bundle_codes: set[str] = set()
+    handling_conflict = False
     sensitivity_rank = {"public": 0, "private": 1, "restricted": 2}
     for record in record_bundle:
         if not isinstance(record, dict):
-            return _receipt_v2(
-                envelope_ref,
-                "quarantined",
-                unresolved_record_ids=sorted(
-                    set(declared) | {_invalid_bundled_record_id(record)}
-                ),
-                artifact_refs=artifact_refs,
-                diagnostics=[
-                    {
-                        "code": "bundled-record-invalid",
-                        "message": "bundled record validation failed (invalid-record)",
-                    }
-                ],
-                extensions=preserved_extensions,
-            )
+            candidate_id = _bundled_record_id_or_invalid(record)
+            invalid_bundle_ids.add(candidate_id)
+            invalid_bundle_codes.add("invalid-record")
+            contradictory.add(candidate_id)
+            continue
         try:
             _validate_record(record)
             extensions = record.get("extensions", {})
@@ -625,71 +619,58 @@ def admit_bundle_v2(
                 failure_code = "required-field-missing"
             else:
                 failure_code = "invalid-record"
-            return _receipt_v2(
-                envelope_ref,
-                "quarantined",
-                unresolved_record_ids=sorted(
-                    set(declared) | {_invalid_bundled_record_id(record)}
-                ),
-                artifact_refs=artifact_refs,
-                diagnostics=[
-                    {
-                        "code": "bundled-record-invalid",
-                        "message": f"bundled record validation failed ({failure_code})",
-                    }
-                ],
-                extensions=preserved_extensions,
-            )
+            candidate_id = _bundled_record_id_or_invalid(record)
+            invalid_bundle_ids.add(candidate_id)
+            invalid_bundle_codes.add(failure_code)
+            contradictory.add(candidate_id)
+            continue
         except (TypeError, UnicodeEncodeError, ValueError):
-            return _receipt_v2(
-                envelope_ref,
-                "quarantined",
-                unresolved_record_ids=sorted(
-                    set(declared) | {_invalid_bundled_record_id(record)}
-                ),
-                artifact_refs=artifact_refs,
-                diagnostics=[
-                    {
-                        "code": "bundled-record-invalid",
-                        "message": "bundled record validation failed (invalid-record)",
-                    }
-                ],
-                extensions=preserved_extensions,
-            )
+            candidate_id = _bundled_record_id_or_invalid(record)
+            invalid_bundle_ids.add(candidate_id)
+            invalid_bundle_codes.add("invalid-record")
+            contradictory.add(candidate_id)
+            continue
         record_id = record["record_id"]
         sensitivity = record.get("sensitivity", "restricted")
         if (
             record_id in bundled
             or declared.get(record_id) != revision
         ):
-            return _receipt_v2(
-                envelope_ref,
-                "quarantined",
-                unresolved_record_ids=sorted(set(declared) | {record_id}),
-                artifact_refs=artifact_refs,
-                diagnostics=[
-                    {
-                        "code": "contradictory-bundle",
-                        "message": "bundle declarations or bytes contradict each other",
-                    }
-                ],
-                extensions=preserved_extensions,
-            )
+            contradictory.add(record_id)
+            continue
         if sensitivity_rank[sensitivity] > sensitivity_rank[handling["sensitivity"]]:
-            return _receipt_v2(
-                envelope_ref,
-                "quarantined",
-                unresolved_record_ids=list(declared),
-                artifact_refs=artifact_refs,
-                diagnostics=[
-                    {
-                        "code": "handling-sensitivity-mismatch",
-                        "message": "bundle handling is weaker than a record sensitivity",
-                    }
-                ],
-                extensions=preserved_extensions,
-            )
+            handling_conflict = True
+            continue
         bundled.add(record_id)
+
+    if contradictory or handling_conflict:
+        if invalid_bundle_ids:
+            diagnostic = {
+                "code": "bundled-record-invalid",
+                "message": "bundled record validation failed ("
+                + ",".join(sorted(invalid_bundle_codes))
+                + ")",
+            }
+        elif contradictory:
+            diagnostic = {
+                "code": "contradictory-bundle",
+                "message": "bundle declarations or bytes contradict each other",
+            }
+        else:
+            diagnostic = {
+                "code": "handling-sensitivity-mismatch",
+                "message": "bundle handling is weaker than a record sensitivity",
+            }
+        return _receipt_v2(
+            envelope_ref,
+            "quarantined",
+            unresolved_record_ids=sorted(
+                set(declared) | invalid_bundle_ids | contradictory
+            ),
+            artifact_refs=artifact_refs,
+            diagnostics=[diagnostic],
+            extensions=preserved_extensions,
+        )
 
     unresolved = sorted(set(declared) - bundled)
     accepted = sorted(bundled)
