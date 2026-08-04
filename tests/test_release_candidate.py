@@ -1,9 +1,11 @@
 import copy
 import json
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from artifact_memory.release import validate_release_candidate_identity
+from artifact_memory.release import validate_release_candidate_identity, verify_checked_out_release_candidate
 from artifact_memory.validator import ValidationFailure
 
 
@@ -89,6 +91,20 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 tag_commit="a" * 40,
                 package_version="0.1.0",
             )
+
+    def test_duplicate_manifest_key_fails_before_git_verification(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest = Path(temporary) / "release.json"
+            manifest.write_text(
+                '{"schema_id":"artifact-memory/release-manifest/v2",'
+                '"schema_id":"artifact-memory/release-manifest/v2"}',
+                encoding="utf-8",
+            )
+            with patch("artifact_memory.release.subprocess.run") as git_verify:
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(manifest, "v0.1.0")
+            self.assertEqual(failure.exception.code, "duplicate-key")
+            git_verify.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 from artifact_memory.canonical import receipt_with_digest
 from artifact_memory.schema_resources import load_schema
-from artifact_memory.validator import ValidationFailure, validate
+from artifact_memory.validator import ValidationFailure, load_json, validate
 
 
 FORBIDDEN_PATH = re.compile(
@@ -272,8 +272,8 @@ def exact_candidate_receipt(candidate: str) -> tuple[dict[str, object], list[str
 
 def _load_expected_receipt(path: Path) -> dict[str, object]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        value = load_json(path)
+    except ValidationFailure as exc:
         raise ValueError("expected receipt is unavailable or invalid JSON") from exc
     if not isinstance(value, dict):
         raise ValueError("expected receipt must be a JSON object")
@@ -281,7 +281,27 @@ def _load_expected_receipt(path: Path) -> dict[str, object]:
         validate(value, load_schema("core", "public-safety-receipt.v1.schema.json"))
     except ValidationFailure as exc:
         raise ValueError("expected receipt fails schema validation") from exc
+    body = {key: item for key, item in value.items() if key not in {"schema_id", "receipt_id"}}
+    if value != receipt_with_digest(RECEIPT_SCHEMA_ID, RECEIPT_ID_PREFIX, body):
+        raise ValueError("expected receipt canonical identity does not match its content")
     return value
+
+
+def render_candidate_receipt(receipt: dict[str, object]) -> str:
+    refs = receipt["scanned_refs"]
+    assert isinstance(refs, list)
+    ref_label = "ref" if len(refs) == 1 else "refs"
+    return (
+        "# Public safety candidate receipt\n\n"
+        f"- Outcome: `{receipt['outcome']}`\n"
+        f"- Receipt: `{receipt['receipt_id']}`\n"
+        f"- Candidate/HEAD: `{receipt['candidate_commit']}`\n"
+        f"- Ref scope: `{receipt['ref_scope']}` ({len(refs)} {ref_label})\n"
+        f"- Reachable commits: {receipt['commit_count']}\n"
+        f"- Historical objects: {receipt['historical_object_count']}\n"
+        f"- Current paths: {receipt['current_path_count']}\n"
+        f"- Worktree clean: `{str(receipt['worktree_clean']).lower()}`\n"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -306,6 +326,18 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             findings = [str(exc)]
             receipt = {}
+        except subprocess.CalledProcessError:
+            findings = ["Git audit command failed"]
+            receipt = {}
+        except OSError:
+            findings = ["audit input or Git executable is unavailable"]
+            receipt = {}
+        except RuntimeError:
+            findings = ["Git object audit failed"]
+            receipt = {}
+        except ValidationFailure as exc:
+            findings = [f"audit receipt validation failed: {exc.code}"]
+            receipt = {}
         if not findings and args.receipt_out:
             try:
                 args.receipt_out.write_text(
@@ -322,12 +354,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.as_json:
             print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
         else:
-            print(
-                "public safety candidate receipt passed: "
-                f"{receipt['receipt_id']}, {receipt['commit_count']} commits, "
-                f"{receipt['historical_object_count']} historical objects, "
-                f"{receipt['current_path_count']} current paths"
-            )
+            print(render_candidate_receipt(receipt), end="")
         return 0
 
     history, current, findings = scan()

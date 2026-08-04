@@ -50,6 +50,12 @@ candidate after the last merge. The receipt binds its own candidate and HEAD
 commits, scanned remote refs and tags, commit/object/path counts, clean
 index/worktree scope, and canonical receipt identity.
 
+The contract has checked synthetic machine and human evidence at
+`fixtures/synthetic/public-safety/v1/expected-receipt.json` and
+`fixtures/synthetic/public-safety/v1/receipt.md`. Those fixtures are reviewable
+contract evidence, not visibility approval. The real final receipt remains
+external so recording it cannot change the clone it claims was clean.
+
 These checks are high-confidence guardrails, not proof of absence. A human must
 still review the exact final public candidate and repository settings before
 approving visibility.
@@ -86,8 +92,11 @@ pre-public pass:
    `<receipt-path>`:
 
    ```shell
-   python scripts/public_safety_check.py --candidate <candidate-sha> --receipt-out <receipt-path> --json
+   python scripts/public_safety_check.py --candidate <candidate-sha> --receipt-out <receipt-path> > <human-receipt-path>
    ```
+
+   Both output paths must be outside the audited clone. The JSON and Markdown
+   are produced from the same validated receipt body.
 
 3. In a second clean full-history clone detached at the same candidate, rerun
    with `--expect-receipt <receipt-path>`. The command fails unless HEAD, the
@@ -103,9 +112,11 @@ pre-public pass:
    credential, resolver path, hostname, or bearer URL is present.
 7. Verify Apache-2.0 detection, attribution/lineage, release notes, support,
    security reporting, contribution policy, and final SHA-256 release assets.
-8. Record the frozen receipt, successful replay result, reviewed GitHub
-   surfaces, known gaps, and Joe's explicit visibility decision without
-   recording secrets. Do not compare a prose count tuple from another commit.
+8. Record the frozen external receipt and its human rendering (using the same
+   deterministic form demonstrated by `fixtures/synthetic/public-safety/v1`),
+   successful replay result, reviewed GitHub surfaces, known gaps, and Joe's
+   explicit visibility decision without recording secrets. Do not compare a
+   prose count tuple from another commit.
 
 ## Post-visibility anonymous clone
 

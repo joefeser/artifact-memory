@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
@@ -11,7 +10,7 @@ from typing import Any
 from . import __version__
 from .extensions import ExtensionFailure, preserve_extensions
 from .schema_resources import load_schema
-from .validator import ValidationFailure, validate
+from .validator import ValidationFailure, load_json, validate
 
 
 def validate_release_manifest(
@@ -102,10 +101,7 @@ def validate_release_candidate_identity(
 
 
 def verify_checked_out_release_candidate(manifest_path: Path, tag: str) -> dict[str, str]:
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ValidationFailure("release-candidate-manifest-invalid", "release manifest is unavailable or invalid") from exc
+    manifest = load_json(manifest_path)
     if not isinstance(manifest, dict):
         raise ValidationFailure("release-candidate-manifest-invalid", "release manifest must be an object")
     try:
