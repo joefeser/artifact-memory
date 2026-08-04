@@ -407,8 +407,8 @@ def _benchmark_claims(receipt_body: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def run_baseline(profile: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Run the bounded profile without exposing temporary machine paths."""
+def run_baseline_v2(profile: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Run the bounded v2 profile without exposing temporary machine paths."""
     profile = validate_profile(DEFAULT_PROFILE if profile is None else profile)
     runtime_family = _runtime_family()
     file_count = profile["file_count"]
@@ -573,6 +573,123 @@ def run_baseline(profile: dict[str, Any] | None = None) -> dict[str, Any]:
     receipt = receipt_with_digest(
         "artifact-memory/benchmark-receipt/v2", "benchmark-receipt://", body
     )
+    validate_benchmark_receipt(receipt, expected_profile=profile)
+    return receipt
+
+
+def _make_legacy_corpus(
+    root: Path, file_count: int, file_size: int, depth: int
+) -> None:
+    payloads = [
+        b"synthetic-repeat\n" * (file_size // 16),
+        hashlib.sha256(b"synthetic-unique").digest() * (file_size // 32),
+    ]
+    for index in range(file_count):
+        directory = root
+        for level in range(depth if index == 0 else index % max(depth, 1)):
+            directory /= f"level-{level:02d}"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"item-{index:04d}.bin").write_bytes(
+            payloads[index % 2][:file_size]
+        )
+
+
+def run_baseline(
+    file_count: int = 64, file_size: int = 4096, depth: int = 8
+) -> dict[str, Any]:
+    """Run the retained v1 callable and receipt contract.
+
+    New bounded-profile callers should use :func:`run_baseline_v2`.
+    """
+    legacy_profile = {
+        "file_count": file_count,
+        "file_size": file_size,
+        "depth": depth,
+    }
+    for name, maximum in (
+        ("file_count", MAX_BENCHMARK_FILES),
+        ("file_size", MAX_BENCHMARK_BYTES),
+        ("depth", MAX_BENCHMARK_DEPTH),
+    ):
+        value = legacy_profile[name]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 1
+            or value > maximum
+        ):
+            raise ValidationFailure(
+                "benchmark-profile-invalid",
+                f"{name} must be a positive integer no greater than {maximum}",
+                f"$.{name}",
+            )
+    if file_count * file_size > MAX_BENCHMARK_BYTES:
+        raise ValidationFailure(
+            "benchmark-profile-invalid",
+            "legacy benchmark corpus exceeds the harness byte ceiling",
+            "$.file_size",
+        )
+    runtime_family = _runtime_family()
+    with tempfile.TemporaryDirectory(prefix="artifact-memory-benchmark-") as temporary:
+        root = Path(temporary) / "tree"
+        root.mkdir()
+        _make_legacy_corpus(root, file_count, file_size, depth)
+
+        (manifest, scan_receipt), scan_seconds, _ = _measure(lambda: scan_path(root))
+        _, limited_receipt = scan_path(
+            root, ScanLimits(max_bytes=max(file_size * 4, 1))
+        )
+        _, cancelled_receipt = scan_path(
+            root, ScanLimits(cancellation_check=lambda: True)
+        )
+
+        records_dir = Path(temporary) / "records"
+        records_dir.mkdir()
+        record_paths = []
+        for index in range(file_count):
+            path = records_dir / f"record-{index:04d}.json"
+            path.write_text(
+                json.dumps(_record(index), sort_keys=True) + "\n", encoding="utf-8"
+            )
+            record_paths.append(path)
+        projection_dir = Path(temporary) / "projection"
+        projection_receipt, projection_seconds, _ = _measure(
+            lambda: project_records(record_paths, projection_dir)
+        )
+
+    receipt = {
+        "schema_id": "artifact-memory/benchmark-receipt/v1",
+        "outcome": "complete",
+        "runtime_family": runtime_family,
+        "corpus": {
+            "file_count": file_count,
+            "file_size_bytes": file_size,
+            "depth": depth,
+            "repeated_content": True,
+        },
+        "measurements": {
+            "scan_wall_seconds": round(scan_seconds, 6),
+            "projection_wall_seconds": round(projection_seconds, 6),
+            "scanned_entry_count": scan_receipt["accounted_entry_count"],
+            "projected_record_count": projection_receipt["record_count"],
+        },
+        "bounded_outcomes": {
+            "resource_limit": limited_receipt["outcome"],
+            "resource_limit_diagnostic": limited_receipt["diagnostics"][0]["code"],
+            "cancelled": cancelled_receipt["outcome"],
+            "cancelled_diagnostic": cancelled_receipt["diagnostics"][0]["code"],
+            "unbounded_scan": manifest["completeness"],
+        },
+        "resource_limits": {
+            "benchmark_max_bytes": file_size * 4,
+            "archive_max_uncompressed_bytes": 16 * 1024 * 1024,
+        },
+        "limitations": [
+            "timings are descriptive for this runner and corpus",
+            "no universal throughput or memory guarantee",
+            "malicious archive nesting is covered by archive conformance tests",
+        ],
+    }
     validate_benchmark_receipt(receipt)
     return receipt
 
@@ -586,8 +703,35 @@ def invariant_projection(receipt: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def validate_benchmark_receipt(receipt: dict[str, Any]) -> None:
-    """Validate the schema and digest-bound receipt identity."""
+def validate_benchmark_receipt(
+    receipt: dict[str, Any],
+    *,
+    expected_profile: dict[str, Any] | None = None,
+    expected_profile_digest: str | None = None,
+) -> None:
+    """Validate a v1 or v2 receipt and optionally bind v2 to a selected profile.
+
+    Without an expected profile or digest, v2 validation proves structural and
+    internal integrity only; it does not establish who selected the profile.
+    """
+    schema_id = receipt.get("schema_id") if isinstance(receipt, dict) else None
+    if schema_id == "artifact-memory/benchmark-receipt/v1":
+        if expected_profile is not None or expected_profile_digest is not None:
+            raise ValidationFailure(
+                "benchmark-profile-binding-unsupported",
+                "v1 benchmark receipts do not carry profile identity",
+                "$.schema_id",
+            )
+        validate(receipt, load_schema("core", "benchmark-receipt.v1.schema.json"))
+        return
+    if schema_id != "artifact-memory/benchmark-receipt/v2":
+        raise ValidationFailure(
+            "benchmark-receipt-schema-unsupported",
+            "benchmark receipt schema is not supported",
+            "$.schema_id",
+        )
+    if expected_profile is not None and expected_profile_digest is not None:
+        raise ValueError("provide expected_profile or expected_profile_digest, not both")
     validate(receipt, load_schema("core", "benchmark-receipt.v2.schema.json"))
     body = {
         key: value
@@ -607,6 +751,17 @@ def validate_benchmark_receipt(receipt: dict[str, Any]) -> None:
             "benchmark-claim-binding-invalid",
             "benchmark claims do not match their profile and evidence references",
             "$.claims",
+        )
+    if expected_profile is not None:
+        expected_profile_digest = _profile_digest(validate_profile(expected_profile))
+    if (
+        expected_profile_digest is not None
+        and receipt["profile_digest"] != expected_profile_digest
+    ):
+        raise ValidationFailure(
+            "benchmark-profile-mismatch",
+            "benchmark receipt does not bind the expected profile",
+            "$.profile_digest",
         )
 
 

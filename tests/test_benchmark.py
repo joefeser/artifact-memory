@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from copy import deepcopy
@@ -7,14 +9,19 @@ from unittest.mock import patch
 
 from artifact_memory.benchmark import (
     DEFAULT_PROFILE,
+    MAX_BENCHMARK_BYTES,
+    MAX_BENCHMARK_DEPTH,
+    MAX_BENCHMARK_FILES,
+    MAX_BENCHMARK_RECORDS,
     _make_corpus,
     _synthetic_concurrent_change,
     invariant_projection,
     run_baseline,
+    run_baseline_v2,
     validate_benchmark_receipt,
     validate_profile,
 )
-from artifact_memory.canonical import receipt_with_digest
+from artifact_memory.canonical import canonical_bytes, receipt_with_digest, sha256_bytes
 from artifact_memory.schema_resources import load_schema
 from artifact_memory.validator import ValidationFailure, validate
 
@@ -38,7 +45,7 @@ class BenchmarkTests(unittest.TestCase):
         }
 
     def test_synthetic_baseline_covers_resource_and_failure_outcomes(self):
-        receipt = run_baseline(self._small_profile())
+        receipt = run_baseline_v2(self._small_profile())
         validate(receipt, load_schema("core", "benchmark-receipt.v2.schema.json"))
         self.assertEqual(receipt["bounded_outcomes"]["byte_limit"], {"outcome": "partial", "diagnostic": "resource-limit"})
         self.assertEqual(receipt["bounded_outcomes"]["entry_limit"], {"outcome": "partial", "diagnostic": "resource-limit"})
@@ -72,8 +79,8 @@ class BenchmarkTests(unittest.TestCase):
         profile = json.loads((ROOT / "fixtures/synthetic/benchmarks/v1/profile.json").read_text(encoding="utf-8"))
         committed = json.loads((ROOT / "fixtures/synthetic/benchmarks/v1/expected-receipt.json").read_text(encoding="utf-8"))
         validate_profile(profile)
-        validate_benchmark_receipt(committed)
-        replay = run_baseline(profile)
+        validate_benchmark_receipt(committed, expected_profile=profile)
+        replay = run_baseline_v2(profile)
         self.assertEqual(replay["outcome"], "complete")
         self.assertEqual(invariant_projection(replay), invariant_projection(committed))
 
@@ -96,13 +103,76 @@ class BenchmarkTests(unittest.TestCase):
             validate_benchmark_receipt(forged)
         self.assertEqual(failure.exception.code, "benchmark-claim-binding-invalid")
 
+        substituted = deepcopy(committed)
+        substituted_profile = {**profile, "profile_id": "substituted-profile"}
+        substituted_body = {
+            key: deepcopy(value)
+            for key, value in substituted.items()
+            if key not in {"schema_id", "receipt_id"}
+        }
+        substituted_body["profile_id"] = substituted_profile["profile_id"]
+        substituted_body["profile_digest"] = sha256_bytes(
+            canonical_bytes(substituted_profile)
+        )
+        for claim in substituted_body["claims"]:
+            claim["provenance_ref"] = substituted_body["profile_digest"]
+        substituted = receipt_with_digest(
+            committed["schema_id"], "benchmark-receipt://", substituted_body
+        )
+        validate_benchmark_receipt(substituted)
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_benchmark_receipt(substituted, expected_profile=profile)
+        self.assertEqual(failure.exception.code, "benchmark-profile-mismatch")
+
+    def test_legacy_callable_and_receipt_contract_remain_supported(self):
+        receipt = run_baseline(8, 128, 2)
+        self.assertEqual(receipt["schema_id"], "artifact-memory/benchmark-receipt/v1")
+        self.assertEqual(receipt["corpus"]["file_count"], 8)
+        validate_benchmark_receipt(receipt)
+
+    def test_profile_schema_direct_bounds_match_runtime_constants(self):
+        schema = load_schema("core", "benchmark-profile.v1.schema.json")
+        properties = schema["properties"]
+        self.assertEqual(properties["file_count"]["maximum"], MAX_BENCHMARK_FILES)
+        self.assertEqual(
+            properties["projection_record_count"]["maximum"],
+            MAX_BENCHMARK_RECORDS,
+        )
+        self.assertEqual(properties["depth"]["maximum"], MAX_BENCHMARK_DEPTH)
+        self.assertEqual(
+            properties["nested_archive_depth"]["maximum"], MAX_BENCHMARK_DEPTH
+        )
+        for name in (
+            "small_file_size_bytes",
+            "large_file_size_bytes",
+            "scan_byte_limit",
+            "archive_max_uncompressed_bytes",
+        ):
+            self.assertEqual(properties[name]["maximum"], MAX_BENCHMARK_BYTES)
+
+    def test_check_and_write_modes_are_mutually_exclusive(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/run_benchmark.py"),
+                "--check",
+                "--write",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not allowed with argument", result.stderr)
+
     def test_unsupported_platform_fails_before_benchmark_allocation(self):
         with (
             patch("artifact_memory.benchmark.platform.system", return_value="FreeBSD"),
             patch("artifact_memory.benchmark._make_corpus") as make_corpus,
             self.assertRaises(ValidationFailure) as failure,
         ):
-            run_baseline(self._small_profile())
+            run_baseline_v2(self._small_profile())
         self.assertEqual(failure.exception.code, "benchmark-unsupported-platform")
         make_corpus.assert_not_called()
 

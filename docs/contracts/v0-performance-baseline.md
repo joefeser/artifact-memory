@@ -13,6 +13,13 @@ Run the checked profile with:
 python3 scripts/run_benchmark.py --check
 ```
 
+The Python API keeps the pre-existing v1 callable as
+`run_baseline(file_count, file_size, depth)`. Profile-driven callers use the
+explicit `run_baseline_v2(profile)` entry point. Receipt validation dispatches
+on `schema_id`; a v2 caller that needs profile provenance binding supplies the
+expected profile or digest. Without that external input, validation proves
+only structural and internal integrity, not who selected the profile.
+
 The v2 receipt separates reproducible facts from observations:
 
 - `profile_digest`, tree identity, record-set identity, corpus dimensions,
@@ -52,3 +59,8 @@ benchmark-execution safety ceilings, not
 Artifact Memory protocol limits or universal supported maxima. Raising them
 requires a reviewed profile and must not weaken scan, archive, cancellation,
 or incomplete-result semantics.
+
+The profile schema publishes each direct numeric ceiling. Arithmetic and
+generated-payload relationships between profile fields are enforced by
+`validate_profile()` because standard JSON Schema cannot compare sibling
+numeric values; schema-only acceptance is therefore not execution admission.

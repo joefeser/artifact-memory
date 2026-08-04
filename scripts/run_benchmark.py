@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 from artifact_memory.benchmark import (
     invariant_projection,
     render_baseline,
-    run_baseline,
+    run_baseline_v2,
     validate_benchmark_receipt,
     validate_profile,
 )
@@ -28,13 +28,14 @@ DEFAULT_FIXTURE = ROOT / "fixtures" / "synthetic" / "benchmarks" / "v1"
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE)
-    parser.add_argument("--check", action="store_true")
-    parser.add_argument("--write", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true")
+    mode.add_argument("--write", action="store_true")
     parser.add_argument("--format", choices=("json", "markdown"), default="json")
     args = parser.parse_args(argv)
     try:
         profile = validate_profile(load_json(args.fixture / "profile.json"))
-        observed = run_baseline(profile)
+        observed = run_baseline_v2(profile)
         if args.write:
             (args.fixture / "expected-receipt.json").write_text(
                 json.dumps(observed, sort_keys=True, indent=2) + "\n",
@@ -45,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.check:
             committed = load_json(args.fixture / "expected-receipt.json")
-            validate_benchmark_receipt(committed)
+            validate_benchmark_receipt(committed, expected_profile=profile)
             if committed["profile_digest"] != sha256_bytes(canonical_bytes(profile)):
                 raise ValidationFailure(
                     "benchmark-profile-mismatch",

@@ -101,7 +101,7 @@ def _matches(value: Any, schema: dict[str, Any], path: str) -> bool:
 
 
 def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
-    supported = {"$schema", "$id", "title", "type", "additionalProperties", "propertyNames", "required", "dependentRequired", "properties", "const", "enum", "pattern", "minLength", "minItems", "maxItems", "minimum", "format", "items", "allOf", "anyOf", "not", "if", "then", "else"}
+    supported = {"$schema", "$id", "$comment", "title", "description", "type", "additionalProperties", "propertyNames", "required", "dependentRequired", "properties", "const", "enum", "pattern", "minLength", "minItems", "maxItems", "minimum", "maximum", "format", "items", "allOf", "anyOf", "not", "if", "then", "else"}
     unknown = set(schema) - supported
     if unknown:
         _fail("unsupported-schema-keyword", "unsupported schema keyword", path)
@@ -172,6 +172,8 @@ def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
                 _fail("constraint-failed", "date-time requires a timezone offset", path)
     if isinstance(value, (int, float)) and value < schema.get("minimum", value):
         _fail("constraint-failed", "number is below minimum", path)
+    if isinstance(value, (int, float)) and value > schema.get("maximum", value):
+        _fail("constraint-failed", "number is above maximum", path)
 
 
 def validate_file(record_path: Path, schema_path: Path) -> dict[str, Any]:
