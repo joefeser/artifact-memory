@@ -27,6 +27,14 @@ A manifest may claim `status: release` only with an owner-signed annotated tag,
 the dedicated SSH Ed25519 public fingerprint and key generation, and a tag that
 matches the release identifier.
 
+The published v2 schema remains able to read its earlier permissive fingerprint
+shape, but such a value is not releasable evidence. Semantic validation returns
+`release-fingerprint-migration-required`; migration means replacing the claim
+with the canonical 43-character unpadded fingerprint obtained independently
+from the owner-published key, then regenerating and owner-signing the manifest
+binding. Candidate verification reports a noncanonical claim as
+`release-candidate-owner-fingerprint-invalid` and never normalizes it silently.
+
 A public release requires one reviewed exact-head set containing:
 
 1. an owner-signed annotated `v0.1.0` tag made with the dedicated release key;

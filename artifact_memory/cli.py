@@ -104,6 +104,11 @@ def main(argv: list[str] | None = None) -> int:
     release_candidate.add_argument("--tag", required=True)
     release_candidate.add_argument("--repo", required=True, type=Path)
     release_candidate.add_argument("--owner-fingerprint", required=True)
+    release_candidate.add_argument(
+        "--isolated-checkout",
+        action="store_true",
+        help="assert exclusive control of this fresh checkout during verification",
+    )
     release_candidate.add_argument("--json", action="store_true", dest="as_json")
     release_receipt = subparsers.add_parser("validate-release-candidate-receipt")
     release_receipt.add_argument("receipt", type=Path)
@@ -120,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.tag,
                 args.repo,
                 owner_fingerprint=args.owner_fingerprint,
+                isolated_checkout=args.isolated_checkout,
             )
         except ValidationFailure as exc:
             _receipt(

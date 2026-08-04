@@ -4,7 +4,7 @@
   "title": "Artifact Memory release candidate verification receipt v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_id", "receipt_id", "outcome", "tag", "tag_object_id", "head_commit", "tag_commit", "manifest_source_commit", "manifest_sha256", "manifest_binding", "manifest_tree_digest", "release_id", "manifest_package_version", "package_version", "verified_signer_fingerprint", "signing_key_generation", "annotated_tag_verified", "signature_algorithm", "verification_output_profile", "repository_scope", "authority_boundary", "limitations"],
+  "required": ["schema_id", "receipt_id", "outcome", "tag", "tag_object_id", "head_commit", "tag_commit", "manifest_source_commit", "manifest_sha256", "manifest_binding", "manifest_tree_digest", "release_id", "manifest_package_version", "package_version", "verified_signer_fingerprint", "signing_key_generation", "annotated_tag_verified", "signature_algorithm", "verification_output_profile", "repository_scope", "checkout_isolation", "concurrent_mutation_detection", "owner_publication_authorization_evaluated", "repository_settings_evidence_evaluated", "authority_boundary", "limitations"],
   "properties": {
     "schema_id": {"const": "artifact-memory/release-candidate-verification-receipt/v1"},
     "receipt_id": {"type": "string", "pattern": "^release-candidate-verification-receipt://[0-9a-f]{64}$"},
@@ -26,6 +26,10 @@
     "signature_algorithm": {"const": "ssh-ed25519"},
     "verification_output_profile": {"const": "git-verify-tag-filtered-allowed-signers-v1"},
     "repository_scope": {"const": "explicit-git-checkout"},
+    "checkout_isolation": {"const": "caller-asserted-exclusive-fresh-checkout"},
+    "concurrent_mutation_detection": {"const": "initial-final-endpoint-equality-no-aba-detection"},
+    "owner_publication_authorization_evaluated": {"const": false},
+    "repository_settings_evidence_evaluated": {"const": false},
     "authority_boundary": {"const": "release preparation grants no signing, tag, publication, visibility, or deployment authority"},
     "limitations": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}}
   }

@@ -144,7 +144,11 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 ),
             ):
                 receipt = verify_checked_out_release_candidate(
-                    manifest_path, "v0.1.0", root, owner_fingerprint=SYNTHETIC_FINGERPRINT
+                    manifest_path,
+                    "v0.1.0",
+                    root,
+                    owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    isolated_checkout=True,
                 )
         self.assertEqual(receipt, expected_receipt)
         validate_release_candidate_verification_receipt(receipt)
@@ -238,6 +242,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         "v0.1.0",
                         Path(temporary),
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=True,
                     )
             self.assertEqual(failure.exception.code, "duplicate-key")
             git_verify.assert_not_called()
@@ -266,7 +271,11 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 ) as git_read,
             ):
                 result = verify_checked_out_release_candidate(
-                    manifest_path, "v0.1.0", root, owner_fingerprint=SYNTHETIC_FINGERPRINT
+                    manifest_path,
+                    "v0.1.0",
+                    root,
+                    owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    isolated_checkout=True,
                 )
             self.assertEqual(result["verified_signer_fingerprint"], fingerprint)
             self.assertEqual(result["signing_key_generation"], "generation-1")
@@ -332,6 +341,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         "v0.1.0",
                         root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=True,
                     )
             self.assertEqual(failure.exception.code, "release-candidate-expected-signer-unavailable")
 
@@ -360,7 +370,11 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 ),
             ):
                 result = verify_checked_out_release_candidate(
-                    manifest_path, "v0.1.0", root, owner_fingerprint=SYNTHETIC_FINGERPRINT
+                    manifest_path,
+                    "v0.1.0",
+                    root,
+                    owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    isolated_checkout=True,
                 )
             self.assertEqual(result["verified_signer_fingerprint"], fingerprint)
 
@@ -391,6 +405,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         "v0.1.0",
                         root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=True,
                     )
             self.assertEqual(failure.exception.code, "release-candidate-manifest-binding-mismatch")
 
@@ -422,6 +437,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         "v0.1.0",
                         root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=True,
                     )
             self.assertEqual(failure.exception.code, "release-candidate-tree-digest-mismatch")
 
@@ -445,6 +461,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         "v0.1.0",
                         root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=True,
                     )
             self.assertEqual(failure.exception.code, "release-candidate-object-format-unsupported")
 
@@ -469,11 +486,61 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         "v0.1.0",
                         root,
                         owner_fingerprint=other_fingerprint,
+                        isolated_checkout=True,
                     )
             self.assertEqual(
                 failure.exception.code,
                 "release-candidate-owner-fingerprint-mismatch",
             )
+
+    def test_verifier_rejects_noncanonical_manifest_fingerprint_precisely(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = release_manifest()
+            manifest["signature"]["public_key_fingerprint"] = "SHA256:" + "A" * 20 + "=="
+            manifest_path = root / "release.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    return_value="sha1\n",
+                ),
+            ):
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=True,
+                    )
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-owner-fingerprint-invalid",
+            )
+
+    def test_verifier_requires_isolated_checkout_assertion(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_path = root / "release.json"
+            manifest_path.write_text(json.dumps(release_manifest()), encoding="utf-8")
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    return_value="sha1\n",
+                ),
+            ):
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=False,
+                    )
+            self.assertEqual(failure.exception.code, "release-candidate-isolation-required")
 
     def test_verifier_rejects_non_string_owner_fingerprint(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -493,6 +560,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         "v0.1.0",
                         root,
                         owner_fingerprint=None,  # type: ignore[arg-type]
+                        isolated_checkout=True,
                     )
             self.assertEqual(
                 failure.exception.code,
@@ -566,6 +634,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         "v0.1.0",
                         root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=True,
                     )
             self.assertEqual(failure.exception.code, "release-candidate-tag-ref-changed")
 
@@ -604,6 +673,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         "v0.1.0",
                         root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=True,
                     )
             self.assertEqual(failure.exception.code, "release-candidate-head-not-detached")
 
@@ -692,6 +762,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                     "v0.1.0",
                     repository,
                     owner_fingerprint=fingerprint,
+                    isolated_checkout=True,
                 )
             self.assertEqual(receipt["verified_signer_fingerprint"], fingerprint)
             self.assertEqual(receipt["manifest_sha256"], manifest_digest)

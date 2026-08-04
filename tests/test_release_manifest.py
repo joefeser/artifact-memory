@@ -180,7 +180,7 @@ class ReleaseManifestTests(unittest.TestCase):
             validate_release_manifest(released)
         self.assertEqual(failure.exception.code, "release-tag-mismatch")
 
-    def test_legacy_v2_release_fingerprint_shape_remains_valid(self):
+    def test_legacy_v2_fingerprint_is_schema_readable_but_requires_migration(self):
         manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
         manifest["status"] = "release"
         manifest["release_id"] = "artifact-memory/v0.1.0"
@@ -192,7 +192,15 @@ class ReleaseManifestTests(unittest.TestCase):
             "key_generation": "legacy-generation",
             "owner_signed_annotated_tag": True,
         }
-        validate_release_manifest(manifest)
+        schema = json.loads(
+            (ROOT / "artifact_memory/schemas/core/release-manifest.v2.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        validate(manifest, schema)
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_release_manifest(manifest)
+        self.assertEqual(failure.exception.code, "release-fingerprint-migration-required")
 
 
 if __name__ == "__main__":

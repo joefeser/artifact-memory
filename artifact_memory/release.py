@@ -67,6 +67,13 @@ def validate_release_manifest(
     if manifest["status"] == "preview" and manifest["attestations"]["state"] != "deferred-private-incubation":
         raise ValidationFailure("release-preview-attestation-invalid", "private preview cannot claim published attestations", "$.attestations.state")
     if manifest["status"] == "release":
+        fingerprint = manifest["signature"]["public_key_fingerprint"]
+        if not isinstance(fingerprint, str) or SSH_FINGERPRINT_PATTERN.fullmatch(fingerprint) is None:
+            raise ValidationFailure(
+                "release-fingerprint-migration-required",
+                "legacy v2 release fingerprint must be replaced by the canonical owner-published fingerprint before release use",
+                "$.signature.public_key_fingerprint",
+            )
         version = manifest["release_id"].removeprefix("artifact-memory/")
         if manifest["signature"]["tag"] != version:
             raise ValidationFailure("release-tag-mismatch", "owner-signed tag must match the release identifier", "$.signature.tag")
@@ -121,7 +128,16 @@ def _validate_v2_release_candidate_manifest(manifest: Any) -> None:
             "release-candidate-schema-unsupported",
             "release candidate identity verification requires a v2 release manifest",
         )
-    validate_release_manifest(manifest)
+    try:
+        validate_release_manifest(manifest)
+    except ValidationFailure as exc:
+        if exc.code == "release-fingerprint-migration-required":
+            raise ValidationFailure(
+                "release-candidate-owner-fingerprint-invalid",
+                "candidate manifest fingerprint must use canonical unpadded SHA-256 form",
+                "$.signature.public_key_fingerprint",
+            ) from exc
+        raise
     if manifest["status"] != "release":
         raise ValidationFailure("release-candidate-status-invalid", "candidate manifest must have release status")
 
@@ -270,6 +286,10 @@ def render_release_candidate_verification_receipt(receipt: dict[str, Any]) -> st
         f"- Annotated tag verified: `{str(receipt['annotated_tag_verified']).lower()}`\n"
         f"- Verification output profile: `{receipt['verification_output_profile']}`\n"
         f"- Repository scope: `{receipt['repository_scope']}`\n"
+        f"- Checkout isolation: `{receipt['checkout_isolation']}`\n"
+        f"- Concurrent mutation detection: `{receipt['concurrent_mutation_detection']}`\n"
+        f"- Owner publication authorization evaluated: `{str(receipt['owner_publication_authorization_evaluated']).lower()}`\n"
+        f"- Repository settings evidence evaluated: `{str(receipt['repository_settings_evidence_evaluated']).lower()}`\n"
         f"- Authority boundary: {receipt['authority_boundary']}\n"
         "- Limitations:\n"
         + "".join(f"  - {limitation}\n" for limitation in receipt["limitations"])
@@ -282,6 +302,7 @@ def verify_checked_out_release_candidate(
     repository: Path,
     *,
     owner_fingerprint: str,
+    isolated_checkout: bool,
 ) -> dict[str, Any]:
     resolved_manifest = manifest_path.resolve()
     try:
@@ -314,11 +335,18 @@ def verify_checked_out_release_candidate(
             "requested tag must match the v2 release manifest signature",
         )
     owner_fingerprint = _require_canonical_owner_fingerprint(owner_fingerprint)
-    manifest_fingerprint = manifest["signature"]["public_key_fingerprint"]
+    manifest_fingerprint = _require_canonical_owner_fingerprint(
+        manifest["signature"]["public_key_fingerprint"]
+    )
     if manifest_fingerprint != owner_fingerprint:
         raise ValidationFailure(
             "release-candidate-owner-fingerprint-mismatch",
             "release manifest signer must match the independently supplied owner fingerprint",
+        )
+    if isolated_checkout is not True:
+        raise ValidationFailure(
+            "release-candidate-isolation-required",
+            "release verification requires caller-asserted exclusive control of a fresh isolated checkout",
         )
     try:
         allowed_signers_setting = subprocess.check_output(
@@ -449,8 +477,17 @@ def verify_checked_out_release_candidate(
         "signature_algorithm": "ssh-ed25519",
         "verification_output_profile": SSH_VERIFICATION_OUTPUT_PROFILE,
         "repository_scope": "explicit-git-checkout",
+        "checkout_isolation": "caller-asserted-exclusive-fresh-checkout",
+        "concurrent_mutation_detection": "initial-final-endpoint-equality-no-aba-detection",
+        "owner_publication_authorization_evaluated": False,
+        "repository_settings_evidence_evaluated": False,
         "authority_boundary": manifest["authority_boundary"],
-        "limitations": manifest["limitations"],
+        "limitations": [
+            *manifest["limitations"],
+            "owner publication authorization and explicit visibility approval were not evaluated",
+            "required repository-settings evidence was not evaluated",
+            "checkout isolation is caller-asserted and endpoint checks do not detect ABA mutations",
+        ],
     }
     receipt = receipt_with_digest(
         RELEASE_VERIFICATION_SCHEMA_ID,

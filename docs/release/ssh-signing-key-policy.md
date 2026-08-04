@@ -34,7 +34,9 @@ to that public key, and does not parse human-readable signer diagnostics.
    tree digest, tag object and target, detached HEAD, versions, and signer all
    agree. Supply the owner-published canonical fingerprint independently with
    `--owner-fingerprint`; do not copy it from the candidate manifest being
-   verified. Preserve the external receipt.
+   verified. Use `--isolated-checkout` only for a fresh checkout under the
+   operator's exclusive control; it is an assertion, not an OS-enforced lock.
+   Preserve the external receipt.
 7. Publish the tag/release only after Joe separately authorizes publication.
 
 The v0 verifier explicitly supports SHA-1-format Git repositories. A SHA-256

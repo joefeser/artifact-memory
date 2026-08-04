@@ -137,7 +137,7 @@ python -m pip install --no-deps .
 release_manifest_path=/external/release/release-manifest.json
 release_verification_path=/external/audit/release-candidate-verification.json
 : "${ARTIFACT_MEMORY_RELEASE_OWNER_FINGERPRINT:?set from the owner-published release policy}"
-artifact-memory verify-release-candidate "$release_manifest_path" --tag v0.1.0 --repo . --owner-fingerprint "$ARTIFACT_MEMORY_RELEASE_OWNER_FINGERPRINT" --json > "$release_verification_path"
+artifact-memory verify-release-candidate "$release_manifest_path" --tag v0.1.0 --repo . --owner-fingerprint "$ARTIFACT_MEMORY_RELEASE_OWNER_FINGERPRINT" --isolated-checkout --json > "$release_verification_path"
 artifact-memory validate-release-candidate-receipt "$release_verification_path" --json
 python tests/smoke_installed_package.py
 python -m unittest discover -s tests -v
@@ -154,15 +154,19 @@ the verified SSH fingerprint must exactly match the manifest. The verifier
 does not parse human diagnostics: it filters the configured allowed-signers
 file to the independently supplied owner-published Ed25519 fingerprint,
 rejects any different fingerprint claimed by the candidate manifest, verifies
-one pinned tag object against that key, and rejects a concurrent tag-ref
-change. This behavior is
+one pinned tag object against that key, and compares initial/final ref, commit,
+and detached-HEAD endpoints. The caller must assert exclusive control of this
+fresh checkout; endpoint equality does not detect an A→B→A mutation. This
+behavior is
 the `git-verify-tag-filtered-allowed-signers-v1` profile and is covered by a
 real ephemeral Git/SSH signing regression test. Git SHA-256 object-format
 repositories receive an explicit unsupported outcome in v0. Its pass evidence
 is a digest-bound
 `artifact-memory/release-candidate-verification-receipt/v1` containing that
 fingerprint, signed tag object, exact manifest digest, key generation,
-authority boundary, and limitations. Preserve the external
+authority boundary, caller-asserted isolation, endpoint-only concurrency scope,
+and explicit unevaluated owner-authorization and repository-settings gates.
+Preserve the external
 receipt with the release audit evidence; the second command rejects schema,
 duplicate-key, or canonical-identity tampering. The
 installed-package smoke runs the console script and packaged-schema checks from
