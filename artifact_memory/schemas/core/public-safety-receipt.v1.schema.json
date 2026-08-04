@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/public-safety-receipt/v1",
+  "title": "Artifact Memory exact-candidate public-safety receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "candidate_commit", "head_commit", "ref_scope", "scanned_refs", "commit_count", "historical_object_count", "current_path_count", "current_path_scope", "worktree_clean", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/public-safety-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^public-safety-receipt://[0-9a-f]{64}$"},
+    "outcome": {"const": "pass"},
+    "candidate_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "head_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "ref_scope": {"const": "candidate-plus-remote-refs-and-tags-v1"},
+    "scanned_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "object_id"],
+        "properties": {
+          "ref": {"type": "string", "pattern": "^refs/(?:remotes/[^/]+/[^/].*|tags/[^/].*)$"},
+          "object_id": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+        }
+      }
+    },
+    "commit_count": {"type": "integer", "minimum": 1},
+    "historical_object_count": {"type": "integer", "minimum": 1},
+    "current_path_count": {"type": "integer", "minimum": 1},
+    "current_path_scope": {"const": "clean-index-and-worktree"},
+    "worktree_clean": {"const": true},
+    "limitations": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}}
+  }
+}

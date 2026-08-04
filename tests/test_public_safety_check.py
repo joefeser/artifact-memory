@@ -74,5 +74,51 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
         )
 
 
+class PublicSafetyCandidateReceiptTests(unittest.TestCase):
+    def test_receipt_paths_must_be_external_to_repository(self):
+        with patch.object(public_safety_check, "repository_root", return_value=Path("/repo")):
+            with self.assertRaisesRegex(ValueError, "outside the audited repository"):
+                public_safety_check.require_external_path(Path("/repo/audit/receipt.json"), "receipt output")
+
+    def test_receipt_binds_candidate_refs_counts_and_clean_scope(self):
+        candidate = "a" * 40
+        refs = [{"ref": "refs/remotes/origin/dev", "object_id": "b" * 40}]
+        with (
+            patch.object(public_safety_check, "head_commit", return_value=candidate),
+            patch.object(public_safety_check, "worktree_is_clean", return_value=True),
+            patch.object(public_safety_check, "public_refs", return_value=refs),
+            patch.object(
+                public_safety_check,
+                "scan",
+                return_value=({"object": {"tracked.txt"}}, ["tracked.txt"], []),
+            ),
+            patch.object(public_safety_check, "commits", return_value=[candidate]),
+        ):
+            receipt, findings = public_safety_check.exact_candidate_receipt(candidate)
+        self.assertEqual(findings, [])
+        self.assertEqual(receipt["candidate_commit"], candidate)
+        self.assertEqual(receipt["head_commit"], candidate)
+        self.assertEqual(receipt["scanned_refs"], refs)
+        self.assertEqual(receipt["commit_count"], 1)
+        self.assertEqual(receipt["historical_object_count"], 1)
+        self.assertEqual(receipt["current_path_count"], 1)
+        self.assertTrue(receipt["worktree_clean"])
+        self.assertRegex(receipt["receipt_id"], r"^public-safety-receipt://[0-9a-f]{64}$")
+
+    def test_receipt_rejects_cross_candidate_head(self):
+        with patch.object(public_safety_check, "head_commit", return_value="b" * 40):
+            with self.assertRaisesRegex(ValueError, "HEAD does not equal"):
+                public_safety_check.exact_candidate_receipt("a" * 40)
+
+    def test_receipt_rejects_dirty_worktree(self):
+        candidate = "a" * 40
+        with (
+            patch.object(public_safety_check, "head_commit", return_value=candidate),
+            patch.object(public_safety_check, "worktree_is_clean", return_value=False),
+        ):
+            with self.assertRaisesRegex(ValueError, "clean index and worktree"):
+                public_safety_check.exact_candidate_receipt(candidate)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3,10 +3,19 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from artifact_memory.canonical import receipt_with_digest
+from artifact_memory.schema_resources import load_schema
+from artifact_memory.validator import ValidationFailure, validate
 
 
 FORBIDDEN_PATH = re.compile(
@@ -27,12 +36,20 @@ SECRET_LIKE = re.compile(
 )
 
 SCANNER_PATH = "scripts/public_safety_check.py"
+RECEIPT_SCHEMA_ID = "artifact-memory/public-safety-receipt/v1"
+RECEIPT_ID_PREFIX = "public-safety-receipt://"
 
 
-def history_entries() -> dict[str, set[str]]:
+def _revision_arguments(revisions: list[str] | None) -> list[str]:
+    return ["--all"] if revisions is None else revisions
+
+
+def history_entries(revisions: list[str] | None = None) -> dict[str, set[str]]:
     entries: dict[str, set[str]] = {}
     output = subprocess.check_output(
-        ["git", "rev-list", "--objects", "--all"], text=True, stderr=subprocess.STDOUT
+        ["git", "rev-list", "--objects", *_revision_arguments(revisions)],
+        text=True,
+        stderr=subprocess.STDOUT,
     )
     for line in output.splitlines():
         parts = line.split(" ", 1)
@@ -41,10 +58,61 @@ def history_entries() -> dict[str, set[str]]:
     return entries
 
 
-def commits() -> list[str]:
+def commits(revisions: list[str] | None = None) -> list[str]:
     return subprocess.check_output(
-        ["git", "rev-list", "--all"], text=True, stderr=subprocess.STDOUT
+        ["git", "rev-list", *_revision_arguments(revisions)],
+        text=True,
+        stderr=subprocess.STDOUT,
     ).splitlines()
+
+
+def head_commit() -> str:
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.STDOUT
+    ).strip()
+
+
+def public_refs() -> list[dict[str, str]]:
+    output = subprocess.check_output(
+        [
+            "git",
+            "for-each-ref",
+            "--format=%(refname)%09%(objectname)",
+            "refs/remotes",
+            "refs/tags",
+        ],
+        text=True,
+        stderr=subprocess.STDOUT,
+    )
+    refs = []
+    for line in output.splitlines():
+        ref, object_id = line.split("\t", 1)
+        if ref.endswith("/HEAD"):
+            continue
+        refs.append({"ref": ref, "object_id": object_id})
+    return sorted(refs, key=lambda item: item["ref"])
+
+
+def worktree_is_clean() -> bool:
+    return not subprocess.check_output(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        stderr=subprocess.STDOUT,
+    )
+
+
+def repository_root() -> Path:
+    return Path(
+        subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            text=True,
+            stderr=subprocess.STDOUT,
+        ).strip()
+    ).resolve()
+
+
+def require_external_path(path: Path, purpose: str) -> None:
+    if path.resolve().is_relative_to(repository_root()):
+        raise ValueError(f"{purpose} must be outside the audited repository")
 
 
 def current_paths() -> list[str]:
@@ -157,14 +225,112 @@ def check_current_content(paths: list[str]) -> list[str]:
     return findings
 
 
-def main() -> int:
-    history = history_entries()
+def scan(revisions: list[str] | None = None) -> tuple[dict[str, set[str]], list[str], list[str]]:
+    history = history_entries(revisions)
     current = current_paths()
     findings = (
         check_paths(history, current)
         + check_historical_content(history)
         + check_current_content(current)
     )
+    return history, current, findings
+
+
+def exact_candidate_receipt(candidate: str) -> tuple[dict[str, object], list[str]]:
+    if re.fullmatch(r"[0-9a-f]{40}", candidate) is None:
+        raise ValueError("candidate commit must be a full lowercase Git object ID")
+    head = head_commit()
+    if head != candidate:
+        raise ValueError("checked-out HEAD does not equal the requested candidate commit")
+    if not worktree_is_clean():
+        raise ValueError("exact-candidate audit requires a clean index and worktree")
+    refs = public_refs()
+    revisions = [candidate, *(item["object_id"] for item in refs)]
+    history, current, findings = scan(revisions)
+    if findings:
+        return {}, findings
+    body = {
+        "outcome": "pass",
+        "candidate_commit": candidate,
+        "head_commit": head,
+        "ref_scope": "candidate-plus-remote-refs-and-tags-v1",
+        "scanned_refs": refs,
+        "commit_count": len(commits(revisions)),
+        "historical_object_count": len(history),
+        "current_path_count": len(current),
+        "current_path_scope": "clean-index-and-worktree",
+        "worktree_clean": True,
+        "limitations": [
+            "high-confidence pattern scanning does not prove absence of every protected value",
+            "GitHub issues, reviews, logs, artifacts, releases, and repository settings require separate audit evidence",
+        ],
+    }
+    receipt = receipt_with_digest(RECEIPT_SCHEMA_ID, RECEIPT_ID_PREFIX, body)
+    validate(receipt, load_schema("core", "public-safety-receipt.v1.schema.json"))
+    return receipt, []
+
+
+def _load_expected_receipt(path: Path) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("expected receipt is unavailable or invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError("expected receipt must be a JSON object")
+    try:
+        validate(value, load_schema("core", "public-safety-receipt.v1.schema.json"))
+    except ValidationFailure as exc:
+        raise ValueError("expected receipt fails schema validation") from exc
+    return value
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--candidate", help="full exact commit for a clean candidate receipt")
+    parser.add_argument("--receipt-out", type=Path, help="external path for the generated receipt")
+    parser.add_argument("--expect-receipt", type=Path, help="external receipt that the current run must equal")
+    parser.add_argument("--json", action="store_true", dest="as_json")
+    args = parser.parse_args(argv)
+    if (args.receipt_out or args.expect_receipt or args.as_json) and not args.candidate:
+        parser.error("--candidate is required for receipt operations")
+
+    if args.candidate:
+        try:
+            if args.receipt_out:
+                require_external_path(args.receipt_out, "receipt output")
+            if args.expect_receipt:
+                require_external_path(args.expect_receipt, "expected receipt")
+            receipt, findings = exact_candidate_receipt(args.candidate)
+            if not findings and args.expect_receipt and receipt != _load_expected_receipt(args.expect_receipt):
+                findings = ["exact-candidate receipt does not match the frozen receipt"]
+        except ValueError as exc:
+            findings = [str(exc)]
+            receipt = {}
+        if not findings and args.receipt_out:
+            try:
+                args.receipt_out.write_text(
+                    json.dumps(receipt, sort_keys=True, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+            except OSError:
+                findings = ["exact-candidate receipt could not be written"]
+        if findings:
+            print("PUBLIC SAFETY CHECK FAILED", file=sys.stderr)
+            for finding in sorted(set(findings)):
+                print(f"- {finding}", file=sys.stderr)
+            return 1
+        if args.as_json:
+            print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
+        else:
+            print(
+                "public safety candidate receipt passed: "
+                f"{receipt['receipt_id']}, {receipt['commit_count']} commits, "
+                f"{receipt['historical_object_count']} historical objects, "
+                f"{receipt['current_path_count']} current paths"
+            )
+        return 0
+
+    history, current, findings = scan()
     if findings:
         print("PUBLIC SAFETY CHECK FAILED", file=sys.stderr)
         for finding in sorted(set(findings)):

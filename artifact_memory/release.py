@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .extensions import ExtensionFailure, preserve_extensions
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
@@ -54,3 +58,71 @@ def validate_release_manifest(
         version = manifest["release_id"].removeprefix("artifact-memory/")
         if manifest["signature"]["tag"] != version:
             raise ValidationFailure("release-tag-mismatch", "owner-signed tag must match the release identifier", "$.signature.tag")
+
+
+def validate_release_candidate_identity(
+    manifest: dict[str, Any],
+    *,
+    tag: str,
+    head_commit: str,
+    tag_commit: str,
+    package_version: str,
+) -> dict[str, str]:
+    """Fail closed unless tag, source, and installed package identify one release."""
+
+    if manifest.get("schema_id") != "artifact-memory/release-manifest/v2":
+        raise ValidationFailure(
+            "release-candidate-schema-unsupported",
+            "release candidate identity verification requires a v2 release manifest",
+        )
+    validate_release_manifest(manifest)
+    expected_version = tag.removeprefix("v")
+    if manifest["status"] != "release":
+        raise ValidationFailure("release-candidate-status-invalid", "candidate manifest must have release status")
+    if manifest["release_id"] != f"artifact-memory/{tag}":
+        raise ValidationFailure("release-candidate-id-mismatch", "release identifier must match the verified tag")
+    if manifest["source"]["commit"] != head_commit or tag_commit != head_commit:
+        raise ValidationFailure("release-candidate-commit-mismatch", "tag, HEAD, and manifest source commit must match")
+    manifest_version = manifest["surfaces"]["reference_cli"]["package_version"]
+    if manifest_version != expected_version or package_version != expected_version:
+        raise ValidationFailure(
+            "release-candidate-version-mismatch",
+            "tag, manifest package version, and installed package version must match",
+        )
+    return {
+        "outcome": "pass",
+        "tag": tag,
+        "head_commit": head_commit,
+        "tag_commit": tag_commit,
+        "manifest_source_commit": manifest["source"]["commit"],
+        "release_id": manifest["release_id"],
+        "manifest_package_version": manifest_version,
+        "package_version": package_version,
+    }
+
+
+def verify_checked_out_release_candidate(manifest_path: Path, tag: str) -> dict[str, str]:
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValidationFailure("release-candidate-manifest-invalid", "release manifest is unavailable or invalid") from exc
+    if not isinstance(manifest, dict):
+        raise ValidationFailure("release-candidate-manifest-invalid", "release manifest must be an object")
+    try:
+        subprocess.run(
+            ["git", "verify-tag", "--raw", tag],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        head_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        tag_commit = subprocess.check_output(["git", "rev-parse", f"{tag}^{{commit}}"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValidationFailure("release-candidate-git-verification-failed", "signed release tag or Git identity could not be verified") from exc
+    return validate_release_candidate_identity(
+        manifest,
+        tag=tag,
+        head_commit=head_commit,
+        tag_commit=tag_commit,
+        package_version=__version__,
+    )

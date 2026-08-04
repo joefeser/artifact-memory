@@ -43,6 +43,13 @@ merged:
   matrix. Performance claims remain descriptive and tied to the checked
   synthetic profile rather than universal guarantees.
 
+This dated snapshot describes the accepted `dev` base before the audit patch;
+it is not the final visibility-approval receipt. Final approval consumes one
+external `artifact-memory/public-safety-receipt/v1` generated for the frozen
+candidate after the last merge. The receipt binds its own candidate and HEAD
+commits, scanned remote refs and tags, commit/object/path counts, clean
+index/worktree scope, and canonical receipt identity.
+
 These checks are high-confidence guardrails, not proof of absence. A human must
 still review the exact final public candidate and repository settings before
 approving visibility.
@@ -70,22 +77,35 @@ pre-public pass:
 
 ## Final pre-public procedure
 
-1. Freeze the exact candidate commit and enumerate every remote branch, tag,
-   release, Actions run/log/artifact, issue, PR, review, comment, Discussion,
-   and enabled repository feature.
-2. Rerun the full-history scanner, public JSON validation, unit tests,
-   conformance, compilation, whitespace check, and `git fsck` from a fresh
-   full-history clone of the private repository.
-3. Review every scanner match by source and classification. Synthetic examples
+1. From a clean full-history clone, detach `HEAD` at the exact owner-approved
+   candidate and enumerate every remote branch, tag, release, Actions
+   run/log/artifact, issue, PR, review, comment, Discussion, and enabled
+   repository feature.
+2. Generate the frozen Git receipt outside the clone, substituting the full
+   candidate commit for `<candidate-sha>` and an external path for
+   `<receipt-path>`:
+
+   ```shell
+   python scripts/public_safety_check.py --candidate <candidate-sha> --receipt-out <receipt-path> --json
+   ```
+
+3. In a second clean full-history clone detached at the same candidate, rerun
+   with `--expect-receipt <receipt-path>`. The command fails unless HEAD, the
+   complete remote-ref/tag set, commit/object/path counts, and clean working
+   scope reproduce exactly. Any mismatch blocks approval.
+4. Rerun public JSON validation, unit tests, conformance, compilation,
+   whitespace checks, and `git fsck` from that replay clone.
+5. Review every scanner match by source and classification. Synthetic examples
    and reviewer descriptions must be distinguishable from real protected
    material; ambiguity fails closed.
-4. Confirm fixtures are newly authored synthetic data and that no real vault
+6. Confirm fixtures are newly authored synthetic data and that no real vault
    record, raw conversation, attachment, customer material, private strategy,
    credential, resolver path, hostname, or bearer URL is present.
-5. Verify Apache-2.0 detection, attribution/lineage, release notes, support,
+7. Verify Apache-2.0 detection, attribution/lineage, release notes, support,
    security reporting, contribution policy, and final SHA-256 release assets.
-6. Record the exact commit, counts, command results, reviewed surfaces, known
-   gaps, and Joe's explicit visibility decision without recording secrets.
+8. Record the frozen receipt, successful replay result, reviewed GitHub
+   surfaces, known gaps, and Joe's explicit visibility decision without
+   recording secrets. Do not compare a prose count tuple from another commit.
 
 ## Post-visibility anonymous clone
 
@@ -100,22 +120,37 @@ cd artifact-memory-public-check
 git fetch --tags --force
 git verify-tag v0.1.0
 git checkout --detach v0.1.0
-git rev-parse HEAD
 git fsck --full --no-reflogs
 python -m pip install --no-deps .
-artifact-memory version --json
+artifact-memory verify-release-candidate <release-manifest.json> --tag v0.1.0 --json
 python tests/smoke_installed_package.py
 python -m unittest discover -s tests -v
 ```
 
-Stop unless the verified tag and `git rev-parse HEAD` both identify the exact
-owner-approved commit recorded in the release manifest. The installed-package
-smoke runs the console script and packaged-schema checks from a temporary
-directory outside the source checkout.
+The executable candidate verifier fails unless the signed tag target, detached
+HEAD, manifest `release_id`, manifest source commit, manifest package version,
+and installed package version all identify `v0.1.0` / `0.1.0`. The
+installed-package smoke runs the console script and packaged-schema checks from
+a temporary directory outside the source checkout.
 
 Inspect the clone for real paths, credentials, customer material, raw task
 transcripts, generated-only knowledge, unexpected network access, and mutation
 behavior. Record the tag, source commit, signer fingerprint, and command
-results. Restore branch protection, push rules, secret scanning, and private
-vulnerability reporting as available. Do not publish the release if this smoke
-or settings restoration fails.
+results. Before release publication, record positive API or settings-page
+evidence for every control below:
+
+- only merge commits are enabled; squash and rebase merges are disabled;
+- `main` and `dev` reject force pushes and deletions, require pull requests,
+  dismiss stale approvals, require conversation resolution, enforce rules for
+  administrators, and require the CI public-safety job plus all three platform
+  jobs;
+- direct pushes and merges to `main` and `dev` are restricted to Joe, with
+  `main` promotion remaining a separate human-mediated pull request;
+- secret scanning, secret-scanning push protection, and private vulnerability
+  reporting are enabled;
+- the default branch is `main`, head branches delete after merge, and no Pages,
+  wiki, or Projects surface is enabled unintentionally.
+
+If GitHub cannot enforce or positively report any required control on the
+public repository plan, the settings gate fails: stop publication and return
+the repository to private rather than recording the control as “unavailable.”
