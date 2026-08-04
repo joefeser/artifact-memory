@@ -113,7 +113,7 @@ def _validate_record(record: dict[str, Any]) -> None:
             or relationship["type"] not in (
                 {"related-to", "produced-from", "supported-by-external-evidence"}
                 if schema_id == "artifact-memory/knowledge-record/v1"
-                else {"related-to", "produced-from", "redacted-from", "supported-by-external-evidence"}
+                else {"related-to", "produced-from", "redacted-from", "supported-by-external-evidence", "supersedes", "disputes", "contradicts"}
             )
             or not isinstance(relationship.get("target_ref"), str)
             or not relationship["target_ref"]

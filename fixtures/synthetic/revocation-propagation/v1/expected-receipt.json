@@ -1,0 +1,7 @@
+{
+  "acknowledged_recipient": "agent://synthetic/reader-a",
+  "authority_boundary": "revocation propagation grants no execution, disclosure, routing, mutation, or erasure authority",
+  "outcome": "partially-complete",
+  "synthetic": true,
+  "unavailable_recipient": "agent://synthetic/reader-b"
+}

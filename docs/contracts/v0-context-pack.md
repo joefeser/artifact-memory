@@ -30,6 +30,13 @@ freshness assertion, redaction behavior, and reference-only artifact policy.
 Freshness is a disclosed assertion, not inferred truth. The same inputs and
 selection metadata produce the same pack identity and ordering.
 
+When a caller supplies validated tombstone suppression, the v2 selection
+receipt records a revocation exclusion count, the
+`validated-tombstone-suppression` policy, and optional revocation receipt
+references. The pack contains no suppressed record. This remains endpoint- and
+pack-generation-scoped; it does not revoke an already-issued immutable pack or
+prove deletion from an unknown copy.
+
 The pack is not a WITS memory card, WITS fresh-context packet, HACP Task
 Packet, Route Task, Codex continuation payload, or authority-bearing envelope.
 It cannot authorize execution, routing, disclosure, repository mutation,

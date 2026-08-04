@@ -1,0 +1,7 @@
+{
+  "accepted_outcome": "accepted",
+  "authority_boundary": "candidate admission grants no execution, disclosure, routing, mutation, merge, deployment, spending, credential, declassification, or approval authority",
+  "rejected_outcome": "rejected",
+  "result_record_lifecycle": "accepted",
+  "synthetic": true
+}

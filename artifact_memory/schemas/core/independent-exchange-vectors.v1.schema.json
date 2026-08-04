@@ -59,7 +59,7 @@
             "additionalProperties": false,
             "required": ["type", "target_ref"],
             "properties": {
-              "type": {"type": "string", "enum": ["related-to", "produced-from", "redacted-from", "supported-by-external-evidence"]},
+              "type": {"type": "string", "enum": ["related-to", "produced-from", "redacted-from", "supported-by-external-evidence", "supersedes", "disputes", "contradicts"]},
               "target_ref": {"type": "string", "minLength": 1}
             }
           }

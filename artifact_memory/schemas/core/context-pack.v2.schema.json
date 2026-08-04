@@ -71,7 +71,7 @@
     "selection_receipt": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["policy_id", "source_record_set_digest", "selected_record_ids", "selected_external_evidence", "exclusion_counts", "max_bytes", "selected_at", "freshness_policy", "redaction_policy", "artifact_policy", "disclosure"],
+          "required": ["policy_id", "source_record_set_digest", "selected_record_ids", "selected_external_evidence", "exclusion_counts", "max_bytes", "selected_at", "freshness_policy", "redaction_policy", "artifact_policy", "disclosure"],
       "properties": {
         "policy_id": {"type": "string", "minLength": 1},
         "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
@@ -80,19 +80,22 @@
         "exclusion_counts": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["not-authorized", "sensitivity", "freshness"],
-          "properties": {
-            "not-authorized": {"type": "integer", "minimum": 0},
-            "sensitivity": {"type": "integer", "minimum": 0},
-            "freshness": {"type": "integer", "minimum": 0}
-          }
-        },
+            "required": ["not-authorized", "sensitivity", "freshness"],
+            "properties": {
+              "not-authorized": {"type": "integer", "minimum": 0},
+              "sensitivity": {"type": "integer", "minimum": 0},
+              "freshness": {"type": "integer", "minimum": 0},
+              "revocation": {"type": "integer", "minimum": 0}
+            }
+          },
         "max_bytes": {"type": "integer", "minimum": 1},
         "selected_at": {"type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"},
         "freshness_policy": {"const": "current-only/operator-asserted"},
         "redaction_policy": {"const": "whole-record-exclusion/count-only-receipt"},
         "artifact_policy": {"const": "references-only/separately-authorized-retrieval"},
-        "disclosure": {"const": "informational-only"}
+        "disclosure": {"const": "informational-only"},
+        "revocation_policy": {"const": "validated-tombstone-suppression"},
+        "revocation_receipt_refs": {"type": "array", "items": {"type": "string", "minLength": 1}}
       }
     }
   }

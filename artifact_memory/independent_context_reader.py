@@ -47,14 +47,16 @@ def _parse_utc(value: Any) -> datetime:
 
 
 def _validate_selection(selection: Any) -> datetime:
-    fields = {
+    required_fields = {
         "policy_id", "source_record_set_digest", "selected_record_ids", "selected_external_evidence",
         "exclusion_counts", "max_bytes", "selected_at", "freshness_policy", "redaction_policy",
         "artifact_policy", "disclosure",
     }
+    optional_fields = {"revocation_policy", "revocation_receipt_refs"}
     if (
         not isinstance(selection, dict)
-        or set(selection) != fields
+        or not required_fields.issubset(selection)
+        or set(selection) - required_fields - optional_fields
         or not isinstance(selection.get("policy_id"), str)
         or not selection["policy_id"]
         or not _matches(SHA256, selection.get("source_record_set_digest"))
@@ -67,10 +69,21 @@ def _validate_selection(selection: Any) -> datetime:
     exclusions = selection.get("exclusion_counts")
     if (
         not isinstance(exclusions, dict)
-        or set(exclusions) != {"not-authorized", "sensitivity", "freshness"}
+        or not {"not-authorized", "sensitivity", "freshness"}.issubset(exclusions)
+        or set(exclusions) - {"not-authorized", "sensitivity", "freshness", "revocation"}
         or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in exclusions.values())
     ):
         raise ContextReaderFailure("selection exclusion counts are invalid")
+    if "revocation" in exclusions and selection.get("revocation_policy") != "validated-tombstone-suppression":
+        raise ContextReaderFailure("revocation selection policy is invalid")
+    if "revocation_policy" in selection and selection["revocation_policy"] != "validated-tombstone-suppression":
+        raise ContextReaderFailure("revocation selection policy is invalid")
+    if "revocation_receipt_refs" in selection and (
+        not isinstance(selection["revocation_receipt_refs"], list)
+        or any(not isinstance(value, str) or not value for value in selection["revocation_receipt_refs"])
+        or selection["revocation_receipt_refs"] != sorted(set(selection["revocation_receipt_refs"]))
+    ):
+        raise ContextReaderFailure("revocation receipt references are invalid")
     return _parse_utc(selection.get("selected_at"))
 
 

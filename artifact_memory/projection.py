@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
-from .canonical import canonical_bytes
+from .canonical import canonical_bytes, sha256_bytes
 from .schema_resources import load_contract_text, load_schema
 from .validator import ValidationFailure, load_json, validate
 
@@ -160,7 +160,11 @@ def _read_index(index_path: Path) -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
-def canonical_records(record_paths: Iterable[Path]) -> list[dict[str, Any]]:
+def canonical_records(record_paths: Iterable[Path], suppressed_record_ids: Iterable[str] = ()) -> list[dict[str, Any]]:
+    suppressed_values = list(suppressed_record_ids)
+    if any(not isinstance(record_id, str) for record_id in suppressed_values):
+        raise ValidationFailure("suppression-invalid", "suppressed record identities must be strings")
+    suppressed = set(suppressed_values)
     records = []
     for record_path in record_paths:
         try:
@@ -174,7 +178,7 @@ def canonical_records(record_paths: Iterable[Path]) -> list[dict[str, Any]]:
     records.sort(key=lambda record: record["record_id"])
     if len({record["record_id"] for record in records}) != len(records):
         raise ValidationFailure("duplicate-record-id", "canonical record IDs must be unique")
-    return records
+    return [record for record in records if record["record_id"] not in suppressed]
 
 
 def _record_lines(records: list[dict[str, Any]]) -> bytes:
@@ -224,8 +228,9 @@ def _create_sqlite(path: Path, records: list[dict[str, Any]], source_digest: str
         connection.close()
 
 
-def project_records(record_paths: Iterable[Path], output_dir: Path) -> dict[str, Any]:
-    records = canonical_records(record_paths)
+def project_records(record_paths: Iterable[Path], output_dir: Path, *, suppressed_record_ids: Iterable[str] = ()) -> dict[str, Any]:
+    suppressed = set(suppressed_record_ids)
+    records = canonical_records(record_paths, suppressed)
     lines = _record_lines(records)
     source_digest = "sha-256:" + hashlib.sha256(lines).hexdigest()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -237,6 +242,13 @@ def project_records(record_paths: Iterable[Path], output_dir: Path) -> dict[str,
         "generated_views": ["ndjson", "sqlite", "metadata", "provenance", "fts", "relationships"],
         "diagnostics": [],
     }
+    if suppressed:
+        receipt["extensions"] = {
+            "https://artifact-memory.dev/extensions/revocation-suppression/v1": {
+                "suppressed_record_count": len(suppressed),
+                "suppressed_record_set_digest": sha256_bytes(canonical_bytes(sorted(suppressed))),
+            }
+        }
     validate(receipt, load_schema("core", "projection-receipt.v1.schema.json"))
     with tempfile.TemporaryDirectory(prefix=".projection-", dir=output_dir) as temporary:
         staging = Path(temporary)
