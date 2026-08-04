@@ -139,6 +139,30 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(receipt["corpus"]["file_count"], 8)
         validate_benchmark_receipt(receipt)
 
+        retained = json.loads(
+            (ROOT / "fixtures/synthetic/benchmarks/v0-baseline.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            retained["schema_id"], "artifact-memory/benchmark-receipt/v1"
+        )
+        validate_benchmark_receipt(retained)
+
+    def test_sqlite_measurement_requires_matching_validated_projection(self):
+        with (
+            patch(
+                "artifact_memory.benchmark.projection_metadata",
+                return_value={
+                    "source_record_set_digest": "sha-256:" + "0" * 64,
+                    "record_count": 0,
+                },
+            ),
+            self.assertRaises(ValidationFailure) as failure,
+        ):
+            run_baseline_v2(self._small_profile())
+        self.assertEqual(failure.exception.code, "benchmark-run-failed")
+
     def test_profile_schema_direct_bounds_match_runtime_constants(self):
         schema = load_schema("core", "benchmark-profile.v1.schema.json")
         properties = schema["properties"]

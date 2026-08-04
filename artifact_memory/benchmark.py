@@ -21,7 +21,13 @@ from .canonical import (
     receipt_with_digest,
     sha256_bytes,
 )
-from .projection import _create_sqlite, _record_lines, canonical_records, project_records
+from .projection import (
+    _create_sqlite,
+    _record_lines,
+    canonical_records,
+    project_records,
+    projection_metadata,
+)
 from .scan import ScanLimits, scan_path
 from .scan_conformance import run_scan_conformance
 from .schema_resources import load_schema
@@ -488,6 +494,15 @@ def run_baseline_v2(profile: dict[str, Any] | None = None) -> dict[str, Any]:
         _, sqlite_seconds, sqlite_peak = _measure(
             lambda: _create_sqlite(rebuilt_index, records, source_digest)
         )
+        rebuilt_metadata = projection_metadata(rebuilt_index)
+        if (
+            rebuilt_metadata["source_record_set_digest"] != source_digest
+            or rebuilt_metadata["record_count"] != len(records)
+        ):
+            raise ValidationFailure(
+                "benchmark-run-failed",
+                "rebuilt SQLite index does not match the generated projection input",
+            )
         sqlite_size = rebuilt_index.stat().st_size
 
         nested = _nested_archive(
