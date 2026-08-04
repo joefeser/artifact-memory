@@ -28,8 +28,12 @@ envelope handling policy.
 
 Bearer credentials are prohibited in envelopes. The reference admission
 boundary examines values without interpreting opaque extension keys and rejects
-private-key headers, token-shaped bearer/header values, and recognized token
-prefixes without echoing them into receipts. Receipts contain only stable diagnostics, admitted
+private-key headers, token-shaped bearer/header values, recognized GitHub token
+prefixes, and secret-key prefixes formed by `sk` followed by either `-` or `_`,
+without echoing them into receipts. Detection applies when a recognized token
+is embedded in a larger string as well as when it is the whole value. This is a
+deliberate pre-v0 security tightening: senders must not rely on
+credential-shaped opaque values round-tripping through exchange. Receipts contain only stable diagnostics, admitted
 and unresolved record IDs, artifact references, and the retrieval/authority
 boundary.
 

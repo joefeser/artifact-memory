@@ -93,9 +93,9 @@ def _contains_protected_material(value: Any) -> bool:
     if isinstance(value, list):
         return any(_contains_protected_material(item) for item in value)
     return isinstance(value, str) and (
-        _BEARER_VALUE.fullmatch(value) is not None
+        _BEARER_VALUE.search(value) is not None
         or _PRIVATE_KEY_HEADER.search(value) is not None
-        or _TOKEN_VALUE.fullmatch(value) is not None
+        or _TOKEN_VALUE.search(value) is not None
     )
 
 

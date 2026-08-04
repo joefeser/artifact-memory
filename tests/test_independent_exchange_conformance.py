@@ -89,38 +89,47 @@ class IndependentExchangeConformanceTests(unittest.TestCase):
             receipt["diagnostics"][0]["code"], "bearer-material-prohibited"
         )
         self.assertNotIn(synthetic_value, json.dumps(receipt))
-
-    def test_reference_and_independent_receivers_reject_underscore_secret_values(self):
-        synthetic_value = "sk" + "_live_" + "S" * 24
-        extension = {
-            "https://synthetic.example/extensions/protected-value": {
-                "version": "v1",
-                "required": False,
-                "value": {"opaque": synthetic_value},
-            }
-        }
-        envelope = make_envelope_v2(
-            "system://synthetic-independent-receiver",
-            "independent-protected-underscore-value",
-            "2099-01-01T00:00:00Z",
-            [],
-            ["artifact://synthetic/independent-exchange-evidence"],
-            extensions=extension,
-        )
         reference = admit_v2(
             envelope,
             SyntheticReplayLedger(),
             expected_audience_ref="system://synthetic-independent-receiver",
             now="2026-08-03T00:00:00Z",
         )
-        independent = admit_bundle_v2(
-            json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
-            expected_audience_ref="system://synthetic-independent-receiver",
-            now="2026-08-03T00:00:00Z",
-        )
-        self.assertEqual(independent, reference)
-        self.assertEqual(independent["outcome"], "rejected")
-        self.assertNotIn(synthetic_value, json.dumps(independent))
+        self.assertEqual(receipt, reference)
+
+    def test_reference_and_independent_receivers_reject_underscore_secret_values(self):
+        for separator in ("_", "-"):
+            synthetic_value = "sk" + separator + "live_" + "S" * 24
+            embedded_value = "synthetic prefix " + synthetic_value + " suffix"
+            extension = {
+                "https://synthetic.example/extensions/protected-value": {
+                    "version": "v1",
+                    "required": False,
+                    "value": {"opaque": embedded_value},
+                }
+            }
+            envelope = make_envelope_v2(
+                "system://synthetic-independent-receiver",
+                "independent-protected-secret-value-" + ("underscore" if separator == "_" else "hyphen"),
+                "2099-01-01T00:00:00Z",
+                [],
+                ["artifact://synthetic/independent-exchange-evidence"],
+                extensions=extension,
+            )
+            reference = admit_v2(
+                envelope,
+                SyntheticReplayLedger(),
+                expected_audience_ref="system://synthetic-independent-receiver",
+                now="2026-08-03T00:00:00Z",
+            )
+            independent = admit_bundle_v2(
+                json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
+                expected_audience_ref="system://synthetic-independent-receiver",
+                now="2026-08-03T00:00:00Z",
+            )
+            self.assertEqual(independent, reference)
+            self.assertEqual(independent["outcome"], "rejected")
+            self.assertNotIn(synthetic_value, json.dumps(independent))
 
     def test_noncanonical_envelope_returns_fail_closed_receipt(self):
         envelope = make_envelope_v2(
