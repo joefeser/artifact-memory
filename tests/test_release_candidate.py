@@ -18,6 +18,7 @@ from artifact_memory.release import (
     RELEASE_VERIFICATION_SCHEMA_ID,
     _signed_manifest_digest,
     _ssh_ed25519_fingerprint,
+    _matching_allowed_signer_lines,
     render_release_candidate_verification_receipt,
     validate_release_candidate_identity,
     validate_release_candidate_verification_receipt,
@@ -105,6 +106,25 @@ def write_allowed_signers(root: Path, *, public_key: str = SYNTHETIC_PUBLIC_KEY)
 
 
 class ReleaseCandidateIdentityTests(unittest.TestCase):
+    def test_allowed_signer_parser_requires_ed25519_at_the_key_position(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "allowed_signers"
+            path.write_text(
+                "owner@example.invalid ssh-rsa ssh-ed25519 "
+                + SYNTHETIC_PUBLIC_KEY
+                + "\n"
+                + "owner@example.invalid cert-authority ssh-ed25519 "
+                + SYNTHETIC_PUBLIC_KEY
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValidationFailure) as failure:
+                _matching_allowed_signer_lines(path, SYNTHETIC_FINGERPRINT)
+        self.assertEqual(
+            failure.exception.code,
+            "release-candidate-expected-signer-unavailable",
+        )
+
     def test_rejects_ambiguous_signed_manifest_trailers(self):
         trailer = "Artifact-Memory-Manifest-SHA256: sha-256:" + "0" * 64 + "\n"
         with self.assertRaises(ValidationFailure) as failure:

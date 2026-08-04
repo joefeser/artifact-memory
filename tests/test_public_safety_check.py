@@ -95,6 +95,23 @@ class PublicSafetyCandidateReceiptTests(unittest.TestCase):
             [{"ref": "refs/tags/HEAD", "object_id": "b" * 40}],
         )
 
+    def test_public_refs_rejects_malformed_records_before_git_scan(self):
+        for output in (
+            "malformed-record\n",
+            "refs/tags/synthetic\tnot-an-object-id\n",
+            "not-a-public-ref\t" + "a" * 40 + "\n",
+        ):
+            with self.subTest(output=output):
+                with patch.object(
+                    public_safety_check.subprocess,
+                    "check_output",
+                    return_value=output,
+                ):
+                    with self.assertRaises(
+                        public_safety_check.PublicSafetyInvalidGitOutput
+                    ):
+                        public_safety_check.public_refs()
+
     def test_checked_synthetic_receipt_and_human_rendering(self):
         fixture = ROOT / "fixtures/synthetic/public-safety/v1"
         receipt = json.loads((fixture / "expected-receipt.json").read_text(encoding="utf-8"))
@@ -354,6 +371,29 @@ class PublicSafetyCandidateReceiptTests(unittest.TestCase):
             ):
                 public_safety_check.write_external_receipt(destination, "new\n")
             self.assertEqual(destination.read_text(encoding="utf-8"), "new\n")
+
+    def test_cli_normalizes_rejected_external_receipt_destination(self):
+        with (
+            patch.object(
+                public_safety_check,
+                "exact_candidate_receipt",
+                return_value=({"outcome": "pass"}, []),
+            ),
+            patch.object(public_safety_check, "require_external_path"),
+            patch.object(
+                public_safety_check,
+                "write_external_receipt",
+                side_effect=ValueError("receipt output must not be a symbolic link"),
+            ),
+            patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
+            result = public_safety_check.main(
+                ["--candidate", "a" * 40, "--receipt-out", "/external/receipt.json"]
+            )
+        self.assertEqual(result, 1)
+        self.assertIn("PUBLIC SAFETY CHECK FAILED", stderr.getvalue())
+        self.assertIn("must not be a symbolic link", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
 
 
 if __name__ == "__main__":

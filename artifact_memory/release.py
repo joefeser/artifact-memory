@@ -6,6 +6,7 @@ import base64
 import binascii
 import hashlib
 import re
+import shlex
 import subprocess
 import tempfile
 from collections.abc import Iterable
@@ -21,6 +22,7 @@ from .validator import ValidationFailure, load_json_bytes, validate
 
 SSH_VERIFICATION_OUTPUT_PROFILE = "git-verify-tag-filtered-allowed-signers-v1"
 SSH_FINGERPRINT_PATTERN = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
+ALLOWED_SIGNER_OPTIONS = ("namespaces=", "valid-after=", "valid-before=")
 SIGNED_MANIFEST_TRAILER = "Artifact-Memory-Manifest-SHA256:"
 RELEASE_VERIFICATION_SCHEMA_ID = "artifact-memory/release-candidate-verification-receipt/v1"
 RELEASE_VERIFICATION_RECEIPT_PREFIX = "release-candidate-verification-receipt://"
@@ -210,15 +212,31 @@ def _matching_allowed_signer_lines(
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        fields = line.split()
-        for index, field in enumerate(fields[:-1]):
-            if field != "ssh-ed25519":
+        try:
+            fields = shlex.split(line, comments=False, posix=True)
+        except ValueError:
+            continue
+        if len(fields) < 3:
+            continue
+        key_index = 1
+        cert_authority = False
+        while key_index < len(fields):
+            field = fields[key_index]
+            if field == "cert-authority":
+                cert_authority = True
+                key_index += 1
                 continue
-            if any("cert-authority" in option for option in fields[:index]):
+            if field.startswith(ALLOWED_SIGNER_OPTIONS):
+                key_index += 1
                 continue
-            if _ssh_ed25519_fingerprint(fields[index + 1]) == expected_fingerprint:
-                matches.append(raw_line)
             break
+        if cert_authority or key_index + 1 >= len(fields):
+            continue
+        key_type = fields[key_index]
+        if key_type != "ssh-ed25519" or "-cert-" in key_type:
+            continue
+        if _ssh_ed25519_fingerprint(fields[key_index + 1]) == expected_fingerprint:
+            matches.append(raw_line)
     if not matches:
         raise ValidationFailure(
             "release-candidate-expected-signer-unavailable",

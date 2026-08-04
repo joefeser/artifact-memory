@@ -40,6 +40,12 @@ SECRET_LIKE = re.compile(
 SCANNER_PATH = "scripts/public_safety_check.py"
 RECEIPT_SCHEMA_ID = "artifact-memory/public-safety-receipt/v1"
 RECEIPT_ID_PREFIX = "public-safety-receipt://"
+PUBLIC_REF_PATTERN = re.compile(r"^refs/(?:remotes/[^/]+/[^/].*|tags/[^/].*)$")
+GIT_OBJECT_ID_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+
+
+class PublicSafetyInvalidGitOutput(RuntimeError):
+    """Raised when Git emits data outside the exact public-audit contract."""
 
 
 def _revision_arguments(revisions: list[str] | None) -> list[str]:
@@ -89,9 +95,16 @@ def public_refs() -> list[dict[str, str]]:
     )
     refs = []
     for line in output.splitlines():
+        if line.count("\t") != 1:
+            raise PublicSafetyInvalidGitOutput("Git public ref output is invalid")
         ref, object_id = line.split("\t", 1)
         if ref.startswith("refs/remotes/") and ref.endswith("/HEAD"):
             continue
+        if (
+            PUBLIC_REF_PATTERN.fullmatch(ref) is None
+            or GIT_OBJECT_ID_PATTERN.fullmatch(object_id) is None
+        ):
+            raise PublicSafetyInvalidGitOutput("Git public ref output is invalid")
         refs.append({"ref": ref, "object_id": object_id})
     return sorted(refs, key=lambda item: item["ref"])
 
@@ -443,6 +456,8 @@ def main(argv: list[str] | None = None) -> int:
                     args.receipt_out,
                     json.dumps(receipt, sort_keys=True, indent=2) + "\n",
                 )
+            except ValueError as exc:
+                findings = [str(exc)]
             except OSError:
                 findings = ["exact-candidate receipt could not be written"]
         if findings:
