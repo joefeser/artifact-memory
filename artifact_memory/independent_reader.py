@@ -106,20 +106,17 @@ def _validate_record(record: dict[str, Any]) -> None:
     relationships = record.get("relationships", [])
     if not isinstance(relationships, list):
         raise ReaderFailure("canonical record relationships are invalid")
+    allowed_relationship_types = {
+        "artifact-memory/knowledge-record/v1": {"related-to", "produced-from", "supported-by-external-evidence"},
+        "artifact-memory/knowledge-record/v2": {"related-to", "produced-from", "redacted-from", "supported-by-external-evidence"},
+        "artifact-memory/knowledge-record/v3": {"related-to", "produced-from", "redacted-from", "supported-by-external-evidence", "supersedes", "disputes", "contradicts"},
+    }[schema_id]
     for relationship in relationships:
         if (
             not isinstance(relationship, dict)
             or set(relationship) != {"type", "target_ref"}
             or not isinstance(relationship.get("type"), str)
-            or relationship["type"] not in (
-                {"related-to", "produced-from", "supported-by-external-evidence"}
-                if schema_id == "artifact-memory/knowledge-record/v1"
-                else (
-                    {"related-to", "produced-from", "redacted-from", "supported-by-external-evidence"}
-                    if schema_id == "artifact-memory/knowledge-record/v2"
-                    else {"related-to", "produced-from", "redacted-from", "supported-by-external-evidence", "supersedes", "disputes", "contradicts"}
-                )
-            )
+            or relationship["type"] not in allowed_relationship_types
             or not isinstance(relationship.get("target_ref"), str)
             or not relationship["target_ref"]
         ):
@@ -134,6 +131,8 @@ def _validate_record(record: dict[str, Any]) -> None:
         or record["sensitivity"] not in {"public", "private", "restricted"}
     ):
         raise ReaderFailure("canonical record sensitivity is invalid")
+    if "extensions" in record and not isinstance(record["extensions"], dict):
+        raise ReaderFailure("canonical record extensions must be an object")
 
 
 def _revision_digest(record: dict[str, Any]) -> str:

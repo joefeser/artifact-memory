@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from .canonical import canonical_bytes, sha256_bytes
+from .knowledge import knowledge_schema
 from .schema_resources import load_contract_text, load_schema
 from .validator import ValidationFailure, load_json, validate
 
@@ -37,17 +38,7 @@ _REQUIRED_INDEXES = {
 }
 
 
-def _knowledge_schema(record: Any) -> dict[str, Any]:
-    if not isinstance(record, dict):
-        raise ValidationFailure("invalid-input", "canonical record must be a JSON object")
-    schema_name = {
-        "artifact-memory/knowledge-record/v1": "knowledge-record.v1.schema.json",
-        "artifact-memory/knowledge-record/v2": "knowledge-record.v2.schema.json",
-        "artifact-memory/knowledge-record/v3": "knowledge-record.v3.schema.json",
-    }.get(record.get("schema_id"))
-    if schema_name is None:
-        raise ValidationFailure("unsupported-record-schema", "canonical record uses an unsupported schema")
-    return load_schema("core", schema_name)
+_knowledge_schema = knowledge_schema
 
 
 def _validate_projection_contract(connection: sqlite3.Connection) -> None:

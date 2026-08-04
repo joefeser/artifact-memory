@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://artifact-memory.dev/schemas/core/context-pack/v2",
-  "title": "Artifact Memory informational context pack v2",
+  "$id": "https://artifact-memory.dev/schemas/core/context-pack/v3",
+  "title": "Artifact Memory informational context pack v3",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_id", "pack_id", "authority_boundary", "records", "artifact_refs", "external_evidence", "selection_receipt"],
   "properties": {
-    "schema_id": {"const": "artifact-memory/context-pack/v2"},
+    "schema_id": {"const": "artifact-memory/context-pack/v3"},
     "pack_id": {"type": "string", "pattern": "^context-pack://[0-9a-f]{64}$"},
     "authority_boundary": {"const": "informational-only; no execution, routing, disclosure, or mutation authority"},
     "records": {
@@ -71,7 +71,7 @@
     "selection_receipt": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["policy_id", "source_record_set_digest", "selected_record_ids", "selected_external_evidence", "exclusion_counts", "max_bytes", "selected_at", "freshness_policy", "redaction_policy", "artifact_policy", "disclosure"],
+      "required": ["policy_id", "source_record_set_digest", "selected_record_ids", "selected_external_evidence", "exclusion_counts", "max_bytes", "selected_at", "freshness_policy", "redaction_policy", "artifact_policy", "disclosure", "revocation_policy", "revocation_receipt_refs"],
       "properties": {
         "policy_id": {"type": "string", "minLength": 1},
         "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
@@ -80,11 +80,12 @@
         "exclusion_counts": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["not-authorized", "sensitivity", "freshness"],
+          "required": ["not-authorized", "sensitivity", "freshness", "revocation"],
           "properties": {
             "not-authorized": {"type": "integer", "minimum": 0},
             "sensitivity": {"type": "integer", "minimum": 0},
-            "freshness": {"type": "integer", "minimum": 0}
+            "freshness": {"type": "integer", "minimum": 0},
+            "revocation": {"type": "integer", "minimum": 0}
           }
         },
         "max_bytes": {"type": "integer", "minimum": 1},
@@ -92,7 +93,9 @@
         "freshness_policy": {"const": "current-only/operator-asserted"},
         "redaction_policy": {"const": "whole-record-exclusion/count-only-receipt"},
         "artifact_policy": {"const": "references-only/separately-authorized-retrieval"},
-        "disclosure": {"const": "informational-only"}
+        "disclosure": {"const": "informational-only"},
+        "revocation_policy": {"const": "validated-tombstone-suppression"},
+        "revocation_receipt_refs": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^revocation-receipt://[0-9a-f]{64}$"}}
       }
     }
   }

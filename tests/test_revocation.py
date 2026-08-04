@@ -141,6 +141,10 @@ class RevocationTests(unittest.TestCase):
                 receipt = project_records([path], Path(temporary) / "projection", revocation_receipts=[acknowledgement])
                 self.assertEqual(receipt["record_count"], 0)
                 self.assertIn("revocation-suppression", json.dumps(receipt))
+                malformed_receipt = copy.deepcopy(receipt)
+                malformed_receipt["extensions"]["https://artifact-memory.dev/extensions/revocation-suppression/v1"]["suppressed_record_count"] = 0
+                with self.assertRaises(ValidationFailure):
+                    validate(malformed_receipt, load_schema("core", "projection-receipt.v1.schema.json"))
         with self.subTest("context"):
             pack = export_context(
                 [record],
@@ -151,7 +155,8 @@ class RevocationTests(unittest.TestCase):
             )
             self.assertEqual(pack["records"], [])
             self.assertEqual(pack["selection_receipt"]["exclusion_counts"]["revocation"], 1)
-            validate(pack, load_schema("core", "context-pack.v2.schema.json"))
+            self.assertEqual(pack["schema_id"], "artifact-memory/context-pack/v3")
+            validate(pack, load_schema("core", "context-pack.v3.schema.json"))
             self.assertEqual(recall_context(json.dumps(pack, sort_keys=True, separators=(",", ":")).encode())["records"], [])
             incomplete = copy.deepcopy(pack)
             del incomplete["selection_receipt"]["revocation_receipt_refs"]
@@ -161,6 +166,14 @@ class RevocationTests(unittest.TestCase):
             from artifact_memory.independent_context_reader import ContextReaderFailure
             with self.assertRaises(ContextReaderFailure):
                 recall_context(json.dumps(incomplete, sort_keys=True, separators=(",", ":")).encode())
+            opaque = copy.deepcopy(pack)
+            opaque["selection_receipt"]["revocation_receipt_refs"] = ["not-a-receipt"]
+            body = {key: value for key, value in opaque.items() if key != "pack_id"}
+            opaque["pack_id"] = "context-pack://" + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:")
+            with self.assertRaises(ValidationFailure):
+                validate(opaque, load_schema("core", "context-pack.v3.schema.json"))
+            with self.assertRaises(ContextReaderFailure):
+                recall_context(json.dumps(opaque, sort_keys=True, separators=(",", ":")).encode())
 
     def test_filter_requires_supported_tombstones_and_preserves_history(self):
         record = self._record()

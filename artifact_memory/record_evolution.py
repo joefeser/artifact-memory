@@ -7,7 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 from .canonical import canonical_bytes, receipt_with_digest, sha256_bytes
-from .projection import _knowledge_schema
+from .knowledge import knowledge_schema
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -60,9 +60,9 @@ def build_candidate(
     owner_review_state: str = "required",
 ) -> dict[str, Any]:
     """Build one digest-bound draft candidate without admitting it."""
-    validate(candidate_record, _knowledge_schema(candidate_record))
-    if candidate_record["schema_id"] != "artifact-memory/knowledge-record/v3":
-        raise ValidationFailure("candidate-schema-unsupported", "candidate records require knowledge-record/v3")
+    validate(candidate_record, knowledge_schema(candidate_record))
+    if candidate_record["schema_id"] not in {"artifact-memory/knowledge-record/v2", "artifact-memory/knowledge-record/v3"}:
+        raise ValidationFailure("candidate-schema-unsupported", "candidate records require knowledge-record/v2 or v3")
     if candidate_record["lifecycle"] != "draft":
         raise ValidationFailure("candidate-lifecycle-invalid", "candidate records must remain draft before admission")
     sources = _source_refs(source_record_refs)
@@ -138,6 +138,7 @@ def admit_candidate(
     decision_ref: str,
     current_source_revisions: Mapping[str, str] | None = None,
     seen_candidate_ids: Iterable[str] = (),
+    supported_result_schema_ids: Iterable[str] = (),
 ) -> dict[str, Any]:
     """Receipt one candidate decision and return a new accepted record when applicable.
 
@@ -175,6 +176,17 @@ def admit_candidate(
             "receipt": _receipt(candidate, outcome=decision, decision_ref=decision_ref, diagnostics=[{"code": "candidate-not-admitted", "message": "candidate was not admitted as current knowledge"}]),
         }
 
+    supported_schema_values = list(supported_result_schema_ids)
+    if any(not isinstance(value, str) or not value for value in supported_schema_values):
+        raise ValidationFailure("candidate-schema-negotiation-invalid", "supported result schemas must be non-empty strings")
+    supported_schemas = set(supported_schema_values)
+    candidate_schema = candidate["candidate_record"]["schema_id"]
+    if candidate_schema not in supported_schemas:
+        return {
+            "record": None,
+            "receipt": _receipt(candidate, outcome="unsupported", decision_ref=decision_ref, diagnostics=[{"code": "result-schema-unnegotiated", "message": "the target consumer did not negotiate the candidate record schema"}]),
+        }
+
     accepted_record = deepcopy(candidate["candidate_record"])
     accepted_record["lifecycle"] = "accepted"
     source_ids = {item["record_id"] for item in candidate["source_record_refs"]}
@@ -184,7 +196,7 @@ def admit_candidate(
                 "record": None,
                 "receipt": _receipt(candidate, outcome="conflict", decision_ref=decision_ref, diagnostics=[{"code": "relationship-source-unbound", "message": "evolution relationship does not bind a declared source record"}]),
             }
-    validate(accepted_record, _knowledge_schema(accepted_record))
+    validate(accepted_record, knowledge_schema(accepted_record))
     return {"record": accepted_record, "receipt": _receipt(candidate, outcome="accepted", decision_ref=decision_ref, result_record=accepted_record)}
 
 
@@ -192,7 +204,7 @@ def current_records(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return accepted or sealed records eligible for a current projection."""
     materialized = []
     for record in records:
-        validate(record, _knowledge_schema(record))
+        validate(record, knowledge_schema(record))
         if record["lifecycle"] in {"accepted", "sealed"}:
             materialized.append(record)
     materialized.sort(key=lambda record: record["record_id"])

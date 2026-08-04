@@ -12,6 +12,20 @@
     "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
     "generated_views": {"type": "array", "items": {"type": "string", "enum": ["ndjson", "sqlite", "metadata", "provenance", "fts", "relationships"]}},
     "diagnostics": {"type": "array", "items": {"type": "string"}},
-    "extensions": {"type": "object", "additionalProperties": true}
+    "extensions": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "https://artifact-memory.dev/extensions/revocation-suppression/v1": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["suppressed_record_count", "suppressed_record_set_digest"],
+          "properties": {
+            "suppressed_record_count": {"type": "integer", "minimum": 1},
+            "suppressed_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+          }
+        }
+      }
+    }
   }
 }

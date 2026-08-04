@@ -7,7 +7,8 @@ import re
 from datetime import datetime
 from typing import Any, Iterable, Mapping
 
-from .projection import _canonical, _knowledge_schema
+from .knowledge import knowledge_schema
+from .projection import _canonical
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -175,7 +176,7 @@ def export_context(
         raise ContextFailure("selection-policy-invalid", "selection policy identity is required")
     record_list = list(records)
     for record in record_list:
-        validate(record, _knowledge_schema(record))
+        validate(record, knowledge_schema(record))
     ordered = sorted(record_list, key=lambda record: record["record_id"])
     record_ids = [record["record_id"] for record in ordered]
     if len(record_ids) != len(set(record_ids)):
@@ -270,8 +271,9 @@ def export_context(
     if revoked:
         selection["revocation_policy"] = "validated-tombstone-suppression"
         selection["revocation_receipt_refs"] = revocation_receipt_refs
+    pack_version = "v3" if revoked else "v2"
     body = {
-        "schema_id": "artifact-memory/context-pack/v2",
+        "schema_id": f"artifact-memory/context-pack/{pack_version}",
         "authority_boundary": AUTHORITY_BOUNDARY,
         "records": selected,
         "artifact_refs": sorted(artifact_refs),
@@ -280,7 +282,7 @@ def export_context(
     }
     result = {**body, "pack_id": "context-pack://" + hashlib.sha256(_canonical(body)).hexdigest()}
     try:
-        validate(result, load_schema("core", "context-pack.v2.schema.json"))
+        validate(result, load_schema("core", f"context-pack.{pack_version}.schema.json"))
     except ValidationFailure as exc:
         raise ContextFailure("context-pack-invalid", "context pack input did not satisfy the export contract") from exc
     if len(_canonical(result)) > max_bytes:

@@ -14,6 +14,7 @@ SHA256 = re.compile(r"^sha-256:[0-9a-f]{64}$")
 UTC_INSTANT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 ARTIFACT_REF = re.compile(r"^artifact://[A-Za-z0-9._~/-]+$")
 RECORD_ID = re.compile(r"^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$")
+REVOCATION_RECEIPT = re.compile(r"^revocation-receipt://[0-9a-f]{64}$")
 
 
 class ContextReaderFailure(Exception):
@@ -46,13 +47,14 @@ def _parse_utc(value: Any) -> datetime:
         raise ContextReaderFailure("invalid whole-second UTC instant") from exc
 
 
-def _validate_selection(selection: Any) -> datetime:
+def _validate_selection(selection: Any, schema_id: str) -> datetime:
     required_fields = {
         "policy_id", "source_record_set_digest", "selected_record_ids", "selected_external_evidence",
         "exclusion_counts", "max_bytes", "selected_at", "freshness_policy", "redaction_policy",
         "artifact_policy", "disclosure",
     }
-    optional_fields = {"revocation_policy", "revocation_receipt_refs"}
+    revocation_fields = {"revocation_policy", "revocation_receipt_refs"}
+    optional_fields = revocation_fields if schema_id == "artifact-memory/context-pack/v3" else set()
     if (
         not isinstance(selection, dict)
         or not required_fields.issubset(selection)
@@ -67,26 +69,29 @@ def _validate_selection(selection: Any) -> datetime:
     ):
         raise ContextReaderFailure("selection receipt is invalid")
     exclusions = selection.get("exclusion_counts")
+    exclusion_fields = {"not-authorized", "sensitivity", "freshness"}
+    if schema_id == "artifact-memory/context-pack/v3":
+        exclusion_fields.add("revocation")
     if (
         not isinstance(exclusions, dict)
         or not {"not-authorized", "sensitivity", "freshness"}.issubset(exclusions)
-        or set(exclusions) - {"not-authorized", "sensitivity", "freshness", "revocation"}
+        or set(exclusions) - exclusion_fields
         or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in exclusions.values())
     ):
         raise ContextReaderFailure("selection exclusion counts are invalid")
-    revocation_fields_present = {
+    revocation_fields_present = [
         "revocation" in exclusions,
         "revocation_policy" in selection,
         "revocation_receipt_refs" in selection,
-    }
-    if len(revocation_fields_present) != 1:
+    ]
+    if schema_id == "artifact-memory/context-pack/v3" and not all(revocation_fields_present):
         raise ContextReaderFailure("revocation selection fields must appear together")
     if "revocation_policy" in selection and selection["revocation_policy"] != "validated-tombstone-suppression":
         raise ContextReaderFailure("revocation selection policy is invalid")
     if "revocation_receipt_refs" in selection and (
         not isinstance(selection["revocation_receipt_refs"], list)
         or not selection["revocation_receipt_refs"]
-        or any(not isinstance(value, str) or not value for value in selection["revocation_receipt_refs"])
+        or any(not _matches(REVOCATION_RECEIPT, value) for value in selection["revocation_receipt_refs"])
         or selection["revocation_receipt_refs"] != sorted(set(selection["revocation_receipt_refs"]))
     ):
         raise ContextReaderFailure("revocation receipt references are invalid")
@@ -140,7 +145,7 @@ def recall_context(pack_json: bytes) -> dict[str, Any]:
     if (
         not isinstance(pack, dict)
         or set(pack) != required
-        or pack.get("schema_id") != "artifact-memory/context-pack/v2"
+        or pack.get("schema_id") not in {"artifact-memory/context-pack/v2", "artifact-memory/context-pack/v3"}
         or pack.get("authority_boundary") != AUTHORITY_BOUNDARY
     ):
         raise ContextReaderFailure("unsupported context contract")
@@ -155,7 +160,7 @@ def recall_context(pack_json: bytes) -> dict[str, Any]:
     selection = pack.get("selection_receipt")
     if not isinstance(records, list) or not isinstance(artifact_refs, list) or not isinstance(evidence, list):
         raise ContextReaderFailure("context collection shape is invalid")
-    selected_at = _validate_selection(selection)
+    selected_at = _validate_selection(selection, pack["schema_id"])
 
     recalled: list[dict[str, Any]] = []
     evidence_bindings: set[str] = set()

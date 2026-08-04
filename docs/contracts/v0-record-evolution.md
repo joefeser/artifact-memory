@@ -11,6 +11,10 @@ owner review. Admission records one caller-supplied decision as `accepted`,
 An accepted candidate produces a new `knowledge-record/v3` revision; it never
 overwrites the candidate or a predecessor.
 
+Acceptance requires explicit consumer negotiation of the candidate record
+schema. An unnegotiated v3 result is receipted as `unsupported`; it is not
+silently converted to v2 because that would discard evolution semantics.
+
 Knowledge-record v3 permits explicit `supersedes`, `disputes`, and
 `contradicts` relationships. The relationship target must be one of the exact
 source records considered by the candidate. Artifact Memory stores the

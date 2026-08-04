@@ -9,6 +9,7 @@ from typing import Any, Protocol
 
 from .canonical import canonical_bytes, receipt_with_digest
 from .extensions import ExtensionFailure, preserve_extensions
+from .knowledge import knowledge_schema
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -193,14 +194,11 @@ def _record_revision(
     schema_id = record.get("schema_id")
     if not isinstance(record_id, str) or not isinstance(schema_id, str):
         raise ValidationFailure("invalid-record", "bundled record identity is invalid")
-    schema_name = {
-        "artifact-memory/knowledge-record/v1": "knowledge-record.v1.schema.json",
-        "artifact-memory/knowledge-record/v2": "knowledge-record.v2.schema.json",
-        "artifact-memory/knowledge-record/v3": "knowledge-record.v3.schema.json",
-    }.get(schema_id)
-    if schema_name is None:
-        raise ValidationFailure("unsupported-record", "bundled record schema is unsupported")
-    validate(record, load_schema("core", schema_name))
+    try:
+        schema = knowledge_schema(record)
+    except ValidationFailure as exc:
+        raise ValidationFailure("unsupported-record", "bundled record schema is unsupported") from exc
+    validate(record, schema)
     extensions = record.get("extensions", {})
     if any(
         isinstance(declaration, dict) and declaration.get("required") is True

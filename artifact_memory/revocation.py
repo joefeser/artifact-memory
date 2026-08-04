@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .canonical import canonical_bytes, expected_receipt_id, receipt_with_digest, sha256_bytes
+from .knowledge import knowledge_schema
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -35,19 +36,6 @@ def _now(value: str | None) -> datetime:
 def _envelope_ref(envelope: dict[str, Any]) -> str:
     body = {key: value for key, value in envelope.items() if key not in {"envelope_id"}}
     return "revocation://" + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:")
-
-
-def _knowledge_schema(record: Any) -> dict[str, Any]:
-    if not isinstance(record, dict):
-        raise ValidationFailure("invalid-input", "canonical record must be a JSON object")
-    schema_name = {
-        "artifact-memory/knowledge-record/v1": "knowledge-record.v1.schema.json",
-        "artifact-memory/knowledge-record/v2": "knowledge-record.v2.schema.json",
-        "artifact-memory/knowledge-record/v3": "knowledge-record.v3.schema.json",
-    }.get(record.get("schema_id"))
-    if schema_name is None:
-        raise ValidationFailure("unsupported-record-schema", "canonical record uses an unsupported schema")
-    return load_schema("core", schema_name)
 
 
 def _validated_tombstone(tombstone: Any) -> dict[str, Any]:
@@ -92,7 +80,7 @@ def build_revocation_envelope(
 ) -> dict[str, Any]:
     """Build a digest-bound revocation envelope from a validated tombstone."""
     marker = _validated_tombstone(tombstone)
-    validate(target_record, _knowledge_schema(target_record))
+    validate(target_record, knowledge_schema(target_record))
     if marker["target_ref"] != target_record["record_id"]:
         raise ValidationFailure("revocation-target-mismatch", "tombstone target does not match the supplied record")
     body = {
@@ -236,7 +224,7 @@ def validated_suppressions(
     record_list = list(records)
     revisions: dict[str, str] = {}
     for record in record_list:
-        validate(record, _knowledge_schema(record))
+        validate(record, knowledge_schema(record))
         record_id = record["record_id"]
         if record_id in revisions:
             raise ValidationFailure("duplicate-record-id", "canonical record IDs must be unique")

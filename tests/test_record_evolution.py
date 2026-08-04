@@ -4,6 +4,10 @@ import unittest
 from pathlib import Path
 
 from artifact_memory.record_evolution import AUTHORITY_BOUNDARY, admit_candidate, build_candidate, current_records
+from artifact_memory.independent_reader import ReaderFailure, _validate_record
+from artifact_memory.independent_reader import admit_bundle_v2
+from artifact_memory.conformance_helpers import SyntheticReplayLedger
+from artifact_memory.exchange import admit_v2, make_envelope_v2
 from artifact_memory.schema_resources import load_schema
 from artifact_memory.validator import ValidationFailure, validate
 
@@ -46,6 +50,7 @@ class RecordEvolutionTests(unittest.TestCase):
             decision="accepted",
             decision_ref="decision://synthetic/wits-owner-0001",
             current_source_revisions={source["record_id"]: _record_digest(source)},
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v3"},
         )
         self.assertEqual(result["receipt"]["outcome"], "accepted")
         self.assertEqual(result["record"]["lifecycle"], "accepted")
@@ -83,7 +88,12 @@ class RecordEvolutionTests(unittest.TestCase):
         body = {key: value for key, value in malformed.items() if key not in {"candidate_id", "candidate_revision_digest"}}
         malformed["candidate_revision_digest"] = sha256_bytes(canonical_bytes(body))
         malformed["candidate_id"] = "candidate://actor/" + malformed["candidate_revision_digest"].removeprefix("sha-256:")
-        conflict = admit_candidate(malformed, decision="accepted", decision_ref="decision://synthetic/conflict-0001")
+        conflict = admit_candidate(
+            malformed,
+            decision="accepted",
+            decision_ref="decision://synthetic/conflict-0001",
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v3"},
+        )
         self.assertEqual(conflict["receipt"]["outcome"], "conflict")
 
     def test_candidate_identity_tampering_fails_closed(self):
@@ -117,6 +127,7 @@ class RecordEvolutionTests(unittest.TestCase):
             decision="accepted",
             decision_ref="decision://synthetic/wits-owner-0001",
             current_source_revisions={source["record_id"]: _record_digest(source)},
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v3"},
         )
         self.assertEqual(replay, {"record": accepted, "receipt": expected})
         validate(expected, load_schema("core", "candidate-admission-receipt.v1.schema.json"))
@@ -135,6 +146,60 @@ class RecordEvolutionTests(unittest.TestCase):
         receipt["result_record_ref"] = None
         with self.assertRaises(ValidationFailure):
             validate(receipt, load_schema("core", "candidate-admission-receipt.v1.schema.json"))
+
+    def test_result_schema_requires_explicit_consumer_negotiation(self):
+        candidate = json.loads((ROOT / "fixtures/synthetic/record-evolution/v1/candidate.json").read_text(encoding="utf-8"))
+        result = admit_candidate(candidate, decision="accepted", decision_ref="decision://synthetic/unnegotiated")
+        self.assertIsNone(result["record"])
+        self.assertEqual(result["receipt"]["outcome"], "unsupported")
+
+    def test_independent_v3_reader_covers_relationships_and_optional_shapes(self):
+        base = json.loads((ROOT / "fixtures/synthetic/record-evolution/v1/accepted-record.json").read_text(encoding="utf-8"))
+        for relationship_type in ("supersedes", "disputes", "contradicts"):
+            with self.subTest(relationship_type=relationship_type):
+                record = copy.deepcopy(base)
+                record["relationships"] = [{"type": relationship_type, "target_ref": "record://synthetic/decision-0001"}]
+                _validate_record(record)
+                record["relationships"][0]["target_ref"] = None
+                with self.assertRaises(ReaderFailure):
+                    _validate_record(record)
+        invalid_values = {
+            "extensions": [],
+            "derivative": {"source_task_ref": "task://synthetic/one"},
+            "sensitivity": 7,
+        }
+        for field, value in invalid_values.items():
+            with self.subTest(field=field):
+                record = copy.deepcopy(base)
+                record[field] = value
+                with self.assertRaises(ReaderFailure):
+                    _validate_record(record)
+
+    def test_negotiated_v3_record_crosses_reference_and_independent_exchange(self):
+        record = json.loads((ROOT / "fixtures/synthetic/record-evolution/v1/accepted-record.json").read_text(encoding="utf-8"))
+        from artifact_memory.canonical import canonical_bytes, sha256_bytes
+
+        envelope = make_envelope_v2(
+            audience_ref="audience://synthetic/v3-consumer",
+            correlation_id="synthetic-v3-exchange",
+            expires_at="2026-08-06T00:00:00Z",
+            record_refs=[{"record_id": record["record_id"], "revision_digest": sha256_bytes(canonical_bytes(record))}],
+            artifact_refs=[],
+            record_bundle=[record],
+        )
+        expected = admit_v2(
+            envelope,
+            SyntheticReplayLedger(),
+            expected_audience_ref="audience://synthetic/v3-consumer",
+            now="2026-08-05T00:00:00Z",
+        )
+        independent = admit_bundle_v2(
+            canonical_bytes(envelope),
+            expected_audience_ref="audience://synthetic/v3-consumer",
+            now="2026-08-05T00:00:00Z",
+        )
+        self.assertEqual(expected["outcome"], "admitted")
+        self.assertEqual(independent, expected)
 
 
 if __name__ == "__main__":
