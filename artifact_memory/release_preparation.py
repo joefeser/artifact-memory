@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
-import tomllib
+import tempfile
 from pathlib import Path
 from typing import Any
 
-from .canonical import canonical_bytes, receipt_with_digest, sha256_bytes
+from .canonical import receipt_with_digest, sha256_bytes
 from .release import validate_release_manifest
+from .release_metadata import read_package_version, schema_inventory
 from .schema_resources import load_schema
-from .validator import ValidationFailure, load_json_bytes, validate
+from .validator import ValidationFailure, validate
 
 
 AUTHORITY_BOUNDARY = (
@@ -82,13 +85,13 @@ def _prepare_output(root: Path, output: Path) -> Path:
             "release-preparation-output-invalid",
             "release preview output must be a real directory",
         )
-    resolved.mkdir(parents=True, exist_ok=True)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
     if output.is_symlink() or output.resolve() != resolved:
         raise ValidationFailure(
             "release-preparation-output-invalid",
             "release preview output changed during preparation",
         )
-    if any(resolved.iterdir()):
+    if resolved.exists() and any(resolved.iterdir()):
         raise ValidationFailure(
             "release-preparation-output-not-empty",
             "release preview output directory must be empty",
@@ -105,42 +108,68 @@ def _schema_inventory(repository: Path, commit: str) -> tuple[int, str]:
         commit,
         "artifact_memory/schemas",
     ).decode("utf-8").splitlines()
-    identifiers: list[str] = []
-    for path in paths:
-        if not path.endswith(".json"):
-            continue
-        schema = load_json_bytes(_git(repository, "show", f"{commit}:{path}"))
-        identifier = schema.get("$id") if isinstance(schema, dict) else None
-        if not isinstance(identifier, str) or not identifier:
-            raise ValidationFailure(
-                "release-schema-inventory-invalid",
-                "versioned JSON schema lacks an identifier",
-            )
-        identifiers.append(identifier)
-    if len(identifiers) != len(set(identifiers)):
-        raise ValidationFailure(
-            "release-schema-inventory-invalid",
-            "schema inventory contains duplicate identifiers",
-        )
-    return len(identifiers), sha256_bytes(canonical_bytes(sorted(identifiers)))
+    return schema_inventory(
+        _git(repository, "show", f"{commit}:{path}")
+        for path in paths
+        if path.endswith(".json")
+    )
 
 
 def _package_version(repository: Path, commit: str) -> str:
+    return read_package_version(_git(repository, "show", f"{commit}:pyproject.toml"))
+
+
+def _write_exclusive(path: Path, content: bytes) -> None:
     try:
-        project = tomllib.loads(_git(repository, "show", f"{commit}:pyproject.toml").decode("utf-8"))
-    except (UnicodeError, tomllib.TOMLDecodeError) as exc:
+        with path.open("xb") as stream:
+            stream.write(content)
+    except OSError as exc:
         raise ValidationFailure(
-            "release-pyproject-invalid",
-            "release candidate pyproject metadata is invalid",
+            "release-preparation-output-invalid",
+            "release preview staging rejected a conflicting output path",
         ) from exc
-    project_table = project.get("project")
-    version = project_table.get("version") if isinstance(project_table, dict) else None
-    if not isinstance(version, str) or not version:
+
+
+def _publish_output(output: Path, assets: dict[str, bytes]) -> None:
+    """Stage, verify, and atomically expose one complete preview directory."""
+
+    try:
+        staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.staging-", dir=output.parent))
+    except OSError as exc:
         raise ValidationFailure(
-            "release-pyproject-invalid",
-            "release candidate package version is missing",
-        )
-    return version
+            "release-preparation-output-invalid",
+            "release preview staging directory could not be created",
+        ) from exc
+    published = False
+    try:
+        for name, content in assets.items():
+            _write_exclusive(staging / name, content)
+        for name, content in assets.items():
+            try:
+                persisted = (staging / name).read_bytes()
+            except OSError as exc:
+                raise ValidationFailure(
+                    "release-preparation-output-invalid",
+                    "release preview staging evidence could not be reread",
+                ) from exc
+            if persisted != content:
+                raise ValidationFailure(
+                    "release-preparation-output-invalid",
+                    "release preview staging evidence changed before publication",
+                )
+        try:
+            if output.exists() or output.is_symlink():
+                output.rmdir()
+            os.replace(staging, output)
+            published = True
+        except OSError as exc:
+            raise ValidationFailure(
+                "release-preparation-output-invalid",
+                "release preview output changed before atomic publication",
+            ) from exc
+    finally:
+        if not published:
+            shutil.rmtree(staging, ignore_errors=True)
 
 
 def render_release_preparation_receipt(receipt: dict[str, Any]) -> str:
@@ -248,7 +277,7 @@ def prepare_unsigned_release_preview(
         "checksum_manifest": {
             "artifact_name": "SHA256SUMS",
             "format": "sha256sum-v1",
-            "scope": "all-release-assets-except-checksum-manifest-itself",
+            "scope": "all-manifest-listed-artifacts-except-checksum-manifest-itself",
         },
         "signature": {
             "state": "unsigned-preview",
@@ -297,18 +326,12 @@ def prepare_unsigned_release_preview(
         body,
     )
     validate(receipt, load_schema("core", "release-preparation-receipt.v1.schema.json"))
-    (output / archive_name).write_bytes(archive_bytes)
-    (output / "SHA256SUMS").write_bytes(checksum_bytes)
-    (output / "release-manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    (output / "release-preparation-receipt.json").write_text(
-        json.dumps(receipt, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    (output / "release-preparation-receipt.md").write_text(
-        render_release_preparation_receipt(receipt),
-        encoding="utf-8",
-    )
+    assets = {
+        archive_name: archive_bytes,
+        "SHA256SUMS": checksum_bytes,
+        "release-manifest.json": (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        "release-preparation-receipt.json": (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        "release-preparation-receipt.md": render_release_preparation_receipt(receipt).encode("utf-8"),
+    }
+    _publish_output(output, assets)
     return receipt

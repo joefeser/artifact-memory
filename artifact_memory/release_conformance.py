@@ -6,15 +6,15 @@ import io
 import re
 import subprocess
 import tarfile
-import tomllib
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from .canonical import canonical_bytes, receipt_with_digest, sha256_bytes
+from .canonical import receipt_with_digest, sha256_bytes
 from .release import validate_release_manifest
+from .release_metadata import read_package_version, schema_inventory
 from .schema_resources import load_schema
-from .validator import ValidationFailure, load_json, load_json_bytes, validate
+from .validator import ValidationFailure, load_json, validate
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,18 +29,11 @@ def _git(*args: str) -> bytes:
 
 def _schema_inventory(commit: str) -> tuple[int, str]:
     paths = _git("ls-tree", "-r", "--name-only", commit, "artifact_memory/schemas").decode("utf-8").splitlines()
-    identifiers: list[str] = []
-    for path in paths:
-        if not path.endswith(".json"):
-            continue
-        schema = load_json_bytes(_git("show", f"{commit}:{path}"))
-        identifier = schema.get("$id") if isinstance(schema, dict) else None
-        if not isinstance(identifier, str) or not identifier:
-            raise ValidationFailure("release-schema-inventory-invalid", "versioned JSON schema lacks an $id")
-        identifiers.append(identifier)
-    if len(identifiers) != len(set(identifiers)):
-        raise ValidationFailure("release-schema-inventory-invalid", "schema inventory contains duplicate identifiers")
-    return len(identifiers), sha256_bytes(canonical_bytes(sorted(identifiers)))
+    return schema_inventory(
+        _git("show", f"{commit}:{path}")
+        for path in paths
+        if path.endswith(".json")
+    )
 
 
 def run_release_conformance(
@@ -128,14 +121,7 @@ def run_release_conformance(
     schema_count, schema_digest = _schema_inventory(commit)
     if schema_count != manifest["surfaces"]["schemas"]["inventory_count"] or schema_digest != manifest["surfaces"]["schemas"]["inventory_digest"]:
         raise ValidationFailure("release-schema-inventory-mismatch", "schema inventory does not reproduce")
-    try:
-        project = tomllib.loads(_git("show", f"{commit}:pyproject.toml").decode("utf-8"))
-        project_table = project.get("project")
-        package_version = project_table.get("version") if isinstance(project_table, dict) else None
-    except (UnicodeError, tomllib.TOMLDecodeError) as exc:
-        raise ValidationFailure("release-pyproject-invalid", "release pyproject metadata is invalid") from exc
-    if not isinstance(package_version, str) or not package_version:
-        raise ValidationFailure("release-pyproject-invalid", "release package version is missing")
+    package_version = read_package_version(_git("show", f"{commit}:pyproject.toml"))
     if package_version != manifest["surfaces"]["reference_cli"]["package_version"]:
         raise ValidationFailure("release-package-version-mismatch", "reference CLI package version does not reproduce")
 

@@ -83,5 +83,16 @@ and non-empty output directories. It writes a reproducible source tar,
 does not generate or use a key, create a tag, publish assets, change visibility,
 or grant release authority.
 
+The v0 preparation receipt accepts package versions in `X.Y.Z` or
+`X.Y.Z.devN` form. `SHA256SUMS` covers every manifest-listed release artifact
+except the checksum file itself. The release manifest and preparation receipts
+are evidence metadata bound to their own canonical/digest identities; they are
+not silently claimed as checksum-covered release assets.
+
+Preparation stages every output in a private sibling directory, rereads the
+exact bytes, and atomically exposes the complete directory. Conflicting output
+paths, symlinks, partial writes, or a changed destination fail closed without
+leaving a passing receipt in the requested output directory.
+
 The final release must be regenerated from the owner-approved release commit;
 preview checksums and receipts cannot be relabeled as release evidence.

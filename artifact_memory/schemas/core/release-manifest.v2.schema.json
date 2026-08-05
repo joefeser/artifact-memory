@@ -80,7 +80,7 @@
         }
       }
     },
-    "checksum_manifest": {"type": "object", "additionalProperties": false, "required": ["artifact_name", "format", "scope"], "properties": {"artifact_name": {"type": "string", "minLength": 1}, "format": {"const": "sha256sum-v1"}, "scope": {"const": "all-release-assets-except-checksum-manifest-itself"}}},
+    "checksum_manifest": {"type": "object", "additionalProperties": false, "required": ["artifact_name", "format", "scope"], "properties": {"artifact_name": {"type": "string", "minLength": 1}, "format": {"const": "sha256sum-v1"}, "scope": {"enum": ["all-release-assets-except-checksum-manifest-itself", "all-manifest-listed-artifacts-except-checksum-manifest-itself"]}}},
     "signature": {
       "type": "object",
       "additionalProperties": false,
