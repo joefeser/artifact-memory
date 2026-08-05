@@ -129,6 +129,16 @@ def validate_custody_write_preflight_receipt(receipt: dict[str, Any]) -> None:
     """Validate a preflight receipt and its canonical identity."""
 
     validate(receipt, load_schema("core", "custody-write-preflight-receipt.v1.schema.json"))
+    expected_transport = {
+        "artifact-memory/restic-rest-server-config/v1": "restic-rest-server",
+        "artifact-memory/restic-sftp-config/v1": "restic-over-sftp",
+    }[receipt["adapter_schema_id"]]
+    if receipt["transport"] != expected_transport:
+        raise ValidationFailure(
+            "custody-preflight-transport-mismatch",
+            "custody preflight receipt transport does not match its adapter schema",
+            "$.transport",
+        )
     if receipt["receipt_id"] != expected_receipt_id(receipt, PREFLIGHT_RECEIPT_PREFIX):
         raise ValidationFailure(
             "custody-preflight-receipt-id-mismatch",

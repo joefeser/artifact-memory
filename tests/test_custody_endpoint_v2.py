@@ -8,6 +8,7 @@ from artifact_memory.custody import (
     validate_custody_write_preflight,
     validate_custody_write_preflight_receipt,
 )
+from artifact_memory.canonical import expected_receipt_id
 from artifact_memory.validator import ValidationFailure, validate
 
 
@@ -120,6 +121,25 @@ class CustodyEndpointV2Tests(unittest.TestCase):
         self.assertEqual(receipt["outcome"], "ready-for-owner-authorized-write")
         self.assertNotEqual(receipt["endpoint_document_digest"], receipt["adapter_document_digest"])
         validate_custody_write_preflight_receipt(receipt)
+
+    def test_sftp_preflight_requires_restricted_non_root_mode(self):
+        endpoint, _ = self._authorized_pair()
+        adapter = self._load("config/templates/proxmox-restic-sftp.v1.json")
+        adapter.pop("mode")
+        with self.assertRaises(ValidationFailure):
+            validate_custody_write_preflight(endpoint, adapter)
+
+    def test_preflight_receipt_rejects_mismatched_adapter_transport(self):
+        endpoint, adapter = self._authorized_pair()
+        receipt = validate_custody_write_preflight(endpoint, adapter)
+        receipt["transport"] = "restic-over-sftp"
+        receipt["receipt_id"] = expected_receipt_id(
+            receipt,
+            "custody-write-preflight-receipt://",
+        )
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_custody_write_preflight_receipt(receipt)
+        self.assertEqual(failure.exception.code, "custody-preflight-transport-mismatch")
 
     def test_cross_document_preflight_rejects_non_string_keys(self):
         endpoint = self._load("fixtures/synthetic/custody-endpoint/v2/proxmox-vault-template.json")
