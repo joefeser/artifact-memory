@@ -1,0 +1,15 @@
+{
+  "schema_id": "artifact-memory/restic-rest-server-config/v1",
+  "endpoint_ref": "endpoint://joe-home-proxmox-vault-1",
+  "transport": "restic-rest-server",
+  "mode": "append-only",
+  "tailnet_boundary": {"required": true, "guest_only": true, "public_inbound": false, "approved_clients_only": true},
+  "address_state": "owner-to-fill",
+  "account_state": "owner-to-fill",
+  "repository_state": "owner-to-fill",
+  "service_state": "owner-to-fill",
+  "secret_state": "external-not-recorded",
+  "storage_boundary": {"backend": "zfs-backed", "zfs_snapshot_schedule_state": "owner-to-fill", "snapshot_control": "server-side-separate-from-backup-client"},
+  "recovery_boundary": {"material_state": "owner-held-external", "alternate_access": "console-or-local", "tailscale_exclusive": false},
+  "remote_write_state": "not-authorized"
+}

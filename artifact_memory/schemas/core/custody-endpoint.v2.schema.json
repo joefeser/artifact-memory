@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/custody-endpoint/v2",
+  "title": "Artifact Memory owner-approved off-machine custody endpoint contract v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "endpoint_ref", "purpose", "custody_claim", "deployment", "network_boundary", "transport", "storage", "schedule", "recovery", "diversity_boundary", "provisioning", "remote_write"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/custody-endpoint/v2"},
+    "endpoint_ref": {"const": "endpoint://joe-home-proxmox-vault-1"},
+    "purpose": {"const": "off-machine-custody"},
+    "custody_claim": {"const": "off-machine-not-geographically-off-site"},
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "guest_only", "proxmox_host_tailscale", "provisioning_state"],
+      "properties": {
+        "class": {"const": "dedicated-guest-vm"},
+        "guest_only": {"const": true},
+        "proxmox_host_tailscale": {"const": false},
+        "provisioning_state": {"enum": ["unprovisioned", "ready"]}
+      }
+    },
+    "network_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["access", "public_inbound", "approved_clients_only"],
+      "properties": {
+        "access": {"const": "tailscale-inside-guest"},
+        "public_inbound": {"const": false},
+        "approved_clients_only": {"const": true}
+      }
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "fallback", "authenticated", "credential_state", "remote_write_authorization"],
+      "properties": {
+        "primary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "mode", "address_state", "account_state", "repository_state"],
+          "properties": {
+            "method": {"const": "restic-rest-server"},
+            "mode": {"const": "append-only"},
+            "address_state": {"enum": ["owner-to-fill", "configured"]},
+            "account_state": {"enum": ["owner-to-fill", "configured"]},
+            "repository_state": {"enum": ["owner-to-fill", "configured"]}
+          }
+        },
+        "fallback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "mode", "account_state"],
+          "properties": {
+            "method": {"const": "restic-over-sftp"},
+            "mode": {"const": "restricted-non-root-account"},
+            "account_state": {"enum": ["owner-to-fill", "configured"]}
+          }
+        },
+        "authenticated": {"const": true},
+        "credential_state": {"const": "external-not-recorded"},
+        "remote_write_authorization": {"enum": ["not-authorized", "authorized"]}
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend", "client_side_encryption", "zfs_snapshots", "snapshot_schedule_state", "snapshot_control", "key_material_state", "storage_location_state"],
+      "properties": {
+        "backend": {"const": "zfs-backed"},
+        "client_side_encryption": {"const": "required"},
+        "zfs_snapshots": {"const": "required"},
+        "snapshot_schedule_state": {"enum": ["owner-to-fill", "configured"]},
+        "snapshot_control": {"const": "server-side-separate-from-backup-client"},
+        "key_material_state": {"const": "external-not-recorded"},
+        "storage_location_state": {"enum": ["owner-to-fill", "configured"]}
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["after_material_change", "minimum_backup_interval", "integrity_verification", "isolated_restore_rehearsal"],
+      "properties": {
+        "after_material_change": {"const": true},
+        "minimum_backup_interval": {"const": "weekly"},
+        "integrity_verification": {"const": "monthly"},
+        "isolated_restore_rehearsal": {"const": "quarterly"}
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["material_state", "separate_from", "alternate_access", "tailscale_exclusive"],
+      "properties": {
+        "material_state": {"const": "owner-held-external"},
+        "separate_from": {"type": "array", "const": ["workstation", "repository", "backup-vm"]},
+        "alternate_access": {"const": "console-or-local"},
+        "tailscale_exclusive": {"const": false}
+      }
+    },
+    "diversity_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current_geographic_claim", "portable_provider_policy", "portable_geography_policy", "portable_jurisdiction_policy", "mandatory_vendor", "mandatory_country", "mandatory_identity_provider"],
+      "properties": {
+        "current_geographic_claim": {"const": "not-off-site"},
+        "portable_provider_policy": {"const": true},
+        "portable_geography_policy": {"const": true},
+        "portable_jurisdiction_policy": {"const": true},
+        "mandatory_vendor": {"const": false},
+        "mandatory_country": {"const": false},
+        "mandatory_identity_provider": {"const": false}
+      }
+    },
+    "provisioning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vm_address_state", "account_state", "storage_state", "snapshot_schedule_state"],
+      "properties": {
+        "vm_address_state": {"enum": ["owner-to-fill", "configured"]},
+        "account_state": {"enum": ["owner-to-fill", "configured"]},
+        "storage_state": {"enum": ["owner-to-fill", "configured"]},
+        "snapshot_schedule_state": {"enum": ["owner-to-fill", "configured"]}
+      }
+    },
+    "remote_write": {"enum": ["not-authorized", "authorized"]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"remote_write": {"const": "authorized"}}, "required": ["remote_write"]},
+      "then": {
+        "properties": {
+          "deployment": {"properties": {"provisioning_state": {"const": "ready"}}},
+          "transport": {
+            "properties": {
+              "primary": {"properties": {"address_state": {"const": "configured"}, "account_state": {"const": "configured"}, "repository_state": {"const": "configured"}}},
+              "remote_write_authorization": {"const": "authorized"}
+            }
+          },
+          "storage": {"properties": {"snapshot_schedule_state": {"const": "configured"}, "storage_location_state": {"const": "configured"}}},
+          "provisioning": {"properties": {"vm_address_state": {"const": "configured"}, "account_state": {"const": "configured"}, "storage_state": {"const": "configured"}, "snapshot_schedule_state": {"const": "configured"}}}
+        }
+      }
+    }
+  ]
+}
