@@ -82,6 +82,13 @@ v2 adds the restricted non-root mode and ZFS snapshot boundary. Fill address,
 account, repository, service, and ZFS policy values only after the VM is ready,
 and keep secrets external to both the repository and Artifact Memory records.
 
+Checked-in deterministic evidence covers the rest-server v1, SFTP v1, and SFTP
+v2 preflight paths under `fixtures/synthetic/custody-preflight`. The exact v1 to
+v2 endpoint migration output and its human-readable receipt are pinned under
+`fixtures/synthetic/custody-endpoint/v2`. These synthetic receipts prove
+contract behavior only; they do not prove provisioning, connectivity, custody
+transfer, credentials, or remote-write authority.
+
 This endpoint is off-machine custody on the same owner-controlled premises. It
 must not be described as geographically off-site. A later physically separate
 endpoint may add provider, geography, and jurisdiction diversity without

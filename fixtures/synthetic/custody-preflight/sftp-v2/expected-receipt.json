@@ -1,0 +1,29 @@
+{
+  "adapter_document_digest": "sha-256:4724967b13827d14e6e2ec5df0626ef0438c551e2f0dca0c973cbbf288dc4a70",
+  "adapter_schema_id": "artifact-memory/restic-sftp-config/v2",
+  "authority_boundary": "custody preflight evidence grants no remote-write, execution, credential, or infrastructure authority",
+  "binding_names": [
+    "endpoint_ref",
+    "fallback_account_state",
+    "provisioned_account_state",
+    "provisioned_address_state",
+    "provisioned_snapshot_schedule_state",
+    "provisioned_storage_state",
+    "remote_write",
+    "snapshot_schedule_state",
+    "transport_authorization"
+  ],
+  "bindings_digest": "sha-256:b6f39b450b4fcc677ec70213649a6dd2c1a5dba3300c5b8f982be6cb23acc88d",
+  "endpoint_document_digest": "sha-256:f7e7e28c9f819c07387a1e2aef9d8174f6815142be8ebc16d236a2c517e426a9",
+  "endpoint_ref": "endpoint://joe-home-proxmox-vault-1",
+  "endpoint_schema_id": "artifact-memory/custody-endpoint/v2",
+  "limitations": [
+    "no network connection or remote write was attempted",
+    "connection details and secret material are not represented",
+    "explicit owner authorization remains required before any remote write"
+  ],
+  "outcome": "not-authorized",
+  "receipt_id": "custody-write-preflight-receipt://4b6ea398981610db93ab71799eb63a3bd6c80d3016fac37f18d3680dde683ffe",
+  "schema_id": "artifact-memory/custody-write-preflight-receipt/v1",
+  "transport": "restic-over-sftp"
+}

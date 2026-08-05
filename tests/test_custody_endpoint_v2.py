@@ -5,6 +5,7 @@ from pathlib import Path
 
 from artifact_memory.custody import (
     migrate_custody_endpoint_v1_to_v2,
+    render_custody_endpoint_migration_receipt,
     render_custody_write_preflight_receipt,
     validate_custody_write_preflight,
     validate_custody_write_preflight_receipt,
@@ -121,6 +122,20 @@ class CustodyEndpointV2Tests(unittest.TestCase):
             (fixture / "receipt.md").read_text(encoding="utf-8"),
         )
 
+    def test_checked_in_sftp_preflight_fixtures_cover_both_versions(self):
+        endpoint = self._load("fixtures/synthetic/custody-endpoint/v2/proxmox-vault-template.json")
+        for version in ("v1", "v2"):
+            with self.subTest(version=version):
+                adapter = self._load(f"config/templates/proxmox-restic-sftp.{version}.json")
+                fixture = ROOT / f"fixtures/synthetic/custody-preflight/sftp-{version}"
+                receipt = validate_custody_write_preflight(endpoint, adapter)
+                expected = json.loads((fixture / "expected-receipt.json").read_text(encoding="utf-8"))
+                self.assertEqual(receipt, expected)
+                self.assertEqual(
+                    render_custody_write_preflight_receipt(receipt),
+                    (fixture / "receipt.md").read_text(encoding="utf-8"),
+                )
+
     def test_cross_document_preflight_dispatches_to_sftp_and_binds_documents(self):
         endpoint, _ = self._authorized_pair()
         adapter = self._load("config/templates/proxmox-restic-sftp.v2.json")
@@ -203,6 +218,12 @@ class CustodyEndpointV2Tests(unittest.TestCase):
     def test_v1_migration_builds_and_validates_a_new_fail_closed_v2_document(self):
         source = self._load("fixtures/synthetic/custody-endpoint/v1/proxmox-vault-template.json")
         migrated = migrate_custody_endpoint_v1_to_v2(source)
+        expected = self._load("fixtures/synthetic/custody-endpoint/v2/migrated-from-v1.json")
+        self.assertEqual(migrated, expected)
+        self.assertEqual(
+            render_custody_endpoint_migration_receipt(source, migrated),
+            (ROOT / "fixtures/synthetic/custody-endpoint/v2/migration-receipt.md").read_text(encoding="utf-8"),
+        )
         self.assertEqual(source["schema_id"], "artifact-memory/custody-endpoint/v1")
         self.assertEqual(migrated["schema_id"], "artifact-memory/custody-endpoint/v2")
         self.assertEqual(migrated["transport"]["fallback"]["method"], source["transport"]["method"])

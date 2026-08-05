@@ -175,6 +175,33 @@ def migrate_custody_endpoint_v1_to_v2(document: dict[str, Any]) -> dict[str, Any
     return migrated
 
 
+def render_custody_endpoint_migration_receipt(
+    source: dict[str, Any],
+    migrated: dict[str, Any],
+) -> str:
+    """Render deterministic, non-operational evidence for the v1-to-v2 migration."""
+
+    expected = migrate_custody_endpoint_v1_to_v2(source)
+    validate(migrated, load_schema("core", "custody-endpoint.v2.schema.json"))
+    if migrated != expected:
+        raise ValidationFailure(
+            "custody-migration-output-mismatch",
+            "custody migration receipt requires the exact deterministic v2 output",
+            "$.migrated",
+        )
+    return (
+        "# Custody endpoint migration receipt\n\n"
+        f"- Source schema: `{source['schema_id']}`\n"
+        f"- Output schema: `{migrated['schema_id']}`\n"
+        f"- Endpoint: `{migrated['endpoint_ref']}`\n"
+        f"- Remote write: `{migrated['remote_write']}`\n"
+        "- Network connection attempted: `false`\n"
+        "- Remote write attempted: `false`\n\n"
+        "This synthetic receipt proves only the deterministic fail-closed contract migration. "
+        "It does not prove provisioning, custody transfer, endpoint availability, credentials, or authority.\n"
+    )
+
+
 def validate_custody_write_preflight_receipt(receipt: dict[str, Any]) -> None:
     """Validate a preflight receipt and its canonical identity."""
 
