@@ -1,9 +1,10 @@
 # v0 informational context pack
 
-The completed #20 contract is `artifact-memory/context-pack/v2`. The earlier
-v1 schema remains available as a legacy read contract; its payload shape was
-not silently redefined. The reference exporter and independent reader emit and
-accept v2 only.
+The completed #20 base contract is `artifact-memory/context-pack/v2`. The
+earlier v1 schema remains available as a legacy read contract, and v2 remains
+unchanged for strict consumers. The reference exporter emits v2 for ordinary
+packs and v3 when revocation suppression evidence is present; the independent
+reader accepts both.
 
 Context packs are bounded selections of canonical Artifact Memory knowledge for
 an independent reader. They carry source record revisions, artifact references,
@@ -29,6 +30,13 @@ record revisions, generic provider references, selection policy, byte bound,
 freshness assertion, redaction behavior, and reference-only artifact policy.
 Freshness is a disclosed assertion, not inferred truth. The same inputs and
 selection metadata produce the same pack identity and ordering.
+
+When a caller supplies validated tombstone suppression, the v3 selection uses
+the `validated-tombstone-suppression` policy, requires canonical revocation
+receipt references, and records a revocation exclusion count. The pack
+contains no suppressed record. This remains
+endpoint- and pack-generation-scoped; it does not revoke an already-issued
+immutable pack or prove deletion from an unknown copy.
 
 The pack is not a WITS memory card, WITS fresh-context packet, HACP Task
 Packet, Route Task, Codex continuation payload, or authority-bearing envelope.

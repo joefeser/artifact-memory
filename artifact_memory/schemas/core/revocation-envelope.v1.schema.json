@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/revocation-envelope/v1",
+  "title": "Artifact Memory revocation envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "envelope_id", "tombstone_ref", "deletion_receipt_ref", "target_ref", "target_revision_digest", "issuer_ref", "audience_ref", "correlation_id", "expires_at", "scope", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/revocation-envelope/v1"},
+    "envelope_id": {"type": "string", "pattern": "^revocation://[0-9a-f]{64}$"},
+    "tombstone_ref": {"type": "string", "pattern": "^tombstone://[0-9a-f]{64}$"},
+    "deletion_receipt_ref": {"type": "string", "pattern": "^deletion-receipt://[A-Za-z0-9._~-]+/[0-9a-f]{64}$"},
+    "target_ref": {"type": "string", "minLength": 1},
+    "target_revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "issuer_ref": {"type": "string", "minLength": 1},
+    "audience_ref": {"type": "string", "minLength": 1},
+    "correlation_id": {"type": "string", "minLength": 1},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "scope": {"enum": ["exchange-recipient", "generated-index", "context-export", "adapter-endpoint", "active-vault", "managed-backup"]},
+    "authority_boundary": {"const": "revocation propagation grants no execution, disclosure, routing, mutation, or erasure authority"}
+  }
+}

@@ -47,6 +47,16 @@ addressable by its `(record_id, revision_digest)` pair, and the replacement is
 recorded separately. Lifecycle timestamps, when present in another contract,
 are metadata and are not substituted for revision identity.
 
+Knowledge-record v3 evolution may additionally bind explicit `supersedes`,
+`disputes`, or `contradicts` relationships to the canonical identity and exact
+SHA-256 revision digest of source records used by a candidate. These
+relationships preserve history; WITS remains responsible for meaning, owner
+approval, and conflict resolution.
+
+Knowledge-record v2 remains stable for existing consumers and does not admit
+the v3 evolution relationships. A producer must negotiate v3 rather than emit
+new relationship values under the older schema identifier.
+
 Schema identifiers are stable strings of the form `artifact-memory/<name>/vN`.
 Changing required fields, field meaning, canonical digest input, or fail-closed
 behavior requires a new major contract identifier. Additive optional behavior

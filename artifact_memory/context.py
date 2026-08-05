@@ -7,7 +7,8 @@ import re
 from datetime import datetime
 from typing import Any, Iterable, Mapping
 
-from .projection import _canonical, _knowledge_schema
+from .knowledge import knowledge_schema
+from .projection import _canonical
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -163,6 +164,7 @@ def export_context(
     freshness_by_record: Mapping[str, dict[str, str]],
     selected_at: str,
     policy_id: str = "artifact-memory/context-selection/v1",
+    revocation_receipts: Iterable[dict[str, Any]] = (),
 ) -> dict[str, Any]:
     """Export only explicitly authorized, current records and evidence references."""
     if allowed_sensitivity not in SENSITIVITY_RANK:
@@ -172,10 +174,9 @@ def export_context(
     _parse_utc(selected_at, "selection-time-invalid", "selection time is not a valid whole-second UTC instant")
     if not isinstance(policy_id, str) or not policy_id:
         raise ContextFailure("selection-policy-invalid", "selection policy identity is required")
-
     record_list = list(records)
     for record in record_list:
-        validate(record, _knowledge_schema(record))
+        validate(record, knowledge_schema(record))
     ordered = sorted(record_list, key=lambda record: record["record_id"])
     record_ids = [record["record_id"] for record in ordered]
     if len(record_ids) != len(set(record_ids)):
@@ -184,15 +185,32 @@ def export_context(
     if authorized_records - set(record_ids):
         raise ContextFailure("authorized-record-unavailable", "an authorized record was not supplied")
 
+    from .revocation import validated_suppressions
+
+    suppression_bindings = validated_suppressions(ordered, revocation_receipts)
+    revoked = set(suppression_bindings)
+    revocation_receipt_refs = sorted(suppression_bindings.values())
+
     source_lines = b"".join(_canonical(record) + b"\n" for record in ordered)
     selected: list[dict[str, Any]] = []
     selected_evidence_bindings: set[str] = set()
+    revoked_evidence_bindings: set[str] = set()
     exclusions = {"not-authorized": 0, "sensitivity": 0, "freshness": 0}
+    if revoked:
+        exclusions["revocation"] = 0
     artifact_refs: set[str] = set()
     for record in ordered:
         record_id = record["record_id"]
         if record_id not in authorized_records:
             exclusions["not-authorized"] += 1
+            continue
+        if record_id in revoked:
+            exclusions["revocation"] += 1
+            revoked_evidence_bindings.update(
+                relationship["target_ref"]
+                for relationship in record.get("relationships", [])
+                if relationship["type"] == "supported-by-external-evidence"
+            )
             continue
         sensitivity = record.get("sensitivity", "private")
         if SENSITIVITY_RANK[sensitivity] > SENSITIVITY_RANK[allowed_sensitivity]:
@@ -229,8 +247,10 @@ def export_context(
     if authorized_evidence_keys - set(evidence_keys):
         raise ContextFailure("authorized-evidence-unavailable", "authorized external evidence was not supplied")
     selected_evidence = [item for item in evidence if (item["provider_id"], item["provider_record_id"]) in authorized_evidence_keys]
-    if any(item["binding_ref"] not in selected_evidence_bindings for item in selected_evidence):
+    unbound_evidence = [item for item in selected_evidence if item["binding_ref"] not in selected_evidence_bindings]
+    if any(item["binding_ref"] not in revoked_evidence_bindings for item in unbound_evidence):
         raise ContextFailure("external-evidence-unbound", "authorized external evidence is not bound by a selected record")
+    selected_evidence = [item for item in selected_evidence if item["binding_ref"] in selected_evidence_bindings]
 
     selection = {
         "policy_id": policy_id,
@@ -248,8 +268,12 @@ def export_context(
         "artifact_policy": "references-only/separately-authorized-retrieval",
         "disclosure": "informational-only",
     }
+    if revoked:
+        selection["revocation_policy"] = "validated-tombstone-suppression"
+        selection["revocation_receipt_refs"] = revocation_receipt_refs
+    pack_version = "v3" if revoked else "v2"
     body = {
-        "schema_id": "artifact-memory/context-pack/v2",
+        "schema_id": f"artifact-memory/context-pack/{pack_version}",
         "authority_boundary": AUTHORITY_BOUNDARY,
         "records": selected,
         "artifact_refs": sorted(artifact_refs),
@@ -258,7 +282,7 @@ def export_context(
     }
     result = {**body, "pack_id": "context-pack://" + hashlib.sha256(_canonical(body)).hexdigest()}
     try:
-        validate(result, load_schema("core", "context-pack.v2.schema.json"))
+        validate(result, load_schema("core", f"context-pack.{pack_version}.schema.json"))
     except ValidationFailure as exc:
         raise ContextFailure("context-pack-invalid", "context pack input did not satisfy the export contract") from exc
     if len(_canonical(result)) > max_bytes:
