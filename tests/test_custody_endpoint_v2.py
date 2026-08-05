@@ -5,6 +5,7 @@ from pathlib import Path
 
 from artifact_memory.custody import (
     migrate_custody_endpoint_v1_to_v2,
+    render_custody_write_preflight_receipt,
     validate_custody_write_preflight,
     validate_custody_write_preflight_receipt,
 )
@@ -107,6 +108,18 @@ class CustodyEndpointV2Tests(unittest.TestCase):
         with self.assertRaises(ValidationFailure) as failure:
             validate_custody_write_preflight_receipt(forged)
         self.assertEqual(failure.exception.code, "custody-preflight-receipt-id-mismatch")
+
+    def test_checked_in_preflight_fixture_proves_the_non_authorized_seam(self):
+        fixture = ROOT / "fixtures/synthetic/custody-preflight/v1"
+        endpoint = self._load("fixtures/synthetic/custody-endpoint/v2/proxmox-vault-template.json")
+        adapter = self._load("config/templates/proxmox-restic-rest-server.v1.json")
+        receipt = validate_custody_write_preflight(endpoint, adapter)
+        expected = json.loads((fixture / "expected-receipt.json").read_text(encoding="utf-8"))
+        self.assertEqual(receipt, expected)
+        self.assertEqual(
+            render_custody_write_preflight_receipt(receipt),
+            (fixture / "receipt.md").read_text(encoding="utf-8"),
+        )
 
     def test_cross_document_preflight_dispatches_to_sftp_and_binds_documents(self):
         endpoint, _ = self._authorized_pair()

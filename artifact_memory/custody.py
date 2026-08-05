@@ -147,6 +147,24 @@ def validate_custody_write_preflight_receipt(receipt: dict[str, Any]) -> None:
         )
 
 
+def render_custody_write_preflight_receipt(receipt: dict[str, Any]) -> str:
+    """Render the bounded preflight evidence for human review."""
+
+    validate_custody_write_preflight_receipt(receipt)
+    return (
+        "# Custody write preflight receipt\n\n"
+        f"- Outcome: `{receipt['outcome']}`\n"
+        f"- Receipt: `{receipt['receipt_id']}`\n"
+        f"- Endpoint: `{receipt['endpoint_ref']}`\n"
+        f"- Adapter: `{receipt['adapter_schema_id']}`\n"
+        f"- Transport: `{receipt['transport']}`\n"
+        f"- Bound states: {len(receipt['binding_names'])}\n\n"
+        "This synthetic preflight proves only that the checked endpoint and adapter states agree. "
+        "No network connection or remote write was attempted, and explicit owner authorization "
+        "remains required before any remote write.\n"
+    )
+
+
 def validate_custody_write_preflight(
     endpoint: dict[str, Any],
     adapter: dict[str, Any],
