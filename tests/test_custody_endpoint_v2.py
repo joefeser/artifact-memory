@@ -162,6 +162,36 @@ class CustodyEndpointV2Tests(unittest.TestCase):
             validate_custody_write_preflight_receipt(receipt)
         self.assertEqual(failure.exception.code, "custody-preflight-transport-mismatch")
 
+    def test_preflight_receipt_requires_exact_adapter_binding_names(self):
+        endpoint, adapter = self._authorized_pair()
+        original = validate_custody_write_preflight(endpoint, adapter)
+        mutations = (
+            lambda names: names.pop(),
+            lambda names: names.append(names[0]),
+            lambda names: names.__setitem__(names.index("service_state"), "fallback_account_state"),
+        )
+        for mutate in mutations:
+            receipt = copy.deepcopy(original)
+            mutate(receipt["binding_names"])
+            receipt["receipt_id"] = expected_receipt_id(
+                receipt,
+                "custody-write-preflight-receipt://",
+            )
+            with self.subTest(binding_names=receipt["binding_names"]), self.assertRaises(ValidationFailure):
+                validate_custody_write_preflight_receipt(receipt)
+
+    def test_preflight_receipt_recomputes_bindings_digest(self):
+        endpoint, adapter = self._authorized_pair()
+        receipt = validate_custody_write_preflight(endpoint, adapter)
+        receipt["bindings_digest"] = f"sha-256:{'0' * 64}"
+        receipt["receipt_id"] = expected_receipt_id(
+            receipt,
+            "custody-write-preflight-receipt://",
+        )
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_custody_write_preflight_receipt(receipt)
+        self.assertEqual(failure.exception.code, "custody-preflight-bindings-digest-mismatch")
+
     def test_cross_document_preflight_rejects_non_string_keys(self):
         endpoint = self._load("fixtures/synthetic/custody-endpoint/v2/proxmox-vault-template.json")
         adapter = self._load("config/templates/proxmox-restic-rest-server.v1.json")

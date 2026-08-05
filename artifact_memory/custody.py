@@ -15,6 +15,56 @@ PREFLIGHT_AUTHORITY_BOUNDARY = (
     "custody preflight evidence grants no remote-write, execution, credential, "
     "or infrastructure authority"
 )
+ADAPTER_CONFIGS = {
+    "artifact-memory/restic-rest-server-config/v1": (
+        "restic-rest-server-config.v1.schema.json",
+        "restic-rest-server",
+    ),
+    "artifact-memory/restic-sftp-config/v1": (
+        "restic-sftp-config.v1.schema.json",
+        "restic-over-sftp",
+    ),
+    "artifact-memory/restic-sftp-config/v2": (
+        "restic-sftp-config.v2.schema.json",
+        "restic-over-sftp",
+    ),
+}
+PREFLIGHT_BINDING_NAMES = {
+    "artifact-memory/restic-rest-server-config/v1": (
+        "account_state",
+        "address_state",
+        "endpoint_ref",
+        "provisioned_account_state",
+        "provisioned_address_state",
+        "provisioned_snapshot_schedule_state",
+        "provisioned_storage_state",
+        "remote_write",
+        "repository_state",
+        "service_state",
+        "snapshot_schedule_state",
+        "transport_authorization",
+    ),
+    "artifact-memory/restic-sftp-config/v1": (
+        "endpoint_ref",
+        "fallback_account_state",
+        "provisioned_account_state",
+        "provisioned_address_state",
+        "provisioned_storage_state",
+        "remote_write",
+        "transport_authorization",
+    ),
+    "artifact-memory/restic-sftp-config/v2": (
+        "endpoint_ref",
+        "fallback_account_state",
+        "provisioned_account_state",
+        "provisioned_address_state",
+        "provisioned_snapshot_schedule_state",
+        "provisioned_storage_state",
+        "remote_write",
+        "snapshot_schedule_state",
+        "transport_authorization",
+    ),
+}
 
 
 def record_custody(
@@ -129,16 +179,27 @@ def validate_custody_write_preflight_receipt(receipt: dict[str, Any]) -> None:
     """Validate a preflight receipt and its canonical identity."""
 
     validate(receipt, load_schema("core", "custody-write-preflight-receipt.v1.schema.json"))
-    expected_transport = {
-        "artifact-memory/restic-rest-server-config/v1": "restic-rest-server",
-        "artifact-memory/restic-sftp-config/v1": "restic-over-sftp",
-        "artifact-memory/restic-sftp-config/v2": "restic-over-sftp",
-    }[receipt["adapter_schema_id"]]
+    adapter_schema_id = receipt["adapter_schema_id"]
+    expected_transport = ADAPTER_CONFIGS[adapter_schema_id][1]
     if receipt["transport"] != expected_transport:
         raise ValidationFailure(
             "custody-preflight-transport-mismatch",
             "custody preflight receipt transport does not match its adapter schema",
             "$.transport",
+        )
+    expected_binding_names = list(PREFLIGHT_BINDING_NAMES[adapter_schema_id])
+    if receipt["binding_names"] != expected_binding_names:
+        raise ValidationFailure(
+            "custody-preflight-binding-names-mismatch",
+            "custody preflight receipt binding names do not match its adapter schema",
+            "$.binding_names",
+        )
+    expected_bindings_digest = sha256_bytes(canonical_bytes(expected_binding_names))
+    if receipt["bindings_digest"] != expected_bindings_digest:
+        raise ValidationFailure(
+            "custody-preflight-bindings-digest-mismatch",
+            "custody preflight receipt bindings digest does not match its canonical binding names",
+            "$.bindings_digest",
         )
     if receipt["receipt_id"] != expected_receipt_id(receipt, PREFLIGHT_RECEIPT_PREFIX):
         raise ValidationFailure(
@@ -159,10 +220,11 @@ def render_custody_write_preflight_receipt(receipt: dict[str, Any]) -> str:
         f"- Endpoint: `{receipt['endpoint_ref']}`\n"
         f"- Adapter: `{receipt['adapter_schema_id']}`\n"
         f"- Transport: `{receipt['transport']}`\n"
-        f"- Bound states: {len(receipt['binding_names'])}\n\n"
-        "This synthetic preflight proves only that the checked endpoint and adapter states agree. "
-        "No network connection or remote write was attempted, and explicit owner authorization "
-        "remains required before any remote write.\n"
+        f"- Bound states: {len(receipt['binding_names'])}\n"
+        f"- Authority boundary: {receipt['authority_boundary']}\n\n"
+        "## Limitations\n\n"
+        + "".join(f"- {limitation}\n" for limitation in receipt["limitations"])
+        + "\nThis synthetic preflight proves only that the checked endpoint and adapter states agree.\n"
     )
 
 
@@ -176,21 +238,15 @@ def validate_custody_write_preflight(
     adapter = _require_object(adapter, name="custody adapter")
     validate(endpoint, load_schema("core", "custody-endpoint.v2.schema.json"))
     adapter_schema_id = adapter.get("schema_id")
-    if adapter_schema_id == "artifact-memory/restic-rest-server-config/v1":
-        validate(adapter, load_schema("adapters", "restic-rest-server-config.v1.schema.json"))
-        transport = "restic-rest-server"
-    elif adapter_schema_id == "artifact-memory/restic-sftp-config/v1":
-        validate(adapter, load_schema("adapters", "restic-sftp-config.v1.schema.json"))
-        transport = "restic-over-sftp"
-    elif adapter_schema_id == "artifact-memory/restic-sftp-config/v2":
-        validate(adapter, load_schema("adapters", "restic-sftp-config.v2.schema.json"))
-        transport = "restic-over-sftp"
-    else:
+    adapter_config = ADAPTER_CONFIGS.get(adapter_schema_id)
+    if adapter_config is None:
         raise ValidationFailure(
             "custody-preflight-adapter-unsupported",
             "custody preflight requires a supported exact adapter schema identifier",
             "$.adapter.schema_id",
         )
+    adapter_schema_name, transport = adapter_config
+    validate(adapter, load_schema("adapters", adapter_schema_name))
     common_bindings = {
         "endpoint_ref": (endpoint["endpoint_ref"], adapter["endpoint_ref"]),
         "remote_write": (endpoint["remote_write"], adapter["remote_write_state"]),
@@ -258,20 +314,23 @@ def validate_custody_write_preflight(
         if endpoint["remote_write"] == "authorized"
         else "not-authorized"
     )
-    binding_values = {
-        name: {"endpoint": endpoint_value, "adapter": adapter_value}
-        for name, (endpoint_value, adapter_value) in sorted(bindings.items())
-    }
+    binding_names = sorted(bindings)
+    if binding_names != list(PREFLIGHT_BINDING_NAMES[adapter_schema_id]):
+        raise ValidationFailure(
+            "custody-preflight-binding-contract-mismatch",
+            "custody preflight implementation bindings do not match its adapter contract",
+            "$.bindings",
+        )
     body = {
         "endpoint_ref": endpoint["endpoint_ref"],
         "endpoint_schema_id": endpoint["schema_id"],
         "adapter_schema_id": adapter["schema_id"],
         "transport": transport,
         "outcome": outcome,
-        "binding_names": sorted(bindings),
+        "binding_names": binding_names,
         "endpoint_document_digest": sha256_bytes(canonical_bytes(endpoint)),
         "adapter_document_digest": sha256_bytes(canonical_bytes(adapter)),
-        "bindings_digest": sha256_bytes(canonical_bytes(binding_values)),
+        "bindings_digest": sha256_bytes(canonical_bytes(binding_names)),
         "authority_boundary": PREFLIGHT_AUTHORITY_BOUNDARY,
         "limitations": [
             "no network connection or remote write was attempted",

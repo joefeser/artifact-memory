@@ -101,7 +101,7 @@ def _matches(value: Any, schema: dict[str, Any], path: str) -> bool:
 
 
 def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
-    supported = {"$schema", "$id", "$comment", "title", "description", "type", "additionalProperties", "propertyNames", "required", "dependentRequired", "properties", "const", "enum", "pattern", "minLength", "minItems", "maxItems", "minimum", "maximum", "format", "items", "allOf", "anyOf", "not", "if", "then", "else"}
+    supported = {"$schema", "$id", "$comment", "title", "description", "type", "additionalProperties", "propertyNames", "required", "dependentRequired", "properties", "const", "enum", "pattern", "minLength", "minItems", "maxItems", "uniqueItems", "minimum", "maximum", "format", "items", "allOf", "anyOf", "not", "if", "then", "else"}
     unknown = set(schema) - supported
     if unknown:
         _fail("unsupported-schema-keyword", "unsupported schema keyword", path)
@@ -155,6 +155,10 @@ def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
             _fail("constraint-failed", "array has too few items", path)
         if "maxItems" in schema and len(value) > schema["maxItems"]:
             _fail("constraint-failed", "array has too many items", path)
+        if schema.get("uniqueItems") is True:
+            for index, item in enumerate(value):
+                if any(_json_equal(item, prior) for prior in value[:index]):
+                    _fail("constraint-failed", "array items must be unique", f"{path}[{index}]")
         if "items" in schema:
             for index, item in enumerate(value):
                 validate(item, schema["items"], f"{path}[{index}]")
