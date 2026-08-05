@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .canonical import expected_receipt_id, receipt_with_digest
+from .canonical import canonical_bytes, expected_receipt_id, receipt_with_digest, sha256_bytes
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -146,25 +146,29 @@ def validate_custody_write_preflight(
     endpoint = _require_object(endpoint, name="custody endpoint")
     adapter = _require_object(adapter, name="custody adapter")
     validate(endpoint, load_schema("core", "custody-endpoint.v2.schema.json"))
-    validate(adapter, load_schema("adapters", "restic-rest-server-config.v1.schema.json"))
-
-    bindings = {
+    adapter_schema_id = adapter.get("schema_id")
+    if adapter_schema_id == "artifact-memory/restic-rest-server-config/v1":
+        validate(adapter, load_schema("adapters", "restic-rest-server-config.v1.schema.json"))
+        transport = "restic-rest-server"
+    elif adapter_schema_id == "artifact-memory/restic-sftp-config/v1":
+        validate(adapter, load_schema("adapters", "restic-sftp-config.v1.schema.json"))
+        transport = "restic-over-sftp"
+    else:
+        raise ValidationFailure(
+            "custody-preflight-adapter-unsupported",
+            "custody preflight requires a supported exact adapter schema identifier",
+            "$.adapter.schema_id",
+        )
+    common_bindings = {
         "endpoint_ref": (endpoint["endpoint_ref"], adapter["endpoint_ref"]),
         "remote_write": (endpoint["remote_write"], adapter["remote_write_state"]),
         "transport_authorization": (
             endpoint["transport"]["remote_write_authorization"],
             adapter["remote_write_state"],
         ),
-        "address_state": (endpoint["transport"]["primary"]["address_state"], adapter["address_state"]),
         "provisioned_address_state": (endpoint["provisioning"]["vm_address_state"], adapter["address_state"]),
-        "account_state": (endpoint["transport"]["primary"]["account_state"], adapter["account_state"]),
         "provisioned_account_state": (endpoint["provisioning"]["account_state"], adapter["account_state"]),
-        "repository_state": (
-            endpoint["transport"]["primary"]["repository_state"],
-            adapter["repository_state"],
-        ),
         "provisioned_storage_state": (endpoint["provisioning"]["storage_state"], adapter["repository_state"]),
-        "service_state": (endpoint["transport"]["primary"]["service_state"], adapter["service_state"]),
         "snapshot_schedule_state": (
             endpoint["storage"]["snapshot_schedule_state"],
             adapter["storage_boundary"]["zfs_snapshot_schedule_state"],
@@ -174,6 +178,25 @@ def validate_custody_write_preflight(
             adapter["storage_boundary"]["zfs_snapshot_schedule_state"],
         ),
     }
+    if adapter_schema_id == "artifact-memory/restic-rest-server-config/v1":
+        bindings = {
+            **common_bindings,
+            "address_state": (endpoint["transport"]["primary"]["address_state"], adapter["address_state"]),
+            "account_state": (endpoint["transport"]["primary"]["account_state"], adapter["account_state"]),
+            "repository_state": (
+                endpoint["transport"]["primary"]["repository_state"],
+                adapter["repository_state"],
+            ),
+            "service_state": (endpoint["transport"]["primary"]["service_state"], adapter["service_state"]),
+        }
+    elif adapter_schema_id == "artifact-memory/restic-sftp-config/v1":
+        bindings = {
+            **common_bindings,
+            "fallback_account_state": (
+                endpoint["transport"]["fallback"]["account_state"],
+                adapter["account_state"],
+            ),
+        }
     for name, (endpoint_value, adapter_value) in bindings.items():
         if endpoint_value != adapter_value:
             raise ValidationFailure(
@@ -187,12 +210,20 @@ def validate_custody_write_preflight(
         if endpoint["remote_write"] == "authorized"
         else "not-authorized"
     )
+    binding_values = {
+        name: {"endpoint": endpoint_value, "adapter": adapter_value}
+        for name, (endpoint_value, adapter_value) in sorted(bindings.items())
+    }
     body = {
         "endpoint_ref": endpoint["endpoint_ref"],
         "endpoint_schema_id": endpoint["schema_id"],
         "adapter_schema_id": adapter["schema_id"],
+        "transport": transport,
         "outcome": outcome,
         "binding_names": sorted(bindings),
+        "endpoint_document_digest": sha256_bytes(canonical_bytes(endpoint)),
+        "adapter_document_digest": sha256_bytes(canonical_bytes(adapter)),
+        "bindings_digest": sha256_bytes(canonical_bytes(binding_values)),
         "authority_boundary": PREFLIGHT_AUTHORITY_BOUNDARY,
         "limitations": [
             "no network connection or remote write was attempted",

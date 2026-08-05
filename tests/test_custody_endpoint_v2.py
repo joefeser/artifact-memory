@@ -107,6 +107,28 @@ class CustodyEndpointV2Tests(unittest.TestCase):
             validate_custody_write_preflight_receipt(forged)
         self.assertEqual(failure.exception.code, "custody-preflight-receipt-id-mismatch")
 
+    def test_cross_document_preflight_dispatches_to_sftp_and_binds_documents(self):
+        endpoint, _ = self._authorized_pair()
+        adapter = self._load("config/templates/proxmox-restic-sftp.v1.json")
+        for field in ("address_state", "account_state", "repository_state"):
+            adapter[field] = "configured"
+        adapter["storage_boundary"]["zfs_snapshot_schedule_state"] = "configured"
+        adapter["remote_write_state"] = "authorized"
+        endpoint["transport"]["fallback"]["account_state"] = "configured"
+        receipt = validate_custody_write_preflight(endpoint, adapter)
+        self.assertEqual(receipt["transport"], "restic-over-sftp")
+        self.assertEqual(receipt["outcome"], "ready-for-owner-authorized-write")
+        self.assertNotEqual(receipt["endpoint_document_digest"], receipt["adapter_document_digest"])
+        validate_custody_write_preflight_receipt(receipt)
+
+    def test_cross_document_preflight_rejects_non_string_keys(self):
+        endpoint = self._load("fixtures/synthetic/custody-endpoint/v2/proxmox-vault-template.json")
+        adapter = self._load("config/templates/proxmox-restic-rest-server.v1.json")
+        endpoint["transport"][1] = "invalid"
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_custody_write_preflight(endpoint, adapter)
+        self.assertEqual(failure.exception.code, "type-mismatch")
+
     def test_v1_migration_builds_and_validates_a_new_fail_closed_v2_document(self):
         source = self._load("fixtures/synthetic/custody-endpoint/v1/proxmox-vault-template.json")
         migrated = migrate_custody_endpoint_v1_to_v2(source)

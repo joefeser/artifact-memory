@@ -123,10 +123,10 @@ def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
     if expected and _kind(value) != expected and not (expected == "number" and _kind(value) == "integer"):
         _fail("type-mismatch", f"expected {expected}", path)
     if isinstance(value, dict):
+        for key in value:
+            if not isinstance(key, str):
+                _fail("type-mismatch", "property name must be a string", f"{path}[{key!r}]")
         if "propertyNames" in schema:
-            for key in value:
-                if not isinstance(key, str):
-                    _fail("type-mismatch", "property name must be a string", f"{path}[{key!r}]")
             for key in sorted(value):
                 validate(key, schema["propertyNames"], f"{path}[{key!r}]")
         required = schema.get("required", [])

@@ -53,9 +53,11 @@ v2 input or relabel-only conversion.
 
 Before any future remote-write implementation consumes these contracts, it
 must call `validate_custody_write_preflight(endpoint, adapter)`. That seam
-validates both documents, binds their logical endpoint, authorization,
+dispatches on the exact rest-server or SFTP adapter schema, validates both
+documents, binds their logical endpoint, authorization,
 connection-readiness, service, and snapshot states, and rejects any mismatch.
-Its deterministic receipt is evidence only: it attempts no connection or write,
+Its deterministic receipt binds canonical endpoint, adapter, and compared-state
+digests. It is evidence only: it attempts no connection or write,
 contains no connection details or secrets, and never substitutes for explicit
 owner authorization.
 
