@@ -155,6 +155,18 @@ class RecordEvolutionTests(unittest.TestCase):
         self.assertIsNone(result["record"])
         self.assertEqual(result["receipt"]["outcome"], "unsupported")
 
+    def test_result_schema_negotiation_rejects_malformed_inputs(self):
+        candidate = json.loads((ROOT / "fixtures/synthetic/record-evolution/v1/candidate.json").read_text(encoding="utf-8"))
+        for malformed in ("artifact-memory/knowledge-record/v3", None, 7, [""]):
+            with self.subTest(malformed=malformed):
+                with self.assertRaisesRegex(ValidationFailure, "supported result schemas must be non-empty strings"):
+                    admit_candidate(
+                        candidate,
+                        decision="accepted",
+                        decision_ref="decision://synthetic/malformed-negotiation",
+                        supported_result_schema_ids=malformed,
+                    )
+
     def test_independent_v3_reader_covers_relationships_and_optional_shapes(self):
         base = json.loads((ROOT / "fixtures/synthetic/record-evolution/v1/accepted-record.json").read_text(encoding="utf-8"))
         for relationship_type in ("supersedes", "disputes", "contradicts"):

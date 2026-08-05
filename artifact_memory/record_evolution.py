@@ -183,7 +183,12 @@ def admit_candidate(
             "receipt": _receipt(candidate, outcome=decision, decision_ref=decision_ref, diagnostics=[{"code": "candidate-not-admitted", "message": "candidate was not admitted as current knowledge"}]),
         }
 
-    supported_schema_values = list(supported_result_schema_ids)
+    if isinstance(supported_result_schema_ids, str):
+        raise ValidationFailure("candidate-schema-negotiation-invalid", "supported result schemas must be non-empty strings")
+    try:
+        supported_schema_values = list(supported_result_schema_ids)
+    except TypeError as exc:
+        raise ValidationFailure("candidate-schema-negotiation-invalid", "supported result schemas must be non-empty strings") from exc
     if any(not isinstance(value, str) or not value for value in supported_schema_values):
         raise ValidationFailure("candidate-schema-negotiation-invalid", "supported result schemas must be non-empty strings")
     supported_schemas = set(supported_schema_values)
