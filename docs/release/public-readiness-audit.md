@@ -68,7 +68,8 @@ pre-public pass:
 - issue #21 still needs the first encrypted write to the approved logical
   endpoint `endpoint://joe-home-proxmox-vault-1`, integrity verification, and
   an isolated restore receipt after the owner confirms its guest address,
-  account, and storage;
+  account, ZFS-backed repository, transport service, and snapshot schedule;
+  this endpoint is off-machine but not geographically off-site;
 - the final candidate must repeat the Git, GitHub prose, Actions log/artifact,
   release, tag, and settings audit after its last merge;
 - Joe must provide the dedicated release-signing public key and fingerprint,

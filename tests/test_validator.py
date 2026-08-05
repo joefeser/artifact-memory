@@ -34,6 +34,24 @@ class ValidatorTests(unittest.TestCase):
             validate(["one", "two"], schema)
         self.assertEqual(raised.exception.code, "constraint-failed")
 
+    def test_unique_items_uses_json_equality(self):
+        schema = {"type": "array", "uniqueItems": True}
+        validate([{"value": True}, {"value": 1}], schema)
+        with self.assertRaises(ValidationFailure) as raised:
+            validate([{"value": True}, {"value": True}], schema)
+        self.assertEqual(raised.exception.code, "constraint-failed")
+
+    def test_non_string_object_keys_fail_as_validation_errors(self):
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"known": {"type": "object"}},
+        }
+        for value in ({"known": {1: "bad"}}, {"known": {}, 1: "bad"}):
+            with self.assertRaises(ValidationFailure) as raised:
+                validate(value, schema)
+            self.assertEqual(raised.exception.code, "type-mismatch")
+
 
 if __name__ == "__main__":
     unittest.main()
