@@ -30,6 +30,10 @@ semantics, and verify the declared revision digest. An item that fails this
 stage is invalid for admission and produces a `bundled-record-invalid`
 quarantine receipt. This semantic rule is part of the v2 exchange contract,
 not an implementation convenience or an optional post-validation check.
+The reference and independent receivers support knowledge-record v1 and v2 by
+default. A receiver must explicitly include knowledge-record v3 in its local
+supported-schema set before admitting a v3 record; otherwise the item is
+quarantined with an `unsupported-record` diagnostic.
 
 The receiver must supply its expected audience out of band; a mismatch is
 rejected before record admission. Bundled records may not exceed the envelope's

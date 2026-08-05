@@ -60,12 +60,19 @@ def build_candidate(
     owner_review_state: str = "required",
 ) -> dict[str, Any]:
     """Build one digest-bound draft candidate without admitting it."""
-    validate(candidate_record, knowledge_schema(candidate_record))
-    if candidate_record["schema_id"] not in {"artifact-memory/knowledge-record/v2", "artifact-memory/knowledge-record/v3"}:
-        raise ValidationFailure("candidate-schema-unsupported", "candidate records require knowledge-record/v2 or v3")
-    if candidate_record["lifecycle"] != "draft":
-        raise ValidationFailure("candidate-lifecycle-invalid", "candidate records must remain draft before admission")
     sources = _source_refs(source_record_refs)
+    source_revisions = {item["record_id"]: item["revision_digest"] for item in sources}
+    normalized_record = deepcopy(candidate_record)
+    for relationship in normalized_record.get("relationships", []):
+        if isinstance(relationship, dict) and relationship.get("type") in RECORD_RELATIONSHIPS:
+            revision = source_revisions.get(relationship.get("target_ref"))
+            if revision is not None:
+                relationship["target_revision_digest"] = revision
+    validate(normalized_record, knowledge_schema(normalized_record))
+    if normalized_record["schema_id"] not in {"artifact-memory/knowledge-record/v2", "artifact-memory/knowledge-record/v3"}:
+        raise ValidationFailure("candidate-schema-unsupported", "candidate records require knowledge-record/v2 or v3")
+    if normalized_record["lifecycle"] != "draft":
+        raise ValidationFailure("candidate-lifecycle-invalid", "candidate records must remain draft before admission")
     provenance = []
     for item in candidate_provenance:
         if not isinstance(item, Mapping) or set(item) != {"kind", "source_ref"}:
@@ -76,16 +83,16 @@ def build_candidate(
     if not provenance:
         raise ValidationFailure("candidate-provenance-invalid", "candidate provenance is required")
     if sensitivity is None:
-        sensitivity = candidate_record.get("sensitivity", "restricted")
+        sensitivity = normalized_record.get("sensitivity", "restricted")
     if sensitivity not in {"public", "private", "restricted"}:
         raise ValidationFailure("candidate-sensitivity-invalid", "candidate sensitivity is unsupported")
-    if candidate_record.get("sensitivity", sensitivity) != sensitivity:
+    if normalized_record.get("sensitivity", sensitivity) != sensitivity:
         raise ValidationFailure("candidate-sensitivity-invalid", "candidate and record sensitivity must agree")
     if owner_review_state != "required":
         raise ValidationFailure("candidate-review-state-invalid", "new candidates require owner review")
     body = {
         "schema_id": "artifact-memory/knowledge-candidate/v1",
-        "candidate_record": deepcopy(candidate_record),
+        "candidate_record": normalized_record,
         "source_record_refs": sources,
         "candidate_provenance": sorted(provenance, key=lambda item: (item["kind"], item["source_ref"])),
         "sensitivity": sensitivity,
@@ -189,9 +196,12 @@ def admit_candidate(
 
     accepted_record = deepcopy(candidate["candidate_record"])
     accepted_record["lifecycle"] = "accepted"
-    source_ids = {item["record_id"] for item in candidate["source_record_refs"]}
+    source_revisions = {item["record_id"]: item["revision_digest"] for item in candidate["source_record_refs"]}
     for relationship in accepted_record.get("relationships", []):
-        if relationship["type"] in RECORD_RELATIONSHIPS and relationship["target_ref"] not in source_ids:
+        if relationship["type"] in RECORD_RELATIONSHIPS and (
+            relationship["target_ref"] not in source_revisions
+            or relationship.get("target_revision_digest") != source_revisions[relationship["target_ref"]]
+        ):
             return {
                 "record": None,
                 "receipt": _receipt(candidate, outcome="conflict", decision_ref=decision_ref, diagnostics=[{"code": "relationship-source-unbound", "message": "evolution relationship does not bind a declared source record"}]),

@@ -15,6 +15,10 @@ RECORD_ID = re.compile(r"^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$")
 REVISION_DIGEST = re.compile(r"^sha-256:[0-9a-f]{64}$")
 ARTIFACT_REF = re.compile(r"^artifact://[A-Za-z0-9._~/-]+$")
 AUTHORITY_BOUNDARY = "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"
+DEFAULT_RECORD_SCHEMAS = {
+    "artifact-memory/knowledge-record/v1",
+    "artifact-memory/knowledge-record/v2",
+}
 MAX_INTEROPERABLE_INTEGER = 9_007_199_254_740_991
 PRIVATE_KEY_HEADER = re.compile(
     r"-----BEGIN (?:[A-Z0-9][A-Z0-9 -]* )?PRIVATE KEY-----", re.IGNORECASE
@@ -112,15 +116,25 @@ def _validate_record(record: dict[str, Any]) -> None:
         "artifact-memory/knowledge-record/v3": {"related-to", "produced-from", "redacted-from", "supported-by-external-evidence", "supersedes", "disputes", "contradicts"},
     }[schema_id]
     for relationship in relationships:
+        if not isinstance(relationship, dict):
+            raise ReaderFailure("canonical record relationship is invalid")
+        relationship_type = relationship.get("type")
+        evolution_relationship = relationship_type in {"supersedes", "disputes", "contradicts"}
+        allowed_relationship_fields = {"type", "target_ref", "target_revision_digest"} if evolution_relationship else {"type", "target_ref"}
         if (
-            not isinstance(relationship, dict)
-            or set(relationship) != {"type", "target_ref"}
+            set(relationship) != allowed_relationship_fields
             or not isinstance(relationship.get("type"), str)
-            or relationship["type"] not in allowed_relationship_types
+            or relationship_type not in allowed_relationship_types
             or not isinstance(relationship.get("target_ref"), str)
             or not relationship["target_ref"]
         ):
             raise ReaderFailure("canonical record relationship is invalid")
+        if evolution_relationship and (
+            RECORD_ID.fullmatch(relationship["target_ref"]) is None
+            or not isinstance(relationship.get("target_revision_digest"), str)
+            or REVISION_DIGEST.fullmatch(relationship["target_revision_digest"]) is None
+        ):
+            raise ReaderFailure("canonical record evolution relationship is invalid")
     if "derivative" in record:
         derivative = record["derivative"]
         derivative_fields = {"source_task_ref", "transformation_ref", "uncertainty"}
@@ -369,6 +383,7 @@ def admit_bundle_v2(
     expected_audience_ref: str,
     now: str,
     supported_required_extensions: Iterable[tuple[str, str]] | None = None,
+    supported_record_schema_ids: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Independently validate one complete v2 bundle and emit a compatible receipt.
 
@@ -377,6 +392,22 @@ def admit_bundle_v2(
     resolution, and the wider issue #22 outcome matrix.
     """
     supported = _supported_required_pairs(supported_required_extensions)
+    if supported_record_schema_ids is None:
+        supported_record_schemas = set(DEFAULT_RECORD_SCHEMAS)
+    elif isinstance(supported_record_schema_ids, str):
+        supported_record_schema_values = []
+    else:
+        try:
+            supported_record_schema_values = list(supported_record_schema_ids)
+        except TypeError:
+            supported_record_schema_values = []
+    if supported_record_schema_ids is not None:
+        if (
+            not supported_record_schema_values
+            or any(not isinstance(value, str) or not value for value in supported_record_schema_values)
+        ):
+            raise ReaderFailure("supported record schemas must be non-empty strings")
+        supported_record_schemas = set(supported_record_schema_values)
     try:
         envelope = json.loads(envelope_json, object_pairs_hook=_pairs)
     except (json.JSONDecodeError, ReaderFailure, UnicodeDecodeError) as exc:
@@ -590,6 +621,8 @@ def admit_bundle_v2(
         extensions = record.get("extensions", {})
         try:
             _validate_record(record)
+            if record["schema_id"] not in supported_record_schemas:
+                raise ReaderFailure("bundled record schema was not negotiated")
             if not isinstance(extensions, dict):
                 raise ReaderFailure("record extensions must be an object")
             if any(
@@ -604,6 +637,10 @@ def admit_bundle_v2(
         except ReaderFailure as exc:
             if str(exc) == "required extension is unsupported":
                 failure_code = "required-extension-unsupported"
+            elif str(exc) == "bundled record schema was not negotiated":
+                failure_code = "unsupported-record"
+            elif str(exc) == "unsupported canonical record schema":
+                failure_code = "unsupported-record"
             elif (
                 record.get("schema_id") == "artifact-memory/knowledge-record/v1"
                 and isinstance(extensions, dict)

@@ -1,6 +1,6 @@
 {
   "authority_boundary": "candidate admission grants no execution, disclosure, routing, mutation, merge, deployment, spending, credential, declassification, or approval authority",
-  "candidate_id": "candidate://actor/4a3cc899d2d2fb54d29a8ca5952e2dbdb328b271440c1750ebed5cc38eb7a0b8",
+  "candidate_id": "candidate://actor/a0dbf86e0a0b88c2faeb70366bb52e03ced68deb852427f906efdbd93622fa75",
   "candidate_provenance": [
     {"kind": "agent", "source_ref": "actor://synthetic/agent-b"},
     {"kind": "derivation", "source_ref": "fixture://synthetic/record-evolution/v1"}
@@ -12,11 +12,11 @@
     "provenance": [{"kind": "author", "source_ref": "actor://synthetic/owner"}],
     "record_id": "record://synthetic/decision-0001",
     "record_type": "decision",
-    "relationships": [{"target_ref": "record://synthetic/decision-0001", "type": "supersedes"}],
+    "relationships": [{"target_ref": "record://synthetic/decision-0001", "target_revision_digest": "sha-256:5463997e6faa4945ed0fd8f1c8520ce91b861dd5bf2494e9d81f38952d3530c6", "type": "supersedes"}],
     "schema_id": "artifact-memory/knowledge-record/v3",
     "sensitivity": "public"
   },
-  "candidate_revision_digest": "sha-256:4a3cc899d2d2fb54d29a8ca5952e2dbdb328b271440c1750ebed5cc38eb7a0b8",
+  "candidate_revision_digest": "sha-256:a0dbf86e0a0b88c2faeb70366bb52e03ced68deb852427f906efdbd93622fa75",
   "owner_review_state": "required",
   "schema_id": "artifact-memory/knowledge-candidate/v1",
   "sensitivity": "public",

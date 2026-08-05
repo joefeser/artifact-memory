@@ -31,10 +31,10 @@ freshness assertion, redaction behavior, and reference-only artifact policy.
 Freshness is a disclosed assertion, not inferred truth. The same inputs and
 selection metadata produce the same pack identity and ordering.
 
-When a caller supplies validated tombstone suppression, the v3 selection
-receipt records a revocation exclusion count, the
-`validated-tombstone-suppression` policy, and required canonical revocation
-receipt references. The pack contains no suppressed record. This remains
+When a caller supplies validated tombstone suppression, the v3 selection uses
+the `validated-tombstone-suppression` policy, requires canonical revocation
+receipt references, and records a revocation exclusion count. The pack
+contains no suppressed record. This remains
 endpoint- and pack-generation-scoped; it does not revoke an already-issued
 immutable pack or prove deletion from an unknown copy.
 

@@ -13,7 +13,26 @@
     "meaning": {"type": "object", "additionalProperties": false, "required": ["summary"], "properties": {"summary": {"type": "string", "minLength": 1}, "labels": {"type": "array", "items": {"type": "string"}}}},
     "artifact_refs": {"type": "array", "items": {"type": "string", "pattern": "^artifact://[A-Za-z0-9._~/-]+$"}},
     "provenance": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["kind", "source_ref"], "properties": {"kind": {"type": "string", "enum": ["author", "observation", "import", "derivation"]}, "source_ref": {"type": "string", "minLength": 1}}}},
-    "relationships": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["type", "target_ref"], "properties": {"type": {"type": "string", "enum": ["related-to", "produced-from", "redacted-from", "supported-by-external-evidence", "supersedes", "disputes", "contradicts"]}, "target_ref": {"type": "string", "minLength": 1}}}},
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "target_ref"],
+        "properties": {
+          "type": {"type": "string", "enum": ["related-to", "produced-from", "redacted-from", "supported-by-external-evidence", "supersedes", "disputes", "contradicts"]},
+          "target_ref": {"type": "string", "minLength": 1},
+          "target_revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"type": {"enum": ["supersedes", "disputes", "contradicts"]}}, "required": ["type"]},
+            "then": {"required": ["target_revision_digest"], "properties": {"target_ref": {"pattern": "^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"}}},
+            "else": {"not": {"required": ["target_revision_digest"]}}
+          }
+        ]
+      }
+    },
     "derivative": {"type": "object", "additionalProperties": false, "required": ["source_task_ref", "transformation_ref", "uncertainty"], "properties": {"source_task_ref": {"type": "string", "minLength": 1}, "transformation_ref": {"type": "string", "minLength": 1}, "uncertainty": {"type": "string", "minLength": 1}}},
     "sensitivity": {"type": "string", "enum": ["public", "private", "restricted"]},
     "extensions": {"type": "object", "additionalProperties": true}

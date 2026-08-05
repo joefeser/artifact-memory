@@ -55,6 +55,7 @@ class RecordEvolutionTests(unittest.TestCase):
         self.assertEqual(result["receipt"]["outcome"], "accepted")
         self.assertEqual(result["record"]["lifecycle"], "accepted")
         self.assertEqual(result["record"]["relationships"][0]["type"], "supersedes")
+        self.assertEqual(result["record"]["relationships"][0]["target_revision_digest"], _record_digest(source))
         self.assertEqual(result["receipt"]["authority_boundary"], AUTHORITY_BOUNDARY)
         self.assertNotEqual(result["receipt"]["result_record_ref"]["revision_digest"], candidate["candidate_revision_digest"])
         validate(result["receipt"], load_schema("core", "candidate-admission-receipt.v1.schema.json"))
@@ -83,7 +84,7 @@ class RecordEvolutionTests(unittest.TestCase):
         duplicate = admit_candidate(candidate, decision="accepted", decision_ref="decision://synthetic/duplicate-0001", seen_candidate_ids=[candidate["candidate_id"]])
         self.assertEqual(duplicate["receipt"]["outcome"], "duplicate")
         malformed = copy.deepcopy(candidate)
-        malformed["candidate_record"]["relationships"] = [{"type": "contradicts", "target_ref": "record://synthetic/other-0001"}]
+        malformed["candidate_record"]["relationships"] = [{"type": "contradicts", "target_ref": source["record_id"], "target_revision_digest": "sha-256:" + "f" * 64}]
         from artifact_memory.canonical import canonical_bytes, sha256_bytes
         body = {key: value for key, value in malformed.items() if key not in {"candidate_id", "candidate_revision_digest"}}
         malformed["candidate_revision_digest"] = sha256_bytes(canonical_bytes(body))
@@ -139,6 +140,7 @@ class RecordEvolutionTests(unittest.TestCase):
         with self.assertRaises(ValidationFailure):
             validate(legacy, load_schema("core", "knowledge-record.v2.schema.json"))
         legacy["schema_id"] = "artifact-memory/knowledge-record/v3"
+        legacy["relationships"][0]["target_revision_digest"] = "sha-256:" + "0" * 64
         validate(legacy, load_schema("core", "knowledge-record.v3.schema.json"))
 
     def test_accepted_receipt_requires_a_result_record_reference(self):
@@ -158,9 +160,13 @@ class RecordEvolutionTests(unittest.TestCase):
         for relationship_type in ("supersedes", "disputes", "contradicts"):
             with self.subTest(relationship_type=relationship_type):
                 record = copy.deepcopy(base)
-                record["relationships"] = [{"type": relationship_type, "target_ref": "record://synthetic/decision-0001"}]
+                record["relationships"] = [{"type": relationship_type, "target_ref": "record://synthetic/decision-0001", "target_revision_digest": "sha-256:" + "0" * 64}]
                 _validate_record(record)
-                record["relationships"][0]["target_ref"] = None
+                record["relationships"][0]["target_ref"] = "artifact://synthetic/not-a-record"
+                with self.assertRaises(ReaderFailure):
+                    _validate_record(record)
+                record = copy.deepcopy(base)
+                del record["relationships"][0]["target_revision_digest"]
                 with self.assertRaises(ReaderFailure):
                     _validate_record(record)
         invalid_values = {
@@ -192,14 +198,31 @@ class RecordEvolutionTests(unittest.TestCase):
             SyntheticReplayLedger(),
             expected_audience_ref="audience://synthetic/v3-consumer",
             now="2026-08-05T00:00:00Z",
+            supported_record_schema_ids={"artifact-memory/knowledge-record/v1", "artifact-memory/knowledge-record/v2", "artifact-memory/knowledge-record/v3"},
         )
         independent = admit_bundle_v2(
             canonical_bytes(envelope),
             expected_audience_ref="audience://synthetic/v3-consumer",
             now="2026-08-05T00:00:00Z",
+            supported_record_schema_ids={"artifact-memory/knowledge-record/v1", "artifact-memory/knowledge-record/v2", "artifact-memory/knowledge-record/v3"},
         )
         self.assertEqual(expected["outcome"], "admitted")
         self.assertEqual(independent, expected)
+
+        unnegotiated = admit_v2(
+            envelope,
+            SyntheticReplayLedger(),
+            expected_audience_ref="audience://synthetic/v3-consumer",
+            now="2026-08-05T00:00:00Z",
+        )
+        independent_unnegotiated = admit_bundle_v2(
+            canonical_bytes(envelope),
+            expected_audience_ref="audience://synthetic/v3-consumer",
+            now="2026-08-05T00:00:00Z",
+        )
+        self.assertEqual(unnegotiated["outcome"], "quarantined")
+        self.assertIn("unsupported-record", unnegotiated["diagnostics"][0]["message"])
+        self.assertEqual(independent_unnegotiated, unnegotiated)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
@@ -30,6 +31,10 @@ _BEARER_VALUE = re.compile(
 )
 _RECORD_ID = re.compile(r"^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$")
 _REVISION_DIGEST = re.compile(r"^sha-256:[0-9a-f]{64}$")
+_DEFAULT_RECORD_SCHEMAS = {
+    "artifact-memory/knowledge-record/v1",
+    "artifact-memory/knowledge-record/v2",
+}
 
 
 class ReplayLedger(Protocol):
@@ -189,11 +194,14 @@ def _v2_receipt(
 def _record_revision(
     record: dict[str, Any],
     supported_required_extensions: set[tuple[str, str]],
+    supported_record_schema_ids: set[str],
 ) -> tuple[str, str, str]:
     record_id = record.get("record_id")
     schema_id = record.get("schema_id")
     if not isinstance(record_id, str) or not isinstance(schema_id, str):
         raise ValidationFailure("invalid-record", "bundled record identity is invalid")
+    if schema_id not in supported_record_schema_ids:
+        raise ValidationFailure("unsupported-record", "bundled record schema was not negotiated")
     try:
         schema = knowledge_schema(record)
     except ValidationFailure as exc:
@@ -238,6 +246,7 @@ def admit_v2(
     available_record_revisions: set[tuple[str, str]] | None = None,
     available_record_sensitivities: dict[tuple[str, str], str] | None = None,
     supported_required_extensions: set[tuple[str, str]] | None = None,
+    supported_record_schema_ids: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Admit one v2 envelope with deterministic replay and resolution truth."""
     envelope_ref = _safe_envelope_ref(envelope)
@@ -289,6 +298,26 @@ def admit_v2(
             "unsupported",
             diagnostics=[{"code": "schema-unsupported", "message": "exchange schema is unsupported"}],
         )
+    if supported_record_schema_ids is None:
+        supported_record_schemas = set(_DEFAULT_RECORD_SCHEMAS)
+    elif isinstance(supported_record_schema_ids, str):
+        supported_record_schema_values = []
+    else:
+        try:
+            supported_record_schema_values = list(supported_record_schema_ids)
+        except TypeError:
+            supported_record_schema_values = []
+    if supported_record_schema_ids is not None:
+        if (
+            not supported_record_schema_values
+            or any(not isinstance(value, str) or not value for value in supported_record_schema_values)
+        ):
+            return _v2_receipt(
+                envelope_ref,
+                "quarantined",
+                diagnostics=[{"code": "record-schema-negotiation-invalid", "message": "supported record schemas must be non-empty strings"}],
+            )
+        supported_record_schemas = set(supported_record_schema_values)
     manifest = envelope["bundle_manifest"]
     manifest_body = {
         "records": manifest["records"],
@@ -369,6 +398,7 @@ def admit_v2(
             record_id, revision, sensitivity = _record_revision(
                 record,
                 supported_required_extensions or set(),
+                supported_record_schemas,
             )
             if record_id in bundled or record_id not in declared or declared[record_id] != revision:
                 contradictory.add(record_id)

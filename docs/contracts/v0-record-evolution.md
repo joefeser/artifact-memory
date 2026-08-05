@@ -16,10 +16,11 @@ schema. An unnegotiated v3 result is receipted as `unsupported`; it is not
 silently converted to v2 because that would discard evolution semantics.
 
 Knowledge-record v3 permits explicit `supersedes`, `disputes`, and
-`contradicts` relationships. The relationship target must be one of the exact
-source records considered by the candidate. Artifact Memory stores the
-relationship and revision binding; WITS owns meaning, owner approval,
-readiness, reconciliation, and conflict resolution.
+`contradicts` relationships. Each relationship carries both the canonical
+record target and its exact SHA-256 revision digest, and that pair must match
+one of the exact source revisions considered by the candidate. Artifact Memory
+stores the relationship and revision binding; WITS owns meaning, owner
+approval, readiness, reconciliation, and conflict resolution.
 
 Knowledge-record v2 remains unchanged for existing consumers. Producers must
 negotiate v3 before emitting the new relationship values; there is no silent
