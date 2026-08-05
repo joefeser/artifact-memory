@@ -123,7 +123,7 @@ class CustodyEndpointV2Tests(unittest.TestCase):
 
     def test_cross_document_preflight_dispatches_to_sftp_and_binds_documents(self):
         endpoint, _ = self._authorized_pair()
-        adapter = self._load("config/templates/proxmox-restic-sftp.v1.json")
+        adapter = self._load("config/templates/proxmox-restic-sftp.v2.json")
         for field in ("address_state", "account_state", "repository_state"):
             adapter[field] = "configured"
         adapter["storage_boundary"]["zfs_snapshot_schedule_state"] = "configured"
@@ -137,10 +137,18 @@ class CustodyEndpointV2Tests(unittest.TestCase):
 
     def test_sftp_preflight_requires_restricted_non_root_mode(self):
         endpoint, _ = self._authorized_pair()
-        adapter = self._load("config/templates/proxmox-restic-sftp.v1.json")
+        adapter = self._load("config/templates/proxmox-restic-sftp.v2.json")
         adapter.pop("mode")
         with self.assertRaises(ValidationFailure):
             validate_custody_write_preflight(endpoint, adapter)
+
+    def test_legacy_sftp_v1_remains_valid_and_fail_closed(self):
+        endpoint = self._load("fixtures/synthetic/custody-endpoint/v2/proxmox-vault-template.json")
+        adapter = self._load("config/templates/proxmox-restic-sftp.v1.json")
+        receipt = validate_custody_write_preflight(endpoint, adapter)
+        self.assertEqual(receipt["adapter_schema_id"], "artifact-memory/restic-sftp-config/v1")
+        self.assertEqual(receipt["outcome"], "not-authorized")
+        validate_custody_write_preflight_receipt(receipt)
 
     def test_preflight_receipt_rejects_mismatched_adapter_transport(self):
         endpoint, adapter = self._authorized_pair()

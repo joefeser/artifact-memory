@@ -4,40 +4,16 @@
   "title": "Artifact Memory restic-over-SFTP owner configuration template v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_id", "endpoint_ref", "transport", "mode", "tailnet_boundary", "address_state", "account_state", "repository_state", "secret_state", "storage_boundary", "remote_write_state"],
+  "required": ["schema_id", "endpoint_ref", "transport", "tailnet_boundary", "address_state", "account_state", "repository_state", "secret_state", "remote_write_state"],
   "properties": {
     "schema_id": {"const": "artifact-memory/restic-sftp-config/v1"},
     "endpoint_ref": {"const": "endpoint://joe-home-proxmox-vault-1"},
     "transport": {"const": "restic-over-sftp"},
-    "mode": {"const": "restricted-non-root-account"},
     "tailnet_boundary": {"type": "object", "additionalProperties": false, "required": ["required", "public_inbound"], "properties": {"required": {"const": true}, "public_inbound": {"const": false}}},
-    "address_state": {"enum": ["owner-to-fill", "configured"]},
-    "account_state": {"enum": ["owner-to-fill", "configured"]},
-    "repository_state": {"enum": ["owner-to-fill", "configured"]},
+    "address_state": {"const": "owner-to-fill"},
+    "account_state": {"const": "owner-to-fill"},
+    "repository_state": {"const": "owner-to-fill"},
     "secret_state": {"const": "external-not-recorded"},
-    "storage_boundary": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["backend", "zfs_snapshot_schedule_state", "snapshot_control"],
-      "properties": {
-        "backend": {"const": "zfs-backed"},
-        "zfs_snapshot_schedule_state": {"enum": ["owner-to-fill", "configured"]},
-        "snapshot_control": {"const": "server-side-separate-from-backup-client"}
-      }
-    },
-    "remote_write_state": {"enum": ["not-authorized", "authorized"]}
-  },
-  "allOf": [
-    {
-      "if": {"properties": {"remote_write_state": {"const": "authorized"}}, "required": ["remote_write_state"]},
-      "then": {
-        "properties": {
-          "address_state": {"const": "configured"},
-          "account_state": {"const": "configured"},
-          "repository_state": {"const": "configured"},
-          "storage_boundary": {"properties": {"zfs_snapshot_schedule_state": {"const": "configured"}}}
-        }
-      }
-    }
-  ]
+    "remote_write_state": {"const": "not-authorized"}
+  }
 }

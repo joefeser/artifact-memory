@@ -132,6 +132,7 @@ def validate_custody_write_preflight_receipt(receipt: dict[str, Any]) -> None:
     expected_transport = {
         "artifact-memory/restic-rest-server-config/v1": "restic-rest-server",
         "artifact-memory/restic-sftp-config/v1": "restic-over-sftp",
+        "artifact-memory/restic-sftp-config/v2": "restic-over-sftp",
     }[receipt["adapter_schema_id"]]
     if receipt["transport"] != expected_transport:
         raise ValidationFailure(
@@ -181,6 +182,9 @@ def validate_custody_write_preflight(
     elif adapter_schema_id == "artifact-memory/restic-sftp-config/v1":
         validate(adapter, load_schema("adapters", "restic-sftp-config.v1.schema.json"))
         transport = "restic-over-sftp"
+    elif adapter_schema_id == "artifact-memory/restic-sftp-config/v2":
+        validate(adapter, load_schema("adapters", "restic-sftp-config.v2.schema.json"))
+        transport = "restic-over-sftp"
     else:
         raise ValidationFailure(
             "custody-preflight-adapter-unsupported",
@@ -197,14 +201,6 @@ def validate_custody_write_preflight(
         "provisioned_address_state": (endpoint["provisioning"]["vm_address_state"], adapter["address_state"]),
         "provisioned_account_state": (endpoint["provisioning"]["account_state"], adapter["account_state"]),
         "provisioned_storage_state": (endpoint["provisioning"]["storage_state"], adapter["repository_state"]),
-        "snapshot_schedule_state": (
-            endpoint["storage"]["snapshot_schedule_state"],
-            adapter["storage_boundary"]["zfs_snapshot_schedule_state"],
-        ),
-        "provisioned_snapshot_schedule_state": (
-            endpoint["provisioning"]["snapshot_schedule_state"],
-            adapter["storage_boundary"]["zfs_snapshot_schedule_state"],
-        ),
     }
     if adapter_schema_id == "artifact-memory/restic-rest-server-config/v1":
         bindings = {
@@ -216,6 +212,14 @@ def validate_custody_write_preflight(
                 adapter["repository_state"],
             ),
             "service_state": (endpoint["transport"]["primary"]["service_state"], adapter["service_state"]),
+            "snapshot_schedule_state": (
+                endpoint["storage"]["snapshot_schedule_state"],
+                adapter["storage_boundary"]["zfs_snapshot_schedule_state"],
+            ),
+            "provisioned_snapshot_schedule_state": (
+                endpoint["provisioning"]["snapshot_schedule_state"],
+                adapter["storage_boundary"]["zfs_snapshot_schedule_state"],
+            ),
         }
     elif adapter_schema_id == "artifact-memory/restic-sftp-config/v1":
         bindings = {
@@ -223,6 +227,22 @@ def validate_custody_write_preflight(
             "fallback_account_state": (
                 endpoint["transport"]["fallback"]["account_state"],
                 adapter["account_state"],
+            ),
+        }
+    elif adapter_schema_id == "artifact-memory/restic-sftp-config/v2":
+        bindings = {
+            **common_bindings,
+            "fallback_account_state": (
+                endpoint["transport"]["fallback"]["account_state"],
+                adapter["account_state"],
+            ),
+            "snapshot_schedule_state": (
+                endpoint["storage"]["snapshot_schedule_state"],
+                adapter["storage_boundary"]["zfs_snapshot_schedule_state"],
+            ),
+            "provisioned_snapshot_schedule_state": (
+                endpoint["provisioning"]["snapshot_schedule_state"],
+                adapter["storage_boundary"]["zfs_snapshot_schedule_state"],
             ),
         }
     for name, (endpoint_value, adapter_value) in bindings.items():

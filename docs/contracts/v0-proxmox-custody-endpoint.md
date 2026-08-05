@@ -75,8 +75,10 @@ before the VM, account, repository, storage, service, and snapshot schedule are
 all configured.
 
 The preferred owner-local configuration shape is
-`config/templates/proxmox-restic-rest-server.v1.json`; the compatible SFTP
-fallback remains `config/templates/proxmox-restic-sftp.v1.json`. Fill address,
+`config/templates/proxmox-restic-rest-server.v1.json`; the current SFTP
+fallback is `config/templates/proxmox-restic-sftp.v2.json`. The v1 SFTP shape
+remains valid and fail-closed for compatibility but cannot authorize a write;
+v2 adds the restricted non-root mode and ZFS snapshot boundary. Fill address,
 account, repository, service, and ZFS policy values only after the VM is ready,
 and keep secrets external to both the repository and Artifact Memory records.
 

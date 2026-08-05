@@ -10,7 +10,7 @@
     "receipt_id": {"type": "string", "pattern": "^custody-write-preflight-receipt://[0-9a-f]{64}$"},
     "endpoint_ref": {"const": "endpoint://joe-home-proxmox-vault-1"},
     "endpoint_schema_id": {"const": "artifact-memory/custody-endpoint/v2"},
-    "adapter_schema_id": {"enum": ["artifact-memory/restic-rest-server-config/v1", "artifact-memory/restic-sftp-config/v1"]},
+    "adapter_schema_id": {"enum": ["artifact-memory/restic-rest-server-config/v1", "artifact-memory/restic-sftp-config/v1", "artifact-memory/restic-sftp-config/v2"]},
     "transport": {"enum": ["restic-rest-server", "restic-over-sftp"]},
     "outcome": {"enum": ["not-authorized", "ready-for-owner-authorized-write"]},
     "binding_names": {

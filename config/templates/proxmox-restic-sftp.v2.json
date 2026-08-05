@@ -1,11 +1,13 @@
 {
-  "schema_id": "artifact-memory/restic-sftp-config/v1",
+  "schema_id": "artifact-memory/restic-sftp-config/v2",
   "endpoint_ref": "endpoint://joe-home-proxmox-vault-1",
   "transport": "restic-over-sftp",
+  "mode": "restricted-non-root-account",
   "tailnet_boundary": {"required": true, "public_inbound": false},
   "address_state": "owner-to-fill",
   "account_state": "owner-to-fill",
   "repository_state": "owner-to-fill",
   "secret_state": "external-not-recorded",
+  "storage_boundary": {"backend": "zfs-backed", "zfs_snapshot_schedule_state": "owner-to-fill", "snapshot_control": "server-side-separate-from-backup-client"},
   "remote_write_state": "not-authorized"
 }
