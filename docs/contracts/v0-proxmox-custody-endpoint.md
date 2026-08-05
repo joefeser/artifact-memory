@@ -19,6 +19,32 @@ Append-only admission limits destructive backup-client access; ZFS snapshots
 provide a separate rollback boundary and do not replace restic integrity checks
 or restore rehearsal.
 
+## Contract evolution
+
+Consumers must select a parser from the exact `schema_id` before interpreting
+any other field. A v1-only reader must reject
+`artifact-memory/custody-endpoint/v2`; it must not attempt to parse a v2
+document as the v1 shape. Transforming a v1 document into v2 is an explicit
+migration that creates and validates a new document rather than silently
+relabeling the old one:
+
+- v1 `transport.method: restic-over-sftp` maps to the declared v2
+  `transport.fallback`; v2 adds `transport.primary` for append-only
+  `restic-rest-server` and its address, account, repository, and service states;
+- v1 `storage.encryption` maps to v2 `storage.client_side_encryption`; v2 also
+  requires the ZFS backend, snapshot policy, snapshot control, and schedule
+  states; and
+- v1 provisioning fields carry forward, while v2 adds the snapshot-schedule
+  state and the additional recovery and diversity boundaries.
+
+There is no automatic downgrade from the v2 primary to its fallback. If the
+primary cannot satisfy the v2 authorization gate, the v2 endpoint remains
+`not-authorized`, and a still-supported SFTP-only endpoint remains a v1
+document. After the primary and overall endpoint are configured and authorized,
+an owner-local resolver may select the configured fallback only when the
+primary is temporarily unavailable. Declaring the fallback never authorizes it,
+and selection does not change endpoint identity or expand write authority.
+
 Backups run after material vault changes and at least weekly; integrity
 verification is monthly; isolated restore rehearsal is quarterly. Recovery
 material remains separate from the workstation, repository, and backup VM. A

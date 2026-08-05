@@ -6,7 +6,7 @@
   "deployment": {"class": "dedicated-guest-vm", "guest_only": true, "proxmox_host_tailscale": false, "provisioning_state": "unprovisioned"},
   "network_boundary": {"access": "tailscale-inside-guest", "public_inbound": false, "approved_clients_only": true},
   "transport": {
-    "primary": {"method": "restic-rest-server", "mode": "append-only", "address_state": "owner-to-fill", "account_state": "owner-to-fill", "repository_state": "owner-to-fill"},
+    "primary": {"method": "restic-rest-server", "mode": "append-only", "address_state": "owner-to-fill", "account_state": "owner-to-fill", "repository_state": "owner-to-fill", "service_state": "owner-to-fill"},
     "fallback": {"method": "restic-over-sftp", "mode": "restricted-non-root-account", "account_state": "owner-to-fill"},
     "authenticated": true,
     "credential_state": "external-not-recorded",

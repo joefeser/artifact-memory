@@ -20,6 +20,7 @@ class CustodyEndpointV2Tests(unittest.TestCase):
         self.assertEqual(template["storage"]["zfs_snapshots"], "required")
         self.assertEqual(template["custody_claim"], "off-machine-not-geographically-off-site")
         self.assertEqual(template["remote_write"], "not-authorized")
+        self.assertEqual(template["transport"]["primary"]["service_state"], "owner-to-fill")
         self.assertFalse(template["recovery"]["tailscale_exclusive"])
 
     def test_remote_write_fails_closed_until_every_owner_state_is_configured(self):
@@ -40,7 +41,19 @@ class CustodyEndpointV2Tests(unittest.TestCase):
         ready["storage"]["storage_location_state"] = "configured"
         for field in ready["provisioning"]:
             ready["provisioning"][field] = "configured"
+        with self.assertRaises(ValidationFailure):
+            validate(ready, schema)
+
+        ready["transport"]["primary"]["service_state"] = "configured"
         validate(ready, schema)
+
+    def test_transport_authorization_cannot_contradict_top_level_authorization(self):
+        schema = json.loads((ROOT / "artifact_memory/schemas/core/custody-endpoint.v2.schema.json").read_text(encoding="utf-8"))
+        template = json.loads((ROOT / "fixtures/synthetic/custody-endpoint/v2/proxmox-vault-template.json").read_text(encoding="utf-8"))
+        contradictory = copy.deepcopy(template)
+        contradictory["transport"]["remote_write_authorization"] = "authorized"
+        with self.assertRaises(ValidationFailure):
+            validate(contradictory, schema)
 
     def test_owner_configuration_template_contains_no_connection_or_secret_material(self):
         schema = json.loads((ROOT / "artifact_memory/schemas/adapters/restic-rest-server-config.v1.schema.json").read_text(encoding="utf-8"))

@@ -39,13 +39,14 @@
         "primary": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["method", "mode", "address_state", "account_state", "repository_state"],
+          "required": ["method", "mode", "address_state", "account_state", "repository_state", "service_state"],
           "properties": {
             "method": {"const": "restic-rest-server"},
             "mode": {"const": "append-only"},
             "address_state": {"enum": ["owner-to-fill", "configured"]},
             "account_state": {"enum": ["owner-to-fill", "configured"]},
-            "repository_state": {"enum": ["owner-to-fill", "configured"]}
+            "repository_state": {"enum": ["owner-to-fill", "configured"]},
+            "service_state": {"enum": ["owner-to-fill", "configured"]}
           }
         },
         "fallback": {
@@ -134,7 +135,7 @@
           "deployment": {"properties": {"provisioning_state": {"const": "ready"}}},
           "transport": {
             "properties": {
-              "primary": {"properties": {"address_state": {"const": "configured"}, "account_state": {"const": "configured"}, "repository_state": {"const": "configured"}}},
+              "primary": {"properties": {"address_state": {"const": "configured"}, "account_state": {"const": "configured"}, "repository_state": {"const": "configured"}, "service_state": {"const": "configured"}}},
               "remote_write_authorization": {"const": "authorized"}
             }
           },
@@ -142,6 +143,18 @@
           "provisioning": {"properties": {"vm_address_state": {"const": "configured"}, "account_state": {"const": "configured"}, "storage_state": {"const": "configured"}, "snapshot_schedule_state": {"const": "configured"}}}
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "transport": {
+            "properties": {"remote_write_authorization": {"const": "authorized"}},
+            "required": ["remote_write_authorization"]
+          }
+        },
+        "required": ["transport"]
+      },
+      "then": {"properties": {"remote_write": {"const": "authorized"}}}
     }
   ]
 }
