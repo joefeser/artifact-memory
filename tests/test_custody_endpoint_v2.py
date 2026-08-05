@@ -3,6 +3,11 @@ import json
 import unittest
 from pathlib import Path
 
+from artifact_memory.custody import (
+    migrate_custody_endpoint_v1_to_v2,
+    validate_custody_write_preflight,
+    validate_custody_write_preflight_receipt,
+)
 from artifact_memory.validator import ValidationFailure, validate
 
 
@@ -10,6 +15,28 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class CustodyEndpointV2Tests(unittest.TestCase):
+    def _load(self, relative_path):
+        return json.loads((ROOT / relative_path).read_text(encoding="utf-8"))
+
+    def _authorized_pair(self):
+        endpoint = self._load("fixtures/synthetic/custody-endpoint/v2/proxmox-vault-template.json")
+        adapter = self._load("config/templates/proxmox-restic-rest-server.v1.json")
+        endpoint["remote_write"] = "authorized"
+        endpoint["transport"]["remote_write_authorization"] = "authorized"
+        endpoint["deployment"]["provisioning_state"] = "ready"
+        for field in endpoint["transport"]["primary"]:
+            if field.endswith("_state"):
+                endpoint["transport"]["primary"][field] = "configured"
+        endpoint["storage"]["snapshot_schedule_state"] = "configured"
+        endpoint["storage"]["storage_location_state"] = "configured"
+        for field in endpoint["provisioning"]:
+            endpoint["provisioning"][field] = "configured"
+        adapter["remote_write_state"] = "authorized"
+        for field in ("address_state", "account_state", "repository_state", "service_state"):
+            adapter[field] = "configured"
+        adapter["storage_boundary"]["zfs_snapshot_schedule_state"] = "configured"
+        return endpoint, adapter
+
     def test_endpoint_prefers_append_only_with_zfs_and_no_offsite_claim(self):
         schema = json.loads((ROOT / "artifact_memory/schemas/core/custody-endpoint.v2.schema.json").read_text(encoding="utf-8"))
         template = json.loads((ROOT / "fixtures/synthetic/custody-endpoint/v2/proxmox-vault-template.json").read_text(encoding="utf-8"))
@@ -54,6 +81,50 @@ class CustodyEndpointV2Tests(unittest.TestCase):
         contradictory["transport"]["remote_write_authorization"] = "authorized"
         with self.assertRaises(ValidationFailure):
             validate(contradictory, schema)
+
+    def test_cross_document_preflight_rejects_adapter_authorization_divergence(self):
+        endpoint, adapter = self._authorized_pair()
+        adapter["remote_write_state"] = "not-authorized"
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_custody_write_preflight(endpoint, adapter)
+        self.assertEqual(failure.exception.code, "custody-preflight-binding-mismatch")
+
+    def test_cross_document_preflight_emits_bound_non_authorizing_receipts(self):
+        endpoint = self._load("fixtures/synthetic/custody-endpoint/v2/proxmox-vault-template.json")
+        adapter = self._load("config/templates/proxmox-restic-rest-server.v1.json")
+        pending = validate_custody_write_preflight(endpoint, adapter)
+        self.assertEqual(pending["outcome"], "not-authorized")
+        validate_custody_write_preflight_receipt(pending)
+
+        endpoint, adapter = self._authorized_pair()
+        ready = validate_custody_write_preflight(endpoint, adapter)
+        self.assertEqual(ready["outcome"], "ready-for-owner-authorized-write")
+        self.assertIn("grants no remote-write", ready["authority_boundary"])
+        validate_custody_write_preflight_receipt(ready)
+        forged = dict(ready)
+        forged["outcome"] = "not-authorized"
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_custody_write_preflight_receipt(forged)
+        self.assertEqual(failure.exception.code, "custody-preflight-receipt-id-mismatch")
+
+    def test_v1_migration_builds_and_validates_a_new_fail_closed_v2_document(self):
+        source = self._load("fixtures/synthetic/custody-endpoint/v1/proxmox-vault-template.json")
+        migrated = migrate_custody_endpoint_v1_to_v2(source)
+        self.assertEqual(source["schema_id"], "artifact-memory/custody-endpoint/v1")
+        self.assertEqual(migrated["schema_id"], "artifact-memory/custody-endpoint/v2")
+        self.assertEqual(migrated["transport"]["fallback"]["method"], source["transport"]["method"])
+        self.assertEqual(migrated["remote_write"], "not-authorized")
+        validate(migrated, self._load("artifact_memory/schemas/core/custody-endpoint.v2.schema.json"))
+
+    def test_v1_migration_rejects_v2_input_and_relabel_only_conversion(self):
+        v2 = self._load("fixtures/synthetic/custody-endpoint/v2/proxmox-vault-template.json")
+        with self.assertRaises(ValidationFailure):
+            migrate_custody_endpoint_v1_to_v2(v2)
+
+        relabeled = self._load("fixtures/synthetic/custody-endpoint/v1/proxmox-vault-template.json")
+        relabeled["schema_id"] = "artifact-memory/custody-endpoint/v2"
+        with self.assertRaises(ValidationFailure):
+            validate(relabeled, self._load("artifact_memory/schemas/core/custody-endpoint.v2.schema.json"))
 
     def test_owner_configuration_template_contains_no_connection_or_secret_material(self):
         schema = json.loads((ROOT / "artifact_memory/schemas/adapters/restic-rest-server-config.v1.schema.json").read_text(encoding="utf-8"))

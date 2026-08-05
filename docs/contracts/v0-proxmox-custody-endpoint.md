@@ -45,6 +45,20 @@ an owner-local resolver may select the configured fallback only when the
 primary is temporarily unavailable. Declaring the fallback never authorizes it,
 and selection does not change endpoint identity or expand write authority.
 
+The reference runtime exposes
+`migrate_custody_endpoint_v1_to_v2(document)` for that explicit migration. It
+accepts only an exact, valid v1 document, builds a separate v2 object with
+fail-closed defaults for every v2-only state, validates the result, and rejects
+v2 input or relabel-only conversion.
+
+Before any future remote-write implementation consumes these contracts, it
+must call `validate_custody_write_preflight(endpoint, adapter)`. That seam
+validates both documents, binds their logical endpoint, authorization,
+connection-readiness, service, and snapshot states, and rejects any mismatch.
+Its deterministic receipt is evidence only: it attempts no connection or write,
+contains no connection details or secrets, and never substitutes for explicit
+owner authorization.
+
 Backups run after material vault changes and at least weekly; integrity
 verification is monthly; isolated restore rehearsal is quarterly. Recovery
 material remains separate from the workstation, repository, and backup VM. A
