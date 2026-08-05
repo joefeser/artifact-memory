@@ -67,5 +67,21 @@ not authorized for publication:
 python3 scripts/run_release_conformance.py --check
 ```
 
+Prepare the same unsigned, non-authorizing asset set for an exact candidate in
+an empty directory outside the repository:
+
+```sh
+python3 scripts/prepare_release_preview.py \
+  --candidate <full-candidate-commit> \
+  --repo . \
+  --out <external-empty-directory>
+```
+
+The command rejects symbolic or abbreviated revisions, in-repository output,
+and non-empty output directories. It writes a reproducible source tar,
+`SHA256SUMS`, v2 preview manifest, and machine/human preparation receipts. It
+does not generate or use a key, create a tag, publish assets, change visibility,
+or grant release authority.
+
 The final release must be regenerated from the owner-approved release commit;
 preview checksums and receipts cannot be relabeled as release evidence.

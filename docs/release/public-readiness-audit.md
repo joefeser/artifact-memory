@@ -6,6 +6,40 @@ that a bounded scanner can recognize every form of protected material.
 
 ## Current pre-public evidence
 
+### Post-PR #69 non-VM refresh
+
+The non-VM audit was refreshed on 2026-08-05 against exact private `dev`
+commit `08ecc43bf2565aceb25ae4a560bed92e4260b1f7`. Two independent fresh clones
+reproduced external receipt
+`public-safety-receipt://83700206fb2ae5f8aea6c236692188415c9c8606c8ef630da96d91e422778c6e`:
+
+- 219 reachable commits, 3,041 historical Git objects, and 497 current paths;
+- exactly two remote refs (`main` and `dev`), with no tags or releases;
+- clean detached index/worktree scope and exact receipt replay in clone two;
+- 37 issues and 29 pull requests, with four issues and no pull requests open;
+- 208 issue comments, 780 reviews, 1,071 inline review comments, and three
+  Discussions were inventoried;
+- all 360 retained Actions log archives were readable; 356 runs succeeded and
+  four historical PR-head runs failed before later corrective commits; no log
+  contained a private-key header, credential-shaped token, bearer credential,
+  or owner workstation path;
+- the only high-confidence matches in GitHub prose were bot-authored reviews
+  quoting the repository's safety patterns or synthetic scanner diff hunks;
+  they are policy/test descriptions, not observed credentials;
+- no Actions artifacts exist; merge commits are enabled while squash/rebase
+  are disabled; the default branch is `main`; merged branches auto-delete;
+  Pages, wiki, and Projects are disabled.
+
+The repository remains private. Branch/ruleset protection and security-feature
+evidence are not available on the current private personal-repository plan and
+are not recorded as enabled. They remain mandatory post-visibility gates. This
+refresh is a pre-public baseline, not owner visibility approval, a signed
+release, or a substitute for #21 remote-custody evidence. The audit-preparation
+PR itself changes the candidate, so the two-clone and GitHub-surface pass must
+run once more after its final merge.
+
+### Earlier baseline
+
 Evidence was refreshed on 2026-08-04 from private `dev` commit
 `68fcd19e8678338cfa265dff84c843edfd4de13a` after all implementation PRs were
 merged:
