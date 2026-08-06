@@ -3,7 +3,6 @@ import errno
 import hashlib
 import json
 import os
-import re
 import shutil
 import subprocess
 import tarfile
@@ -40,16 +39,6 @@ class VaultBackupTests(unittest.TestCase):
         schema = json.loads((ROOT / "artifact_memory/schemas/core/dogfood-receipt.v1.schema.json").read_text(encoding="utf-8"))
         validate(receipt, schema)
         self.assertFalse(receipt["private_material_committed"])
-
-    def test_sanitized_real_custody_receipt_excludes_machine_bindings(self):
-        receipt = (ROOT / "evidence/sanitized/custody/v1/receipt.md").read_text(encoding="utf-8")
-        self.assertIn("endpoint://joe-home-proxmox-vault-1", receipt)
-        self.assertIn("off-machine-not-geographically-off-site", receipt)
-        self.assertIn("Private material committed: `false`", receipt)
-        self.assertIsNone(re.search(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", receipt))
-        self.assertIsNone(re.search(r"\b[0-9a-f]{64}\b", receipt))
-        for protected in ("/Users/", "/home/", "/srv/", "snapshot_id", "repository password"):
-            self.assertNotIn(protected, receipt)
 
     def test_content_registration_is_immutable_and_duplicate_safe(self):
         with tempfile.TemporaryDirectory() as temporary:

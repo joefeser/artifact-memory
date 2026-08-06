@@ -21,8 +21,10 @@
 The private evidence retains exact snapshot, manifest, backup, restore, and
 machine-local bindings, including validated private receipts where the
 published contracts apply. This sanitized receipt intentionally contains no
-address, hostname, account, path, repository identifier, content digest, task
-identifier, credential, passphrase, or recovery reference.
+network address, VM hostname, account, path, repository identifier, content
+digest, task identifier, credential, passphrase, or recovery reference. The
+published `endpoint://` value is a portable logical identity, not a network
+hostname or address.
 
 This proof establishes one encrypted off-machine copy and one successful
 isolated restore on the same owner-controlled premises. It does not establish

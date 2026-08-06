@@ -19,6 +19,43 @@ SPEC.loader.exec_module(public_safety_check)
 
 
 class PublicSafetyCurrentContentTests(unittest.TestCase):
+    def test_sanitized_custody_receipt_has_exact_public_semantics(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(public_safety_check.sanitized_custody_receipt_findings(receipt), [])
+
+    def test_sanitized_custody_receipt_rejects_semantic_drift(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        )
+        for original, replacement in (("ten allowlisted", "zero allowlisted"), ("snapshot completed", "snapshot failed")):
+            with self.subTest(replacement=replacement):
+                findings = public_safety_check.sanitized_custody_receipt_findings(
+                    receipt.replace(original, replacement)
+                )
+                self.assertIn("field-semantics-mismatch", findings)
+
+    def test_sanitized_custody_receipt_rejects_private_binding_forms(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        )
+        private_bindings = (
+            "https://[fd00::1]/repo",
+            "C:/vault",
+            r"\\server\share",
+            "backup@host:/mnt/repo",
+            "backup://vault-1/abc",
+            "codex-task://local/job-1",
+            "A" * 64,
+        )
+        for binding in private_bindings:
+            with self.subTest(binding=binding):
+                findings = public_safety_check.sanitized_custody_receipt_findings(
+                    receipt + f"\nObserved private binding: {binding}\n"
+                )
+                self.assertIn("machine-binding-detected", findings)
+
     def test_unstaged_worktree_content_is_scanned_when_index_is_clean(self):
         marker = ("pass" + "word") + "=synthetic-sensitive-value"
         with tempfile.TemporaryDirectory() as temporary:
