@@ -6,6 +6,31 @@ that a bounded scanner can recognize every form of protected material.
 
 ## Current pre-public evidence
 
+### First real off-machine custody proof
+
+On 2026-08-06, an owner-authorized private dogfood run exercised the configured
+logical endpoint `endpoint://joe-home-proxmox-vault-1`. It registered two exact
+public-source artifacts in an owner-local private vault, created and verified a
+Git bundle, admitted only explicit vault and knowledge-store inputs, wrote one
+non-empty encrypted restic snapshot through the restricted SFTP fallback, read
+every repository data blob, and restored the exact snapshot into a new isolated
+target. The restored allowlist contained ten source files; four canonical
+artifact/version records validated, two content objects matched their digests,
+and the restored Git bundle verified. No application home, credential, raw task
+transcript, browser state, or machine-local resolver configuration was admitted.
+
+The dedicated guest uses ZFS-backed storage with a separately controlled weekly
+snapshot timer and bounded retention. A manual server-controlled snapshot after
+the first remote write also succeeded, so the initial proof has a post-write
+storage rollback point without granting snapshot control to the backup client.
+The endpoint proves off-machine custody on the same owner-controlled premises,
+not geographically off-site protection. Recovery material remains
+owner-controlled and was neither requested nor inspected; the public evidence
+therefore does not prove key recoverability. Private evidence retains the exact
+snapshot, manifest, backup, and restore bindings, including validated private
+receipts where the published contracts apply. The public-safe summary is
+`evidence/sanitized/custody/v1/receipt.md`.
+
 ### Post-PR #69 non-VM refresh
 
 The non-VM audit was refreshed on 2026-08-05 against exact private `dev`
@@ -99,11 +124,11 @@ approving visibility.
 The following are intentionally incomplete and must not be inferred from this
 pre-public pass:
 
-- issue #21 still needs the first encrypted write to the approved logical
-  endpoint `endpoint://joe-home-proxmox-vault-1`, integrity verification, and
-  an isolated restore receipt after the owner confirms its guest address,
-  account, ZFS-backed repository, transport service, and snapshot schedule;
-  this endpoint is off-machine but not geographically off-site;
+- issue #21 has private evidence for the first encrypted write to the approved
+  logical endpoint, full-data integrity verification, and an isolated restore.
+  Its sanitized evidence and this audit update must merge before the issue is
+  closed; ongoing monthly checks and quarterly restore rehearsals remain owner
+  operations rather than release-time claims;
 - the final candidate must repeat the Git, GitHub prose, Actions log/artifact,
   release, tag, and settings audit after its last merge;
 - Joe must provide the dedicated release-signing public key and fingerprint,

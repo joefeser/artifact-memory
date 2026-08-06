@@ -14,10 +14,11 @@ a database is canonical, or receiving knowledge grants authority to act.
 
 ## Project status
 
-Artifact Memory is in private design incubation. The repository is being built
-as public-safe open source from its first commit. Real product records,
-customer material, credentials, resolver configuration, and artifact bytes
-belong in private vaults and must never be committed here.
+Artifact Memory is a pre-release development preview. The repository has been
+built as public-safe open source from its first commit, but no release or
+stability promise exists until the owner-signed launch gates complete. Real
+product records, customer material, credentials, resolver configuration, and
+artifact bytes belong in private vaults and must never be committed here.
 
 The first useful release must prove:
 

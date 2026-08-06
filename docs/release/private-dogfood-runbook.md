@@ -42,6 +42,11 @@ the public repository.
 ## Recovery
 
 1. Allowlist only the vault and knowledge-store inputs for backup.
+   Do not mirror an application home such as `~/.codex`: raw transcripts,
+   attachments, credentials, browser state, caches, and unrelated tasks remain
+   source-system or workstation-backup concerns. Admit only separately
+   authorized curated derivatives, and give any encrypted raw-source recovery
+   archive its own retention policy.
 2. Supply the encryption passphrase through the owner-approved external key
    recovery mechanism; never put it in a record, fixture, command log, or Git.
 3. Create and verify the encrypted backup and Git bundle.
@@ -53,6 +58,14 @@ the public repository.
 6. Record the restore-test date, source manifest digest, backup digest,
    custody endpoint, key-recovery reference, and next test date in a private
    receipt. Publish only a sanitized receipt with no paths or private refs.
+
+For the first SFTP fallback endpoint, the backup client uses restic encryption
+and authenticated SFTP through the tailnet. The dedicated server account and
+scheduled ZFS snapshots form separate boundaries: a restic integrity check
+does not prove a ZFS rollback point, and a ZFS snapshot does not prove restic
+repository or restored-content integrity. Schedule storage snapshots after the
+normal backup window and record when a manual post-write snapshot is used for
+the first proof.
 
 The public implementation proves the registration, encryption, Git-bundle,
 and isolated-restore seams synthetically. It does not claim that this private
