@@ -36,6 +36,12 @@ class SanitizedCustodyAttestationTests(unittest.TestCase):
             with self.subTest(path=path.name):
                 validate_historical_sanitized_custody_attestation(load_json(path))
 
+    def test_non_object_historical_receipt_fails_typed(self):
+        for value in (None, [], "receipt", 7):
+            with self.subTest(value=value):
+                with self.assertRaises(ValidationFailure):
+                    validate_historical_sanitized_custody_attestation(value)
+
     def test_private_material_cannot_be_claimed_as_committed(self):
         attestation = copy.deepcopy(load_json(ATTESTATION))
         attestation["private_material_committed"] = True

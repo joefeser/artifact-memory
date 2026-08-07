@@ -50,6 +50,10 @@ SECRET_LIKE = re.compile(
 SCANNER_PATH = "scripts/public_safety_check.py"
 SANITIZED_CUSTODY_RECEIPT_PATH = "evidence/sanitized/custody/v1/receipt.md"
 SANITIZED_CUSTODY_ATTESTATION_PATH = "evidence/sanitized/custody/v1/receipt.json"
+SANITIZED_CUSTODY_COMPATIBILITY_PATHS = {
+    "evidence/sanitized/custody/v1/compatibility/pre-provenance-v1.json",
+    "evidence/sanitized/custody/v1/compatibility/provenance-v1.json",
+}
 RECEIPT_SCHEMA_ID = "artifact-memory/public-safety-receipt/v1"
 RECEIPT_ID_PREFIX = "public-safety-receipt://"
 PUBLIC_REF_PATTERN = re.compile(r"^refs/(?:remotes/[^/]+/[^/].*|tags/[^/].*)$")
@@ -435,11 +439,16 @@ def check_historical_content(history: dict[str, set[str]]) -> list[str]:
                     "sanitized custody receipt historical content invalid: "
                     f"object {object_id}, {code}"
                 )
-        if SANITIZED_CUSTODY_ATTESTATION_PATH in non_scanner_paths:
+        for custody_path in sorted(
+            set(non_scanner_paths) & (
+                {SANITIZED_CUSTODY_ATTESTATION_PATH}
+                | SANITIZED_CUSTODY_COMPATIBILITY_PATHS
+            )
+        ):
             for code in _historical_custody_attestation_findings(text):
                 findings.append(
                     "sanitized custody attestation historical content invalid: "
-                    f"object {object_id}, {code}"
+                    f"object {object_id}, path {custody_path}, {code}"
                 )
     return findings
 
@@ -518,6 +527,11 @@ def check_current_content(paths: list[str]) -> list[str]:
             if path == SANITIZED_CUSTODY_ATTESTATION_PATH:
                 for code in sanitized_custody_attestation_findings(text):
                     findings.append(f"sanitized custody attestation invalid: {code}")
+            if path in SANITIZED_CUSTODY_COMPATIBILITY_PATHS:
+                for code in _historical_custody_attestation_findings(text):
+                    findings.append(
+                        f"sanitized custody compatibility attestation invalid: {code}"
+                    )
     return findings
 
 

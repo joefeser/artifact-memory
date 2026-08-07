@@ -30,10 +30,15 @@ def validate_sanitized_custody_attestation(attestation: dict[str, Any]) -> None:
 
 
 def validate_historical_sanitized_custody_attestation(
-    attestation: dict[str, Any],
+    attestation: Any,
 ) -> None:
     """Dispatch the current and exact known historical public contracts."""
 
+    if not isinstance(attestation, dict):
+        raise ValidationFailure(
+            "type-mismatch",
+            "sanitized custody attestation must be an object",
+        )
     schema_id = attestation.get("schema_id")
     if schema_id == SCHEMA_ID:
         validate_sanitized_custody_attestation(attestation)

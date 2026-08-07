@@ -197,8 +197,27 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
             findings,
             [
                 "sanitized custody attestation historical content invalid: "
-                f"object {object_id}, contract-invalid"
+                f"object {object_id}, path "
+                f"{public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH}, "
+                "contract-invalid"
             ],
+        )
+
+    def test_current_compatibility_attestation_rejects_duplicate_keys(self):
+        path = next(iter(sorted(public_safety_check.SANITIZED_CUSTODY_COMPATIBILITY_PATHS)))
+        text = (ROOT / path).read_text(encoding="utf-8").replace(
+            '  "transport_profile":',
+            '  "transport_profile": "backup@private-host:/srv/repo",\n'
+            '  "transport_profile":',
+        )
+        with (
+            patch.object(public_safety_check, "staged_objects", return_value={}),
+            patch.object(Path, "read_bytes", return_value=text.encode()),
+        ):
+            findings = public_safety_check.check_current_content([path])
+        self.assertEqual(
+            findings,
+            ["sanitized custody compatibility attestation invalid: contract-invalid"],
         )
 
     def test_unstaged_worktree_content_is_scanned_when_index_is_clean(self):
