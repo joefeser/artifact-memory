@@ -99,6 +99,22 @@ class ReleaseManifestTests(unittest.TestCase):
             )
         self.assertTrue(receipt["extensions"][identifier]["required"])
 
+    def test_stale_adapter_schema_claim_fails_closed(self):
+        manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
+        manifest["surfaces"]["adapters"]["supported_manifest_schemas"] = [
+            "artifact-memory/adapter-manifest/v1",
+            "artifact-memory/adapter-manifest/v2",
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            for source in FIXTURE.iterdir():
+                if source.is_file():
+                    (fixture / source.name).write_bytes(source.read_bytes())
+            (fixture / "v0-preview-manifest.v2.json").write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaises(ValidationFailure) as failure:
+                run_release_conformance(fixture)
+        self.assertEqual(failure.exception.code, "release-adapter-schema-claim-mismatch")
+
     def test_v1_fixture_reports_typed_migration_requirement(self):
         with tempfile.TemporaryDirectory() as directory:
             fixture = Path(directory)

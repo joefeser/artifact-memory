@@ -161,6 +161,12 @@ def _supported_adapter_manifest_schemas(repository: Path, commit: str) -> list[s
             "release-preparation-adapter-contract-missing",
             "release preview source contains no supported adapter manifest schema",
         )
+    if SUPPORTED_MANIFEST_SCHEMA_IDS[0] not in supported:
+        raise ValidationFailure(
+            "release-preparation-adapter-primary-schema-unsupported",
+            "release preview preparation requires the v1 adapter manifest schema as the "
+            "release surface's primary contract; v2-only candidates cannot yet publish previews",
+        )
     return supported
 
 

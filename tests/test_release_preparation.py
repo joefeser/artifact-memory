@@ -127,6 +127,22 @@ class ReleasePreparationTests(unittest.TestCase):
             self.assertEqual(missing.exception.code, "release-preparation-adapter-contract-missing")
             self.assertFalse(failed_output.exists())
 
+    def test_v2_only_candidate_cannot_publish_previews(self):
+        v2_schema = (ROOT / "artifact_memory/schemas/adapters/adapter-manifest.v2.schema.json").read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, commit = self.synthetic_repository(
+                root / "v2-only", {"adapter-manifest.v2.schema.json": v2_schema}
+            )
+            output = root / "v2-preview"
+            with self.assertRaises(ValidationFailure) as unsupported:
+                prepare_unsigned_release_preview(repository, commit, output)
+            self.assertEqual(
+                unsupported.exception.code,
+                "release-preparation-adapter-primary-schema-unsupported",
+            )
+            self.assertFalse(output.exists())
+
     def test_invalid_candidate_adapter_schema_is_not_advertised(self):
         schema = json.loads(
             (ROOT / "artifact_memory/schemas/adapters/adapter-manifest.v1.schema.json").read_text(encoding="utf-8")
