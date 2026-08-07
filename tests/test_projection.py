@@ -90,6 +90,27 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "record-rejected")
             self.assertFalse(output.exists())
 
+    def test_projection_rejects_unknown_required_extensions_before_writing_views(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            record["extensions"] = {
+                "https://synthetic.example/required": {
+                    "version": "v1",
+                    "required": True,
+                    "value": {"synthetic": True},
+                }
+            }
+            record_path = root / "required.json"
+            record_path.write_text(json.dumps(record), encoding="utf-8")
+            output = root / "generated"
+
+            with self.assertRaises(ValidationFailure) as raised:
+                project_records([record_path], output)
+
+            self.assertEqual(raised.exception.code, "required-extension-unsupported")
+            self.assertFalse(output.exists())
+
     def test_querying_missing_projection_is_read_only_and_typed(self):
         with tempfile.TemporaryDirectory() as temporary:
             missing = Path(temporary) / "missing.sqlite"

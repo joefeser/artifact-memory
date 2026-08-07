@@ -369,6 +369,7 @@ def current_paths() -> list[str]:
         ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
         text=True,
         stderr=subprocess.STDOUT,
+        cwd=repository_root(),
     ).splitlines()
 
 
@@ -513,7 +514,10 @@ def check_revision_metadata(
 
 def staged_objects() -> dict[str, str]:
     entries = {}
-    output = subprocess.check_output(["git", "ls-files", "--stage", "-z"])
+    output = subprocess.check_output(
+        ["git", "ls-files", "--stage", "-z"],
+        cwd=repository_root(),
+    )
     for record in output.split(b"\0"):
         if not record:
             continue
@@ -524,11 +528,15 @@ def staged_objects() -> dict[str, str]:
     return entries
 
 
-def check_current_content(paths: list[str]) -> list[str]:
+def check_current_content(
+    paths: list[str],
+    worktree_root: Path | None = None,
+) -> list[str]:
     """Scan both index and worktree forms without echoing content."""
 
     staged = staged_objects()
     staged_content = read_blobs(list(staged.values()))
+    root = Path.cwd() if worktree_root is None else worktree_root
     findings = []
     for path in paths:
         if path == SCANNER_PATH:
@@ -536,7 +544,7 @@ def check_current_content(paths: list[str]) -> list[str]:
         candidates = []
         if path in staged and staged[path] in staged_content:
             candidates.append(staged_content[staged[path]])
-        worktree_path = Path(path)
+        worktree_path = root / path
         if worktree_path.exists():
             try:
                 worktree_content = worktree_path.read_bytes()
@@ -584,7 +592,7 @@ def scan(
         check_paths(history, current, historical_paths(revisions))
         + check_historical_content(history)
         + check_revision_metadata(revisions, metadata_refs)
-        + check_current_content(current)
+        + check_current_content(current, repository_root())
     )
     return history, current, findings
 

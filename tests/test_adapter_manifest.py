@@ -4,7 +4,7 @@ from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
-from artifact_memory.adapter_manifest import validate_manifest
+from artifact_memory.adapter_manifest import receipt, validate_manifest
 from artifact_memory.canonical import receipt_with_digest
 from artifact_memory.validator import ValidationFailure, validate
 
@@ -13,6 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class AdapterManifestTests(unittest.TestCase):
+    def test_failed_receipt_requires_diagnostics(self):
+        with self.assertRaisesRegex(ValueError, "require diagnostics"):
+            receipt({"adapter_id": "adapter://synthetic/test"}, "failed")
+
     def test_reference_manifests_validate_and_receipt(self):
         schema = json.loads((ROOT / "artifact_memory/schemas/adapters/adapter-manifest.v1.schema.json").read_text(encoding="utf-8"))
         receipt_schema = json.loads((ROOT / "artifact_memory/schemas/adapters/adapter-receipt.v1.schema.json").read_text(encoding="utf-8"))

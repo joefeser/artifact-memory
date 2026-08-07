@@ -20,6 +20,21 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(resolve([], "endpoint://synthetic/missing", "one.txt")["outcome"], "unavailable-endpoint")
         self.assertEqual(resolve([{"endpoint_ref": "endpoint://synthetic/vault", "root": "/tmp/synthetic", "authorized": False}], "endpoint://synthetic/vault", "one.txt")["outcome"], "not-authorized")
 
+    def test_noncanonical_and_uri_like_relative_paths_are_unsupported(self):
+        config = [{"endpoint_ref": "endpoint://synthetic/vault", "root": "/tmp/synthetic", "authorized": True}]
+        for relative_path in (
+            "./objects/x",
+            "objects//x",
+            "objects/./x",
+            "objects\\x",
+            "https://example.test/x?token=synthetic",
+        ):
+            with self.subTest(relative_path=relative_path):
+                self.assertEqual(
+                    resolve(config, "endpoint://synthetic/vault", relative_path)["outcome"],
+                    "unsupported",
+                )
+
     def test_single_segment_endpoint_identity_is_valid_resolver_config(self):
         root = Path(__file__).resolve().parents[1]
         schema = json.loads((root / "artifact_memory/schemas/core/resolver-config.v1.schema.json").read_text(encoding="utf-8"))

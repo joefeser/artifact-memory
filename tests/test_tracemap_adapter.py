@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from artifact_memory.tracemap_adapter import AdapterFailure, INTEGRITY_STATE, _is_link_or_reparse_point, bind_trace_map_evidence, bind_trace_map_evidence_receipted
+from artifact_memory.tracemap_adapter import AdapterFailure, INTEGRITY_STATE, _is_link_or_reparse_point, _load_object, _read_facts, bind_trace_map_evidence, bind_trace_map_evidence_receipted
 from artifact_memory.schema_resources import load_schema
 from artifact_memory.validator import validate
 
@@ -64,6 +64,19 @@ def materialize_packet(root: Path) -> Path:
 
 
 class TraceMapAdapterTests(unittest.TestCase):
+    def test_provider_json_duplicate_keys_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = root / "scan-manifest.json"
+            manifest.write_text('{"repoName":"first","repoName":"second"}', encoding="utf-8")
+            facts = root / "facts.ndjson"
+            facts.write_text('{"factId":"first","factId":"second"}\n', encoding="utf-8")
+
+            for loader, path in ((_load_object, manifest), (_read_facts, facts)):
+                with self.subTest(path=path.name), self.assertRaises(AdapterFailure) as raised:
+                    loader(path)
+                self.assertEqual(raised.exception.outcome, "trace-output-invalid")
+
     def test_malformed_selected_fact_ids_are_typed_in_both_apis(self):
         malformed = ["fact-synthetic-status-declaration", 7]
         with tempfile.TemporaryDirectory() as temporary:

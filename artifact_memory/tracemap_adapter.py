@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import sqlite3
@@ -15,7 +14,7 @@ from typing import Any
 
 from .canonical import CHUNK_SIZE, canonical_bytes, receipt_with_digest
 from .schema_resources import load_schema
-from .validator import validate
+from .validator import ValidationFailure, load_json_bytes, validate
 
 TRACE_MAP_CONTRACT_ANCHOR = "9a252f12f781ae2a0aab52b5faa53601440a2a3b"
 REQUIRED_ARTIFACTS = ("scan-manifest.json", "facts.ndjson", "index.sqlite", "report.md", "logs/analyzer.log")
@@ -62,8 +61,8 @@ def _digest(value: bytes) -> str:
 
 def _load_object(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        value = load_json_bytes(path.read_bytes())
+    except (OSError, ValidationFailure) as exc:
         raise AdapterFailure("trace-output-invalid", "provider JSON is unavailable or invalid") from exc
     if not isinstance(value, dict):
         raise AdapterFailure("trace-output-invalid", "provider JSON object is required")
@@ -80,8 +79,8 @@ def _read_facts(path: Path) -> list[dict[str, Any]]:
         if not line.strip():
             raise AdapterFailure("trace-output-invalid", "provider facts contain a blank line")
         try:
-            fact = json.loads(line)
-        except json.JSONDecodeError as exc:
+            fact = load_json_bytes(line.encode("utf-8"))
+        except ValidationFailure as exc:
             raise AdapterFailure("trace-output-invalid", "provider facts contain invalid JSON") from exc
         if not isinstance(fact, dict):
             raise AdapterFailure("trace-output-invalid", "provider fact must be an object")
@@ -222,7 +221,7 @@ def _verify_index(packet_dir: Path, manifest: dict[str, Any], facts: list[dict[s
                     *row[:4],
                     datetime.fromisoformat(row[4].replace("Z", "+00:00")),
                     *row[5:-1],
-                    canonical_bytes(json.loads(row[-1])),
+                    canonical_bytes(load_json_bytes(row[-1].encode("utf-8"))),
                 )
                 for row in rows
             ]
@@ -232,7 +231,9 @@ def _verify_index(packet_dir: Path, manifest: dict[str, Any], facts: list[dict[s
             for row in connection.execute(
                 "select fact_id, scan_id, repo, commit_sha, project_path, fact_type, rule_id, evidence_tier, source_symbol, target_symbol, contract_element, file_path, start_line, end_line, snippet_hash, extractor_id, extractor_version, properties_json from facts"
             ):
-                indexed_facts.append((*row[:-1], canonical_bytes(json.loads(row[-1]))))
+                indexed_facts.append(
+                    (*row[:-1], canonical_bytes(load_json_bytes(row[-1].encode("utf-8"))))
+                )
             expected_facts = []
             for fact in facts:
                 evidence = fact["evidence"]
@@ -262,7 +263,7 @@ def _verify_index(packet_dir: Path, manifest: dict[str, Any], facts: list[dict[s
                 raise AdapterFailure("digest-mismatch", "provider index fact parity failed")
         finally:
             connection.close()
-    except (sqlite3.Error, json.JSONDecodeError, ValueError, TypeError, AttributeError, KeyError, UnicodeError) as exc:
+    except (sqlite3.Error, ValidationFailure, ValueError, TypeError, AttributeError, KeyError, UnicodeError) as exc:
         raise AdapterFailure("trace-output-invalid", "provider index cannot be opened read-only") from exc
 
 

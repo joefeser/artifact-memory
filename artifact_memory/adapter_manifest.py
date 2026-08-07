@@ -14,6 +14,8 @@ ADAPTER_ID = re.compile(r"^adapter://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$")
 
 
 def receipt(manifest: Any, outcome: str, diagnostics: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    if outcome == "failed" and not diagnostics:
+        raise ValueError("failed adapter receipts require diagnostics")
     claimed_ref = manifest.get("adapter_id") if isinstance(manifest, dict) else None
     adapter_ref = claimed_ref if isinstance(claimed_ref, str) and ADAPTER_ID.fullmatch(claimed_ref) else "adapter://unknown/unknown"
     body = {"adapter_ref": adapter_ref, "outcome": outcome, "authority_boundary": AUTHORITY_BOUNDARY, "diagnostics": diagnostics or []}

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from artifact_memory.artifact_lineage import validate_artifact, validate_artifact_version
 from artifact_memory.backup import create_backup, create_git_bundle, restore_isolated
-from artifact_memory.canonical import canonical_bytes
+from artifact_memory.canonical import canonical_bytes, expected_receipt_id
 from artifact_memory.vault import intake_bytes, register_bytes
 from artifact_memory.validator import validate
 
@@ -50,6 +50,22 @@ class VaultBackupTests(unittest.TestCase):
             validate(second, schema)
             self.assertEqual(first["outcome"], "registered")
             self.assertEqual(second["outcome"], "duplicate")
+            self.assertEqual(
+                first["receipt_id"],
+                expected_receipt_id(first, "registration-receipt://"),
+            )
+
+    def test_content_registration_identity_binds_media_type(self):
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            payload = b"synthetic media type binding\n"
+            plain = register_bytes(Path(first), payload, "text/plain")
+            binary = register_bytes(Path(second), payload, "application/octet-stream")
+
+        self.assertNotEqual(plain["receipt_id"], binary["receipt_id"])
+        self.assertEqual(
+            binary["receipt_id"],
+            expected_receipt_id(binary, "registration-receipt://"),
+        )
 
     def test_content_registration_fails_when_existing_object_is_corrupt(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -188,12 +204,30 @@ class VaultBackupTests(unittest.TestCase):
             encrypted = (backup_dir / "backup.enc").read_bytes()
             self.assertNotIn(b"synthetic bytes", encrypted)
             restored = root / "isolated-restore"
-            receipt = restore_isolated(backup_dir / "backup.enc", restored, "synthetic-passphrase", backup["backup_ref"], backup["backup_digest"])
+            receipt = restore_isolated(
+                backup_dir / "backup.enc",
+                restored,
+                "synthetic-passphrase",
+                backup["backup_ref"],
+                backup["backup_digest"],
+                backup["source_manifest_digest"],
+            )
             restore_schema = json.loads((ROOT / "artifact_memory/schemas/core/restore-receipt.v1.schema.json").read_text(encoding="utf-8"))
             validate(receipt, restore_schema)
             self.assertEqual(receipt["outcome"], "restored")
             self.assertEqual((restored / "knowledge" / "records.ndjson").read_text(encoding="utf-8"), '{"synthetic":true}\n')
             self.assertEqual(restore_isolated(backup_dir / "backup.enc", restored, "synthetic-passphrase", backup["backup_ref"], backup["backup_digest"])["outcome"], "rejected")
+
+            mismatched = restore_isolated(
+                backup_dir / "backup.enc",
+                root / "mismatched-restore",
+                "synthetic-passphrase",
+                backup["backup_ref"],
+                backup["backup_digest"],
+                "sha-256:" + "0" * 64,
+            )
+            self.assertEqual(mismatched["outcome"], "failed")
+            self.assertIn("backup-manifest-digest-mismatch", mismatched["limitations"])
 
     def test_missing_openssl_returns_schema_valid_failure_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:

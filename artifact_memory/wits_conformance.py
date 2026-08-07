@@ -158,6 +158,7 @@ def run_wits_conformance(
     restore = restore_isolated(
         output_dir / "backup" / "backup.enc", restored, passphrase,
         backup["backup_ref"], backup["backup_digest"],
+        backup["source_manifest_digest"],
     )
     if backup["outcome"] != "created" or restore["outcome"] != "restored":
         raise RuntimeError("WITS fixture backup or isolated restore failed")
