@@ -5,6 +5,7 @@ from pathlib import Path
 from artifact_memory.sanitized_custody_attestation import (
     render_sanitized_custody_attestation,
     validate_historical_sanitized_custody_attestation,
+    validate_historical_sanitized_custody_markdown,
     validate_sanitized_custody_attestation,
 )
 from artifact_memory.validator import ValidationFailure, load_json
@@ -35,6 +36,19 @@ class SanitizedCustodyAttestationTests(unittest.TestCase):
         for path in sorted(compatibility.glob("*.json")):
             with self.subTest(path=path.name):
                 validate_historical_sanitized_custody_attestation(load_json(path))
+
+    def test_historical_markdown_requires_an_exact_supported_rendering(self):
+        supported = (MARKDOWN.read_text(encoding="utf-8"),)
+        validate_historical_sanitized_custody_markdown(
+            supported[0].replace("\n", "\r\n"),
+            supported,
+        )
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_historical_sanitized_custody_markdown(
+                supported[0] + "\nUnexpected custody assertion.\n",
+                supported,
+            )
+        self.assertEqual(failure.exception.code, "unsupported-contract-shape")
 
     def test_non_object_historical_receipt_fails_typed(self):
         for value in (None, [], "receipt", 7):

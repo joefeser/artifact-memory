@@ -12,6 +12,28 @@ from .validator import ValidationFailure, validate
 SCHEMA_ID = "artifact-memory/sanitized-custody-attestation/v2"
 
 
+def _normalize_markdown_line_endings(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def validate_historical_sanitized_custody_markdown(
+    text: str,
+    supported_renderings: tuple[str, ...],
+) -> None:
+    """Accept only an exact reviewed rendering, allowing portable line endings."""
+
+    normalized = _normalize_markdown_line_endings(text)
+    supported = {
+        _normalize_markdown_line_endings(rendering)
+        for rendering in supported_renderings
+    }
+    if normalized not in supported:
+        raise ValidationFailure(
+            "unsupported-contract-shape",
+            "sanitized custody Markdown rendering is unsupported",
+        )
+
+
 def validate_sanitized_custody_attestation(attestation: dict[str, Any]) -> None:
     """Validate the public shape without claiming private operational replay."""
 

@@ -112,6 +112,17 @@ formats fail as `unsupported-contract-shape` and require an explicit reviewed
 compatibility addition or versioned migration before public-readiness scanning
 can pass.
 
+The history scan associates each blob with every path observed in raw Git
+history, including merge-parent changes. A blob first committed at an unrelated
+path and later reused at a custody Markdown or JSON path is therefore subject to
+the custody contract for that historical association; a mismatched rendering
+adds an `unsupported-contract-shape` finding to `exact_candidate_receipt()` and
+the public-safety command exits 1. To remediate, add the exact historical form
+under `evidence/sanitized/custody/v1/compatibility` through explicit review, or
+ship a versioned migration that updates the pinned compatibility contract. Do
+not suppress the custody path association or reinterpret the blob based only on
+another path where it appeared.
+
 The two v1 JSON shapes already present in this PR's public Git history are also
 handled explicitly: the exact pre-provenance shape is pinned by a compatibility
 schema, and the later provenance-bearing v1 shape remains under the core v1

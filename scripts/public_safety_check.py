@@ -19,6 +19,7 @@ from artifact_memory.canonical import receipt_with_digest
 from artifact_memory.sanitized_custody_attestation import (
     render_sanitized_custody_attestation,
     validate_historical_sanitized_custody_attestation,
+    validate_historical_sanitized_custody_markdown,
     validate_sanitized_custody_attestation,
 )
 from artifact_memory.schema_resources import load_schema
@@ -116,25 +117,19 @@ def _markdown_without_exact_endpoint(text: str, endpoint: str) -> tuple[str, lis
 
 
 def _historical_custody_receipt_findings(text: str) -> list[str]:
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     try:
-        supported = {
-            (ROOT / SANITIZED_CUSTODY_RECEIPT_PATH)
-            .read_text(encoding="utf-8")
-            .replace("\r\n", "\n")
-            .replace("\r", "\n")
-        }
-        supported.update(
-            (ROOT / path)
-            .read_text(encoding="utf-8")
-            .replace("\r\n", "\n")
-            .replace("\r", "\n")
-            for path in SANITIZED_CUSTODY_MARKDOWN_COMPATIBILITY_PATHS
+        supported = tuple(
+            (ROOT / path).read_text(encoding="utf-8")
+            for path in (
+                SANITIZED_CUSTODY_RECEIPT_PATH,
+                *sorted(SANITIZED_CUSTODY_MARKDOWN_COMPATIBILITY_PATHS),
+            )
         )
+        validate_historical_sanitized_custody_markdown(text, supported)
     except (OSError, UnicodeError):
         return ["contract-invalid"]
-    if normalized not in supported:
-        return ["unsupported-contract-shape"]
+    except ValidationFailure as failure:
+        return [failure.code]
     return []
 
 
