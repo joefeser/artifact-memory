@@ -165,7 +165,9 @@ def sanitized_custody_attestation_findings(text: str) -> list[str]:
     return _machine_binding_findings(other_values)
 
 
-def _historical_custody_attestation_findings(text: str) -> list[str]:
+def _custody_compatibility_attestation_findings(text: str) -> list[str]:
+    """Validate current or historical content against supported custody contracts."""
+
     try:
         attestation = load_json_bytes(text.encode("utf-8"))
         if not isinstance(attestation, dict):
@@ -445,7 +447,7 @@ def check_historical_content(history: dict[str, set[str]]) -> list[str]:
                 | SANITIZED_CUSTODY_COMPATIBILITY_PATHS
             )
         ):
-            for code in _historical_custody_attestation_findings(text):
+            for code in _custody_compatibility_attestation_findings(text):
                 findings.append(
                     "sanitized custody attestation historical content invalid: "
                     f"object {object_id}, path {custody_path}, {code}"
@@ -528,7 +530,7 @@ def check_current_content(paths: list[str]) -> list[str]:
                 for code in sanitized_custody_attestation_findings(text):
                     findings.append(f"sanitized custody attestation invalid: {code}")
             if path in SANITIZED_CUSTODY_COMPATIBILITY_PATHS:
-                for code in _historical_custody_attestation_findings(text):
+                for code in _custody_compatibility_attestation_findings(text):
                     findings.append(
                         f"sanitized custody compatibility attestation invalid: {code}"
                     )

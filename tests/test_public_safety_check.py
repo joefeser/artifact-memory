@@ -169,7 +169,7 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
         for path in paths:
             with self.subTest(path=path.name):
                 self.assertEqual(
-                    public_safety_check._historical_custody_attestation_findings(
+                    public_safety_check._custody_compatibility_attestation_findings(
                         path.read_text(encoding="utf-8")
                     ),
                     [],
