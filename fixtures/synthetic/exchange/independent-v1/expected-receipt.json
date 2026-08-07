@@ -39,10 +39,10 @@
     },
     "mixed_required_and_legacy_extensions": {
       "expected_outcome": "admitted",
-      "independent_receipt_ref": "admission-receipt://43bd802d8feeaeb12206ed6c55052cdee2a115ece3b62719fb3320755b12d5ec",
+      "independent_receipt_ref": "admission-receipt://6897065ad0edd7bbb34fb43b26d669c63a76697a5ac450bdeaa0b4c61e2e85d7",
       "observed_outcome": "admitted",
       "receipts_compatible": true,
-      "reference_receipt_ref": "admission-receipt://43bd802d8feeaeb12206ed6c55052cdee2a115ece3b62719fb3320755b12d5ec"
+      "reference_receipt_ref": "admission-receipt://6897065ad0edd7bbb34fb43b26d669c63a76697a5ac450bdeaa0b4c61e2e85d7"
     },
     "unknown_optional": {
       "expected_outcome": "admitted",
@@ -68,7 +68,7 @@
     "a v1 record's opaque extension is preserved without v2 interpretation",
     "a complete required declaration fails closed at the v2 admission boundary when unsupported",
     "an incomplete legacy value that merely contains a required key remains opaque and is admitted",
-    "a bundled record mixing a supported complete required declaration with an incomplete legacy opaque value is admitted, preserving the legacy value unchanged",
+    "a bundled record mixing a supported complete required declaration, an unknown optional declaration, and an incomplete legacy opaque value is admitted as the sole accepted record, proving extensions are classified per declaration rather than gated by the presence of any single required declaration",
     "artifact retrieval remains unattempted and separately authorized"
   ],
   "independent_receiver_implementation": "stdlib-only-independent-reader-v2",
@@ -78,7 +78,7 @@
     "compatible informational receipts grant no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"
   ],
   "outcome": "complete",
-  "receipt_id": "independent-exchange-conformance-receipt://6027bae5b43420a6083cb885d94a8bb767efb4e16cdea836df5048bb8540bd79",
+  "receipt_id": "independent-exchange-conformance-receipt://33c5b363dae2394bf94d8807ba1b2377434a16e3fb29485781b8f934ac5bc2fb",
   "reference_receiver_implementation": "artifact-memory-reference-admission-v2",
   "schema_id": "artifact-memory/independent-exchange-conformance-receipt/v1",
   "sender_implementation": "artifact-memory-reference-sender-v2",

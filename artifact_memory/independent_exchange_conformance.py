@@ -230,19 +230,27 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
         expected_outcome="admitted",
     )
 
+    mixed_optional_declaration = {
+        "version": "v1",
+        "required": False,
+        "value": {"opaque": "preserve-unchanged"},
+    }
+    mixed_required_declaration = {
+        "version": "v1",
+        "required": True,
+        "value": {"behavior": "explicit-support-required"},
+    }
+    mixed_legacy_value = {
+        "required": True,
+        "legacy": "missing-v2-declaration-fields",
+    }
     mixed_record = {
         **legacy_record,
         "record_id": "record://synthetic/independent-exchange-mixed",
         "extensions": {
-            "https://synthetic.example/extensions/legacy-required": {
-                "version": "v1",
-                "required": True,
-                "value": {"behavior": "explicit-support-required"},
-            },
-            "https://synthetic.example/extensions/legacy-opaque": {
-                "required": True,
-                "legacy": "missing-v2-declaration-fields",
-            },
+            "https://synthetic.example/extensions/mixed-optional": mixed_optional_declaration,
+            "https://synthetic.example/extensions/legacy-required": mixed_required_declaration,
+            "https://synthetic.example/extensions/legacy-opaque": mixed_legacy_value,
         },
     }
     validate(mixed_record, load_schema("core", "knowledge-record.v1.schema.json"))
@@ -270,8 +278,17 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
     if mixed_reference["outcome"] != "admitted":
         raise ValidationFailure(
             "mixed-extensions-not-admitted",
-            "a bundled record mixing a supported complete required declaration "
-            "with an incomplete legacy opaque value must be admitted",
+            "a bundled record mixing a supported complete required declaration, "
+            "an unknown optional declaration, and an incomplete legacy opaque "
+            "value must be admitted",
+        )
+    if any(
+        record_id != mixed_record["record_id"]
+        for record_id in mixed_reference["accepted_record_ids"]
+    ) or mixed_record["record_id"] not in mixed_reference["accepted_record_ids"]:
+        raise ValidationFailure(
+            "mixed-extensions-record-not-accepted",
+            "the mixed-extensions record must be the sole accepted record",
         )
 
     body = {
@@ -301,7 +318,7 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
             "a v1 record's opaque extension is preserved without v2 interpretation",
             "a complete required declaration fails closed at the v2 admission boundary when unsupported",
             "an incomplete legacy value that merely contains a required key remains opaque and is admitted",
-            "a bundled record mixing a supported complete required declaration with an incomplete legacy opaque value is admitted, preserving the legacy value unchanged",
+            "a bundled record mixing a supported complete required declaration, an unknown optional declaration, and an incomplete legacy opaque value is admitted as the sole accepted record, proving extensions are classified per declaration rather than gated by the presence of any single required declaration",
             "artifact retrieval remains unattempted and separately authorized",
         ],
         "limitations": [
