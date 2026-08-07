@@ -55,10 +55,11 @@ class VaultBackupTests(unittest.TestCase):
             validate(second, schema)
             self.assertEqual(first["outcome"], "registered")
             self.assertEqual(second["outcome"], "duplicate")
-            self.assertEqual(
-                first["receipt_id"],
-                expected_receipt_id(first, "registration-receipt://"),
-            )
+            for receipt in (first, second):
+                self.assertEqual(
+                    receipt["receipt_id"],
+                    expected_receipt_id(receipt, "registration-receipt://"),
+                )
 
     def test_content_registration_identity_binds_media_type(self):
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
@@ -94,6 +95,10 @@ class VaultBackupTests(unittest.TestCase):
             validate(receipt, schema)
             self.assertEqual(receipt["outcome"], "failed")
             self.assertEqual(receipt["diagnostics"], ["existing-object-integrity-failed"])
+            self.assertEqual(
+                receipt["receipt_id"],
+                expected_receipt_id(receipt, "registration-receipt://"),
+            )
             self.assertEqual(stored.read_bytes(), b"corrupt")
 
     def test_intake_registers_verifies_records_and_replays_as_duplicate(self):

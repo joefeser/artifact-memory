@@ -32,10 +32,11 @@ class ResolverTests(unittest.TestCase):
             "https://example.test/x?token=synthetic",
         ):
             with self.subTest(relative_path=relative_path):
-                self.assertEqual(
-                    resolve(config, "endpoint://synthetic/vault", relative_path)["outcome"],
-                    "unsupported",
-                )
+                receipt = resolve(config, "endpoint://synthetic/vault", relative_path)
+                self.assertEqual(receipt["outcome"], "unsupported")
+                self.assertEqual(receipt["relative_path"], "unsupported")
+                self.assertNotIn(relative_path, str(receipt))
+                validate(receipt, load_schema("core", "resolution-receipt.v1.schema.json"))
                 forged = resolve(config, "endpoint://synthetic/vault", "objects/x")
                 forged["relative_path"] = relative_path
                 with self.assertRaises(ValidationFailure):
