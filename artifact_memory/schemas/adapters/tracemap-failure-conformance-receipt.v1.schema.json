@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/adapters/tracemap-failure-conformance-receipt/v1",
+  "title": "Artifact Memory TraceMap failure-surface conformance receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "receipt_id",
+    "synthetic",
+    "outcome",
+    "provider_contract_anchor",
+    "declared_outcomes",
+    "cases",
+    "protected_input_echoed",
+    "local_path_echoed",
+    "authority_boundary",
+    "limitations"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/tracemap-failure-conformance-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^tracemap-failure-conformance-receipt://[0-9a-f]{64}$"},
+    "synthetic": {"const": true},
+    "outcome": {"const": "complete"},
+    "provider_contract_anchor": {"const": "9a252f12f781ae2a0aab52b5faa53601440a2a3b"},
+    "declared_outcomes": {
+      "const": [
+        "adapter-failed",
+        "commit-binding-mismatch",
+        "complete",
+        "configuration-identity-unavailable",
+        "digest-mismatch",
+        "partial-evidence-admitted",
+        "provider-record-not-found",
+        "repository-binding-mismatch",
+        "required-artifact-missing",
+        "rule-catalog-unavailable",
+        "schema-unsupported",
+        "source-version-unavailable",
+        "trace-output-invalid",
+        "unsafe-provenance-rejected"
+      ]
+    },
+    "cases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapter-failed",
+        "commit-binding-mismatch",
+        "complete",
+        "configuration-identity-unavailable",
+        "digest-mismatch",
+        "partial-evidence-admitted",
+        "provider-record-not-found",
+        "repository-binding-mismatch",
+        "required-artifact-missing",
+        "rule-catalog-unavailable",
+        "schema-unsupported",
+        "source-version-unavailable",
+        "trace-output-invalid",
+        "unsafe-provenance-rejected"
+      ],
+      "properties": {
+        "adapter-failed": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "adapter-failed"}, "observed_outcome": {"const": "adapter-failed"}, "passed": {"const": true}}},
+        "commit-binding-mismatch": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "commit-binding-mismatch"}, "observed_outcome": {"const": "commit-binding-mismatch"}, "passed": {"const": true}}},
+        "complete": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "complete"}, "observed_outcome": {"const": "complete"}, "passed": {"const": true}}},
+        "configuration-identity-unavailable": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "configuration-identity-unavailable"}, "observed_outcome": {"const": "configuration-identity-unavailable"}, "passed": {"const": true}}},
+        "digest-mismatch": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "digest-mismatch"}, "observed_outcome": {"const": "digest-mismatch"}, "passed": {"const": true}}},
+        "partial-evidence-admitted": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "partial-evidence-admitted"}, "observed_outcome": {"const": "partial-evidence-admitted"}, "passed": {"const": true}}},
+        "provider-record-not-found": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "provider-record-not-found"}, "observed_outcome": {"const": "provider-record-not-found"}, "passed": {"const": true}}},
+        "repository-binding-mismatch": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "repository-binding-mismatch"}, "observed_outcome": {"const": "repository-binding-mismatch"}, "passed": {"const": true}}},
+        "required-artifact-missing": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "required-artifact-missing"}, "observed_outcome": {"const": "required-artifact-missing"}, "passed": {"const": true}}},
+        "rule-catalog-unavailable": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "rule-catalog-unavailable"}, "observed_outcome": {"const": "rule-catalog-unavailable"}, "passed": {"const": true}}},
+        "schema-unsupported": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "schema-unsupported"}, "observed_outcome": {"const": "schema-unsupported"}, "passed": {"const": true}}},
+        "source-version-unavailable": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "source-version-unavailable"}, "observed_outcome": {"const": "source-version-unavailable"}, "passed": {"const": true}}},
+        "trace-output-invalid": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "trace-output-invalid"}, "observed_outcome": {"const": "trace-output-invalid"}, "passed": {"const": true}}},
+        "unsafe-provenance-rejected": {"type": "object", "additionalProperties": false, "required": ["expected_outcome", "observed_outcome", "passed"], "properties": {"expected_outcome": {"const": "unsafe-provenance-rejected"}, "observed_outcome": {"const": "unsafe-provenance-rejected"}, "passed": {"const": true}}}
+      }
+    },
+    "protected_input_echoed": {"const": false},
+    "local_path_echoed": {"const": false},
+    "authority_boundary": {
+      "const": "informational evidence only; no execution, routing, disclosure, approval, or mutation authority"
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

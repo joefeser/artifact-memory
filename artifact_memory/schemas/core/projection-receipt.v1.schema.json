@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/projection-receipt/v1",
+  "title": "Artifact Memory projection receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "outcome", "record_count", "source_record_set_digest", "generated_views"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/projection-receipt/v1"},
+    "outcome": {"enum": ["complete", "rejected"]},
+    "record_count": {"type": "integer", "minimum": 0},
+    "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "generated_views": {"type": "array", "items": {"type": "string", "enum": ["ndjson", "sqlite", "metadata", "provenance", "fts", "relationships"]}},
+    "diagnostics": {"type": "array", "items": {"type": "string"}},
+    "extensions": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "https://artifact-memory.dev/extensions/revocation-suppression/v1": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["suppressed_record_count", "suppressed_record_set_digest"],
+          "properties": {
+            "suppressed_record_count": {"type": "integer", "minimum": 1},
+            "suppressed_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+          }
+        }
+      }
+    }
+  }
+}

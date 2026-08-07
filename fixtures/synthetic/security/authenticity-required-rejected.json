@@ -1,0 +1,9 @@
+{
+  "subject_ref": "artifact-version://synthetic/orders/1",
+  "integrity_verified": true,
+  "provenance_present": true,
+  "authenticity_required": true,
+  "signed_input": false,
+  "expected_outcome": "rejected",
+  "expected_authenticity_state": "authenticity-required-unmet"
+}

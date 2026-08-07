@@ -1,0 +1,17 @@
+{
+  "schema_id": "artifact-memory/release-signing-policy/v1",
+  "key_role": "artifact-memory-release-signing",
+  "algorithm": "ssh-ed25519",
+  "owner_control": "owner-exclusive",
+  "private_material_boundary": "never-received-retained-or-invoked-by-agent",
+  "public_fingerprint_state": "owner-to-fill",
+  "verification": [
+    "owner publishes the SSH public-key fingerprint through the approved repository channel",
+    "verify annotated tag with git verify-tag --raw",
+    "compare the signer fingerprint with the owner-published fingerprint"
+  ],
+  "rotation": ["owner creates a successor key before retiring the active key", "release manifests identify the signing-key generation"],
+  "revocation": ["owner marks a compromised key revoked and stops accepting its tags", "release documentation records the affected tag range"],
+  "recovery": ["owner maintains private recovery material separately from workstation, repository, and backup VM", "recovery use is an owner-only release action"],
+  "attestation": "keyless-attestation-deferred-until-public-workflow"
+}

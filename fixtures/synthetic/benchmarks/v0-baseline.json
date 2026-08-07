@@ -1,0 +1,14 @@
+{
+  "schema_id": "artifact-memory/benchmark-receipt/v1",
+  "outcome": "complete",
+  "runtime_family": "darwin",
+  "corpus": {"file_count": 64, "file_size_bytes": 4096, "depth": 8, "repeated_content": true},
+  "measurements": {"scan_wall_seconds": 0.001949, "projection_wall_seconds": 0.006577, "scanned_entry_count": 72, "projected_record_count": 64},
+  "bounded_outcomes": {"resource_limit": "partial", "resource_limit_diagnostic": "resource-limit", "cancelled": "cancelled", "cancelled_diagnostic": "cancelled", "unbounded_scan": "complete"},
+  "resource_limits": {"benchmark_max_bytes": 16384, "archive_max_uncompressed_bytes": 16777216},
+  "limitations": [
+    "timings are descriptive for this runner and corpus",
+    "no universal throughput or memory guarantee",
+    "malicious archive nesting is covered by archive conformance tests"
+  ]
+}

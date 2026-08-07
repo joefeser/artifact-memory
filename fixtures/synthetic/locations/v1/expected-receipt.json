@@ -1,0 +1,45 @@
+{
+  "authority_boundary": "location observation grants no access, mutation, disclosure, or execution authority",
+  "endpoint_ref": "endpoint://synthetic/portable-vault",
+  "limitations": [
+    "native mount spellings are exercised by platform-specific pure-path adapters and retained only as digests",
+    "synthetic fixture does not claim physical-device interoperability"
+  ],
+  "outcome": "complete",
+  "platform_results": [
+    {
+      "discovery_evidence_id": "endpoint-discovery-evidence://synthetic/macos",
+      "layout_style": "volume-mount",
+      "native_layout_digest": "sha-256:fbdbc9368a06cc5c5bd9814e0cd0996cd7fb354f41f2031f03a2abe17eea82aa",
+      "observation_id": "location-observation://synthetic/macos",
+      "platform": "macos",
+      "resolution_outcome": "resolved"
+    },
+    {
+      "discovery_evidence_id": "endpoint-discovery-evidence://synthetic/windows",
+      "layout_style": "drive-root",
+      "native_layout_digest": "sha-256:c743f30d96277f52f926586ba78a60c12b8e5f06873b9b7594b022bbd57018af",
+      "observation_id": "location-observation://synthetic/windows",
+      "platform": "windows",
+      "resolution_outcome": "resolved"
+    },
+    {
+      "discovery_evidence_id": "endpoint-discovery-evidence://synthetic/linux",
+      "layout_style": "filesystem-mount",
+      "native_layout_digest": "sha-256:908f8becacde5f34b11c022d76322eba24ba238d40f874025e18545a91b333d2",
+      "observation_id": "location-observation://synthetic/linux",
+      "platform": "linux",
+      "resolution_outcome": "resolved"
+    }
+  ],
+  "portable_fields": [
+    "artifact_ref",
+    "content_ref",
+    "endpoint_ref",
+    "relative_path"
+  ],
+  "receipt_id": "location-conformance-receipt://synthetic/8da488b4c1139baa8e47ea59757771ce4f2633ba386d6224a1fa9150ad3a448c",
+  "relative_path": "objects/order-sample.json",
+  "schema_id": "artifact-memory/location-conformance-receipt/v1",
+  "vector_set_digest": "sha-256:2120019a91db0b61df96fcfd074cf3452e9bc103fff42227b2003c1863243de7"
+}

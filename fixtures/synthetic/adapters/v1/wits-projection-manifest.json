@@ -1,0 +1,22 @@
+{
+  "schema_id": "artifact-memory/adapter-manifest/v1",
+  "adapter_id": "adapter://artifact-memory/wits-v1",
+  "adapter_version": "v1.0",
+  "supported_contract_versions": ["artifact-memory/knowledge-record/v1", "artifact-memory/wits-projection-request/v1", "artifact-memory/wits-projection/v2", "artifact-memory/wits-admission-receipt/v2"],
+  "capabilities": {"filesystem": "none", "network": "none", "credentials": "none", "mutation": "none", "read_capabilities": ["artifact-memory-records", "opaque-wits-projection-response"]},
+  "input_schema_refs": ["artifact-memory/knowledge-record/v1", "artifact-memory/wits-projection-request/v1", "wits-contract-anchor://d675ba6d632dc03826f27940014d4cd672f7d910"],
+  "output_schema_refs": ["artifact-memory/wits-projection/v2", "artifact-memory/wits-admission-receipt/v2"],
+  "determinism": "deterministic",
+  "record_contents_authorize_execution": false,
+  "extensions": {
+    "https://artifact-memory.dev/extensions/license-provenance": {
+      "version": "v1",
+      "required": false,
+      "value": {
+        "provider_license": "BSL-1.1",
+        "change_date": "2030-01-01",
+        "copied_provider_schema": false
+      }
+    }
+  }
+}

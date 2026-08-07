@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/custody-write-preflight-receipt/v1",
+  "title": "Artifact Memory custody write preflight receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "endpoint_ref", "endpoint_schema_id", "adapter_schema_id", "transport", "outcome", "binding_names", "endpoint_document_digest", "adapter_document_digest", "bindings_digest", "authority_boundary", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/custody-write-preflight-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^custody-write-preflight-receipt://[0-9a-f]{64}$"},
+    "endpoint_ref": {"const": "endpoint://joe-home-proxmox-vault-1"},
+    "endpoint_schema_id": {"const": "artifact-memory/custody-endpoint/v2"},
+    "adapter_schema_id": {"enum": ["artifact-memory/restic-rest-server-config/v1", "artifact-memory/restic-sftp-config/v1", "artifact-memory/restic-sftp-config/v2"]},
+    "transport": {"enum": ["restic-rest-server", "restic-over-sftp"]},
+    "outcome": {"enum": ["not-authorized", "ready-for-owner-authorized-write"]},
+    "binding_names": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["account_state", "address_state", "endpoint_ref", "fallback_account_state", "provisioned_account_state", "provisioned_address_state", "provisioned_snapshot_schedule_state", "provisioned_storage_state", "remote_write", "repository_state", "service_state", "snapshot_schedule_state", "transport_authorization"]}
+    },
+    "endpoint_document_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "adapter_document_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "bindings_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "authority_boundary": {"const": "custody preflight evidence grants no remote-write, execution, credential, or infrastructure authority"},
+    "limitations": {
+      "type": "array",
+      "const": [
+        "no network connection or remote write was attempted",
+        "connection details and secret material are not represented",
+        "explicit owner authorization remains required before any remote write"
+      ]
+    }
+  }
+}

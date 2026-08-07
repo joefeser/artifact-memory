@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/scan-policy/v2",
+  "title": "Artifact Memory scan policy v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "policy_id", "policy_digest", "endpoint_ref", "root_relative_path", "comparison_profile", "follow_symlinks", "exclusion_prefixes"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/scan-policy/v2"},
+    "policy_id": {"type": "string", "pattern": "^scan-policy://sha-256/[0-9a-f]{64}$"},
+    "policy_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$"},
+    "root_relative_path": {"type": "string", "pattern": "^(?!/)(?!(?:.*/)?(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm](?:[1-9]|[¹²³])|[Ll][Pp][Tt](?:[1-9]|[¹²³]))(?:\\.[^/]*|/|$))(?!.*//)(?!.*[. ](?:/|$))(?!.*\\\\)(?!.*[<>:\\x22|?*])(?!.*[\\u0000-\\u001F\\u007F]).*$"},
+    "comparison_profile": {"const": "v0-case-sensitive-unicode-codepoint"},
+    "follow_symlinks": {"const": false},
+    "exclusion_prefixes": {"type": "array", "items": {"type": "string", "pattern": "^(?!/)(?!(?:.*/)?(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm](?:[1-9]|[¹²³])|[Ll][Pp][Tt](?:[1-9]|[¹²³]))(?:\\.[^/]*|/|$))(?!.*//)(?!.*[. ](?:/|$))(?!.*\\\\)(?!.*[<>:\\x22|?*])(?!.*[\\u0000-\\u001F\\u007F]).+$"}},
+    "extensions": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["version", "required", "value"], "properties": {"version": {"type": "string", "pattern": "^v[0-9]+$"}, "required": {"type": "boolean"}, "value": {"type": "object", "additionalProperties": true}}}}
+  }
+}

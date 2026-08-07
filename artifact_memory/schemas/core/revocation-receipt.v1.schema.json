@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/revocation-receipt/v1",
+  "title": "Artifact Memory recipient revocation receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "envelope_ref", "recipient_ref", "target_ref", "target_revision_digest", "outcome", "suppression_state", "endpoint_receipt_refs", "diagnostics", "audit_state", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/revocation-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^revocation-receipt://[0-9a-f]{64}$"},
+    "envelope_ref": {"type": "string", "pattern": "^revocation://[0-9a-f]{64}$"},
+    "recipient_ref": {"type": "string", "minLength": 1},
+    "target_ref": {"type": "string", "minLength": 1},
+    "target_revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "outcome": {"enum": ["acknowledged", "duplicate", "rejected", "unsupported", "unavailable", "partially-complete"]},
+    "suppression_state": {"enum": ["applied", "not-applied", "not-applicable", "unknown"]},
+    "endpoint_receipt_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "diagnostics": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": {"code": {"type": "string", "minLength": 1}, "message": {"type": "string", "minLength": 1}}}},
+    "audit_state": {"const": "immutable-receipt-retained"},
+    "authority_boundary": {"const": "revocation propagation grants no execution, disclosure, routing, mutation, or erasure authority"}
+  }
+}

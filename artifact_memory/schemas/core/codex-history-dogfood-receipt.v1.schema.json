@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/codex-history-dogfood-receipt/v1",
+  "title": "Artifact Memory sanitized Codex history dogfood receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "receipt_id", "scope", "outcome", "import_contract", "performed_at",
+    "source_task_count", "source_task_identity_disclosed", "record_type_counts",
+    "records_validated", "raw_source_canonical", "excluded_material_committed",
+    "private_record_material_committed", "output_location_disclosed",
+    "declassification_receipt_retained_private", "lifecycle_route_verified", "owner_review_state",
+    "authority_boundary", "limitations"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/codex-history-dogfood-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^codex-history-dogfood-receipt://[0-9a-f]{64}$"},
+    "scope": {"const": "authorized-private-single-task-import"},
+    "outcome": {"const": "complete"},
+    "import_contract": {"const": "artifact-memory/codex-history-allowlist/v2"},
+    "performed_at": {"type": "string", "format": "date-time"},
+    "source_task_count": {"const": 1},
+    "source_task_identity_disclosed": {"const": false},
+    "record_type_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "research", "workstream", "question"],
+      "properties": {
+        "decision": {"type": "integer", "minimum": 1},
+        "research": {"type": "integer", "minimum": 1},
+        "workstream": {"type": "integer", "minimum": 1},
+        "question": {"type": "integer", "minimum": 0}
+      }
+    },
+    "records_validated": {"type": "integer", "minimum": 3},
+    "raw_source_canonical": {"const": false},
+    "excluded_material_committed": {"const": false},
+    "private_record_material_committed": {"const": false},
+    "output_location_disclosed": {"const": false},
+    "declassification_receipt_retained_private": {"const": true},
+    "lifecycle_route_verified": {"const": true},
+    "owner_review_state": {"const": "required"},
+    "authority_boundary": {"const": "derivative knowledge only; no execution, mutation, spending, deployment, credential use, declassification, disclosure, routing, merge, or approval authority"},
+    "limitations": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}}
+  }
+}

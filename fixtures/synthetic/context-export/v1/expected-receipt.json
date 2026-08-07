@@ -1,0 +1,30 @@
+{
+  "artifact_retrieval": "not-attempted/separately-authorized",
+  "context_pack_digest": "sha-256:935e039c4ec75894f3fe94e854f1a00f230a759c2047e8b906487c5e9519b8ad",
+  "context_pack_id": "context-pack://3ffd6379ee648016a930715166a7adb13f833d550a4338d746c2bff3991e7c5c",
+  "disclosure_authority": "absent",
+  "exclusion_counts": {
+    "freshness": 1,
+    "not-authorized": 0,
+    "sensitivity": 1
+  },
+  "execution_authority": "absent",
+  "limitations": [
+    "freshness is an explicit operator assertion, not inferred truth",
+    "artifact references require separately authorized retrieval"
+  ],
+  "mutation_authority": "absent",
+  "outcome": "complete",
+  "provider_boundary": "generic references only; provider internal model not copied",
+  "recall_receipt_id": "context-recall-receipt://9418dd0533ea591e66fdf7e4a28b73b2baa9c4bb1b8a6c86e12360b966e2232e",
+  "receipt_id": "context-export-receipt://synthetic/1443390ad810f8e800dda1a1c9eecdc5eb08a5042ba77d426f2cf01982100063",
+  "schema_id": "artifact-memory/context-export-slice-receipt/v1",
+  "selected_external_evidence": [
+    {
+      "provider_id": "tracemap",
+      "provider_record_id": "fact-synthetic-status-access"
+    }
+  ],
+  "selected_record_ids": ["record://synthetic/context-public-0001"],
+  "source_record_set_digest": "sha-256:ec4c1f3a9beb01d788565d933787b095c35d1e5c439c091701f923546ed370c5"
+}

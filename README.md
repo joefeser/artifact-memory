@@ -14,10 +14,11 @@ a database is canonical, or receiving knowledge grants authority to act.
 
 ## Project status
 
-Artifact Memory is in private design incubation. The repository is being built
-as public-safe open source from its first commit. Real product records,
-customer material, credentials, resolver configuration, and artifact bytes
-belong in private vaults and must never be committed here.
+Artifact Memory is a pre-release development preview. The repository has been
+built as public-safe open source from its first commit, but no release or
+stability promise exists until the owner-signed launch gates complete. Real
+product records, customer material, credentials, resolver configuration, and
+artifact bytes belong in private vaults and must never be committed here.
 
 The first useful release must prove:
 
@@ -76,13 +77,25 @@ This repository must not contain:
 See [Security](SECURITY.md) and the
 [repository operating rules](AGENTS.md) before contributing.
 
+Start with the [quickstart](docs/quickstart.md). Versioning and public launch
+requirements are in [the release policy](docs/release/versioning-and-launch.md)
+and [the readiness audit](docs/release/public-readiness-audit.md). The current
+[support boundary](SUPPORT.md) and [preview notes](docs/release/v0.1.0-preview-notes.md)
+remain explicitly pre-release.
+
+`artifact-memory validate RECORD` applies schema validation plus the supported
+semantic rules for recognized contracts. In particular, a schema-readable
+release manifest can still be rejected as unreleasable. Use
+`artifact-memory inspect RECORD` when only schema and top-level field metadata
+are needed; `inspect` does not validate record semantics.
+
 ## Design
 
 - [Foundation and rewrite concept](docs/architecture/foundation.md)
 - [Initial roadmap](docs/roadmap/initial-roadmap.md)
 - [Decision log](docs/decisions/README.md)
 - [Extension and adapter boundary](adapters/README.md)
-- [Schema work area](schemas/README.md)
+- [Schema work area](artifact_memory/schemas/README.md)
 - [Synthetic fixture policy](fixtures/synthetic/README.md)
 
 ## Lineage
@@ -96,4 +109,3 @@ identity must survive changing paths and storage devices.
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
-

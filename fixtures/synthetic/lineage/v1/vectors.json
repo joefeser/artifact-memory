@@ -1,0 +1,21 @@
+{
+  "synthetic": true,
+  "source_ref": "https://github.com/joefeser/WhereAreMyFiles",
+  "source_commit": "3a18550fa52526e1a440a1e9264bd9f17638d89e",
+  "rows": [
+    {
+      "path": "synthetic/legacy/unhashed.bin",
+      "size": 2000000000,
+      "created": "2010-12-18T21:32:08Z",
+      "modified": "2010-12-19T01:55:57Z",
+      "sha1": "NONE"
+    },
+    {
+      "path": "synthetic/legacy/hashed.txt",
+      "size": 42,
+      "created": "2010-12-18T21:32:08Z",
+      "modified": "2010-12-26T17:24:22Z",
+      "sha1": "0123456789abcdef0123456789abcdef01234567"
+    }
+  ]
+}

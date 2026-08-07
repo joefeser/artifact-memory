@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/storage-endpoint/v1",
+  "title": "Artifact Memory logical storage endpoint v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "endpoint_ref", "storage_class", "capabilities", "portability_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/storage-endpoint/v1"},
+    "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$"},
+    "storage_class": {"type": "string", "enum": ["local-filesystem", "removable-filesystem", "network-filesystem", "object-store", "backup-repository", "virtual"]},
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read", "write", "list", "verify", "delete"],
+      "properties": {
+        "read": {"type": "boolean"},
+        "write": {"type": "boolean"},
+        "list": {"type": "boolean"},
+        "verify": {"type": "boolean"},
+        "delete": {"type": "boolean"}
+      }
+    },
+    "portability_boundary": {"const": "logical identity only; discovery and machine-local resolution are separate"}
+  }
+}

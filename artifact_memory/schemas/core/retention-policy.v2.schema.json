@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/retention-policy/v2",
+  "title": "Artifact Memory retention policy v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "policy_id", "retention_class", "owner_ref", "owner_hold", "legal_hold", "backup_expiry_behavior", "unknown_replica_behavior", "git_history_behavior", "deletion_authority"],
+  "allOf": [
+    {"if": {"required": ["retention_class"], "properties": {"retention_class": {"const": "deferred-expiry"}}}, "then": {"required": ["expires_at"]}},
+    {"if": {"required": ["retention_class"], "properties": {"retention_class": {"const": "legal-hold"}}}, "then": {"properties": {"legal_hold": {"const": true}}}}
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/retention-policy/v2"},
+    "policy_id": {"type": "string", "pattern": "^retention-policy://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "retention_class": {"enum": ["ephemeral", "standard", "deferred-expiry", "legal-hold"]},
+    "owner_ref": {"type": "string", "minLength": 1},
+    "owner_hold": {"type": "boolean"},
+    "legal_hold": {"type": "boolean"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "backup_expiry_behavior": {"enum": ["managed-expiry", "retain-until-owner-release", "unknown"]},
+    "unknown_replica_behavior": {"const": "report-scope-unknown"},
+    "git_history_behavior": {"const": "separate-rewrite-authorization-required"},
+    "deletion_authority": {"const": "separate-owner-or-legal-authorization-required"},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

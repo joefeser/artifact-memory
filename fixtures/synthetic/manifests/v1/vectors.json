@@ -1,0 +1,44 @@
+{
+  "schema_id": "artifact-memory/manifest-conformance-vectors/v1",
+  "synthetic": true,
+  "profile": {
+    "comparison": "case-sensitive-unicode-codepoint",
+    "digest_algorithm": "sha-256",
+    "encoding": "UTF-8",
+    "line_terminator": "LF",
+    "path_separator": "/",
+    "directory_leaf": "directory<TAB>{path}<LF>",
+    "file_leaf": "file<TAB>{path}<TAB>{content_digest}<TAB>{byte_size}<LF>"
+  },
+  "positive_cases": [
+    {
+      "case_id": "ordinary-tree",
+      "expected_tree_digest": "sha-256:ff3e228acdc08da0514b52d407dd2c9ca01c90b669c6aa68e423f189126d423c",
+      "layouts": [
+        {"platform": "windows", "mount_root": "C:/SyntheticVault/tree", "entries": [{"path": "src/orders.txt", "kind": "file", "content_utf8": "order-1\norder-2\n"}, {"path": "docs", "kind": "directory"}, {"path": "src", "kind": "directory"}, {"path": "docs/readme.txt", "kind": "file", "content_utf8": "Synthetic portable readme\n"}]},
+        {"platform": "macos", "mount_root": "/Volumes/SyntheticVault/tree", "entries": [{"path": "docs/readme.txt", "kind": "file", "content_utf8": "Synthetic portable readme\n"}, {"path": "src/orders.txt", "kind": "file", "content_utf8": "order-1\norder-2\n"}, {"path": "src", "kind": "directory"}, {"path": "docs", "kind": "directory"}]},
+        {"platform": "linux", "mount_root": "/mnt/synthetic-vault/tree", "entries": [{"path": "src", "kind": "directory"}, {"path": "docs", "kind": "directory"}, {"path": "src/orders.txt", "kind": "file", "content_utf8": "order-1\norder-2\n"}, {"path": "docs/readme.txt", "kind": "file", "content_utf8": "Synthetic portable readme\n"}]}
+      ]
+    },
+    {
+      "case_id": "nested-tree",
+      "expected_tree_digest": "sha-256:9cfbcdfa640e09c04226be827b89246f85de935cab8759433b7bbae6d460c29d",
+      "layouts": [
+        {"platform": "linux", "mount_root": "/srv/synthetic/tree", "entries": [{"path": "data/current.txt", "kind": "file", "content_utf8": "current\n"}, {"path": "data/archive", "kind": "directory"}, {"path": "data", "kind": "directory"}, {"path": "data/archive/status.txt", "kind": "file", "content_utf8": "archived\n"}]},
+        {"platform": "windows", "mount_root": "D:/PortableFixture/tree", "entries": [{"path": "data/archive/status.txt", "kind": "file", "content_utf8": "archived\n"}, {"path": "data", "kind": "directory"}, {"path": "data/current.txt", "kind": "file", "content_utf8": "current\n"}, {"path": "data/archive", "kind": "directory"}]},
+        {"platform": "macos", "mount_root": "/private/tmp/synthetic/tree", "entries": [{"path": "data/archive", "kind": "directory"}, {"path": "data/archive/status.txt", "kind": "file", "content_utf8": "archived\n"}, {"path": "data/current.txt", "kind": "file", "content_utf8": "current\n"}, {"path": "data", "kind": "directory"}]}
+      ]
+    }
+  ],
+  "negative_cases": [
+    {"case_id": "casefold-collision", "observations": [{"path": "Readme.txt", "kind": "file"}, {"path": "README.TXT", "kind": "file"}], "expected_outcome": "collision", "expected_completeness": "partial", "expected_code": "collision"},
+    {"case_id": "symlink-unsupported", "observations": [{"path": "link", "kind": "symlink"}], "expected_outcome": "unsupported", "expected_completeness": "partial", "expected_code": "unsupported"},
+    {"case_id": "unreadable-partial", "observations": [{"path": "private/secret.txt", "kind": "unreadable"}], "expected_outcome": "partial", "expected_completeness": "partial", "expected_code": "unreadable"}
+  ],
+  "container_boundary": {
+    "container_utf8": "synthetic-container-v0\n",
+    "expected_container_digest": "sha-256:5b3db887c62451c865df4a0c19fe4a9eb1ca0ba6ebba9c4e0948051479508588",
+    "extracted_tree_case_ref": "ordinary-tree",
+    "expected_extracted_tree_digest": "sha-256:ff3e228acdc08da0514b52d407dd2c9ca01c90b669c6aa68e423f189126d423c"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "schema_id": "artifact-memory/canonical-vector-set/v1",
+  "synthetic": true,
+  "profile": "artifact-memory/canonical-json/v0",
+  "vectors": [
+    {"id": "empty-object", "input": {}, "canonical_utf8": "{}", "digest": "sha-256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"},
+    {"id": "unicode-key-order", "input": {"z": 0, "a": 1, "é": "utf8", "": "bmp-private-use", "𐀀": "astral"}, "canonical_utf8": "{\"a\":1,\"z\":0,\"é\":\"utf8\",\"\":\"bmp-private-use\",\"𐀀\":\"astral\"}", "digest": "sha-256:676c1bbc9b1a9ae34146e1a1a51d13843f4165eddc0165ac3ae43588964cb84e"},
+    {"id": "nested-record", "input": {"record_id": "record://synthetic/canonical-0001", "meaning": {"summary": "Line one\nLine two", "labels": ["portable", "synthetic"]}, "active": true, "note": null}, "canonical_utf8": "{\"active\":true,\"meaning\":{\"labels\":[\"portable\",\"synthetic\"],\"summary\":\"Line one\\nLine two\"},\"note\":null,\"record_id\":\"record://synthetic/canonical-0001\"}", "digest": "sha-256:6960a475e298f2a318c31214eaaf068e5ff957c7a0fe07c93ea8a7c1adc89013"},
+    {"id": "integer-boundaries", "input": {"minimum": -9007199254740991, "maximum": 9007199254740991}, "canonical_utf8": "{\"maximum\":9007199254740991,\"minimum\":-9007199254740991}", "digest": "sha-256:fbfd7545b6e2e70fe97a1b1de6bb85a3cea527c9e49f787bb6392cd36964b62c"}
+  ],
+  "invalid": [
+    {"id": "duplicate-key", "path": "invalid/duplicate-key.json.invalid", "outcome": "duplicate-key"},
+    {"id": "non-finite", "path": "invalid/non-finite.json.invalid", "outcome": "invalid-json"},
+    {"id": "fractional-number", "path": "invalid/fractional-number.json.invalid", "outcome": "unsupported-number"},
+    {"id": "unsafe-integer", "path": "invalid/unsafe-integer.json.invalid", "outcome": "unsupported-number"},
+    {"id": "unpaired-surrogate", "path": "invalid/unpaired-surrogate.json.invalid", "outcome": "unsupported-unicode"}
+  ]
+}

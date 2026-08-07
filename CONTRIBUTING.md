@@ -29,3 +29,19 @@ boundaries are understood before implementation.
 By contributing, you agree that your contributions are licensed under the
 Apache License 2.0.
 
+## Branch and review policy
+
+Work starts from `dev` in a fresh issue-linked `codex/` branch and worktree.
+Pull requests target `dev` during incubation. Do not work directly on `main`,
+force-push, squash, manually retag review bots, or merge a substantive change
+without the repository ACK lane. Required Codex and Qodo reviews are a batch;
+partial findings are not patch authority. Main and release promotion require a
+separate human-mediated pull request.
+
+Before creating a worktree, run the ACK worktree collision check described in
+the repository coordinator handoff. Before requesting merge readiness, run the
+repo-local `agent-control pr-loop` command and preserve its exact-head result.
+
+The reference package currently uses only the Python standard library. New
+dependencies must be justified in the issue or decision record, use a lockfile
+when appropriate, and be covered by reproducible CI and provenance notes.

@@ -1,0 +1,69 @@
+{
+  "case_count": 5,
+  "cases": [
+    {
+      "case_id": "exact-content-valid",
+      "class": "valid",
+      "input_digests": [
+        "sha-256:1cc571d893558b8cc56eb87391711e6bb19feaab5aae537067b27a2216646a5d"
+      ],
+      "outcome": "accepted"
+    },
+    {
+      "case_id": "absolute-path-invalid",
+      "class": "invalid",
+      "input_digests": [
+        "sha-256:f1d82d7361bd745d739993fe0b5523dee7811a5d0738fa239a75cc3ee2851225"
+      ],
+      "outcome": "rejected"
+    },
+    {
+      "case_id": "portable-location-equivalent",
+      "class": "equivalent",
+      "input_digests": [
+        "sha-256:34491367f33b7df1ec11797d2f60f7a7e3633bc7803107054c27344f9f07743f"
+      ],
+      "outcome": "equivalent"
+    },
+    {
+      "case_id": "casefold-name-collision",
+      "class": "collision",
+      "input_digests": [
+        "sha-256:931abf7801dd9320532cbb1711fadbe2354bd4073d1478fc7e70c45580d5fb45"
+      ],
+      "outcome": "collision"
+    },
+    {
+      "case_id": "symlink-unsupported",
+      "class": "unsupported",
+      "input_digests": [
+        "sha-256:931abf7801dd9320532cbb1711fadbe2354bd4073d1478fc7e70c45580d5fb45"
+      ],
+      "outcome": "unsupported"
+    }
+  ],
+  "claims": [
+    "every referenced fixture input is bound by an exact SHA-256 digest",
+    "valid, invalid, equivalent, collision, and unsupported outcomes are distinct runner-neutral classes",
+    "expected outcomes and values are expressed without a language-specific test framework"
+  ],
+  "class_counts": {
+    "collision": 1,
+    "equivalent": 1,
+    "invalid": 1,
+    "unsupported": 1,
+    "valid": 1
+  },
+  "expected_results_digest": "sha-256:aac20960e23ca6e8b26d3a3122cd5332f27b03e78723e5ea90b2e51994c4527f",
+  "fixture_set_id": "fixture-set://synthetic/core-v1",
+  "limitations": [
+    "the aggregate fixture proves only its named v0 operations and representative synthetic cases",
+    "synthetic equivalence does not establish physical-device or universal filesystem interoperability",
+    "conformance evidence establishes neither authenticity nor access, disclosure, mutation, execution, or declassification authority"
+  ],
+  "manifest_digest": "sha-256:5eb36f4115c45ec6a45dc272e4050f212005a8b95034d1777402dd0ba79c7342",
+  "outcome": "complete",
+  "receipt_id": "conformance-fixture-receipt://70c899c29f34d95255364e6a389db4d9ece09cb358fc63d66dce8efc07308caf",
+  "schema_id": "artifact-memory/conformance-fixture-receipt/v1",
+  "synthetic": true
+}

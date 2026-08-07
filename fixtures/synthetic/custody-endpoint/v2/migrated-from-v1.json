@@ -1,0 +1,76 @@
+{
+  "custody_claim": "off-machine-not-geographically-off-site",
+  "deployment": {
+    "class": "dedicated-guest-vm",
+    "guest_only": true,
+    "provisioning_state": "unprovisioned",
+    "proxmox_host_tailscale": false
+  },
+  "diversity_boundary": {
+    "current_geographic_claim": "not-off-site",
+    "mandatory_country": false,
+    "mandatory_identity_provider": false,
+    "mandatory_vendor": false,
+    "portable_geography_policy": true,
+    "portable_jurisdiction_policy": true,
+    "portable_provider_policy": true
+  },
+  "endpoint_ref": "endpoint://joe-home-proxmox-vault-1",
+  "network_boundary": {
+    "access": "tailscale-inside-guest",
+    "approved_clients_only": true,
+    "public_inbound": false
+  },
+  "provisioning": {
+    "account_state": "owner-to-fill",
+    "snapshot_schedule_state": "owner-to-fill",
+    "storage_state": "owner-to-fill",
+    "vm_address_state": "owner-to-fill"
+  },
+  "purpose": "off-machine-custody",
+  "recovery": {
+    "alternate_access": "console-or-local",
+    "material_state": "owner-held-external",
+    "separate_from": [
+      "workstation",
+      "repository",
+      "backup-vm"
+    ],
+    "tailscale_exclusive": false
+  },
+  "remote_write": "not-authorized",
+  "schedule": {
+    "after_material_change": true,
+    "integrity_verification": "monthly",
+    "isolated_restore_rehearsal": "quarterly",
+    "minimum_backup_interval": "weekly"
+  },
+  "schema_id": "artifact-memory/custody-endpoint/v2",
+  "storage": {
+    "backend": "zfs-backed",
+    "client_side_encryption": "required",
+    "key_material_state": "external-not-recorded",
+    "snapshot_control": "server-side-separate-from-backup-client",
+    "snapshot_schedule_state": "owner-to-fill",
+    "storage_location_state": "owner-to-fill",
+    "zfs_snapshots": "required"
+  },
+  "transport": {
+    "authenticated": true,
+    "credential_state": "external-not-recorded",
+    "fallback": {
+      "account_state": "owner-to-fill",
+      "method": "restic-over-sftp",
+      "mode": "restricted-non-root-account"
+    },
+    "primary": {
+      "account_state": "owner-to-fill",
+      "address_state": "owner-to-fill",
+      "method": "restic-rest-server",
+      "mode": "append-only",
+      "repository_state": "owner-to-fill",
+      "service_state": "owner-to-fill"
+    },
+    "remote_write_authorization": "not-authorized"
+  }
+}

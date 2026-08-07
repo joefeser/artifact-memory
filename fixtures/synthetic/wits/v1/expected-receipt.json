@@ -1,0 +1,39 @@
+{
+  "authority_boundary": "informational projection only; no HACP task, route, continuation, or execution authority",
+  "backup_outcome": "created",
+  "context_pack_id": "context-pack://6e4716489e4f81595f7b32e2017d0232fbf213ac44c18708d15027ce7c7c304d",
+  "fixture_end": "before_hacp_task_creation_or_execution",
+  "limitations": [
+    "synthetic WITS response is an independently supplied opaque fixture, not a live WITS interoperability claim",
+    "Artifact Memory does not interpret WITS owner meaning or readiness"
+  ],
+  "outcome": "complete",
+  "projection_source_digest": "sha-256:851e6d6a7d974c41850191e77cbcde7090dafe5e64a3aab315ab024683f4cf40",
+  "receipt_id": "wits-conformance-receipt://784c505746f4548db6b3709d95f9f32993b5b21f5ed50f79820b7bc800f0a9f8",
+  "registered_projection_content_ref": "content://vault/424aaa67a9224cbbfbaa291dba9a217cdb508628f91db3fbdbe7e879c22a8b82",
+  "restore_outcome": "restored",
+  "schema_id": "artifact-memory/wits-conformance-receipt/v1",
+  "source_record_refs": [
+    {
+      "record_id": "record://synthetic/orders-status-static-read",
+      "revision_digest": "sha-256:6416b109e20a1c15a6dc5a901b989f56943ddc6dc89f79b4489505eb7ce30b5d"
+    }
+  ],
+  "stages": [
+    {"name": "register-source-and-tracemap-evidence", "outcome": "complete"},
+    {"name": "bind-exact-wits-projection", "outcome": "complete"},
+    {"name": "export-informational-context", "outcome": "complete"},
+    {"name": "fresh-reader-recall", "outcome": "complete"},
+    {"name": "create-encrypted-backup", "outcome": "complete"},
+    {"name": "restore-isolated", "outcome": "complete"},
+    {"name": "rebuild-generated-index", "outcome": "complete"},
+    {"name": "stop-before-hacp-task-creation", "outcome": "complete"}
+  ],
+  "synthetic": true,
+  "tracemap_binding_ref": "binding://tracemap/318a06d31c3adb165ed29890e0d67b630a120b883f75aa8a699fc86271cf8019",
+  "wits_artifact_version_ref": "artifact-version://synthetic/wits-projection/1",
+  "wits_binding_ref": "wits-binding://e96abcb04c818f0802ede62620f7e3bd25336af77fa85f146d424f10bbd661ea",
+  "wits_contract_commit": "d675ba6d632dc03826f27940014d4cd672f7d910",
+  "wits_license": "BSL-1.1",
+  "wits_projection_ref": "wits-projection://synthetic/meaning-0001"
+}

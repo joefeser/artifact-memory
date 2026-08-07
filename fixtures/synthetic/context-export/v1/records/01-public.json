@@ -1,0 +1,14 @@
+{
+  "schema_id": "artifact-memory/knowledge-record/v1",
+  "record_id": "record://synthetic/context-public-0001",
+  "record_type": "claim",
+  "lifecycle": "accepted",
+  "meaning": {
+    "summary": "Synthetic status evidence can be recalled without execution authority.",
+    "labels": ["synthetic", "context"]
+  },
+  "artifact_refs": ["artifact://synthetic/orders-source"],
+  "provenance": [{"kind": "observation", "source_ref": "external-evidence-binding://synthetic/status"}],
+  "relationships": [{"type": "supported-by-external-evidence", "target_ref": "external-evidence-binding://synthetic/status"}],
+  "sensitivity": "public"
+}

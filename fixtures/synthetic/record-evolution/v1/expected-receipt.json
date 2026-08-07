@@ -1,0 +1,20 @@
+{
+  "authority_boundary": "candidate admission grants no execution, disclosure, routing, mutation, merge, deployment, spending, credential, declassification, or approval authority",
+  "candidate_id": "candidate://actor/a0dbf86e0a0b88c2faeb70366bb52e03ced68deb852427f906efdbd93622fa75",
+  "candidate_revision_digest": "sha-256:a0dbf86e0a0b88c2faeb70366bb52e03ced68deb852427f906efdbd93622fa75",
+  "decision_ref": "decision://synthetic/wits-owner-0001",
+  "diagnostics": [],
+  "outcome": "accepted",
+  "receipt_id": "candidate-admission-receipt://cd82bb364d093f3db16ed4ce8de40abe6b36e82c1219d86a04e6ea5aa65f91b3",
+  "result_record_ref": {
+    "record_id": "record://synthetic/decision-0001",
+    "revision_digest": "sha-256:a39592689f19ecd2990e4e15c816a75fdf91629be1b09159cf0749c0dd5cbec4"
+  },
+  "schema_id": "artifact-memory/candidate-admission-receipt/v1",
+  "source_record_refs": [
+    {
+      "record_id": "record://synthetic/decision-0001",
+      "revision_digest": "sha-256:5463997e6faa4945ed0fd8f1c8520ce91b861dd5bf2494e9d81f38952d3530c6"
+    }
+  ]
+}

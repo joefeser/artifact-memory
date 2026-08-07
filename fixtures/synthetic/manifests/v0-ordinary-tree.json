@@ -1,0 +1,13 @@
+{
+  "vector_id": "artifact-memory/manifest-vector/v0-ordinary-tree",
+  "comparison_profile": "v0-case-sensitive-unicode-codepoint",
+  "logical_entries": [
+    {"path": "docs/readme.txt", "kind": "file", "byte_size": 26, "content_digest": "sha-256:bae0a59fd66c76e3cc1376d89a10dbdd6357482b52f209087a3351c2d9674f62"},
+    {"path": "src/orders.txt", "kind": "file", "byte_size": 13, "content_digest": "sha-256:567d28afa39734fcdf245380981ebfd4230879243cf767e48e970329cdcc8491"}
+  ],
+  "tree_digest": "sha-256:e5962bade39ad49a40414bfbf34ef76bbefd5fd9fb90c196f75d16e221aa78e7",
+  "platform_layouts": {"windows": "C:/SyntheticVault/tree", "macos": "/Volumes/SyntheticVault/tree", "linux": "/mnt/synthetic-vault/tree"},
+  "container_digest": "sha-256:626f2750747770d4e5eec44f0d13fcfa45b66a28f047f247b3d0198c6fe27b24",
+  "extracted_tree_digest": "sha-256:e5962bade39ad49a40414bfbf34ef76bbefd5fd9fb90c196f75d16e221aa78e7",
+  "synthetic_only": true
+}

@@ -1,0 +1,14 @@
+{
+  "acknowledged_recipient_refs": ["agent://synthetic/reader-a"],
+  "audit_state": "immutable-receipt-retained",
+  "authority_boundary": "revocation propagation grants no execution, disclosure, routing, mutation, or erasure authority",
+  "envelope_ref": "revocation://80df7741d6409f0a0849f81dca27924a6d7c8e8f5b81adcd603b7e421a35b73e",
+  "outcome": "partially-complete",
+  "receipt_id": "revocation-propagation-receipt://37cdebf51f1687543eb6af79c7c820a6c01366858521ee0592fefce4fc828330",
+  "recipient_receipt_refs": [
+    "revocation-receipt://09d5fae60d85dc1dfd304842689e21709d3bc91016d1622a675147cca0bd42ba",
+    "revocation-receipt://5a06defd9a6d2fe3f112e56c77176b262e6322bec956376e1e030ec8e07fe18d"
+  ],
+  "schema_id": "artifact-memory/revocation-propagation-receipt/v1",
+  "unresolved_recipient_refs": ["agent://synthetic/reader-b"]
+}

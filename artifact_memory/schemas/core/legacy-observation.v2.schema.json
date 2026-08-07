@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/legacy-observation/v2",
+  "title": "Artifact Memory historical lineage observation v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "source_ref", "read_only", "historical_fields", "artifact_identity", "content_identity", "mutation", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/legacy-observation/v2"},
+    "source_ref": {"const": "https://github.com/joefeser/WhereAreMyFiles"},
+    "read_only": {"const": true},
+    "historical_fields": {"type": "object", "additionalProperties": false, "required": ["path_observed", "byte_size_observed", "created_time_observed", "modified_time_observed", "legacy_hash"], "properties": {"path_observed": {"type": "string", "minLength": 1}, "byte_size_observed": {"type": "integer", "minimum": 0}, "created_time_observed": {"type": "string", "format": "date-time"}, "modified_time_observed": {"type": "string", "format": "date-time"}, "legacy_hash": {"anyOf": [{"type": "object", "additionalProperties": false, "required": ["algorithm", "state", "value"], "properties": {"algorithm": {"const": "sha-1"}, "state": {"const": "none-recorded"}, "value": {"const": "NONE"}}}, {"type": "object", "additionalProperties": false, "required": ["algorithm", "state", "value"], "properties": {"algorithm": {"const": "sha-1"}, "state": {"const": "sha-1-observed-not-upgraded"}, "value": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"}}}]}}},
+    "artifact_identity": {"const": "not-established"},
+    "content_identity": {"const": "not-established"},
+    "mutation": {"const": "none"},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+  }
+}

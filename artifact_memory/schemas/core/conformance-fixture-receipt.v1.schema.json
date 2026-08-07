@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/conformance-fixture-receipt/v1",
+  "title": "Artifact Memory aggregate synthetic conformance receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "synthetic", "fixture_set_id", "manifest_digest", "expected_results_digest", "case_count", "class_counts", "cases", "claims", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/conformance-fixture-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^conformance-fixture-receipt://[0-9a-f]{64}$"},
+    "outcome": {"const": "complete"},
+    "synthetic": {"const": true},
+    "fixture_set_id": {"type": "string", "pattern": "^fixture-set://synthetic/[A-Za-z0-9._~-]+$"},
+    "manifest_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "expected_results_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "case_count": {"type": "integer", "minimum": 5},
+    "class_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valid", "invalid", "equivalent", "collision", "unsupported"],
+      "properties": {
+        "valid": {"type": "integer", "minimum": 1},
+        "invalid": {"type": "integer", "minimum": 1},
+        "equivalent": {"type": "integer", "minimum": 1},
+        "collision": {"type": "integer", "minimum": 1},
+        "unsupported": {"type": "integer", "minimum": 1}
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["case_id", "class", "outcome", "input_digests"],
+        "properties": {
+          "case_id": {"type": "string", "minLength": 1},
+          "class": {"enum": ["valid", "invalid", "equivalent", "collision", "unsupported"]},
+          "outcome": {"enum": ["accepted", "rejected", "equivalent", "collision", "unsupported"]},
+          "input_digests": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}}
+        }
+      }
+    },
+    "claims": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  }
+}

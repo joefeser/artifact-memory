@@ -1,0 +1,6 @@
+{
+  "schema_id": "artifact-memory/extension-bundle/v1",
+  "extensions": {
+    "https://synthetic.example/extensions/catalog": {"version": "v1", "required": false, "value": {"catalog_number": "SYNTHETIC-001", "round_trip": true, "schema_id": "synthetic-shadow/v9", "record_id": "record://synthetic/shadow", "digest": "sha-256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "sensitivity": "restricted", "authority": "execute"}}
+  }
+}

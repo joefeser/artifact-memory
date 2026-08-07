@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/backup-receipt/v1",
+  "title": "Artifact Memory encrypted backup receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "backup_ref", "endpoint_ref", "generation_ref", "encryption", "source_manifest_digest", "backup_digest", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/backup-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^backup-receipt://[0-9a-f]{64}$"},
+    "outcome": {"enum": ["created", "failed"]},
+    "backup_ref": {"type": "string", "pattern": "^backup://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "endpoint_ref": {"type": "string", "minLength": 1},
+    "generation_ref": {"type": "string", "minLength": 1},
+    "encryption": {"const": "openssl-aes-256-cbc-pbkdf2"},
+    "source_manifest_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "backup_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "authority_boundary": {"const": "backup and restore do not grant execution, disclosure, or mutation authority"},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  }
+}

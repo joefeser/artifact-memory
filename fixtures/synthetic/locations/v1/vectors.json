@@ -1,0 +1,21 @@
+{
+  "schema_id": "artifact-memory/location-conformance-vectors/v1",
+  "synthetic_only": true,
+  "endpoint": {
+    "schema_id": "artifact-memory/storage-endpoint/v1",
+    "endpoint_ref": "endpoint://synthetic/portable-vault",
+    "storage_class": "local-filesystem",
+    "capabilities": {"read": true, "write": false, "list": true, "verify": true, "delete": false},
+    "portability_boundary": "logical identity only; discovery and machine-local resolution are separate"
+  },
+  "artifact_ref": "artifact://synthetic/order-sample",
+  "content_ref": "content://sha-256/81ce1ba1b1cf8815ffcaca18e35f8d809beae756fefa805ceafe03116c96359e",
+  "relative_path": "objects/order-sample.json",
+  "payload_utf8": "synthetic artifact memory location bytes\n",
+  "observed_at": "2026-08-01T00:00:00Z",
+  "platforms": [
+    {"platform": "macos", "layout_style": "volume-mount", "root_token": "macos-volume"},
+    {"platform": "windows", "layout_style": "drive-root", "root_token": "windows-drive"},
+    {"platform": "linux", "layout_style": "filesystem-mount", "root_token": "linux-mount"}
+  ]
+}

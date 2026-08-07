@@ -1,0 +1,97 @@
+[
+  {
+    "case": "unsigned-integrity-verified",
+    "input": {
+      "subject_ref": "artifact-version://synthetic/orders/1",
+      "integrity_verified": true,
+      "provenance_present": true,
+      "evaluated_at": "2026-07-31T00:00:00Z"
+    },
+    "expected": {
+      "outcome": "accepted",
+      "integrity_state": "integrity-verified / issuer-unverified",
+      "authenticity_state": "issuer-unverified",
+      "transport_state": "not-evaluated"
+    }
+  },
+  {
+    "case": "required-authenticity-fails-closed",
+    "input": {
+      "subject_ref": "artifact-version://synthetic/orders/1",
+      "integrity_verified": true,
+      "provenance_present": true,
+      "authenticity_required": true,
+      "evaluated_at": "2026-07-31T00:00:00Z"
+    },
+    "expected": {
+      "outcome": "rejected",
+      "integrity_state": "integrity-verified / issuer-unverified",
+      "authenticity_state": "authenticity-required-unmet",
+      "transport_state": "not-evaluated"
+    }
+  },
+  {
+    "case": "signed-input-is-unsupported",
+    "input": {
+      "subject_ref": "artifact-version://synthetic/orders/1",
+      "integrity_verified": true,
+      "provenance_present": true,
+      "signed_input": true,
+      "evaluated_at": "2026-07-31T00:00:00Z"
+    },
+    "expected": {
+      "outcome": "unsupported",
+      "integrity_state": "integrity-verified / issuer-unverified",
+      "authenticity_state": "signed-input-unsupported",
+      "transport_state": "not-evaluated"
+    }
+  },
+  {
+    "case": "tampered-integrity-fails",
+    "input": {
+      "subject_ref": "artifact-version://synthetic/orders/1",
+      "integrity_verified": false,
+      "provenance_present": true,
+      "evaluated_at": "2026-07-31T00:00:00Z"
+    },
+    "expected": {
+      "outcome": "rejected",
+      "integrity_state": "integrity-failed",
+      "authenticity_state": "issuer-unverified",
+      "transport_state": "not-evaluated"
+    }
+  },
+  {
+    "case": "unverified-integrity-fails-closed",
+    "input": {
+      "subject_ref": "artifact-version://synthetic/orders/1",
+      "integrity_verified": null,
+      "provenance_present": true,
+      "evaluated_at": "2026-07-31T00:00:00Z"
+    },
+    "expected": {
+      "outcome": "rejected",
+      "integrity_state": "integrity-unverified",
+      "authenticity_state": "issuer-unverified",
+      "transport_state": "not-evaluated"
+    }
+  },
+  {
+    "case": "authenticated-transport-does-not-authenticate-issuer",
+    "input": {
+      "subject_ref": "artifact-version://synthetic/orders/1",
+      "integrity_verified": true,
+      "provenance_present": true,
+      "issuer_ref": "actor://synthetic/sender",
+      "audience_ref": "audience://synthetic/receiver",
+      "transport_authenticated": true,
+      "evaluated_at": "2026-07-31T00:00:00Z"
+    },
+    "expected": {
+      "outcome": "accepted",
+      "integrity_state": "integrity-verified / issuer-unverified",
+      "authenticity_state": "issuer-unverified",
+      "transport_state": "channel-authenticated / subject-issuer-unverified"
+    }
+  }
+]

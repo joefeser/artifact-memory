@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/adapters/wits-admission-receipt/v1",
+  "title": "Artifact Memory WITS adapter receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "source_record_ids", "authority_boundary", "diagnostics"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/wits-admission-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^wits-admission-receipt://[0-9a-f]{64}$"},
+    "outcome": {"enum": ["admitted", "rejected", "stale", "conflict", "unsupported", "sensitivity-mapping-unavailable", "disclosure-denied", "evidence-reference-unavailable", "authority-bearing-request-rejected"]},
+    "source_record_ids": {"type": "array", "items": {"type": "string"}},
+    "authority_boundary": {"const": "informational projection only; no HACP task, route, continuation, or execution authority"},
+    "diagnostics": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": {"code": {"type": "string"}, "message": {"type": "string"}}}},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

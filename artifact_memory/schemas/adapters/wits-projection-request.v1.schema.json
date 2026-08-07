@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/adapters/wits-projection-request/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "source_record_refs", "expected_revisions", "external_evidence_refs", "projection_kind", "provider_contract", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/wits-projection-request/v1"},
+    "source_record_refs": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["record_id", "revision_digest"], "properties": {"record_id": {"type": "string"}, "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}}}},
+    "expected_revisions": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}},
+    "external_evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "projection_kind": {"type": "string", "minLength": 1},
+    "provider_contract": {"type": "object", "additionalProperties": false, "required": ["repository", "commit", "license", "change_date", "change_license", "contract_refs"], "properties": {"repository": {"const": "joefeser/what-is-the-spec"}, "commit": {"const": "d675ba6d632dc03826f27940014d4cd672f7d910"}, "license": {"const": "BSL-1.1"}, "change_date": {"const": "2030-01-01"}, "change_license": {"const": "Apache-2.0"}, "contract_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}}}},
+    "authority_boundary": {"const": "informational projection only; no HACP task, route, continuation, or execution authority"}
+  }
+}

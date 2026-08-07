@@ -1,0 +1,62 @@
+{
+  "assessment_schema_id": "artifact-memory/authenticity-receipt/v2",
+  "authority_boundary": "assessment grants no execution, disclosure, authorization, or trust",
+  "case_results": [
+    {
+      "assessment_receipt_id": "authenticity-receipt://ff64647d6818256c0dcb6c12ec03ccb8d6111679c29536ad87f2e95f5ef601ff",
+      "authenticity_state": "issuer-unverified",
+      "case": "unsigned-integrity-verified",
+      "integrity_state": "integrity-verified / issuer-unverified",
+      "outcome": "accepted",
+      "transport_state": "not-evaluated"
+    },
+    {
+      "assessment_receipt_id": "authenticity-receipt://843b6f1022a92192a69a1bcff365db1e5a8043b76da1c3af1c0e11f4c792143b",
+      "authenticity_state": "authenticity-required-unmet",
+      "case": "required-authenticity-fails-closed",
+      "integrity_state": "integrity-verified / issuer-unverified",
+      "outcome": "rejected",
+      "transport_state": "not-evaluated"
+    },
+    {
+      "assessment_receipt_id": "authenticity-receipt://53a483493636bea46fa8903c885c592c274ba5f0bd28aa502766ee8774752ab6",
+      "authenticity_state": "signed-input-unsupported",
+      "case": "signed-input-is-unsupported",
+      "integrity_state": "integrity-verified / issuer-unverified",
+      "outcome": "unsupported",
+      "transport_state": "not-evaluated"
+    },
+    {
+      "assessment_receipt_id": "authenticity-receipt://e1bbba243f0e4950783db926628bb086e8ed8979686b9f0ec564a527a654d71e",
+      "authenticity_state": "issuer-unverified",
+      "case": "tampered-integrity-fails",
+      "integrity_state": "integrity-failed",
+      "outcome": "rejected",
+      "transport_state": "not-evaluated"
+    },
+    {
+      "assessment_receipt_id": "authenticity-receipt://6f07e72ca9c2fef6fdc6a210e65534b5fc36ab4c94f8b15e6c360b9d0a467f14",
+      "authenticity_state": "issuer-unverified",
+      "case": "unverified-integrity-fails-closed",
+      "integrity_state": "integrity-unverified",
+      "outcome": "rejected",
+      "transport_state": "not-evaluated"
+    },
+    {
+      "assessment_receipt_id": "authenticity-receipt://1fa1d1d6fb9fcb50d840a9fd880550e9e7e38cd5535f7240a609337caaa6888c",
+      "authenticity_state": "issuer-unverified",
+      "case": "authenticated-transport-does-not-authenticate-issuer",
+      "integrity_state": "integrity-verified / issuer-unverified",
+      "outcome": "accepted",
+      "transport_state": "channel-authenticated / subject-issuer-unverified"
+    }
+  ],
+  "limitations": [
+    "synthetic unsigned and unsupported-signature evidence only",
+    "record-signature key, expiry, revocation, and delegation behavior is not implemented in v0"
+  ],
+  "outcome": "complete",
+  "receipt_id": "authenticity-conformance-receipt://synthetic/02e88faacdc0cd4f1acf65765b83cf63e7476269538a8315a22d0ca1e313b79d",
+  "schema_id": "artifact-memory/authenticity-conformance-receipt/v1",
+  "vector_set_digest": "sha-256:e6561a9769cd70a174b0af960e6e0e67ef25789a6fc6ce5648dcb7d58dfd90a9"
+}

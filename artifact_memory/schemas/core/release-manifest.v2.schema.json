@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/release-manifest/v2",
+  "title": "Artifact Memory release manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "preview"}}},
+      "then": {
+        "properties": {
+          "release_id": {"pattern": "^artifact-memory/v[0-9]+\\.[0-9]+\\.[0-9]+-preview$"},
+          "signature": {"properties": {"state": {"const": "unsigned-preview"}, "tag": {"type": "null"}, "public_key_fingerprint": {"type": "null"}, "key_generation": {"type": "null"}, "owner_signed_annotated_tag": {"const": false}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "release"}}},
+      "then": {
+        "properties": {
+          "release_id": {"pattern": "^artifact-memory/v[0-9]+\\.[0-9]+\\.[0-9]+$"},
+          "signature": {"properties": {"state": {"const": "owner-signed"}, "tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"}, "public_key_fingerprint": {"type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{20,}={0,2}$"}, "key_generation": {"type": "string", "minLength": 1}, "owner_signed_annotated_tag": {"const": true}}}
+        }
+      }
+    }
+  ],
+  "required": ["schema_id", "release_id", "status", "source", "surfaces", "compatibility_policy", "artifacts", "checksum_manifest", "signature", "attestations", "authority_boundary", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/release-manifest/v2"},
+    "release_id": {"type": "string", "pattern": "^artifact-memory/v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9.-]+)?$"},
+    "status": {"enum": ["preview", "release"]},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "tree_digest", "tree_digest_profile"],
+      "properties": {
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "tree_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+        "tree_digest_profile": {"const": "sha256-of-git-ls-tree-r-full-tree-v1"}
+      }
+    },
+    "surfaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "schemas", "reference_cli", "adapters", "fixtures"],
+      "properties": {
+        "protocol": {"type": "object", "additionalProperties": false, "required": ["version", "stability"], "properties": {"version": {"const": "v0"}, "stability": {"enum": ["development-preview", "stable"]}}},
+        "schemas": {"type": "object", "additionalProperties": false, "required": ["versioning", "inventory_count", "inventory_digest", "inventory_digest_profile"], "properties": {"versioning": {"const": "independent-schema-id-vN"}, "inventory_count": {"type": "integer", "minimum": 1}, "inventory_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}, "inventory_digest_profile": {"const": "sha256-of-canonical-sorted-schema-id-array-v1"}}},
+        "reference_cli": {"type": "object", "additionalProperties": false, "required": ["package_version", "stability"], "properties": {"package_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:\\.[A-Za-z0-9]+)?$"}, "stability": {"enum": ["development-preview", "stable"]}}},
+        "adapters": {"type": "object", "additionalProperties": false, "required": ["versioning", "manifest_schema"], "properties": {"versioning": {"const": "provider-contract-vN"}, "manifest_schema": {"const": "artifact-memory/adapter-manifest/v1"}, "supported_manifest_schemas": {"anyOf": [{"const": ["artifact-memory/adapter-manifest/v1"]}, {"const": ["artifact-memory/adapter-manifest/v1", "artifact-memory/adapter-manifest/v2"]}]}}},
+        "fixtures": {"type": "object", "additionalProperties": false, "required": ["versioning", "aggregate_schema"], "properties": {"versioning": {"const": "fixture-and-receipt-vN"}, "aggregate_schema": {"const": "artifact-memory/conformance-fixture-receipt/v1"}}}
+      }
+    },
+    "compatibility_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unknown_optional", "unknown_required", "breaking_change", "deprecation_window", "pre_1_0_api_stability"],
+      "properties": {
+        "unknown_optional": {"const": "preserve-without-interpretation"},
+        "unknown_required": {"const": "fail-closed"},
+        "breaking_change": {"const": "new-version-and-explicit-migration-or-rejection-rule"},
+        "deprecation_window": {"const": "at-least-one-minor-release-and-90-days-after-announcement"},
+        "pre_1_0_api_stability": {"const": "implementation-APIs-unstable-contracts-remain-versioned"}
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind", "format", "byte_size", "sha256", "provenance"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+          "kind": {"enum": ["source-archive", "checksum-file", "documentation"]},
+          "format": {"type": "string", "minLength": 1},
+          "byte_size": {"type": "integer", "minimum": 1},
+          "sha256": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+          "provenance": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "checksum_manifest": {"type": "object", "additionalProperties": false, "required": ["artifact_name", "format", "scope"], "properties": {"artifact_name": {"type": "string", "minLength": 1}, "format": {"const": "sha256sum-v1"}, "scope": {"enum": ["all-release-assets-except-checksum-manifest-itself", "all-manifest-listed-artifacts-except-checksum-manifest-itself"]}}},
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "tag", "algorithm", "public_key_fingerprint", "key_generation", "owner_signed_annotated_tag"],
+      "properties": {
+        "state": {"enum": ["unsigned-preview", "owner-signed"]},
+        "tag": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "algorithm": {"const": "ssh-ed25519"},
+        "public_key_fingerprint": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "key_generation": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "owner_signed_annotated_tag": {"type": "boolean"}
+      }
+    },
+    "attestations": {"type": "object", "additionalProperties": false, "required": ["state", "requirement"], "properties": {"state": {"enum": ["deferred-private-incubation", "published"]}, "requirement": {"const": "keyless-build-artifact-attestations-after-public-workflow-review"}}},
+    "authority_boundary": {"const": "release preparation grants no signing, tag, publication, visibility, or deployment authority"},
+    "limitations": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}},
+    "extensions": {"type": "object", "propertyNames": {"pattern": "^https://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~/-]+)?$"}, "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["version", "required", "value"], "properties": {"version": {"type": "string", "pattern": "^v[0-9]+$"}, "required": {"type": "boolean"}, "value": {"type": "object", "additionalProperties": true}}}}
+  }
+}

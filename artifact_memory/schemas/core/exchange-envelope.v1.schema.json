@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/exchange-envelope/v1",
+  "title": "Artifact Memory bounded exchange envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "envelope_id", "audience_ref", "correlation_id", "expires_at", "record_refs", "artifact_refs", "handling", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/exchange-envelope/v1"},
+    "envelope_id": {"type": "string", "pattern": "^exchange://[0-9a-f]{64}$"},
+    "audience_ref": {"type": "string", "minLength": 1},
+    "correlation_id": {"type": "string", "pattern": "^[A-Za-z0-9._~-]+$"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "record_refs": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["record_id", "revision_digest"], "properties": {"record_id": {"type": "string"}, "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}}}},
+    "record_bundle": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+    "artifact_refs": {"type": "array", "items": {"type": "string"}},
+    "handling": {"type": "object", "additionalProperties": false, "required": ["sensitivity", "disclosure"], "properties": {"sensitivity": {"enum": ["public", "private", "restricted"]}, "disclosure": {"enum": ["informational-only", "receiver-policy-required"]}}},
+    "authority_boundary": {"const": "knowledge exchange grants no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schema_id": "artifact-memory/sanitized-custody-attestation/v1",
+  "attester_role": "repository-owner",
+  "attestation_status": "owner-attested/issuer-unverified",
+  "private_evidence_binding": "withheld-owner-controlled",
+  "independent_replay": false,
+  "observed": "2026-08-06",
+  "endpoint": "endpoint://joe-home-proxmox-vault-1",
+  "custody_claim": "off-machine-not-geographically-off-site",
+  "transport_profile": "encrypted restic through the restricted SFTP fallback",
+  "backup_input": "explicit private-vault and knowledge-store allowlist",
+  "remote_write": "one non-empty snapshot completed",
+  "repository_verification": "every stored data blob was read without error",
+  "restore": "the exact remote snapshot restored into a new isolated target",
+  "restored_verification": "ten allowlisted source files matched the private manifest; four canonical artifact/version records validated; two content objects matched their digests; the restored Git bundle verified",
+  "storage_boundary": "ZFS-backed repository with a separately controlled weekly snapshot timer and bounded retention; a manual server-controlled post-write snapshot succeeded after the first remote backup",
+  "recovery_cadence": "monthly restic integrity verification and quarterly isolated restore rehearsal",
+  "private_material_committed": false
+}

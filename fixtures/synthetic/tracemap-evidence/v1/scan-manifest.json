@@ -1,0 +1,15 @@
+{
+  "scanId": "scan-synthetic-orders-v1",
+  "repoName": "SyntheticOrders",
+  "remoteUrl": null,
+  "branch": null,
+  "commitSha": "1111111111111111111111111111111111111111",
+  "scannerVersion": "tracemap-synthetic-fixture-v1",
+  "scannedAt": "2026-07-30T00:00:00Z",
+  "analysisLevel": "Level1SemanticAnalysis",
+  "buildStatus": "Succeeded",
+  "projects": ["SyntheticOrders.csproj"],
+  "targetFrameworks": ["net10.0"],
+  "knownGaps": ["synthetic fixture does not prove runtime behavior"],
+  "extractorVersions": {"CSharpSemanticExtractor": "csharp-semantic/synthetic-v1"}
+}

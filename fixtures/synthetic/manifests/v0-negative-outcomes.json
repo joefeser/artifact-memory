@@ -1,0 +1,7 @@
+{
+  "vector_id": "artifact-memory/manifest-vector/v0-negative-outcomes",
+  "collision": {"paths": ["Readme.txt", "README.TXT"], "expected_outcome": "partial", "expected_code": "collision"},
+  "unsupported": {"kind": "symlink", "expected_outcome": "partial", "expected_code": "unsupported"},
+  "unreadable": {"path": "secret.txt", "expected_outcome": "partial", "expected_code": "unreadable"},
+  "synthetic_only": true
+}

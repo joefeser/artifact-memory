@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/manifest/v1",
+  "title": "Artifact Memory normalized manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "manifest_id", "policy_ref", "comparison_profile", "completeness", "entries", "tree_digest"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/manifest/v1"},
+    "manifest_id": {"type": "string", "pattern": "^manifest://[0-9a-f]{64}$"},
+    "policy_ref": {"type": "string", "pattern": "^scan-policy://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+    "comparison_profile": {"const": "v0-case-sensitive-unicode-codepoint"},
+    "completeness": {"type": "string", "enum": ["complete", "partial", "failed", "cancelled"]},
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "kind"],
+        "allOf": [
+          {"if": {"properties": {"kind": {"const": "file"}}}, "then": {"required": ["byte_size", "content_digest"]}},
+          {"if": {"properties": {"kind": {"const": "directory"}}}, "then": {"not": {"anyOf": [{"required": ["byte_size"]}, {"required": ["content_digest"]}]}}}
+        ],
+        "properties": {
+          "path": {"type": "string", "pattern": "^(?!/)(?!(?:.*/)?(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm](?:[1-9]|[¹²³])|[Ll][Pp][Tt](?:[1-9]|[¹²³]))(?:\\.[^/]*|/|$))(?!.*//)(?!.*[. ](?:/|$))(?!.*\\\\)(?!.*[<>:\\x22|?*])(?!.*[\\u0000-\\u001F\\u007F]).+$"},
+          "kind": {"enum": ["file", "directory"]},
+          "byte_size": {"type": "integer", "minimum": 0},
+          "content_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "tree_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "extensions": {"type": "object", "additionalProperties": true}
+  }
+}

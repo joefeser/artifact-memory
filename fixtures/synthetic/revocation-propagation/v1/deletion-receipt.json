@@ -1,0 +1,14 @@
+{
+  "destructive_execution_authorization": "separate-owner-or-legal-authorization-required",
+  "endpoint_ref": "endpoint://synthetic/active-vault",
+  "evidence_refs": ["projection-receipt://synthetic/revocation"],
+  "global_erasure_claim": false,
+  "limitations": ["absence from one endpoint does not prove global erasure", "unknown or unmanaged replicas are outside this receipt"],
+  "managed_scope": true,
+  "observed_at": "2026-08-04T00:00:00Z",
+  "outcome": "removed-observed",
+  "receipt_id": "deletion-receipt://reference-cli/11c0c362c2d0ff5dd71abf957773833b2f93d0c2034dea8e2e9ff1fed5a2e582",
+  "schema_id": "artifact-memory/deletion-receipt/v2",
+  "scope": "active-vault",
+  "target_ref": "record://synthetic/record-0001"
+}

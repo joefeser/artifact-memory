@@ -1,0 +1,12 @@
+{
+  "schema_id": "artifact-memory/adapter-manifest/v2",
+  "adapter_id": "adapter://synthetic/malformed-extension",
+  "adapter_version": "v1.0",
+  "supported_contract_versions": ["artifact-memory/knowledge-record/v1"],
+  "capabilities": {"filesystem": "none", "network": "none", "credentials": "none", "mutation": "none", "read_capabilities": []},
+  "input_schema_refs": ["artifact-memory/knowledge-record/v1"],
+  "output_schema_refs": ["artifact-memory/adapter-receipt/v1"],
+  "determinism": "deterministic",
+  "record_contents_authorize_execution": false,
+  "extensions": {"https://example.invalid/extensions/malformed": {"required": false, "value": {"synthetic": true}}}
+}

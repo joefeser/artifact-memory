@@ -1,0 +1,15 @@
+{
+  "schema_id": "artifact-memory/scan-conformance-vectors/v1",
+  "synthetic": true,
+  "started_at": "2099-01-01T00:00:00Z",
+  "ended_at": "2099-01-01T00:00:01Z",
+  "cases": [
+    {"id": "complete-file", "observation": "file", "relative_path": "public.txt", "byte_size": 9, "content_digest": "sha-256:10c3e56fe6c9d9d3ff6a9f6f9af962e3c35dbd48e1df27e6ec9cf1f6723c69a1", "expected_outcome": "complete"},
+    {"id": "declared-exclusion", "observation": "excluded", "relative_path": "private", "exclusion_prefixes": ["private"], "expected_outcome": "complete"},
+    {"id": "inaccessible-entry", "observation": "file-failure", "relative_path": "unreadable.txt", "failure_code": "unreadable", "expected_outcome": "partial"},
+    {"id": "changing-file", "observation": "file-failure", "relative_path": "changing.txt", "failure_code": "unstable", "expected_outcome": "partial"},
+    {"id": "byte-budget", "observation": "file-failure", "relative_path": "oversized.bin", "failure_code": "resource-limit", "expected_outcome": "partial"},
+    {"id": "unavailable-root", "observation": "root-failure", "failure_code": "unreadable", "expected_outcome": "failed"},
+    {"id": "caller-cancelled", "observation": "cancelled", "expected_outcome": "cancelled"}
+  ]
+}

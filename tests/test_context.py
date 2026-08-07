@@ -1,0 +1,298 @@
+import json
+import unittest
+from pathlib import Path
+
+from artifact_memory.context import AUTHORITY_BOUNDARY, ContextFailure, export_context
+from artifact_memory.independent_context_reader import ContextReaderFailure, recall_context
+from artifact_memory.validator import ValidationFailure, validate
+
+
+ROOT = Path(__file__).resolve().parents[1]
+FIXTURE = ROOT / "fixtures" / "synthetic" / "contracts" / "v0-valid-record.json"
+SELECTED_AT = "2026-07-30T00:00:00Z"
+
+
+def current(*record_ids):
+    return {
+        record_id: {"status": "current", "assessed_at": SELECTED_AT, "basis": "synthetic-fixture"}
+        for record_id in record_ids
+    }
+
+
+def repack(pack):
+    import hashlib
+
+    body = {key: value for key, value in pack.items() if key != "pack_id"}
+    canonical = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    return {**body, "pack_id": "context-pack://" + hashlib.sha256(canonical).hexdigest()}
+
+
+class ContextTests(unittest.TestCase):
+    def test_pack_is_authorized_bounded_reference_only_and_schema_valid(self):
+        public = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        private = dict(public)
+        private["record_id"] = "record://synthetic/private-0001"
+        private["sensitivity"] = "private"
+        public["relationships"] = [{"type": "supported-by-external-evidence", "target_ref": "external-evidence-binding://synthetic/status"}]
+        evidence = [{"provider_id": "tracemap", "provider_schema_id": "https://tracemap.tools/contracts/code-fact.v1.schema.json", "provider_record_id": "fact-synthetic-status-access", "binding_ref": "external-evidence-binding://synthetic/status", "evidence_packet_ref": "artifact-version://tracemap/evidence/" + "a" * 64 + "/1", "adapter_receipt_digest": "sha-256:" + "b" * 64, "integrity_state": "integrity-verified / issuer-unverified", "rule_id": "csharp.semantic.propertyaccess.v1", "evidence_tier": "Tier1Semantic", "coverage": {"analysis_level": "Level1SemanticAnalysis", "build_status": "Succeeded", "known_gaps": []}, "limitations": ["static evidence only"]}]
+        record_ids = [public["record_id"], private["record_id"]]
+        pack = export_context(
+            [private, public],
+            evidence,
+            authorized_record_ids=record_ids,
+            authorized_evidence=[("tracemap", "fact-synthetic-status-access")],
+            freshness_by_record=current(*record_ids),
+            selected_at=SELECTED_AT,
+        )
+        schema = json.loads((ROOT / "artifact_memory/schemas/core/context-pack.v2.schema.json").read_text(encoding="utf-8"))
+        validate(pack, schema)
+        self.assertEqual(pack["authority_boundary"], AUTHORITY_BOUNDARY)
+        self.assertEqual(pack["selection_receipt"]["exclusion_counts"]["sensitivity"], 1)
+        self.assertNotIn(private["record_id"], json.dumps(pack))
+        self.assertEqual(pack["external_evidence"][0]["provider_id"], "tracemap")
+        self.assertEqual(pack["external_evidence"][0]["coverage_details"]["build_status"], "Succeeded")
+        self.assertNotIn("facts", json.dumps(pack))
+
+    def test_authorization_and_freshness_fail_closed(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_id = record["record_id"]
+        unauthorized = export_context(
+            [record], authorized_record_ids=[], freshness_by_record={}, selected_at=SELECTED_AT
+        )
+        self.assertEqual(unauthorized["records"], [])
+        self.assertEqual(unauthorized["selection_receipt"]["exclusion_counts"]["not-authorized"], 1)
+        stale = export_context(
+            [record],
+            authorized_record_ids=[record_id],
+            freshness_by_record={record_id: {"status": "stale", "assessed_at": SELECTED_AT, "basis": "synthetic-fixture"}},
+            selected_at=SELECTED_AT,
+        )
+        self.assertEqual(stale["records"], [])
+        self.assertEqual(stale["selection_receipt"]["exclusion_counts"]["freshness"], 1)
+
+    def test_size_bound_is_explicit_and_rejects_boolean(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_id = record["record_id"]
+        kwargs = {"authorized_record_ids": [record_id], "freshness_by_record": current(record_id), "selected_at": SELECTED_AT}
+        with self.assertRaisesRegex(ContextFailure, "exceeds"):
+            export_context([record], max_bytes=32, **kwargs)
+        with self.assertRaises(ContextFailure) as raised:
+            export_context([record], max_bytes=True, **kwargs)
+        self.assertEqual(raised.exception.code, "size-limit-invalid")
+
+    def test_external_evidence_requires_explicit_authorization(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        evidence = [{"provider_id": "legacy", "provider_schema_id": "legacy/v1", "provider_record_id": "row-1", "binding_ref": "external-evidence-binding://synthetic/legacy", "evidence_packet_ref": "artifact-version://legacy/evidence/1", "adapter_receipt_digest": "sha-256:" + "a" * 64, "integrity_state": "unverified", "coverage": "legacy bounded scan", "limitations": []}]
+        pack = export_context(
+            [record], evidence, authorized_record_ids=[record["record_id"]], freshness_by_record=current(record["record_id"]), selected_at=SELECTED_AT
+        )
+        self.assertEqual(pack["external_evidence"], [])
+
+    def test_malformed_selection_and_evidence_fail_closed(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_id = record["record_id"]
+        kwargs = {"freshness_by_record": current(record_id), "selected_at": SELECTED_AT}
+        with self.assertRaises(ValidationFailure) as record_error:
+            export_context([record, "not-an-object"], authorized_record_ids=[record_id], **kwargs)
+        self.assertEqual(record_error.exception.code, "invalid-input")
+        with self.assertRaises(ContextFailure) as records_error:
+            export_context([record], authorized_record_ids=[[]], **kwargs)
+        self.assertEqual(records_error.exception.code, "selection-policy-invalid")
+        with self.assertRaises(ContextFailure) as evidence_key_error:
+            export_context([record], authorized_record_ids=[record_id], authorized_evidence=[["provider", "row"]], **kwargs)
+        self.assertEqual(evidence_key_error.exception.code, "authorized-evidence-unavailable")
+        malformed = {"provider_id": 1}
+        with self.assertRaises(ContextFailure) as evidence_error:
+            export_context([record], [malformed], authorized_record_ids=[record_id], **kwargs)
+        self.assertEqual(evidence_error.exception.code, "external-evidence-invalid")
+
+    def _assert_extensions_pass_through_uninterpreted(self, record):
+        """export_context never carries `extensions` into the pack; the only observable
+        proof that a value flowed through byte-for-byte and uninterpreted is that the
+        pack's revision_digest matches an independent canonical digest of the exact
+        input record (extensions included), and that independent recall accepts it."""
+        import hashlib
+
+        record_id = record["record_id"]
+        pack = export_context(
+            [record],
+            authorized_record_ids=[record_id],
+            freshness_by_record=current(record_id),
+            selected_at=SELECTED_AT,
+        )
+        self.assertEqual(pack["selection_receipt"]["selected_record_ids"], [record_id])
+        canonical = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        expected_digest = "sha-256:" + hashlib.sha256(canonical).hexdigest()
+        self.assertEqual(pack["records"][0]["revision_digest"], expected_digest)
+        receipt = recall_context(json.dumps(pack, sort_keys=True, separators=(",", ":")).encode())
+        self.assertEqual(receipt["records"][0]["summary"], record["meaning"]["summary"])
+
+    def test_opaque_non_declaration_extensions_export_without_interpretation(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record["extensions"] = {"https://synthetic.example/opaque": ["not-a-declaration-object"]}
+        self._assert_extensions_pass_through_uninterpreted(record)
+
+    def test_incomplete_required_true_dict_is_preserved_not_interpreted(self):
+        """An object like {"required": true} missing version/value is legacy opaque data, not a declaration."""
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record["extensions"] = {"https://synthetic.example/incomplete": {"required": True}}
+        self._assert_extensions_pass_through_uninterpreted(record)
+
+    def test_v1_legacy_record_preserves_non_namespaced_extension_identifier(self):
+        """The legacy knowledge-record/v1 contract preserves an opaque value under a
+        non-namespaced identifier unchanged; this exception does not extend to v2/v3."""
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record["extensions"] = {"local-name": "opaque"}
+        self._assert_extensions_pass_through_uninterpreted(record)
+
+    def test_v2_record_rejects_non_namespaced_extension_identifier(self):
+        """Per docs/contracts/v0-extensions.md, only the legacy v1 contract's opaque
+        exception may skip identifier validation; v2/v3 records must fail closed on
+        a non-namespaced extension identifier even when required_extensions is empty."""
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record["schema_id"] = "artifact-memory/knowledge-record/v2"
+        record["extensions"] = {"local-name": "opaque"}
+        record_id = record["record_id"]
+        with self.assertRaises(ContextFailure) as raised:
+            export_context(
+                [record],
+                authorized_record_ids=[record_id],
+                freshness_by_record=current(record_id),
+                selected_at=SELECTED_AT,
+            )
+        self.assertEqual(raised.exception.code, "invalid-extension-identifier")
+
+    def test_required_extension_negotiation_fails_closed_before_export(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_id = record["record_id"]
+        record["extensions"] = {
+            "https://synthetic.example/extensions/required": {"version": "v1", "required": True, "value": {}}
+        }
+        kwargs = {"authorized_record_ids": [record_id], "freshness_by_record": current(record_id), "selected_at": SELECTED_AT}
+        with self.assertRaises(ContextFailure) as raised:
+            export_context([record], **kwargs)
+        self.assertEqual(raised.exception.code, "required-extension-unsupported")
+        admitted = export_context(
+            [record],
+            supported_required_extensions=[("https://synthetic.example/extensions/required", "v1")],
+            **kwargs,
+        )
+        self.assertEqual(admitted["selection_receipt"]["selected_record_ids"], [record_id])
+
+    def test_malformed_supported_required_extensions_fails_closed_without_any_declaration(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_id = record["record_id"]
+        kwargs = {"authorized_record_ids": [record_id], "freshness_by_record": current(record_id), "selected_at": SELECTED_AT}
+        with self.assertRaises(ContextFailure) as raised:
+            export_context([record], supported_required_extensions="not-a-valid-iterable-of-pairs", **kwargs)
+        self.assertEqual(raised.exception.code, "invalid-supported-required")
+
+    def test_non_iterable_supported_required_extensions_fails_closed_not_typeerror(self):
+        """A non-iterable value (None is the documented default; other scalars are not) must
+        raise ContextFailure, never a raw TypeError."""
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_id = record["record_id"]
+        kwargs = {"authorized_record_ids": [record_id], "freshness_by_record": current(record_id), "selected_at": SELECTED_AT}
+        for malformed in (7, 3.5, True):
+            with self.subTest(malformed=malformed):
+                with self.assertRaises(ContextFailure) as raised:
+                    export_context([record], supported_required_extensions=malformed, **kwargs)
+                self.assertEqual(raised.exception.code, "invalid-supported-required")
+        none_result = export_context([record], supported_required_extensions=None, **kwargs)
+        self.assertEqual(none_result["selection_receipt"]["selected_record_ids"], [record_id])
+
+    def test_generator_backed_supported_required_extensions_applies_to_every_record(self):
+        record_one = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_one["record_id"] = "record://synthetic/generator-one"
+        record_two = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_two["record_id"] = "record://synthetic/generator-two"
+        declaration = {"version": "v1", "required": True, "value": {}}
+        record_one["extensions"] = {"https://synthetic.example/extensions/required": declaration}
+        record_two["extensions"] = {"https://synthetic.example/extensions/required": declaration}
+        record_ids = [record_one["record_id"], record_two["record_id"]]
+
+        def supported():
+            yield ("https://synthetic.example/extensions/required", "v1")
+
+        pack = export_context(
+            [record_one, record_two],
+            authorized_record_ids=record_ids,
+            freshness_by_record=current(*record_ids),
+            selected_at=SELECTED_AT,
+            supported_required_extensions=supported(),
+        )
+        self.assertEqual(sorted(pack["selection_receipt"]["selected_record_ids"]), sorted(record_ids))
+
+    def test_independent_reader_recalls_without_authority(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        pack = export_context(
+            [record], authorized_record_ids=[record["record_id"]], freshness_by_record=current(record["record_id"]), selected_at=SELECTED_AT
+        )
+        receipt = recall_context(json.dumps(pack, sort_keys=True, separators=(",", ":")).encode())
+        validate(receipt, json.loads((ROOT / "artifact_memory/schemas/core/context-recall-receipt.v1.schema.json").read_text()))
+        self.assertEqual(receipt["records"][0]["summary"], record["meaning"]["summary"])
+        self.assertEqual(receipt["mutation_authority"], "absent")
+        self.assertEqual(receipt["artifact_retrieval"], "not-attempted/separately-authorized")
+        tampered = dict(pack)
+        tampered["records"] = []
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(tampered).encode())
+
+    def test_independent_reader_rejects_invalid_time_and_evidence_contract(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        relationship = {"type": "supported-by-external-evidence", "target_ref": "binding://synthetic/one"}
+        record["relationships"] = [relationship, relationship]
+        evidence = [{"provider_id": "synthetic", "provider_schema_id": "synthetic/v1", "provider_record_id": "row-1", "binding_ref": "binding://synthetic/one", "evidence_packet_ref": "artifact-version://synthetic/evidence/1", "adapter_receipt_digest": "sha-256:" + "a" * 64, "integrity_state": "unverified", "coverage": "bounded", "limitations": []}]
+        pack = export_context(
+            [record], evidence,
+            authorized_record_ids=[record["record_id"]],
+            authorized_evidence=[("synthetic", "row-1")],
+            freshness_by_record=current(record["record_id"]),
+            selected_at=SELECTED_AT,
+        )
+        self.assertEqual(pack["records"][0]["external_evidence_bindings"], ["binding://synthetic/one"])
+        recall_context(json.dumps(pack).encode())
+        later = json.loads(json.dumps(pack))
+        later["records"][0]["freshness"]["assessed_at"] = "2026-07-31T00:00:00Z"
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(later)).encode())
+        missing = json.loads(json.dumps(pack))
+        del missing["external_evidence"][0]["evidence_packet_ref"]
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(missing)).encode())
+        orphan = json.loads(json.dumps(pack))
+        orphan["external_evidence"][0]["binding_ref"] = "binding://synthetic/orphan"
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(orphan)).encode())
+        duplicate = json.loads(json.dumps(pack))
+        duplicate["external_evidence"].append(duplicate["external_evidence"][0])
+        duplicate["selection_receipt"]["selected_external_evidence"].append(
+            duplicate["selection_receipt"]["selected_external_evidence"][0]
+        )
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(duplicate)).encode())
+        malformed_artifact = json.loads(json.dumps(pack))
+        malformed_artifact["artifact_refs"] = ["artifact://synthetic/invalid ref"]
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(malformed_artifact)).encode())
+        malformed_record_id = json.loads(json.dumps(pack))
+        malformed_record_id["records"][0]["record_id"] = "invalid"
+        malformed_record_id["selection_receipt"]["selected_record_ids"] = ["invalid"]
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(malformed_record_id)).encode())
+        malformed_source_digest = json.loads(json.dumps(pack))
+        malformed_source_digest["selection_receipt"]["source_record_set_digest"] = 1
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(malformed_source_digest)).encode())
+        malformed_revision_digest = json.loads(json.dumps(pack))
+        malformed_revision_digest["records"][0]["revision_digest"] = 1
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(malformed_revision_digest)).encode())
+        malformed_adapter_digest = json.loads(json.dumps(pack))
+        malformed_adapter_digest["external_evidence"][0]["adapter_receipt_digest"] = 1
+        with self.assertRaises(ContextReaderFailure):
+            recall_context(json.dumps(repack(malformed_adapter_digest)).encode())
+
+
+if __name__ == "__main__":
+    unittest.main()

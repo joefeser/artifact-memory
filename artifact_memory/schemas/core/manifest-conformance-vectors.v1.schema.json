@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/manifest-conformance-vectors/v1",
+  "title": "Artifact Memory portable manifest conformance vectors v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "synthetic", "profile", "positive_cases", "negative_cases", "container_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/manifest-conformance-vectors/v1"},
+    "synthetic": {"const": true},
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["comparison", "digest_algorithm", "encoding", "line_terminator", "path_separator", "directory_leaf", "file_leaf"],
+      "properties": {
+        "comparison": {"const": "case-sensitive-unicode-codepoint"},
+        "digest_algorithm": {"const": "sha-256"},
+        "encoding": {"const": "UTF-8"},
+        "line_terminator": {"const": "LF"},
+        "path_separator": {"const": "/"},
+        "directory_leaf": {"const": "directory<TAB>{path}<LF>"},
+        "file_leaf": {"const": "file<TAB>{path}<TAB>{content_digest}<TAB>{byte_size}<LF>"}
+      }
+    },
+    "positive_cases": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["case_id", "expected_tree_digest", "layouts"],
+        "properties": {
+          "case_id": {"type": "string", "minLength": 1},
+          "expected_tree_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+          "layouts": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["platform", "mount_root", "entries"],
+              "properties": {
+                "platform": {"enum": ["linux", "macos", "windows"]},
+                "mount_root": {"type": "string", "minLength": 1},
+                "entries": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["path", "kind"],
+                    "allOf": [
+                      {"if": {"properties": {"kind": {"const": "file"}}}, "then": {"required": ["content_utf8"]}},
+                      {"if": {"properties": {"kind": {"const": "directory"}}}, "then": {"not": {"required": ["content_utf8"]}}}
+                    ],
+                    "properties": {
+                      "path": {"type": "string", "minLength": 1},
+                      "kind": {"enum": ["file", "directory"]},
+                      "content_utf8": {"type": "string"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "negative_cases": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["case_id", "observations", "expected_outcome", "expected_completeness", "expected_code"],
+        "properties": {
+          "case_id": {"type": "string", "minLength": 1},
+          "observations": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["path", "kind"], "properties": {"path": {"type": "string", "minLength": 1}, "kind": {"enum": ["file", "directory", "alternate-data-stream", "hardlink", "sparse-file", "symlink", "extended-attributes", "unreadable"]}}}},
+          "expected_outcome": {"enum": ["collision", "unsupported", "partial"]},
+          "expected_completeness": {"const": "partial"},
+          "expected_code": {"enum": ["collision", "unsupported", "unreadable"]}
+        }
+      }
+    },
+    "container_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["container_utf8", "expected_container_digest", "extracted_tree_case_ref", "expected_extracted_tree_digest"],
+      "properties": {
+        "container_utf8": {"type": "string"},
+        "expected_container_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+        "extracted_tree_case_ref": {"type": "string", "minLength": 1},
+        "expected_extracted_tree_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

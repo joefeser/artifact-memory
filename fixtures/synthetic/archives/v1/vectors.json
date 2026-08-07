@@ -1,0 +1,53 @@
+{
+  "schema_id": "artifact-memory/archive-conformance-vectors/v1",
+  "synthetic": true,
+  "cases": [
+    {
+      "case_id": "safe",
+      "entries": [
+        {"path": "docs/", "kind": "directory"},
+        {"path": "docs/readme.txt", "kind": "file", "content_utf8": "synthetic archive\n"},
+        {"path": "data/order.txt", "kind": "file", "content_utf8": "order: synthetic-001\n"}
+      ],
+      "expected_outcome": "supported",
+      "expected_diagnostic_codes": []
+    },
+    {
+      "case_id": "mixed-malicious",
+      "max_uncompressed_bytes": 32,
+      "entries": [
+        {"path": "safe.txt", "kind": "file", "content_utf8": "safe\n"},
+        {"path": "../escape.txt", "kind": "file", "content_utf8": "synthetic traversal\n"},
+        {"path": "dup.txt", "kind": "file", "content_utf8": "first\n"},
+        {"path": "dup.txt", "kind": "file", "content_utf8": "second\n"},
+        {"path": "Readme.txt", "kind": "file", "content_utf8": "mixed case one\n"},
+        {"path": "README.TXT", "kind": "file", "content_utf8": "mixed case two\n"},
+        {"path": "shortcut", "kind": "link", "content_utf8": "safe.txt"},
+        {"path": "large.bin", "kind": "file", "content_utf8": "0123456789012345678901234567890123456789"}
+      ],
+      "expected_outcome": "partial",
+      "expected_diagnostic_codes": ["path-traversal", "duplicate-entry", "case-collision", "link-entry", "decompression-limit"]
+    },
+    {
+      "case_id": "link-only",
+      "entries": [{"path": "shortcut", "kind": "link", "content_utf8": "target.txt"}],
+      "expected_outcome": "unsupported",
+      "expected_diagnostic_codes": ["link-entry"]
+    },
+    {
+      "case_id": "encrypted-only",
+      "patch": "encrypted-flags",
+      "entries": [{"path": "secret.txt", "kind": "file", "content_utf8": "synthetic encrypted marker\n"}],
+      "expected_outcome": "unsupported",
+      "expected_diagnostic_codes": ["encrypted-entry"]
+    },
+    {
+      "case_id": "corrupt",
+      "patch": "corrupt-payload",
+      "corruption_marker": "CORRUPT-ME-SYNTHETIC",
+      "entries": [{"path": "corrupt.txt", "kind": "file", "content_utf8": "CORRUPT-ME-SYNTHETIC"}],
+      "expected_outcome": "partial",
+      "expected_diagnostic_codes": ["corrupt-entry"]
+    }
+  ]
+}
