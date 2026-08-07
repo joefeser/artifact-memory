@@ -106,6 +106,18 @@ class ContextTests(unittest.TestCase):
             export_context([record], [malformed], authorized_record_ids=[record_id], **kwargs)
         self.assertEqual(evidence_error.exception.code, "external-evidence-invalid")
 
+    def test_opaque_non_declaration_extensions_export_without_interpretation(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_id = record["record_id"]
+        record["extensions"] = {"https://synthetic.example/opaque": ["not-a-declaration-object"]}
+        pack = export_context(
+            [record],
+            authorized_record_ids=[record_id],
+            freshness_by_record=current(record_id),
+            selected_at=SELECTED_AT,
+        )
+        self.assertEqual(pack["selection_receipt"]["selected_record_ids"], [record_id])
+
     def test_required_extension_negotiation_fails_closed_before_export(self):
         record = json.loads(FIXTURE.read_text(encoding="utf-8"))
         record_id = record["record_id"]

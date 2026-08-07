@@ -111,20 +111,20 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "required-extension-unsupported")
             self.assertFalse(output.exists())
 
-    def test_projection_rejects_malformed_non_dict_extension_declarations(self):
+    def test_projection_preserves_opaque_non_declaration_extensions(self):
+        """Unknown optional/opaque extension values must be preserved, not interpreted or rejected."""
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             record = json.loads(FIXTURE.read_text(encoding="utf-8"))
-            record["extensions"] = {"https://synthetic.example/malformed": "not-a-declaration-object"}
-            record_path = root / "malformed.json"
+            record["extensions"] = {"https://synthetic.example/opaque": "not-a-declaration-object"}
+            record_path = root / "opaque.json"
             record_path.write_text(json.dumps(record), encoding="utf-8")
             output = root / "generated"
 
-            with self.assertRaises(ValidationFailure) as raised:
-                project_records([record_path], output)
-
-            self.assertEqual(raised.exception.code, "type-mismatch")
-            self.assertFalse(output.exists())
+            receipt = project_records([record_path], output)
+            ndjson_record = json.loads((output / "records.ndjson").read_text(encoding="utf-8"))
+            self.assertEqual(receipt["outcome"], "complete")
+            self.assertEqual(ndjson_record["extensions"]["https://synthetic.example/opaque"], "not-a-declaration-object")
 
     def test_projection_preserves_unknown_optional_extensions_in_generated_views(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -179,12 +179,16 @@ def export_context(
     record_list = list(records)
     for record in record_list:
         validate(record, knowledge_schema(record))
-        record_extensions = record.get("extensions", {})
-        if record_extensions:
+        required_extensions = {
+            identifier: declaration
+            for identifier, declaration in record.get("extensions", {}).items()
+            if isinstance(declaration, dict) and declaration.get("required") is True
+        }
+        if required_extensions:
             try:
                 preserve_extensions(
                     {"extensions": {}},
-                    {"schema_id": "artifact-memory/extension-bundle/v1", "extensions": record_extensions},
+                    {"schema_id": "artifact-memory/extension-bundle/v1", "extensions": required_extensions},
                     supported_required_extensions,
                 )
             except ExtensionFailure as exc:

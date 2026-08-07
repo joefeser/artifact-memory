@@ -7,5 +7,5 @@
   "artifact_refs": ["artifact://synthetic/order-sample"],
   "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/contracts/v0"}],
   "sensitivity": "public",
-  "extensions": {"https://example.invalid/synthetic/v1": {"version": "v1", "required": false, "value": {"fixture": true}}}
+  "extensions": {"https://example.invalid/synthetic/v1": {"fixture": true}}
 }

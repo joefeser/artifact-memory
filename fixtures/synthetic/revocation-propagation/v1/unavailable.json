@@ -3,12 +3,12 @@
   "authority_boundary": "revocation propagation grants no execution, disclosure, routing, mutation, or erasure authority",
   "diagnostics": [],
   "endpoint_receipt_refs": [],
-  "envelope_ref": "revocation://d9b7b70088826c3b0972cc6a6ce566fff8a1029b5b71edb265977fda61178a68",
+  "envelope_ref": "revocation://80df7741d6409f0a0849f81dca27924a6d7c8e8f5b81adcd603b7e421a35b73e",
   "outcome": "unavailable",
-  "receipt_id": "revocation-receipt://97f4f03dbf7fa9cd8276d6252d484b20bc3a74d19e629a44b4ca5d13854ac003",
+  "receipt_id": "revocation-receipt://5a06defd9a6d2fe3f112e56c77176b262e6322bec956376e1e030ec8e07fe18d",
   "recipient_ref": "agent://synthetic/reader-b",
   "schema_id": "artifact-memory/revocation-receipt/v1",
   "suppression_state": "unknown",
   "target_ref": "record://synthetic/record-0001",
-  "target_revision_digest": "sha-256:6bc932cb1d25d310ac0a7f079ca4fda46dca04a589af9ca403d7091fa3d9910e"
+  "target_revision_digest": "sha-256:9b83d510fb1b119c7ac3e11ecda6778d5df6b2e7eea47b9bd611f3cfb8f29433"
 }
