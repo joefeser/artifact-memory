@@ -15,6 +15,6 @@
     "output_schema_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
     "determinism": {"enum": ["deterministic", "observation-metadata-nondeterministic"]},
     "record_contents_authorize_execution": {"const": false},
-    "extensions": {"type": "object", "additionalProperties": true}
+    "extensions": {"type": "object", "propertyNames": {"pattern": "^https://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~/-]+)?$"}, "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["version", "required", "value"], "properties": {"version": {"type": "string", "pattern": "^v[0-9]+$"}, "required": {"type": "boolean"}, "value": {"type": "object", "additionalProperties": true}}}}
   }
 }

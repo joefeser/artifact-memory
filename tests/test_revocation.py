@@ -87,7 +87,7 @@ class RevocationTests(unittest.TestCase):
             suppression_state="applied",
             endpoint_receipt_refs=["deletion-receipt://synthetic/endpoint-a/" + "b" * 64],
             expected_audience_ref="audience://synthetic/agents",
-            seen_envelope_ids=seen,
+            seen_acknowledgement_keys=seen,
             now=NOW,
         )
         unavailable = acknowledge_revocation(
@@ -116,7 +116,7 @@ class RevocationTests(unittest.TestCase):
             recipient_ref="agent://synthetic/reader-a",
             outcome="acknowledged",
             suppression_state="applied",
-            seen_envelope_ids=seen,
+            seen_acknowledgement_keys=seen,
             now=NOW,
         )
         mismatch = acknowledge_revocation(
@@ -230,16 +230,16 @@ class RevocationTests(unittest.TestCase):
         seen = set()
         first = acknowledge_revocation(
             envelope, recipient_ref="agent://synthetic/reader-a", outcome="acknowledged",
-            suppression_state="applied", seen_envelope_ids=seen, now=NOW,
+            suppression_state="applied", seen_acknowledgement_keys=seen, now=NOW,
         )
         second_recipient = acknowledge_revocation(
             envelope, recipient_ref="agent://synthetic/reader-b", outcome="acknowledged",
-            suppression_state="applied", seen_envelope_ids=seen, now=NOW,
+            suppression_state="applied", seen_acknowledgement_keys=seen, now=NOW,
         )
         self.assertEqual(second_recipient["outcome"], "acknowledged")
         replay = acknowledge_revocation(
             envelope, recipient_ref="agent://synthetic/reader-a", outcome="acknowledged",
-            suppression_state="applied", seen_envelope_ids=seen, now=NOW,
+            suppression_state="applied", seen_acknowledgement_keys=seen, now=NOW,
         )
         self.assertEqual(replay["outcome"], "duplicate")
         aggregate = aggregate_revocation(envelope, [first, second_recipient])

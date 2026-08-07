@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from .canonical import receipt_with_digest
+from .extensions import ExtensionFailure, preserve_extensions
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -27,7 +28,10 @@ def receipt(manifest: Any, outcome: str, diagnostics: list[dict[str, str]] | Non
     return result
 
 
-def validate_manifest(manifest: Any) -> dict[str, Any]:
+def validate_manifest(
+    manifest: Any,
+    supported_required: tuple[tuple[str, str], ...] = (),
+) -> dict[str, Any]:
     """Validate a manifest without interpreting or executing the adapter."""
     manifest_schema = load_schema("adapters", "adapter-manifest.v1.schema.json")
     if (
@@ -55,6 +59,26 @@ def validate_manifest(manifest: Any) -> dict[str, Any]:
                 "code": "manifest-invalid",
                 "detail_code": exc.code,
                 "message": "adapter manifest does not satisfy the public schema",
+                "path": exc.path,
+            }],
+        )
+    try:
+        preserve_extensions(
+            {"extensions": {}},
+            {
+                "schema_id": "artifact-memory/extension-bundle/v1",
+                "extensions": manifest.get("extensions", {}),
+            },
+            supported_required,
+        )
+    except ExtensionFailure as exc:
+        return receipt(
+            manifest,
+            "failed",
+            [{
+                "code": "extension-invalid",
+                "detail_code": exc.code,
+                "message": exc.message,
                 "path": exc.path,
             }],
         )

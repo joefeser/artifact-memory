@@ -146,7 +146,7 @@ def acknowledge_revocation(
     endpoint_receipt_refs: Iterable[str] = (),
     diagnostics: Iterable[dict[str, str]] = (),
     expected_audience_ref: str | None = None,
-    seen_envelope_ids: MutableSet[tuple[str, str]] | None = None,
+    seen_acknowledgement_keys: MutableSet[tuple[str, str]] | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
     """Create one receiver acknowledgement without deleting bytes."""
@@ -162,15 +162,15 @@ def acknowledge_revocation(
     if _now(now) >= _now(envelope["expires_at"]):
         return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="rejected", suppression_state="not-applied", endpoint_receipt_refs=endpoint_receipt_refs, diagnostics=[{"code": "expired", "message": "revocation envelope is expired"}])
     replay_key = (envelope["envelope_id"], recipient_ref)
-    if seen_envelope_ids is not None and replay_key in seen_envelope_ids:
+    if seen_acknowledgement_keys is not None and replay_key in seen_acknowledgement_keys:
         return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="duplicate", suppression_state="not-applicable", endpoint_receipt_refs=endpoint_receipt_refs, diagnostics=[{"code": "replay", "message": "revocation envelope was already acknowledged"}])
     if outcome == "acknowledged" and suppression_state != "applied":
         raise ValidationFailure("suppression-state-invalid", "acknowledged revocation requires applied suppression")
     if outcome in {"unavailable", "rejected", "unsupported"} and suppression_state == "applied":
         raise ValidationFailure("suppression-state-invalid", "unavailable or rejected revocation cannot claim applied suppression")
     receipt = _ack_receipt(envelope, recipient_ref=recipient_ref, outcome=outcome, suppression_state=suppression_state, endpoint_receipt_refs=endpoint_receipt_refs, diagnostics=diagnostics)
-    if seen_envelope_ids is not None and outcome == "acknowledged":
-        seen_envelope_ids.add(replay_key)
+    if seen_acknowledgement_keys is not None and outcome == "acknowledged":
+        seen_acknowledgement_keys.add(replay_key)
     return receipt
 
 

@@ -43,6 +43,24 @@ class AdapterManifestTests(unittest.TestCase):
         self.assertEqual(receipt["diagnostics"][0]["code"], "authority-boundary")
         self.assertEqual(receipt["diagnostics"][0]["path"], "$.record_contents_authorize_execution")
 
+    def test_optional_extensions_are_accepted_and_required_extensions_fail_closed(self):
+        optional = json.loads(
+            (ROOT / "fixtures/synthetic/adapters/v1/optional-extension-manifest.json").read_text(encoding="utf-8")
+        )
+        required = json.loads(
+            (ROOT / "fixtures/synthetic/adapters/v1/unsupported-required-extension-manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(validate_manifest(optional)["outcome"], "succeeded")
+        rejected = validate_manifest(required)
+        self.assertEqual(rejected["outcome"], "failed")
+        self.assertEqual(rejected["diagnostics"][0]["code"], "extension-invalid")
+        self.assertEqual(rejected["diagnostics"][0]["detail_code"], "required-extension-unsupported")
+        admitted = validate_manifest(
+            required,
+            (("https://example.invalid/extensions/required", "v1"),),
+        )
+        self.assertEqual(admitted["outcome"], "succeeded")
+
     def test_schema_invalid_manifests_emit_valid_failure_receipts(self):
         manifest = json.loads((ROOT / "fixtures/synthetic/adapters/v1/independent-reference-manifest.json").read_text(encoding="utf-8"))
         receipt_schema = json.loads((ROOT / "artifact_memory/schemas/adapters/adapter-receipt.v1.schema.json").read_text(encoding="utf-8"))

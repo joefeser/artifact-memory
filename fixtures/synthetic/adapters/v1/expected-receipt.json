@@ -3,7 +3,14 @@
   "claims": [
     "one synthetic reference adapter manifest validates and emits a deterministic success receipt",
     "one manifest that claims record-derived execution authority fails closed with a path-aware receipt",
-    "the TraceMap fixture declares local provider-output read access without network, credential, or mutation authority"
+    "the TraceMap fixture declares local provider-output read access without network, credential, or mutation authority",
+    "unknown optional adapter extensions are preserved while malformed, non-global, and unsupported required declarations fail closed"
+  ],
+  "extension_cases": [
+    {"case_id": "optional-preserved", "diagnostic_code": null, "outcome": "succeeded", "preserved": true},
+    {"case_id": "malformed-rejected", "diagnostic_code": "manifest-invalid", "outcome": "failed", "preserved": false},
+    {"case_id": "unsupported-required-rejected", "diagnostic_code": "extension-invalid", "outcome": "failed", "preserved": false},
+    {"case_id": "invalid-identifier-rejected", "diagnostic_code": "manifest-invalid", "outcome": "failed", "preserved": false}
   ],
   "failure_receipt": {
     "adapter_ref": "adapter://synthetic/reference-reader",
@@ -25,7 +32,7 @@
     "manifest validation does not execute, authorize, install, or load adapter code"
   ],
   "provider_read_adapter_id": "adapter://artifact-memory/tracemap-evidence",
-  "receipt_id": "adapter-manifest-conformance-receipt://1467be44a4934fe61b840d055493cc11885eec43a086c377749c804e43d381d9",
+  "receipt_id": "adapter-manifest-conformance-receipt://3bb0bdd2993650df4df5b3f14eafb5930ec936f5eeb24ba71db6a146fa9de7c6",
   "reference_adapter_id": "adapter://synthetic/reference-reader",
   "schema_id": "artifact-memory/adapter-manifest-conformance-receipt/v1",
   "success_receipt": {

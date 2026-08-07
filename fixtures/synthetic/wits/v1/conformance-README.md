@@ -18,3 +18,7 @@ TraceMap binding, projection kind, and WITS contract anchor without embedding
 platform-dependent generated-index bytes. It proves the
 Artifact Memory process boundary only; it is not evidence of live WITS
 interoperability or authority-safe coordinated use.
+
+`expected-receipt.json` and `receipt.md` are checked machine and human evidence.
+Replay both with `python3 scripts/run_wits_conformance.py --check`; the standard
+conformance command invokes the same check.

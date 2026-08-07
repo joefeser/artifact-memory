@@ -8,5 +8,15 @@
   "output_schema_refs": ["artifact-memory/wits-projection/v2", "artifact-memory/wits-admission-receipt/v2"],
   "determinism": "deterministic",
   "record_contents_authorize_execution": false,
-  "extensions": {"artifact-memory/license-provenance/v1": {"provider_license": "BSL-1.1", "change_date": "2030-01-01", "copied_provider_schema": false}}
+  "extensions": {
+    "https://artifact-memory.dev/extensions/license-provenance": {
+      "version": "v1",
+      "required": false,
+      "value": {
+        "provider_license": "BSL-1.1",
+        "change_date": "2030-01-01",
+        "copied_provider_schema": false
+      }
+    }
+  }
 }

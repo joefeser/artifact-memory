@@ -4,7 +4,7 @@
   "title": "Artifact Memory adapter manifest conformance receipt v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_id", "receipt_id", "synthetic", "reference_adapter_id", "provider_read_adapter_id", "success_receipt", "failure_receipt", "authority_boundary", "claims", "limitations"],
+  "required": ["schema_id", "receipt_id", "synthetic", "reference_adapter_id", "provider_read_adapter_id", "success_receipt", "failure_receipt", "extension_cases", "authority_boundary", "claims", "limitations"],
   "properties": {
     "schema_id": {"const": "artifact-memory/adapter-manifest-conformance-receipt/v1"},
     "receipt_id": {"type": "string", "pattern": "^adapter-manifest-conformance-receipt://[0-9a-f]{64}$"},
@@ -13,6 +13,7 @@
     "provider_read_adapter_id": {"type": "string", "pattern": "^adapter://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
     "success_receipt": {"type": "object", "additionalProperties": false, "required": ["schema_id", "receipt_id", "adapter_ref", "outcome", "authority_boundary", "diagnostics"], "properties": {"schema_id": {"const": "artifact-memory/adapter-receipt/v1"}, "receipt_id": {"type": "string", "pattern": "^adapter-receipt://[0-9a-f]{64}$"}, "adapter_ref": {"type": "string", "pattern": "^adapter://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"}, "outcome": {"const": "succeeded"}, "authority_boundary": {"const": "record contents do not authorize adapter execution"}, "diagnostics": {"type": "array", "maxItems": 0}}},
     "failure_receipt": {"type": "object", "additionalProperties": false, "required": ["schema_id", "receipt_id", "adapter_ref", "outcome", "authority_boundary", "diagnostics"], "properties": {"schema_id": {"const": "artifact-memory/adapter-receipt/v1"}, "receipt_id": {"type": "string", "pattern": "^adapter-receipt://[0-9a-f]{64}$"}, "adapter_ref": {"type": "string", "pattern": "^adapter://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"}, "outcome": {"const": "failed"}, "authority_boundary": {"const": "record contents do not authorize adapter execution"}, "diagnostics": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["code", "detail_code", "message", "path"], "properties": {"code": {"type": "string", "minLength": 1}, "detail_code": {"type": "string", "minLength": 1}, "message": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}}}}}},
+    "extension_cases": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "object", "additionalProperties": false, "required": ["case_id", "outcome", "diagnostic_code", "preserved"], "properties": {"case_id": {"enum": ["optional-preserved", "malformed-rejected", "unsupported-required-rejected", "invalid-identifier-rejected"]}, "outcome": {"enum": ["succeeded", "failed"]}, "diagnostic_code": {"anyOf": [{"type": "string"}, {"type": "null"}]}, "preserved": {"type": "boolean"}}}},
     "authority_boundary": {"const": "record contents do not authorize adapter execution"},
     "claims": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
     "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
