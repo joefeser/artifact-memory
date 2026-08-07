@@ -1,6 +1,6 @@
 {
   "artifact_refs": ["artifact://synthetic/order-sample"],
-  "extensions": {"https://example.invalid/synthetic/v1": {"fixture": true}},
+  "extensions": {"https://example.invalid/synthetic/v1": {"required": false, "value": {"fixture": true}, "version": "v1"}},
   "lifecycle": "accepted",
   "meaning": {"labels": ["synthetic", "conformance"], "summary": "Synthetic order content is registered without granting authority."},
   "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/contracts/v0"}],

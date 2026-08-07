@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 from typing import Any, Iterable, Mapping
 
+from .extensions import ExtensionFailure, preserve_extensions
 from .knowledge import knowledge_schema
 from .projection import _canonical
 from .schema_resources import load_schema
@@ -165,6 +166,7 @@ def export_context(
     selected_at: str,
     policy_id: str = "artifact-memory/context-selection/v1",
     revocation_receipts: Iterable[dict[str, Any]] = (),
+    supported_required_extensions: Iterable[tuple[str, str]] = (),
 ) -> dict[str, Any]:
     """Export only explicitly authorized, current records and evidence references."""
     if allowed_sensitivity not in SENSITIVITY_RANK:
@@ -177,6 +179,16 @@ def export_context(
     record_list = list(records)
     for record in record_list:
         validate(record, knowledge_schema(record))
+        record_extensions = record.get("extensions", {})
+        if record_extensions:
+            try:
+                preserve_extensions(
+                    {"extensions": {}},
+                    {"schema_id": "artifact-memory/extension-bundle/v1", "extensions": record_extensions},
+                    supported_required_extensions,
+                )
+            except ExtensionFailure as exc:
+                raise ContextFailure(exc.code, exc.message) from exc
     ordered = sorted(record_list, key=lambda record: record["record_id"])
     record_ids = [record["record_id"] for record in ordered]
     if len(record_ids) != len(set(record_ids)):

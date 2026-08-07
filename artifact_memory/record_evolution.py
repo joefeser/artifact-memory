@@ -192,7 +192,13 @@ def admit_candidate(
     if any(not isinstance(value, str) or not value for value in supported_schema_values):
         raise ValidationFailure("candidate-schema-negotiation-invalid", "supported result schemas must be non-empty strings")
     supported_schemas = set(supported_schema_values)
-    candidate_schema = candidate["candidate_record"]["schema_id"]
+    candidate_record = candidate["candidate_record"]
+    candidate_schema = candidate_record.get("schema_id") if isinstance(candidate_record, dict) else None
+    if not isinstance(candidate_schema, str) or not candidate_schema:
+        return {
+            "record": None,
+            "receipt": _receipt(candidate, outcome="rejected", decision_ref=decision_ref, diagnostics=[{"code": "candidate-record-invalid", "message": "embedded candidate record is not a valid knowledge record"}]),
+        }
     if candidate_schema not in supported_schemas:
         return {
             "record": None,

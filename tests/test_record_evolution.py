@@ -155,6 +155,26 @@ class RecordEvolutionTests(unittest.TestCase):
         self.assertIsNone(result["record"])
         self.assertEqual(result["receipt"]["outcome"], "unsupported")
 
+    def test_empty_embedded_candidate_record_is_rejected_not_a_crash(self):
+        """A schema-valid but empty candidate_record ({}) must not raise KeyError."""
+        from artifact_memory.canonical import canonical_bytes, sha256_bytes
+
+        candidate = copy.deepcopy(json.loads((ROOT / "fixtures/synthetic/record-evolution/v1/candidate.json").read_text(encoding="utf-8")))
+        candidate["candidate_record"] = {}
+        body = {key: value for key, value in candidate.items() if key not in {"candidate_id", "candidate_revision_digest"}}
+        candidate["candidate_revision_digest"] = sha256_bytes(canonical_bytes(body))
+        candidate["candidate_id"] = candidate["candidate_id"].rsplit("/", 1)[0] + "/" + candidate["candidate_revision_digest"].removeprefix("sha-256:")
+        validate(candidate, load_schema("core", "knowledge-candidate.v1.schema.json"))
+        result = admit_candidate(
+            candidate,
+            decision="accepted",
+            decision_ref="decision://synthetic/empty-candidate-record",
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v3"},
+        )
+        self.assertIsNone(result["record"])
+        self.assertEqual(result["receipt"]["outcome"], "rejected")
+        self.assertEqual(result["receipt"]["diagnostics"][0]["code"], "candidate-record-invalid")
+
     def test_result_schema_negotiation_rejects_malformed_inputs(self):
         candidate = json.loads((ROOT / "fixtures/synthetic/record-evolution/v1/candidate.json").read_text(encoding="utf-8"))
         for malformed in ("artifact-memory/knowledge-record/v3", None, 7, [""]):

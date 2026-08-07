@@ -161,17 +161,13 @@ def canonical_records(record_paths: Iterable[Path]) -> list[dict[str, Any]]:
             if not isinstance(record, dict):
                 raise ValidationFailure("invalid-input", "canonical record must be an object")
             validate(record, _knowledge_schema(record))
-            required_extensions = {
-                identifier: declaration
-                for identifier, declaration in record.get("extensions", {}).items()
-                if isinstance(declaration, dict) and declaration.get("required") is True
-            }
-            if required_extensions:
+            record_extensions = record.get("extensions", {})
+            if record_extensions:
                 preserve_extensions(
                     {"extensions": {}},
                     {
                         "schema_id": "artifact-memory/extension-bundle/v1",
-                        "extensions": required_extensions,
+                        "extensions": record_extensions,
                     },
                 )
         except ExtensionFailure as exc:

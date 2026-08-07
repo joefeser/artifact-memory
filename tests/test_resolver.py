@@ -44,6 +44,15 @@ class ResolverTests(unittest.TestCase):
                 with self.assertRaises(ValidationFailure):
                     validate(forged, load_schema("core", "resolution-receipt.v1.schema.json"))
 
+    def test_malformed_relative_path_types_are_unsupported_not_crashing(self):
+        config = [{"endpoint_ref": "endpoint://synthetic/vault", "root": "/tmp/synthetic", "authorized": True}]
+        for relative_path in (None, 123, [], {}, True):
+            with self.subTest(relative_path=relative_path):
+                receipt = resolve(config, "endpoint://synthetic/vault", relative_path)
+                self.assertEqual(receipt["outcome"], "unsupported")
+                self.assertEqual(receipt["relative_path"], "unsupported")
+                validate(receipt, load_schema("core", "resolution-receipt.v1.schema.json"))
+
     def test_single_segment_endpoint_identity_is_valid_resolver_config(self):
         root = Path(__file__).resolve().parents[1]
         schema = json.loads((root / "artifact_memory/schemas/core/resolver-config.v1.schema.json").read_text(encoding="utf-8"))

@@ -106,6 +106,23 @@ class ContextTests(unittest.TestCase):
             export_context([record], [malformed], authorized_record_ids=[record_id], **kwargs)
         self.assertEqual(evidence_error.exception.code, "external-evidence-invalid")
 
+    def test_required_extension_negotiation_fails_closed_before_export(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_id = record["record_id"]
+        record["extensions"] = {
+            "https://synthetic.example/extensions/required": {"version": "v1", "required": True, "value": {}}
+        }
+        kwargs = {"authorized_record_ids": [record_id], "freshness_by_record": current(record_id), "selected_at": SELECTED_AT}
+        with self.assertRaises(ContextFailure) as raised:
+            export_context([record], **kwargs)
+        self.assertEqual(raised.exception.code, "required-extension-unsupported")
+        admitted = export_context(
+            [record],
+            supported_required_extensions=[("https://synthetic.example/extensions/required", "v1")],
+            **kwargs,
+        )
+        self.assertEqual(admitted["selection_receipt"]["selected_record_ids"], [record_id])
+
     def test_independent_reader_recalls_without_authority(self):
         record = json.loads(FIXTURE.read_text(encoding="utf-8"))
         pack = export_context(

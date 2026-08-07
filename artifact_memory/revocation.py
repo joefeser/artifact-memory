@@ -112,7 +112,11 @@ class SQLiteRevocationReplayLedger:
         """Commit once and return the original canonical receipt across restarts."""
         if not isinstance(acknowledgement_key, str) or not acknowledgement_key:
             raise ValidationFailure("revocation-ledger-key-invalid", "revocation replay ledger key is invalid")
-        requested_bytes = canonical_bytes(receipt)
+        validated = _validated_acknowledgement(receipt)
+        envelope_ref, _, recipient_ref = acknowledgement_key.partition("\x00")
+        if not recipient_ref or validated["envelope_ref"] != envelope_ref or validated["recipient_ref"] != recipient_ref:
+            raise ValidationFailure("revocation-ledger-key-invalid", "revocation replay ledger key does not bind the acknowledgement receipt")
+        requested_bytes = canonical_bytes(validated)
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(

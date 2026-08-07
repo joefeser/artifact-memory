@@ -63,8 +63,31 @@ class AdapterManifestTests(unittest.TestCase):
 
     def test_v1_opaque_extensions_remain_readable(self):
         manifest = json.loads((ROOT / "fixtures/synthetic/adapters/v1/tracemap-read-manifest.json").read_text(encoding="utf-8"))
-        manifest["extensions"] = {"artifact-memory/compatibility/v1": ["synthetic"]}
+        manifest["extensions"] = {"https://artifact-memory.dev/extensions/compatibility": {"version": "v1", "required": False, "value": {"note": "synthetic"}}}
         self.assertEqual(validate_manifest(manifest)["outcome"], "succeeded")
+
+    def test_v1_invalid_extensions_fail_closed(self):
+        """v1 manifests must enforce the same fail-closed extension contract as v2."""
+        manifest = json.loads((ROOT / "fixtures/synthetic/adapters/v1/tracemap-read-manifest.json").read_text(encoding="utf-8"))
+        non_namespaced = deepcopy(manifest)
+        non_namespaced["extensions"] = {"artifact-memory/compatibility/v1": ["synthetic"]}
+        rejected = validate_manifest(non_namespaced)
+        self.assertEqual(rejected["outcome"], "failed")
+        self.assertEqual(rejected["diagnostics"][0]["code"], "extension-invalid")
+
+        malformed_shape = deepcopy(manifest)
+        malformed_shape["extensions"] = {"https://artifact-memory.dev/extensions/compatibility": ["not-a-declaration-object"]}
+        rejected_shape = validate_manifest(malformed_shape)
+        self.assertEqual(rejected_shape["outcome"], "failed")
+        self.assertEqual(rejected_shape["diagnostics"][0]["code"], "extension-invalid")
+
+        unsupported_required = deepcopy(manifest)
+        unsupported_required["extensions"] = {
+            "https://artifact-memory.dev/extensions/compatibility": {"version": "v1", "required": True, "value": {}}
+        }
+        rejected_required = validate_manifest(unsupported_required)
+        self.assertEqual(rejected_required["outcome"], "failed")
+        self.assertEqual(rejected_required["diagnostics"][0]["detail_code"], "required-extension-unsupported")
 
     def test_schema_invalid_manifests_emit_valid_failure_receipts(self):
         manifest = json.loads((ROOT / "fixtures/synthetic/adapters/v1/independent-reference-manifest.json").read_text(encoding="utf-8"))

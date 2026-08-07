@@ -75,8 +75,6 @@ def validate_manifest(
                 "path": exc.path,
             }],
         )
-    if schema_id == "artifact-memory/adapter-manifest/v1":
-        return receipt(manifest, "succeeded")
     try:
         preserve_extensions(
             {"extensions": {}},
