@@ -18,8 +18,13 @@ For each case, both sides emit an identical schema-valid v2 admission receipt:
   explicitly declared;
 - repeated identical manifest declarations are deduplicated and admitted;
 - a v1 record's opaque extension remains uninterpreted and is admitted;
-- complete and malformed required-looking v1 declarations fail closed when
-  carried through the v2 admission boundary.
+- a complete required-looking v1 declaration fails closed when carried
+  through the v2 admission boundary and its (identifier, version) is
+  unsupported;
+- an incomplete legacy value that merely resembles a required declaration
+  (missing `version` or `value`) remains opaque per
+  [`docs/contracts/v0-extensions.md`](v0-extensions.md) and is admitted
+  rather than fail-closed.
 
 Artifact retrieval is never attempted and remains separately authorized. The
 independent receiver quarantines incomplete embedded bundles instead of

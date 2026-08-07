@@ -230,6 +230,50 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
         expected_outcome="admitted",
     )
 
+    mixed_record = {
+        **legacy_record,
+        "record_id": "record://synthetic/independent-exchange-mixed",
+        "extensions": {
+            "https://synthetic.example/extensions/legacy-required": {
+                "version": "v1",
+                "required": True,
+                "value": {"behavior": "explicit-support-required"},
+            },
+            "https://synthetic.example/extensions/legacy-opaque": {
+                "required": True,
+                "legacy": "missing-v2-declaration-fields",
+            },
+        },
+    }
+    validate(mixed_record, load_schema("core", "knowledge-record.v1.schema.json"))
+    mixed_envelope = make_envelope_v2(
+        correlation_id="independent-mixed-required-and-legacy",
+        audience_ref=audience_ref,
+        expires_at=vectors["expires_at"],
+        record_refs=[_revision(mixed_record)],
+        artifact_refs=[vectors["artifact_ref"]],
+        record_bundle=[mixed_record],
+    )
+    mixed_support = {
+        (
+            "https://synthetic.example/extensions/legacy-required",
+            "v1",
+        )
+    }
+    mixed_reference, _, mixed_case = _run_case(
+        mixed_envelope,
+        audience_ref=audience_ref,
+        evaluation_time=vectors["evaluation_time"],
+        expected_outcome="admitted",
+        supported_required_extensions=mixed_support,
+    )
+    if mixed_reference["outcome"] != "admitted":
+        raise ValidationFailure(
+            "mixed-extensions-not-admitted",
+            "a bundled record mixing a supported complete required declaration "
+            "with an incomplete legacy opaque value must be admitted",
+        )
+
     body = {
         "outcome": "complete",
         "synthetic": True,
@@ -244,6 +288,7 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
             "legacy_opaque_record_extension": legacy_case,
             "legacy_required_declaration": legacy_declaration_case,
             "legacy_malformed_required_declaration": legacy_malformed_case,
+            "mixed_required_and_legacy_extensions": mixed_case,
         },
         "artifact_retrieval": "not-attempted/separately-authorized",
         "authority_boundary": AUTHORITY_BOUNDARY,
@@ -256,6 +301,7 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
             "a v1 record's opaque extension is preserved without v2 interpretation",
             "a complete required declaration fails closed at the v2 admission boundary when unsupported",
             "an incomplete legacy value that merely contains a required key remains opaque and is admitted",
+            "a bundled record mixing a supported complete required declaration with an incomplete legacy opaque value is admitted, preserving the legacy value unchanged",
             "artifact retrieval remains unattempted and separately authorized",
         ],
         "limitations": [

@@ -29,7 +29,7 @@
     "cases": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["unknown_optional", "unknown_required", "explicitly_supported_required", "identical_manifest_declaration", "legacy_opaque_record_extension", "legacy_required_declaration", "legacy_malformed_required_declaration"],
+      "required": ["unknown_optional", "unknown_required", "explicitly_supported_required", "identical_manifest_declaration", "legacy_opaque_record_extension", "legacy_required_declaration", "legacy_malformed_required_declaration", "mixed_required_and_legacy_extensions"],
       "properties": {
         "unknown_optional": {
           "type": "object",
@@ -104,6 +104,18 @@
           }
         },
         "legacy_malformed_required_declaration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expected_outcome", "observed_outcome", "reference_receipt_ref", "independent_receipt_ref", "receipts_compatible"],
+          "properties": {
+            "expected_outcome": {"const": "admitted"},
+            "observed_outcome": {"const": "admitted"},
+            "reference_receipt_ref": {"type": "string", "pattern": "^admission-receipt://[0-9a-f]{64}$"},
+            "independent_receipt_ref": {"type": "string", "pattern": "^admission-receipt://[0-9a-f]{64}$"},
+            "receipts_compatible": {"const": true}
+          }
+        },
+        "mixed_required_and_legacy_extensions": {
           "type": "object",
           "additionalProperties": false,
           "required": ["expected_outcome", "observed_outcome", "reference_receipt_ref", "independent_receipt_ref", "receipts_compatible"],

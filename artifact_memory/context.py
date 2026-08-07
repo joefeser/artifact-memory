@@ -166,7 +166,7 @@ def export_context(
     selected_at: str,
     policy_id: str = "artifact-memory/context-selection/v1",
     revocation_receipts: Iterable[dict[str, Any]] = (),
-    supported_required_extensions: Iterable[tuple[str, str]] = (),
+    supported_required_extensions: Iterable[tuple[str, str]] | None = (),
 ) -> dict[str, Any]:
     """Export only explicitly authorized, current records and evidence references."""
     if allowed_sensitivity not in SENSITIVITY_RANK:

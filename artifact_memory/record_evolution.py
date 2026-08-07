@@ -210,7 +210,11 @@ def admit_candidate(
     source_revisions = {item["record_id"]: item["revision_digest"] for item in candidate["source_record_refs"]}
     relationships = accepted_record.get("relationships", [])
     if not isinstance(relationships, list) or any(
-        not isinstance(relationship, dict) or "type" not in relationship or "target_ref" not in relationship
+        not isinstance(relationship, dict)
+        or not isinstance(relationship.get("type"), str)
+        or not relationship["type"]
+        or not isinstance(relationship.get("target_ref"), str)
+        or not relationship["target_ref"]
         for relationship in relationships
     ):
         return {
