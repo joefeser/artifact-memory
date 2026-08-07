@@ -34,7 +34,7 @@
   "provider_read_adapter_id": "adapter://artifact-memory/tracemap-evidence",
   "receipt_id": "adapter-manifest-conformance-receipt://3bb0bdd2993650df4df5b3f14eafb5930ec936f5eeb24ba71db6a146fa9de7c6",
   "reference_adapter_id": "adapter://synthetic/reference-reader",
-  "schema_id": "artifact-memory/adapter-manifest-conformance-receipt/v1",
+  "schema_id": "artifact-memory/adapter-manifest-conformance-receipt/v2",
   "success_receipt": {
     "adapter_ref": "adapter://synthetic/reference-reader",
     "authority_boundary": "record contents do not authorize adapter execution",

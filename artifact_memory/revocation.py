@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, MutableSet
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Protocol
 
 from .canonical import canonical_bytes, expected_receipt_id, receipt_with_digest, sha256_bytes
 from .knowledge import knowledge_schema
@@ -15,6 +15,13 @@ from .validator import ValidationFailure, validate
 AUTHORITY_BOUNDARY = "revocation propagation grants no execution, disclosure, routing, mutation, or erasure authority"
 OUTCOMES = {"acknowledged", "duplicate", "rejected", "unsupported", "unavailable", "partially-complete"}
 SUPPRESSION_STATES = {"applied", "not-applied", "not-applicable", "unknown"}
+
+
+class RevocationReplayLedger(Protocol):
+    """Caller-supplied durable ledger with an atomic insert-if-absent claim."""
+
+    def claim(self, acknowledgement_key: str) -> bool:
+        """Return true only when this call atomically claims a new acknowledgement."""
 
 
 def _tombstone_schema_name(schema_id: str) -> str:
@@ -141,12 +148,12 @@ def acknowledge_revocation(
     envelope: dict[str, Any],
     *,
     recipient_ref: str,
+    replay_ledger: RevocationReplayLedger,
     outcome: str,
     suppression_state: str,
     endpoint_receipt_refs: Iterable[str] = (),
     diagnostics: Iterable[dict[str, str]] = (),
     expected_audience_ref: str | None = None,
-    seen_acknowledgement_keys: MutableSet[tuple[str, str]] | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
     """Create one receiver acknowledgement without deleting bytes."""
@@ -161,17 +168,20 @@ def acknowledge_revocation(
         return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="rejected", suppression_state="not-applied", endpoint_receipt_refs=endpoint_receipt_refs, diagnostics=[{"code": "audience-mismatch", "message": "revocation audience does not match this recipient"}])
     if _now(now) >= _now(envelope["expires_at"]):
         return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="rejected", suppression_state="not-applied", endpoint_receipt_refs=endpoint_receipt_refs, diagnostics=[{"code": "expired", "message": "revocation envelope is expired"}])
-    replay_key = (envelope["envelope_id"], recipient_ref)
-    if seen_acknowledgement_keys is not None and replay_key in seen_acknowledgement_keys:
-        return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="duplicate", suppression_state="not-applicable", endpoint_receipt_refs=endpoint_receipt_refs, diagnostics=[{"code": "replay", "message": "revocation envelope was already acknowledged"}])
     if outcome == "acknowledged" and suppression_state != "applied":
         raise ValidationFailure("suppression-state-invalid", "acknowledged revocation requires applied suppression")
     if outcome in {"unavailable", "rejected", "unsupported"} and suppression_state == "applied":
         raise ValidationFailure("suppression-state-invalid", "unavailable or rejected revocation cannot claim applied suppression")
-    receipt = _ack_receipt(envelope, recipient_ref=recipient_ref, outcome=outcome, suppression_state=suppression_state, endpoint_receipt_refs=endpoint_receipt_refs, diagnostics=diagnostics)
-    if seen_acknowledgement_keys is not None and outcome == "acknowledged":
-        seen_acknowledgement_keys.add(replay_key)
-    return receipt
+    replay_key = envelope["envelope_id"] + "\x00" + recipient_ref
+    try:
+        claimed = replay_ledger.claim(replay_key)
+    except Exception:
+        claimed = None
+    if not isinstance(claimed, bool):
+        return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="unavailable", suppression_state="unknown", endpoint_receipt_refs=endpoint_receipt_refs, diagnostics=[{"code": "replay-ledger-unavailable", "message": "the durable atomic replay ledger could not claim the acknowledgement"}])
+    if not claimed:
+        return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="duplicate", suppression_state="not-applicable", endpoint_receipt_refs=endpoint_receipt_refs, diagnostics=[{"code": "replay", "message": "revocation envelope was already acknowledged"}])
+    return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome=outcome, suppression_state=suppression_state, endpoint_receipt_refs=endpoint_receipt_refs, diagnostics=diagnostics)
 
 
 def aggregate_revocation(envelope: dict[str, Any], acknowledgements: Iterable[dict[str, Any]]) -> dict[str, Any]:

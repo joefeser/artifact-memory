@@ -76,7 +76,7 @@ def run_adapter_manifest_conformance(fixture: Path) -> dict[str, Any]:
             "case_id": case_id,
             "outcome": result["outcome"],
             "diagnostic_code": observed_code,
-            "preserved": case_id == "optional-preserved",
+            "preserved": case_id == "optional-preserved" and bool(preserved["extensions"]),
         })
 
     body = {
@@ -99,11 +99,11 @@ def run_adapter_manifest_conformance(fixture: Path) -> dict[str, Any]:
         ],
     }
     result = receipt_with_digest(
-        "artifact-memory/adapter-manifest-conformance-receipt/v1",
+        "artifact-memory/adapter-manifest-conformance-receipt/v2",
         "adapter-manifest-conformance-receipt://",
         body,
     )
-    validate(result, load_schema("adapters", "adapter-manifest-conformance-receipt.v1.schema.json"))
+    validate(result, load_schema("adapters", "adapter-manifest-conformance-receipt.v2.schema.json"))
     return result
 
 

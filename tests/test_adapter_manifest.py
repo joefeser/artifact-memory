@@ -61,6 +61,11 @@ class AdapterManifestTests(unittest.TestCase):
         )
         self.assertEqual(admitted["outcome"], "succeeded")
 
+    def test_v1_opaque_extensions_remain_readable(self):
+        manifest = json.loads((ROOT / "fixtures/synthetic/adapters/v1/tracemap-read-manifest.json").read_text(encoding="utf-8"))
+        manifest["extensions"] = {"artifact-memory/compatibility/v1": ["synthetic"]}
+        self.assertEqual(validate_manifest(manifest)["outcome"], "succeeded")
+
     def test_schema_invalid_manifests_emit_valid_failure_receipts(self):
         manifest = json.loads((ROOT / "fixtures/synthetic/adapters/v1/independent-reference-manifest.json").read_text(encoding="utf-8"))
         receipt_schema = json.loads((ROOT / "artifact_memory/schemas/adapters/adapter-receipt.v1.schema.json").read_text(encoding="utf-8"))

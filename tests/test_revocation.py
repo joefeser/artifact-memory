@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from artifact_memory.context import export_context
+from artifact_memory.conformance_helpers import SyntheticReplayLedger
 from artifact_memory.independent_context_reader import recall_context
 from artifact_memory.projection import project_records
 from artifact_memory.revocation import (
@@ -25,6 +26,9 @@ NOW = "2026-08-04T00:00:00Z"
 
 
 class RevocationTests(unittest.TestCase):
+    def _ledger(self):
+        return SyntheticReplayLedger()
+
     def _record(self):
         return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
@@ -61,6 +65,7 @@ class RevocationTests(unittest.TestCase):
         return acknowledge_revocation(
             envelope,
             recipient_ref=recipient_ref,
+            replay_ledger=self._ledger(),
             outcome="acknowledged",
             suppression_state="applied",
             endpoint_receipt_refs=["deletion-receipt://synthetic/endpoint-a/" + "b" * 64],
@@ -79,20 +84,21 @@ class RevocationTests(unittest.TestCase):
             expires_at="2026-08-05T00:00:00Z",
         )
         validate(envelope, load_schema("core", "revocation-envelope.v1.schema.json"))
-        seen = set()
+        ledger = self._ledger()
         acknowledged = acknowledge_revocation(
             envelope,
             recipient_ref="agent://synthetic/reader-a",
+            replay_ledger=ledger,
             outcome="acknowledged",
             suppression_state="applied",
             endpoint_receipt_refs=["deletion-receipt://synthetic/endpoint-a/" + "b" * 64],
             expected_audience_ref="audience://synthetic/agents",
-            seen_acknowledgement_keys=seen,
             now=NOW,
         )
         unavailable = acknowledge_revocation(
             envelope,
             recipient_ref="agent://synthetic/reader-b",
+            replay_ledger=ledger,
             outcome="unavailable",
             suppression_state="unknown",
             expected_audience_ref="audience://synthetic/agents",
@@ -110,18 +116,20 @@ class RevocationTests(unittest.TestCase):
 
     def test_duplicate_ack_and_audience_mismatch_are_receipted(self):
         envelope = self._envelope("correlation://synthetic/revocation-0002")
-        seen = {(envelope["envelope_id"], "agent://synthetic/reader-a")}
+        ledger = self._ledger()
+        ledger.claim(envelope["envelope_id"] + "\x00agent://synthetic/reader-a")
         duplicate = acknowledge_revocation(
             envelope,
             recipient_ref="agent://synthetic/reader-a",
+            replay_ledger=ledger,
             outcome="acknowledged",
             suppression_state="applied",
-            seen_acknowledgement_keys=seen,
             now=NOW,
         )
         mismatch = acknowledge_revocation(
             envelope,
             recipient_ref="agent://synthetic/reader-b",
+            replay_ledger=ledger,
             outcome="acknowledged",
             suppression_state="applied",
             expected_audience_ref="audience://synthetic/other",
@@ -129,6 +137,32 @@ class RevocationTests(unittest.TestCase):
         )
         self.assertEqual(duplicate["outcome"], "duplicate")
         self.assertEqual(mismatch["outcome"], "rejected")
+
+    def test_replay_ledger_is_required_atomic_and_fails_closed(self):
+        envelope = self._envelope("correlation://synthetic/revocation-ledger")
+
+        class UnavailableLedger:
+            def claim(self, acknowledgement_key):
+                raise OSError("synthetic unavailable ledger")
+
+        unavailable = acknowledge_revocation(
+            envelope,
+            recipient_ref="agent://synthetic/reader-a",
+            replay_ledger=UnavailableLedger(),
+            outcome="acknowledged",
+            suppression_state="applied",
+            now=NOW,
+        )
+        self.assertEqual(unavailable["outcome"], "unavailable")
+        self.assertEqual(unavailable["diagnostics"][0]["code"], "replay-ledger-unavailable")
+        with self.assertRaises(TypeError):
+            acknowledge_revocation(
+                envelope,
+                recipient_ref="agent://synthetic/reader-a",
+                outcome="acknowledged",
+                suppression_state="applied",
+                now=NOW,
+            )
 
     def test_tombstone_suppresses_projection_and_context(self):
         record = self._record()
@@ -192,12 +226,12 @@ class RevocationTests(unittest.TestCase):
             expires_at="2026-08-05T00:00:00Z",
         )
         acknowledged = acknowledge_revocation(
-            envelope, recipient_ref="agent://synthetic/reader-a", outcome="acknowledged",
+            envelope, recipient_ref="agent://synthetic/reader-a", replay_ledger=self._ledger(), outcome="acknowledged",
             suppression_state="applied", endpoint_receipt_refs=["deletion-receipt://synthetic/endpoint-a/" + "b" * 64],
             expected_audience_ref="audience://synthetic/agents", now=NOW,
         )
         unavailable = acknowledge_revocation(
-            envelope, recipient_ref="agent://synthetic/reader-b", outcome="unavailable",
+            envelope, recipient_ref="agent://synthetic/reader-b", replay_ledger=self._ledger(), outcome="unavailable",
             suppression_state="unknown", expected_audience_ref="audience://synthetic/agents", now=NOW,
         )
         self.assertEqual(aggregate_revocation(envelope, [acknowledged, unavailable]), json.loads((REVOCATION_FIXTURE / "expected-receipt.json").read_text(encoding="utf-8")))
@@ -221,25 +255,25 @@ class RevocationTests(unittest.TestCase):
         ]:
             with self.subTest(code=code), self.assertRaises(ValidationFailure) as raised:
                 acknowledge_revocation(
-                    envelope, recipient_ref="agent://synthetic/reader-a", outcome="acknowledged",
+                    envelope, recipient_ref="agent://synthetic/reader-a", replay_ledger=self._ledger(), outcome="acknowledged",
                     suppression_state="applied", endpoint_receipt_refs=endpoint_refs,
                     diagnostics=diagnostics, now=NOW,
                 )
             self.assertEqual(raised.exception.code, code)
 
-        seen = set()
+        ledger = self._ledger()
         first = acknowledge_revocation(
-            envelope, recipient_ref="agent://synthetic/reader-a", outcome="acknowledged",
-            suppression_state="applied", seen_acknowledgement_keys=seen, now=NOW,
+            envelope, recipient_ref="agent://synthetic/reader-a", replay_ledger=ledger, outcome="acknowledged",
+            suppression_state="applied", now=NOW,
         )
         second_recipient = acknowledge_revocation(
-            envelope, recipient_ref="agent://synthetic/reader-b", outcome="acknowledged",
-            suppression_state="applied", seen_acknowledgement_keys=seen, now=NOW,
+            envelope, recipient_ref="agent://synthetic/reader-b", replay_ledger=ledger, outcome="acknowledged",
+            suppression_state="applied", now=NOW,
         )
         self.assertEqual(second_recipient["outcome"], "acknowledged")
         replay = acknowledge_revocation(
-            envelope, recipient_ref="agent://synthetic/reader-a", outcome="acknowledged",
-            suppression_state="applied", seen_acknowledgement_keys=seen, now=NOW,
+            envelope, recipient_ref="agent://synthetic/reader-a", replay_ledger=ledger, outcome="acknowledged",
+            suppression_state="applied", now=NOW,
         )
         self.assertEqual(replay["outcome"], "duplicate")
         aggregate = aggregate_revocation(envelope, [first, second_recipient])
@@ -265,7 +299,7 @@ class RevocationTests(unittest.TestCase):
             expires_at="2026-08-05T00:00:00Z",
         )
         acknowledgement = acknowledge_revocation(
-            envelope, recipient_ref="agent://synthetic/reader-a", outcome="acknowledged",
+            envelope, recipient_ref="agent://synthetic/reader-a", replay_ledger=self._ledger(), outcome="acknowledged",
             suppression_state="applied", now=NOW,
         )
         evidence = [

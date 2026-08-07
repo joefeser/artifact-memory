@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from typing import Any
 
 from .canonical import receipt_with_digest
@@ -30,10 +31,15 @@ def receipt(manifest: Any, outcome: str, diagnostics: list[dict[str, str]] | Non
 
 def validate_manifest(
     manifest: Any,
-    supported_required: tuple[tuple[str, str], ...] = (),
+    supported_required: Iterable[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Validate a manifest without interpreting or executing the adapter."""
-    manifest_schema = load_schema("adapters", "adapter-manifest.v1.schema.json")
+    schema_id = manifest.get("schema_id") if isinstance(manifest, dict) else None
+    schema_name = {
+        "artifact-memory/adapter-manifest/v1": "adapter-manifest.v1.schema.json",
+        "artifact-memory/adapter-manifest/v2": "adapter-manifest.v2.schema.json",
+    }.get(schema_id, "adapter-manifest.v1.schema.json")
+    manifest_schema = load_schema("adapters", schema_name)
     if (
         isinstance(manifest, dict)
         and "record_contents_authorize_execution" in manifest
@@ -62,6 +68,8 @@ def validate_manifest(
                 "path": exc.path,
             }],
         )
+    if schema_id == "artifact-memory/adapter-manifest/v1":
+        return receipt(manifest, "succeeded")
     try:
         preserve_extensions(
             {"extensions": {}},
@@ -69,7 +77,7 @@ def validate_manifest(
                 "schema_id": "artifact-memory/extension-bundle/v1",
                 "extensions": manifest.get("extensions", {}),
             },
-            supported_required,
+            supported_required or (),
         )
     except ExtensionFailure as exc:
         return receipt(
