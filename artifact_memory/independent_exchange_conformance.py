@@ -227,7 +227,7 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
         legacy_malformed_envelope,
         audience_ref=audience_ref,
         evaluation_time=vectors["evaluation_time"],
-        expected_outcome="quarantined",
+        expected_outcome="admitted",
     )
 
     body = {
@@ -254,7 +254,8 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
             "one unknown required extension fails closed and is admitted only after explicit support",
             "identical manifest declarations are deduplicated without changing admission",
             "a v1 record's opaque extension is preserved without v2 interpretation",
-            "v1 required-looking declarations fail closed at the v2 admission boundary",
+            "a complete required declaration fails closed at the v2 admission boundary when unsupported",
+            "an incomplete legacy value that merely contains a required key remains opaque and is admitted",
             "artifact retrieval remains unattempted and separately authorized",
         ],
         "limitations": [

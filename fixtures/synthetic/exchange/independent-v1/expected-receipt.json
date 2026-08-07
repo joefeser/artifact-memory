@@ -17,11 +17,11 @@
       "reference_receipt_ref": "admission-receipt://9c577fc50b0c5ed15a98cc7aafc74418678724f515da45bfe041ed6c35120752"
     },
     "legacy_malformed_required_declaration": {
-      "expected_outcome": "quarantined",
-      "independent_receipt_ref": "admission-receipt://91a7a0b4ccb53c8717fa1808cf95c09cfe50669eb6b447fe08727c00db102570",
-      "observed_outcome": "quarantined",
+      "expected_outcome": "admitted",
+      "independent_receipt_ref": "admission-receipt://9237b54667a663da62ae0b5e1c427a910f1e71529d09f08279e283f13640ef1a",
+      "observed_outcome": "admitted",
       "receipts_compatible": true,
-      "reference_receipt_ref": "admission-receipt://91a7a0b4ccb53c8717fa1808cf95c09cfe50669eb6b447fe08727c00db102570"
+      "reference_receipt_ref": "admission-receipt://9237b54667a663da62ae0b5e1c427a910f1e71529d09f08279e283f13640ef1a"
     },
     "legacy_opaque_record_extension": {
       "expected_outcome": "admitted",
@@ -59,7 +59,8 @@
     "one unknown required extension fails closed and is admitted only after explicit support",
     "identical manifest declarations are deduplicated without changing admission",
     "a v1 record's opaque extension is preserved without v2 interpretation",
-    "v1 required-looking declarations fail closed at the v2 admission boundary",
+    "a complete required declaration fails closed at the v2 admission boundary when unsupported",
+    "an incomplete legacy value that merely contains a required key remains opaque and is admitted",
     "artifact retrieval remains unattempted and separately authorized"
   ],
   "independent_receiver_implementation": "stdlib-only-independent-reader-v2",
@@ -69,7 +70,7 @@
     "compatible informational receipts grant no execution, disclosure, routing, spending, credential, deployment, merge, or mutation authority"
   ],
   "outcome": "complete",
-  "receipt_id": "independent-exchange-conformance-receipt://52c9470e8620a80902d29b1966108758da3f29f62278086900b24f059d549071",
+  "receipt_id": "independent-exchange-conformance-receipt://4621300489e615209adb4aa98a2bced96ee01edd9b8f2d70b79e875938dc6b84",
   "reference_receiver_implementation": "artifact-memory-reference-admission-v2",
   "schema_id": "artifact-memory/independent-exchange-conformance-receipt/v1",
   "sender_implementation": "artifact-memory-reference-sender-v2",

@@ -25,6 +25,8 @@ class ResolverTests(unittest.TestCase):
     def test_noncanonical_and_uri_like_relative_paths_are_unsupported(self):
         config = [{"endpoint_ref": "endpoint://synthetic/vault", "root": "/tmp/synthetic", "authorized": True}]
         for relative_path in (
+            ".",
+            "..",
             "./objects/x",
             "objects//x",
             "objects/./x",

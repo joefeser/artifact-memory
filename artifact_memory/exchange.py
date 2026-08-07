@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from .canonical import canonical_bytes, receipt_with_digest
-from .extensions import ExtensionFailure, preserve_extensions
+from .extensions import ExtensionFailure, is_required_declaration, preserve_extensions
 from .knowledge import knowledge_schema
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
@@ -208,16 +208,18 @@ def _record_revision(
         raise ValidationFailure("unsupported-record", "bundled record schema is unsupported") from exc
     validate(record, schema)
     extensions = record.get("extensions", {})
-    if any(
-        isinstance(declaration, dict) and declaration.get("required") is True
-        for declaration in extensions.values()
-    ):
+    required_extensions = {
+        identifier: declaration
+        for identifier, declaration in extensions.items()
+        if is_required_declaration(identifier, declaration)
+    }
+    if required_extensions:
         try:
             preserve_extensions(
                 {},
                 {
                     "schema_id": "artifact-memory/extension-bundle/v1",
-                    "extensions": extensions,
+                    "extensions": required_extensions,
                 },
                 supported_required_extensions,
             )

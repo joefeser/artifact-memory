@@ -363,6 +363,35 @@ class ExchangeTests(unittest.TestCase):
         )
         self.assertEqual(supported["outcome"], "admitted")
 
+    def test_v2_preserves_incomplete_legacy_required_looking_bundle_extension(self):
+        """A bundled record with a legacy value that merely contains a `required` key
+        but is not a complete {version, required, value} declaration must remain
+        opaque and be admitted, not quarantined for a missing version/value."""
+        record = canonical_record(
+            record_id="record://synthetic/exchange-legacy-malformed",
+            sensitivity="public",
+            extensions={
+                "https://synthetic.example/legacy-required": {
+                    "required": True,
+                    "legacy": "missing-v2-declaration-fields",
+                }
+            },
+        )
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-legacy-malformed-required",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(record)],
+            [],
+            record_bundle=[record],
+        )
+        receipt = admit_v2(
+            envelope,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(receipt["outcome"], "admitted")
+
     def test_v2_preserves_optional_envelope_extensions_unchanged(self):
         identifier = "https://synthetic.example/optional-exchange"
         declaration = {"version": "v1", "required": False, "value": {"opaque": True}}

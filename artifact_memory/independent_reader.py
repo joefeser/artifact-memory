@@ -626,9 +626,15 @@ def admit_bundle_v2(
             if not isinstance(extensions, dict):
                 raise ReaderFailure("record extensions must be an object")
             if any(
-                isinstance(declaration, dict)
+                isinstance(identifier, str)
+                and isinstance(declaration, dict)
+                and set(declaration) == {"version", "required", "value"}
+                and isinstance(declaration.get("version"), str)
+                and re.fullmatch(r"v[0-9]+", declaration["version"]) is not None
                 and declaration.get("required") is True
-                for declaration in extensions.values()
+                and isinstance(declaration.get("value"), dict)
+                and EXTENSION_ID.fullmatch(identifier) is not None
+                for identifier, declaration in extensions.items()
             ):
                 _v2_extensions(extensions, supported)
             else:

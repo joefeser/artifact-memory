@@ -108,8 +108,8 @@
           "additionalProperties": false,
           "required": ["expected_outcome", "observed_outcome", "reference_receipt_ref", "independent_receipt_ref", "receipts_compatible"],
           "properties": {
-            "expected_outcome": {"const": "quarantined"},
-            "observed_outcome": {"const": "quarantined"},
+            "expected_outcome": {"const": "admitted"},
+            "observed_outcome": {"const": "admitted"},
             "reference_receipt_ref": {"type": "string", "pattern": "^admission-receipt://[0-9a-f]{64}$"},
             "independent_receipt_ref": {"type": "string", "pattern": "^admission-receipt://[0-9a-f]{64}$"},
             "receipts_compatible": {"const": true}

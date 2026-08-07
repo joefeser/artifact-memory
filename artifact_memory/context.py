@@ -176,7 +176,11 @@ def export_context(
     _parse_utc(selected_at, "selection-time-invalid", "selection time is not a valid whole-second UTC instant")
     if not isinstance(policy_id, str) or not policy_id:
         raise ContextFailure("selection-policy-invalid", "selection policy identity is required")
-    supported_required_extensions = list(supported_required_extensions)
+    if supported_required_extensions is not None:
+        try:
+            supported_required_extensions = list(supported_required_extensions)
+        except TypeError as exc:
+            raise ContextFailure("invalid-supported-required", "supported required extensions must be iterable") from exc
     try:
         preserve_extensions(
             {"extensions": {}},
@@ -185,6 +189,7 @@ def export_context(
         )
     except ExtensionFailure as exc:
         raise ContextFailure(exc.code, exc.message) from exc
+    supported_required_extensions = supported_required_extensions or ()
     record_list = list(records)
     for record in record_list:
         validate(record, knowledge_schema(record))
