@@ -1,0 +1,4 @@
+valid: False
+outcome: rejected
+diagnostics: [{'code': 'archive-receipt-id-mismatch', 'path': '$.receipt_id', 'message': 'archive receipt identity does not match its canonical body'}]
+schema_id: artifact-memory/archive-receipt/v2

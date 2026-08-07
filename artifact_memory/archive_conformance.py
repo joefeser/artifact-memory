@@ -94,6 +94,15 @@ def run_archive_conformance(vector_path: Path) -> dict[str, Any]:
             raise ValidationFailure("invalid-vector", "archive case patch is unsupported")
         if case.get("patch") == "corrupt-payload" and not isinstance(case.get("corruption_marker"), str):
             raise ValidationFailure("invalid-vector", "corrupt archive cases require a marker")
+        for field in ("max_entries", "max_uncompressed_bytes"):
+            limit = case.get(field)
+            if limit is not None and (
+                not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0
+            ):
+                raise ValidationFailure(
+                    "invalid-vector",
+                    f"archive case {field} must be a positive integer",
+                )
 
     summaries: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as temporary:

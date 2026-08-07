@@ -12,7 +12,7 @@ from typing import Any
 
 from .canonical import receipt_with_digest, sha256_bytes
 from .release import validate_release_manifest
-from .release_metadata import read_package_version, schema_inventory
+from .release_metadata import read_package_version, schema_inventory, supported_adapter_manifest_schemas
 from .schema_resources import load_schema
 from .validator import ValidationFailure, load_json, validate
 
@@ -33,6 +33,17 @@ def _schema_inventory(commit: str) -> tuple[int, str]:
         _git("show", f"{commit}:{path}")
         for path in paths
         if path.endswith(".json")
+    )
+
+
+def _supported_adapter_manifest_schemas(commit: str) -> list[str]:
+    """Re-derive the exact-commit adapter schema claim for canonical comparison."""
+    return supported_adapter_manifest_schemas(
+        lambda: _git(
+            "ls-tree", "-r", "--name-only", commit, "artifact_memory/schemas/adapters"
+        ).decode("utf-8").splitlines(),
+        lambda path: _git("show", f"{commit}:{path}"),
+        error_code_prefix="release",
     )
 
 
@@ -121,6 +132,18 @@ def run_release_conformance(
     schema_count, schema_digest = _schema_inventory(commit)
     if schema_count != manifest["surfaces"]["schemas"]["inventory_count"] or schema_digest != manifest["surfaces"]["schemas"]["inventory_digest"]:
         raise ValidationFailure("release-schema-inventory-mismatch", "schema inventory does not reproduce")
+    reproduced_adapter_schemas = _supported_adapter_manifest_schemas(commit)
+    if manifest["surfaces"]["adapters"]["manifest_schema"] not in reproduced_adapter_schemas:
+        raise ValidationFailure(
+            "release-adapter-schema-claim-mismatch",
+            "manifest primary adapter manifest schema does not match the exact-commit enumeration",
+        )
+    claimed_adapter_schemas = manifest["surfaces"]["adapters"].get("supported_manifest_schemas")
+    if claimed_adapter_schemas is not None and list(claimed_adapter_schemas) != reproduced_adapter_schemas:
+        raise ValidationFailure(
+            "release-adapter-schema-claim-mismatch",
+            "manifest supported adapter manifest schemas do not match the exact-commit enumeration",
+        )
     package_version = read_package_version(_git("show", f"{commit}:pyproject.toml"))
     if package_version != manifest["surfaces"]["reference_cli"]["package_version"]:
         raise ValidationFailure("release-package-version-mismatch", "reference CLI package version does not reproduce")

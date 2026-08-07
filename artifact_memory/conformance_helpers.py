@@ -6,7 +6,7 @@ import threading
 
 
 class SyntheticReplayLedger:
-    """Process-local fixture ledger; production admission requires durability."""
+    """Process-local exchange fixture; never a durable revocation ledger."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()

@@ -463,7 +463,14 @@ def scan_path(root: Path, limits: ScanLimits | None = None, policy: dict[str, An
         casefold_paths[folded] = relative
         entries.append(entry)
     entries.sort(key=lambda entry: entry["path"])
-    outcome = "cancelled" if cancelled else ("failed" if root_failed else ("partial" if incomplete else "complete"))
+    if cancelled:
+        outcome = "cancelled"
+    elif root_failed:
+        outcome = "failed"
+    elif incomplete:
+        outcome = "partial"
+    else:
+        outcome = "complete"
     payload = {"schema_id": "artifact-memory/manifest/v1", "policy_ref": policy["policy_id"], "comparison_profile": "v0-case-sensitive-unicode-codepoint", "completeness": outcome, "entries": entries}
     manifest_ref = _manifest_id(payload)
     manifest = {**payload, "manifest_id": manifest_ref, "tree_digest": _tree_digest(entries)}

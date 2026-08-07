@@ -14,6 +14,26 @@ Unknown optional extensions are preserved without interpretation. Unknown
 required extensions fail closed. A breaking change requires a new version plus
 an explicit migration or rejection rule.
 
+Release manifests retain the legacy `manifest_schema` field and may also list
+`supported_manifest_schemas`. Preview preparation derives that list from the
+exact source commit and advertises a version only when the candidate bytes match
+the runtime's immutable versioned schema contract. A matching filename alone is
+not support evidence. Isolated v1-only and no-adapter commit fixtures prove that
+discovery does not fall back to the running checkout.
+
+The v1 adapter manifest schema remains the release surface's required primary
+contract; a candidate whose exact commit supports only v2 causes preparation
+to fail closed with `release-preparation-adapter-primary-schema-unsupported`.
+This is a permanent rejection for that commit, not a transient or retryable
+failure: the candidate tree must retain the v1 adapter manifest schema
+alongside v2 (v2-only candidates cannot yet publish previews or releases).
+Migrating a v2-only candidate requires restoring the checked-in v1 schema
+file at that exact commit before preparation is retried. Release conformance
+independently re-derives the supported adapter manifest schema set from the
+exact source commit and rejects a manifest whose `manifest_schema` or
+`supported_manifest_schemas` claim does not match that reproduction, even
+when `supported_manifest_schemas` is absent from the manifest.
+
 Once a supported surface is deprecated, Artifact Memory retains it for at
 least one subsequent minor release and 90 days after the public deprecation
 announcement, whichever is later. Security fixes may reject unsafe input

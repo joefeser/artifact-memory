@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 from artifact_memory.canonical import canonical_bytes
 from artifact_memory.vertical_slice import run_vertical_slice
-from artifact_memory.wits_conformance import run_wits_conformance
+from artifact_memory.wits_conformance import render_wits_conformance_receipt, run_wits_conformance
+from artifact_memory.validator import load_json
 from tests.test_tracemap_adapter import (
     COMMIT, CONFIG_DIGEST, RULE_CATALOG_DIGEST, TOOL_COMMIT, materialize_packet,
 )
@@ -40,6 +41,11 @@ class WitsConformanceTests(unittest.TestCase):
                 }
 
             receipt = run_wits_conformance(base, root / "wits", "synthetic-wits-passphrase", synthetic_provider)
+            self.assertEqual(receipt, load_json(ROOT / "fixtures/synthetic/wits/v1/expected-receipt.json"))
+            self.assertEqual(
+                render_wits_conformance_receipt(receipt),
+                (ROOT / "fixtures/synthetic/wits/v1/receipt.md").read_text(encoding="utf-8"),
+            )
             self.assertEqual(receipt["outcome"], "complete")
             self.assertEqual(receipt["fixture_end"], "before_hacp_task_creation_or_execution")
             self.assertEqual(receipt["wits_projection_ref"], response_template["projection_ref"])

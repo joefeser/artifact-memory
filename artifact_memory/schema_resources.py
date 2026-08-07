@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import json
 from importlib.resources import files
 from typing import Any
 
-from .validator import ValidationFailure
+from .validator import ValidationFailure, load_json_bytes
 
 
 def load_schema(category: str, name: str) -> dict[str, Any]:
     resource = files("artifact_memory.schemas").joinpath(category, name)
     try:
-        value = json.loads(resource.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        value = load_json_bytes(resource.read_bytes())
+    except (OSError, ValidationFailure) as exc:
         raise ValidationFailure("invalid-schema", "packaged schema is unavailable or invalid") from exc
     if not isinstance(value, dict):
         raise ValidationFailure("invalid-schema", "packaged schema must be an object")
@@ -38,8 +37,8 @@ def core_schemas() -> dict[str, dict[str, Any]]:
         if not resource.name.endswith(".schema.json"):
             continue
         try:
-            schema = json.loads(resource.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            schema = load_json_bytes(resource.read_bytes())
+        except (OSError, ValidationFailure) as exc:
             raise ValidationFailure("invalid-schema", "packaged schema is unavailable or invalid") from exc
         if not isinstance(schema, dict) or not isinstance(schema.get("properties"), dict):
             raise ValidationFailure("invalid-schema", f"packaged core schema is structurally invalid: {resource.name}")

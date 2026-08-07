@@ -18,7 +18,7 @@ reused without collapsing semantic identities.
 
 Correction is additive. A newer version may explicitly `supersedes` an earlier
 retained version, but it cannot overwrite or erase that target. Same-artifact
-lineage points backward by revision, and ambiguous multiple direct supersessors
+lineage points backward by revision, and ambiguous multiple direct superseders
 fail closed in a bounded supplied history.
 
 Consequences: the minimal `artifact-version/v1` schema remains packaged for

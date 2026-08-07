@@ -90,6 +90,8 @@ def _write_immutable(path: Path, data: bytes) -> str:
 
 
 def register_bytes(vault_root: Path, data: bytes, media_type: str = "application/octet-stream") -> dict[str, Any]:
+    if not isinstance(media_type, str) or not media_type:
+        raise ValueError("media_type must be a non-empty string")
     digest_hex = hashlib.sha256(data).hexdigest()
     digest = "sha-256:" + digest_hex
     target = _object_path(vault_root, digest_hex)
@@ -116,9 +118,21 @@ def register_bytes(vault_root: Path, data: bytes, media_type: str = "application
             diagnostics.append("object-write-failed")
     content_ref = f"content://vault/{digest_hex}"
     artifact_version_ref = f"artifact-version://vault/{digest_hex}/1"
-    body = {"outcome": outcome, "content_ref": content_ref, "artifact_version_ref": artifact_version_ref, "byte_size": len(data), "digest": digest, "authority_boundary": AUTHORITY_BOUNDARY}
-    receipt = receipt_with_digest("artifact-memory/content-registration-receipt/v1", "registration-receipt://", body)
-    return {**receipt, "media_type": media_type, "diagnostics": diagnostics}
+    body = {
+        "outcome": outcome,
+        "content_ref": content_ref,
+        "artifact_version_ref": artifact_version_ref,
+        "byte_size": len(data),
+        "digest": digest,
+        "media_type": media_type,
+        "diagnostics": diagnostics,
+        "authority_boundary": AUTHORITY_BOUNDARY,
+    }
+    return receipt_with_digest(
+        "artifact-memory/content-registration-receipt/v2",
+        "registration-receipt://",
+        body,
+    )
 
 
 def intake_bytes(

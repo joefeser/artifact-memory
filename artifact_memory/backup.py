@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import json
 import os
 import re
 import shutil
@@ -15,10 +14,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .canonical import CHUNK_SIZE, canonical_bytes, receipt_with_digest, sha256_path
+from .validator import ValidationFailure, load_json_bytes
 
 
 AUTHORITY_BOUNDARY = "backup and restore do not grant execution, disclosure, or mutation authority"
 ZERO_DIGEST = "sha-256:" + "0" * 64
+DIGEST_PATTERN = re.compile(r"^sha-256:[0-9a-f]{64}$")
 
 
 _canonical = canonical_bytes
@@ -179,9 +180,23 @@ def create_backup(sources: dict[str, Path], output_dir: Path, passphrase: str, e
     )
 
 
-def restore_isolated(backup_file: Path, target_dir: Path, passphrase: str, backup_ref: str, expected_backup_digest: str | None = None) -> dict[str, Any]:
+def restore_isolated(
+    backup_file: Path,
+    target_dir: Path,
+    passphrase: str,
+    backup_ref: str,
+    expected_backup_digest: str,
+    expected_source_manifest_digest: str,
+) -> dict[str, Any]:
     try:
-        if expected_backup_digest and sha256_path(backup_file) != expected_backup_digest:
+        if (
+            not isinstance(expected_backup_digest, str)
+            or DIGEST_PATTERN.fullmatch(expected_backup_digest) is None
+            or not isinstance(expected_source_manifest_digest, str)
+            or DIGEST_PATTERN.fullmatch(expected_source_manifest_digest) is None
+        ):
+            return _restore_receipt("failed", backup_ref, ZERO_DIGEST, ["expected backup binding is invalid"])
+        if sha256_path(backup_file) != expected_backup_digest:
             return _restore_receipt("failed", backup_ref, ZERO_DIGEST, ["backup ciphertext digest did not match the receipt"])
         if target_dir.exists() and (not target_dir.is_dir() or any(target_dir.iterdir())):
             return _restore_receipt("rejected", backup_ref, ZERO_DIGEST, ["target is not an empty isolated location"])
@@ -220,7 +235,11 @@ def restore_isolated(backup_file: Path, target_dir: Path, passphrase: str, backu
                     except FileExistsError as exc:
                         raise BackupFailure("unsafe-backup-member") from exc
             manifest_path = staging / "backup-manifest.json"
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest_bytes = manifest_path.read_bytes()
+            try:
+                manifest = load_json_bytes(manifest_bytes)
+            except ValidationFailure as exc:
+                raise BackupFailure("backup-manifest-invalid") from exc
             if not isinstance(manifest, dict) or manifest.get("schema_id") != "artifact-memory/backup-manifest/v1" or not isinstance(manifest.get("entries"), list):
                 raise BackupFailure("backup-manifest-invalid")
             expected_paths: set[str] = set()
@@ -256,11 +275,16 @@ def restore_isolated(backup_file: Path, target_dir: Path, passphrase: str, backu
             }
             if actual_paths != expected_paths:
                 raise BackupFailure("backup-manifest-invalid")
-            manifest_digest = _digest_bytes(_canonical(manifest))
+            canonical_manifest = _canonical(manifest)
+            if manifest_bytes != canonical_manifest:
+                raise BackupFailure("backup-manifest-noncanonical")
+            manifest_digest = _digest_bytes(canonical_manifest)
+            if manifest_digest != expected_source_manifest_digest:
+                raise BackupFailure("backup-manifest-digest-mismatch")
             if target_dir.exists():
                 target_dir.rmdir()
             os.replace(staging, target_dir)
-    except (BackupFailure, OSError, ValueError, KeyError, TypeError, json.JSONDecodeError, tarfile.TarError) as exc:
+    except (BackupFailure, OSError, ValueError, KeyError, TypeError, tarfile.TarError) as exc:
         code = exc.code if isinstance(exc, BackupFailure) else "restore-failed"
         return _restore_receipt("failed", backup_ref, ZERO_DIGEST, [code])
     return _restore_receipt("restored", backup_ref, manifest_digest, ["restore does not activate or authorize restored content"])

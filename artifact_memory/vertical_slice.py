@@ -231,6 +231,7 @@ def run_vertical_slice(
         passphrase,
         backup_receipt["backup_ref"],
         backup_receipt["backup_digest"],
+        backup_receipt["source_manifest_digest"],
     )
     if restore_receipt["outcome"] != "restored":
         raise RuntimeError("synthetic isolated restore failed")

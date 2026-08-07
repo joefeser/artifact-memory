@@ -35,6 +35,25 @@ class ReleasePreparationTests(unittest.TestCase):
             check=False,
         )
 
+    def synthetic_repository(self, root: Path, schemas: dict[str, bytes]) -> tuple[Path, str]:
+        repository = root / "repository"
+        repository.mkdir(parents=True)
+        subprocess.run(["git", "init", "--quiet"], cwd=repository, check=True)
+        subprocess.run(["git", "config", "user.name", "Synthetic Fixture"], cwd=repository, check=True)
+        subprocess.run(["git", "config", "user.email", "synthetic@example.invalid"], cwd=repository, check=True)
+        (repository / "pyproject.toml").write_text(
+            '[project]\nname = "artifact-memory"\nversion = "0.1.0.dev0"\n',
+            encoding="utf-8",
+        )
+        schema_root = repository / "artifact_memory/schemas/adapters"
+        for name, content in schemas.items():
+            schema_root.mkdir(parents=True, exist_ok=True)
+            (schema_root / name).write_bytes(content)
+        subprocess.run(["git", "add", "."], cwd=repository, check=True)
+        subprocess.run(["git", "commit", "--quiet", "-m", "Synthetic release tree"], cwd=repository, check=True)
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip()
+        return repository, commit
+
     def test_checked_fixture_pins_prepared_receipt_and_human_rendering(self):
         fixture = ROOT / "fixtures/synthetic/release"
         commit = "45f60d38acaa1026f8428e753efd1c773df88bd3"
@@ -65,6 +84,13 @@ class ReleasePreparationTests(unittest.TestCase):
             self.assertEqual(receipt["signature_state"], "unsigned-preview")
             self.assertEqual(receipt["publication_state"], "not-authorized")
             self.assertEqual(manifest["source"]["commit"], commit)
+            self.assertEqual(
+                manifest["surfaces"]["adapters"]["supported_manifest_schemas"],
+                [
+                    "artifact-memory/adapter-manifest/v1",
+                    "artifact-memory/adapter-manifest/v2",
+                ],
+            )
             self.assertEqual(manifest["signature"]["public_key_fingerprint"], None)
             self.assertEqual(
                 manifest["checksum_manifest"]["scope"],
@@ -80,6 +106,59 @@ class ReleasePreparationTests(unittest.TestCase):
                     "release-preparation-receipt.md",
                 },
             )
+
+    def test_adapter_schema_discovery_uses_the_exact_candidate_tree(self):
+        v1_schema = (ROOT / "artifact_memory/schemas/adapters/adapter-manifest.v1.schema.json").read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, commit = self.synthetic_repository(root / "v1-only", {"adapter-manifest.v1.schema.json": v1_schema})
+            output = root / "v1-preview"
+            prepare_unsigned_release_preview(repository, commit, output)
+            manifest = json.loads((output / "release-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                manifest["surfaces"]["adapters"]["supported_manifest_schemas"],
+                ["artifact-memory/adapter-manifest/v1"],
+            )
+
+            empty_repository, empty_commit = self.synthetic_repository(root / "no-adapters", {})
+            failed_output = root / "missing-preview"
+            with self.assertRaises(ValidationFailure) as missing:
+                prepare_unsigned_release_preview(empty_repository, empty_commit, failed_output)
+            self.assertEqual(missing.exception.code, "release-preparation-adapter-contract-missing")
+            self.assertFalse(failed_output.exists())
+
+    def test_v2_only_candidate_cannot_publish_previews(self):
+        v2_schema = (ROOT / "artifact_memory/schemas/adapters/adapter-manifest.v2.schema.json").read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, commit = self.synthetic_repository(
+                root / "v2-only", {"adapter-manifest.v2.schema.json": v2_schema}
+            )
+            output = root / "v2-preview"
+            with self.assertRaises(ValidationFailure) as unsupported:
+                prepare_unsigned_release_preview(repository, commit, output)
+            self.assertEqual(
+                unsupported.exception.code,
+                "release-preparation-adapter-primary-schema-unsupported",
+            )
+            self.assertFalse(output.exists())
+
+    def test_invalid_candidate_adapter_schema_is_not_advertised(self):
+        schema = json.loads(
+            (ROOT / "artifact_memory/schemas/adapters/adapter-manifest.v1.schema.json").read_text(encoding="utf-8")
+        )
+        schema["$id"] = "https://artifact-memory.dev/schemas/adapters/adapter-manifest/not-v1"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, commit = self.synthetic_repository(
+                root / "invalid-adapter",
+                {"adapter-manifest.v1.schema.json": (json.dumps(schema, sort_keys=True) + "\n").encode("utf-8")},
+            )
+            output = root / "invalid-preview"
+            with self.assertRaises(ValidationFailure) as invalid:
+                prepare_unsigned_release_preview(repository, commit, output)
+            self.assertEqual(invalid.exception.code, "release-preparation-adapter-contract-invalid")
+            self.assertFalse(output.exists())
 
     def test_symbolic_or_nonexact_candidates_and_in_repo_output_fail_closed(self):
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()

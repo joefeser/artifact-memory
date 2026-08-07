@@ -10,18 +10,22 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from artifact_memory.tracemap_adapter import AdapterFailure, INTEGRITY_STATE, _is_link_or_reparse_point, bind_trace_map_evidence, bind_trace_map_evidence_receipted
+from artifact_memory.tracemap_adapter import AdapterFailure, INTEGRITY_STATE, _is_link_or_reparse_point, _load_object, _read_facts, bind_trace_map_evidence, bind_trace_map_evidence_receipted
 from artifact_memory.schema_resources import load_schema
+from artifact_memory.synthetic_tracemap_fixture import (
+    COMMIT,
+    CONFIG_DIGEST,
+    RULE_CATALOG_DIGEST,
+    SOURCE_REF,
+    SYNTHETIC_SQLITE_VERSION,
+    TOOL_COMMIT,
+    materialize_synthetic_packet,
+)
 from artifact_memory.validator import validate
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKET = ROOT / "fixtures" / "synthetic" / "tracemap-evidence" / "v1"
-SOURCE_REF = "artifact-version://synthetic/orders/1"
-COMMIT = "1111111111111111111111111111111111111111"
-TOOL_COMMIT = "2222222222222222222222222222222222222222"
-CONFIG_DIGEST = "sha-256:" + "3" * 64
-RULE_CATALOG_DIGEST = "sha-256:" + "4" * 64
 
 
 def bind(packet: Path, selected_fact_ids: list[str] | None = None) -> dict:
@@ -38,32 +42,34 @@ def bind(packet: Path, selected_fact_ids: list[str] | None = None) -> dict:
 
 
 def materialize_packet(root: Path) -> Path:
-    packet = root / "packet"
-    shutil.copytree(PACKET, packet)
-    (packet / "logs").mkdir(exist_ok=True)
-    (packet / "logs" / "analyzer.log").write_text(
-        "scanId=scan-synthetic-orders-v1\n"
-        "repo=SyntheticOrders\n"
-        f"commitSha={COMMIT}\n"
-        "analysisLevel=Level1SemanticAnalysis\n"
-        "buildStatus=Succeeded\n"
-        "facts=2\n",
-        encoding="utf-8",
-    )
-    connection = sqlite3.connect(packet / "index.sqlite")
-    connection.executescript((packet / "index.sqlite.sql").read_text(encoding="utf-8"))
-    manifest = json.loads((packet / "scan-manifest.json").read_text(encoding="utf-8"))
-    facts = [json.loads(line) for line in (packet / "facts.ndjson").read_text(encoding="utf-8").splitlines()]
-    connection.execute("insert into scan_manifest values (?, ?, ?, ?, ?, ?, ?, ?)", (manifest["scanId"], manifest["repoName"], manifest["commitSha"], manifest["scannerVersion"], manifest["scannedAt"], manifest["analysisLevel"], manifest["buildStatus"], json.dumps(manifest, sort_keys=True)))
-    for fact in facts:
-        evidence = fact["evidence"]
-        connection.execute("insert into facts values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (fact["factId"], fact["scanId"], fact["repo"], fact["commitSha"], fact.get("projectPath"), fact["factType"], fact["ruleId"], fact["evidenceTier"], fact.get("sourceSymbol"), fact.get("targetSymbol"), fact.get("contractElement"), evidence["filePath"], evidence["startLine"], evidence["endLine"], evidence.get("snippetHash"), evidence["extractorId"], evidence["extractorVersion"], json.dumps(fact["properties"], sort_keys=True)))
-    connection.commit()
-    connection.close()
-    return packet
+    return materialize_synthetic_packet(PACKET, root)
 
 
 class TraceMapAdapterTests(unittest.TestCase):
+    def test_synthetic_index_normalizes_writer_version_without_losing_readability(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            packet = materialize_packet(Path(temporary))
+            header = (packet / "index.sqlite").read_bytes()[:100]
+            self.assertEqual(int.from_bytes(header[96:100], "big"), SYNTHETIC_SQLITE_VERSION)
+            connection = sqlite3.connect(f"file:{packet / 'index.sqlite'}?mode=ro", uri=True)
+            try:
+                self.assertEqual(connection.execute("select count(*) from facts").fetchone()[0], 2)
+            finally:
+                connection.close()
+
+    def test_provider_json_duplicate_keys_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = root / "scan-manifest.json"
+            manifest.write_text('{"repoName":"first","repoName":"second"}', encoding="utf-8")
+            facts = root / "facts.ndjson"
+            facts.write_text('{"factId":"first","factId":"second"}\n', encoding="utf-8")
+
+            for loader, path in ((_load_object, manifest), (_read_facts, facts)):
+                with self.subTest(path=path.name), self.assertRaises(AdapterFailure) as raised:
+                    loader(path)
+                self.assertEqual(raised.exception.outcome, "trace-output-invalid")
+
     def test_malformed_selected_fact_ids_are_typed_in_both_apis(self):
         malformed = ["fact-synthetic-status-declaration", 7]
         with tempfile.TemporaryDirectory() as temporary:

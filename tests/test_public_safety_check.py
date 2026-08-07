@@ -517,6 +517,30 @@ class PublicSafetyCandidateReceiptTests(unittest.TestCase):
             self.assertEqual(replay.returncode, 0, replay.stderr)
             self.assertEqual(json.loads(replay.stdout), receipt)
 
+            subdirectory = repo / "subdirectory"
+            subdirectory.mkdir()
+            replay_from_subdirectory = subprocess.run(
+                [
+                    sys.executable,
+                    str(MODULE_PATH),
+                    "--candidate",
+                    candidate,
+                    "--expect-receipt",
+                    str(receipt_path),
+                    "--json",
+                ],
+                cwd=subdirectory,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(
+                replay_from_subdirectory.returncode,
+                0,
+                replay_from_subdirectory.stderr,
+            )
+            self.assertEqual(json.loads(replay_from_subdirectory.stdout), receipt)
+
             tampered_path = root / "tampered-receipt.json"
             tampered = dict(receipt)
             tampered["current_path_count"] = receipt["current_path_count"] + 1

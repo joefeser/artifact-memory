@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/content-registration-receipt/v2",
+  "title": "Artifact Memory content registration receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "content_ref", "artifact_version_ref", "byte_size", "digest", "media_type", "diagnostics", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/content-registration-receipt/v2"},
+    "receipt_id": {"type": "string", "pattern": "^registration-receipt://[0-9a-f]{64}$"},
+    "outcome": {"enum": ["registered", "duplicate", "quarantined", "failed"]},
+    "content_ref": {"type": "string", "pattern": "^content://vault/[0-9a-f]{64}$"},
+    "artifact_version_ref": {"type": "string", "pattern": "^artifact-version://vault/[0-9a-f]{64}/1$"},
+    "byte_size": {"type": "integer", "minimum": 0},
+    "digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "media_type": {"type": "string", "minLength": 1},
+    "diagnostics": {"type": "array", "items": {"type": "string"}},
+    "authority_boundary": {"const": "registration does not grant execution, disclosure, or mutation authority"}
+  }
+}

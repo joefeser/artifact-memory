@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from .canonical import canonical_bytes, sha256_bytes
+from .extensions import ExtensionFailure, preserve_extensions
 from .knowledge import knowledge_schema
 from .schema_resources import load_contract_text, load_schema
 from .validator import ValidationFailure, load_json, validate
@@ -160,6 +161,21 @@ def canonical_records(record_paths: Iterable[Path]) -> list[dict[str, Any]]:
             if not isinstance(record, dict):
                 raise ValidationFailure("invalid-input", "canonical record must be an object")
             validate(record, _knowledge_schema(record))
+            required_extensions = {
+                identifier: declaration
+                for identifier, declaration in record.get("extensions", {}).items()
+                if isinstance(declaration, dict) and declaration.get("required") is True
+            }
+            if required_extensions:
+                preserve_extensions(
+                    {"extensions": {}},
+                    {
+                        "schema_id": "artifact-memory/extension-bundle/v1",
+                        "extensions": required_extensions,
+                    },
+                )
+        except ExtensionFailure as exc:
+            raise ValidationFailure(exc.code, exc.message, exc.path) from exc
         except ValidationFailure as exc:
             raise ValidationFailure("record-rejected", "canonical record failed projection validation") from exc
         records.append(record)

@@ -10,9 +10,10 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .adapter_manifest import SUPPORTED_MANIFEST_SCHEMA_IDS
 from .canonical import receipt_with_digest, sha256_bytes
 from .release import validate_release_manifest
-from .release_metadata import read_package_version, schema_inventory
+from .release_metadata import read_package_version, schema_inventory, supported_adapter_manifest_schemas
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -119,6 +120,33 @@ def _package_version(repository: Path, commit: str) -> str:
     return read_package_version(_git(repository, "show", f"{commit}:pyproject.toml"))
 
 
+def _supported_adapter_manifest_schemas(repository: Path, commit: str) -> list[str]:
+    supported = supported_adapter_manifest_schemas(
+        lambda: _git(
+            repository,
+            "ls-tree",
+            "-r",
+            "--name-only",
+            commit,
+            "artifact_memory/schemas/adapters",
+        ).decode("utf-8").splitlines(),
+        lambda path: _git(repository, "show", f"{commit}:{path}"),
+        error_code_prefix="release-preparation",
+    )
+    if not supported:
+        raise ValidationFailure(
+            "release-preparation-adapter-contract-missing",
+            "release preview source contains no supported adapter manifest schema",
+        )
+    if SUPPORTED_MANIFEST_SCHEMA_IDS[0] not in supported:
+        raise ValidationFailure(
+            "release-preparation-adapter-primary-schema-unsupported",
+            "release preview preparation requires the v1 adapter manifest schema as the "
+            "release surface's primary contract; v2-only candidates cannot yet publish previews",
+        )
+    return supported
+
+
 def _write_exclusive(path: Path, content: bytes) -> None:
     try:
         with path.open("xb") as stream:
@@ -219,6 +247,7 @@ def prepare_unsigned_release_preview(
     tree_digest = sha256_bytes(_git(root, "ls-tree", "-r", "--full-tree", commit))
     schema_count, schema_digest = _schema_inventory(root, commit)
     package_version = _package_version(root, commit)
+    adapter_manifest_schemas = _supported_adapter_manifest_schemas(root, commit)
     manifest = {
         "schema_id": "artifact-memory/release-manifest/v2",
         "release_id": release_id,
@@ -243,6 +272,7 @@ def prepare_unsigned_release_preview(
             "adapters": {
                 "versioning": "provider-contract-vN",
                 "manifest_schema": "artifact-memory/adapter-manifest/v1",
+                "supported_manifest_schemas": adapter_manifest_schemas,
             },
             "fixtures": {
                 "versioning": "fixture-and-receipt-vN",

@@ -297,6 +297,18 @@ class ArchiveTests(unittest.TestCase):
                     run_archive_conformance(vector_path)
                 self.assertEqual(failure.exception.code, "invalid-vector")
 
+    def test_malformed_conformance_limits_are_invalid_vectors(self):
+        vectors = json.loads((FIXTURE / "vectors.json").read_text(encoding="utf-8"))
+        for field, value in (("max_entries", True), ("max_uncompressed_bytes", 0)):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
+                changed = json.loads(json.dumps(vectors))
+                changed["cases"][0][field] = value
+                vector_path = Path(temporary) / "vectors.json"
+                vector_path.write_text(json.dumps(changed), encoding="utf-8")
+                with self.assertRaises(ValidationFailure) as failure:
+                    run_archive_conformance(vector_path)
+                self.assertEqual(failure.exception.code, "invalid-vector")
+
 
 if __name__ == "__main__":
     unittest.main()

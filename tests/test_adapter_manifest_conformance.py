@@ -1,3 +1,4 @@
+import copy
 import json
 import shutil
 import tempfile
@@ -5,7 +6,8 @@ import unittest
 from pathlib import Path
 
 from artifact_memory.adapter_manifest_conformance import render_adapter_manifest_conformance_receipt, run_adapter_manifest_conformance
-from artifact_memory.validator import ValidationFailure
+from artifact_memory.schema_resources import load_schema
+from artifact_memory.validator import ValidationFailure, validate
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +20,26 @@ class AdapterManifestConformanceTests(unittest.TestCase):
         expected = json.loads((FIXTURE / "expected-receipt.json").read_text(encoding="utf-8"))
         self.assertEqual(receipt, expected)
         self.assertEqual(render_adapter_manifest_conformance_receipt(receipt), (FIXTURE / "receipt.md").read_text(encoding="utf-8"))
+
+    def test_extension_evidence_rejects_duplicate_reordered_and_cross_wired_cases(self):
+        receipt = run_adapter_manifest_conformance(FIXTURE)
+        schema = load_schema("adapters", "adapter-manifest-conformance-receipt.v2.schema.json")
+        mutations = []
+        duplicate = copy.deepcopy(receipt)
+        duplicate["extension_cases"][1] = copy.deepcopy(duplicate["extension_cases"][0])
+        mutations.append(duplicate)
+        reordered = copy.deepcopy(receipt)
+        reordered["extension_cases"][0], reordered["extension_cases"][1] = reordered["extension_cases"][1], reordered["extension_cases"][0]
+        mutations.append(reordered)
+        cross_wired = copy.deepcopy(receipt)
+        cross_wired["extension_cases"][0]["preserved"] = False
+        mutations.append(cross_wired)
+        missing = copy.deepcopy(receipt)
+        missing["extension_cases"].pop()
+        mutations.append(missing)
+        for malformed in mutations:
+            with self.assertRaises(ValidationFailure):
+                validate(malformed, schema)
 
     def test_swapped_fixture_roles_fail_closed(self):
         class SwappedFixture:

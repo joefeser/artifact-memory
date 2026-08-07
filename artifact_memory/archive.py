@@ -119,6 +119,26 @@ def _base_receipt(
     return receipt
 
 
+def _failed_receipt(
+    diagnostic: dict[str, Any],
+    *,
+    container_digest: str | None,
+    container_size: int | None,
+    max_entries: int,
+    max_uncompressed_bytes: int,
+) -> dict[str, Any]:
+    return _base_receipt(
+        outcome="failed",
+        container_digest=container_digest,
+        container_size=container_size,
+        max_entries=max_entries,
+        max_uncompressed_bytes=max_uncompressed_bytes,
+        completeness="unavailable",
+        entries=[],
+        diagnostics=[diagnostic],
+    )
+
+
 def validate_archive_receipt(receipt: dict[str, Any]) -> None:
     """Validate schema, receipt identity, and container/tree semantic bindings."""
     if isinstance(receipt, dict) and receipt.get("schema_id") == "artifact-memory/archive-receipt/v1":
@@ -264,15 +284,12 @@ def _inspect_open_zip(
                     }
                 )
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile):
-        return _base_receipt(
-            outcome="failed",
+        return _failed_receipt(
+            _diagnostic("corrupt-container", "archive central directory is invalid"),
             container_digest=container_digest,
             container_size=container_size,
             max_entries=max_entries,
             max_uncompressed_bytes=max_uncompressed_bytes,
-            completeness="unavailable",
-            entries=[],
-            diagnostics=[_diagnostic("corrupt-container", "archive central directory is invalid")],
         )
 
     entries.sort(key=lambda item: item["path"])
@@ -322,26 +339,20 @@ def inspect_zip(
             after_stat = os.fstat(stream.fileno())
             after_size = after_stat.st_size
     except OSError:
-        return _base_receipt(
-            outcome="failed",
+        return _failed_receipt(
+            _diagnostic("container-unavailable", "archive container bytes are unavailable"),
             container_digest=None,
             container_size=None,
             max_entries=max_entries,
             max_uncompressed_bytes=max_uncompressed_bytes,
-            completeness="unavailable",
-            entries=[],
-            diagnostics=[_diagnostic("container-unavailable", "archive container bytes are unavailable")],
         )
     if before_digest != after_digest or before_size != after_size or not os.path.samestat(before_stat, after_stat):
-        return _base_receipt(
-            outcome="failed",
+        return _failed_receipt(
+            _diagnostic("container-changed-during-inspection", "archive container did not remain stable during inspection"),
             container_digest=None,
             container_size=None,
             max_entries=max_entries,
             max_uncompressed_bytes=max_uncompressed_bytes,
-            completeness="unavailable",
-            entries=[],
-            diagnostics=[_diagnostic("container-changed-during-inspection", "archive container did not remain stable during inspection")],
         )
     try:
         with path.open("rb") as named_stream:
@@ -361,14 +372,11 @@ def inspect_zip(
         or not os.path.samestat(before_stat, named_before_stat)
         or not os.path.samestat(named_before_stat, named_after_stat)
     ):
-        return _base_receipt(
-            outcome="failed",
+        return _failed_receipt(
+            _diagnostic("container-changed-during-inspection", "archive container did not remain stable during inspection"),
             container_digest=None,
             container_size=None,
             max_entries=max_entries,
             max_uncompressed_bytes=max_uncompressed_bytes,
-            completeness="unavailable",
-            entries=[],
-            diagnostics=[_diagnostic("container-changed-during-inspection", "archive container did not remain stable during inspection")],
         )
     return receipt

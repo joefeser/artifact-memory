@@ -9,9 +9,13 @@
   "determinism": "deterministic",
   "record_contents_authorize_execution": false,
   "extensions": {
-    "artifact-memory/compatibility/v1": {
-      "legacy_binding_read": "Previously valid v1 bindings remain readable without the additive provider identity and selected-provider-record detail fields; the current writer emits those fields.",
-      "opaque_packet_bytes": "report.md and logs/analyzer.log are availability-checked and content-addressed as opaque bytes; the adapter does not add an encoding requirement."
+    "https://artifact-memory.dev/extensions/compatibility": {
+      "version": "v1",
+      "required": false,
+      "value": {
+        "legacy_binding_read": "Previously valid v1 bindings remain readable without the additive provider identity and selected-provider-record detail fields; the current writer emits those fields.",
+        "opaque_packet_bytes": "report.md and logs/analyzer.log are availability-checked and content-addressed as opaque bytes; the adapter does not add an encoding requirement."
+      }
     }
   }
 }

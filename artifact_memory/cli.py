@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from . import CONTRACT_VERSION, __version__
+from .archive import validate_archive_receipt
 from .codex_history import (
     import_task_export,
     sanitize_private_import_receipt,
@@ -356,6 +357,11 @@ def main(argv: list[str] | None = None) -> int:
             "artifact-memory/release-manifest/v2",
         }:
             validate_release_manifest(record)
+        if schema_id in {
+            "artifact-memory/archive-receipt/v1",
+            "artifact-memory/archive-receipt/v2",
+        }:
+            validate_archive_receipt(record)
     except ValidationFailure as exc:
         result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}
     else:

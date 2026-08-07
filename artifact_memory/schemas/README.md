@@ -50,10 +50,12 @@ reference-sender to stdlib-only receiver fixture. The receipt binds compatible
 v2 admission receipts, optional preservation, required fail-closed behavior,
 and the separately authorized artifact-retrieval boundary.
 
-`adapter-manifest.v1.schema.json`, `adapter-receipt.v1.schema.json`, and
-`adapter-manifest-conformance-receipt.v1.schema.json` define the issue #11
-capability declaration, typed success/failure receipts, and checked synthetic
-evidence. These schemas grant no execution authority or loading behavior.
+`adapter-manifest.v1.schema.json` preserves the legacy opaque-extension reader;
+`adapter-manifest.v2.schema.json` defines strict optional/required extension
+negotiation. `adapter-receipt.v1.schema.json` and the versioned
+`adapter-manifest-conformance-receipt` schemas define typed success/failure
+receipts and checked synthetic evidence for issue #11. These schemas grant no
+execution authority or loading behavior.
 
 `tracemap-adapter-receipt.v1.schema.json` and
 `tracemap-failure-conformance-receipt.v1.schema.json` define the issue #39

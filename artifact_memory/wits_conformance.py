@@ -158,6 +158,7 @@ def run_wits_conformance(
     restore = restore_isolated(
         output_dir / "backup" / "backup.enc", restored, passphrase,
         backup["backup_ref"], backup["backup_digest"],
+        backup["source_manifest_digest"],
     )
     if backup["outcome"] != "created" or restore["outcome"] != "restored":
         raise RuntimeError("WITS fixture backup or isolated restore failed")
@@ -215,3 +216,17 @@ def run_wits_conformance(
     validate(receipt, load_schema("adapters", "wits-conformance-receipt.v1.schema.json"))
     _write(output_dir / "wits-conformance-receipt.json", receipt)
     return receipt
+
+
+def render_wits_conformance_receipt(receipt: dict[str, Any]) -> str:
+    return (
+        "# WITS boundary conformance receipt\n\n"
+        f"- Outcome: `{receipt['outcome']}`\n"
+        f"- WITS projection: `{receipt['wits_projection_ref']}`\n"
+        f"- WITS artifact version: `{receipt['wits_artifact_version_ref']}`\n"
+        f"- Context pack: `{receipt['context_pack_id']}`\n"
+        f"- Backup / restore: `{receipt['backup_outcome']}` / `{receipt['restore_outcome']}`\n"
+        f"- Fixture end: `{receipt['fixture_end']}`\n"
+        f"- Conformance receipt: `{receipt['receipt_id']}`\n\n"
+        f"Authority boundary: {receipt['authority_boundary']}.\n"
+    )
