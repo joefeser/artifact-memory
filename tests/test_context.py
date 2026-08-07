@@ -106,6 +106,85 @@ class ContextTests(unittest.TestCase):
             export_context([record], [malformed], authorized_record_ids=[record_id], **kwargs)
         self.assertEqual(evidence_error.exception.code, "external-evidence-invalid")
 
+    def _assert_extensions_pass_through_uninterpreted(self, record):
+        """export_context never carries `extensions` into the pack; the only observable
+        proof that a value flowed through byte-for-byte and uninterpreted is that the
+        pack's revision_digest matches an independent canonical digest of the exact
+        input record (extensions included), and that independent recall accepts it."""
+        import hashlib
+
+        record_id = record["record_id"]
+        pack = export_context(
+            [record],
+            authorized_record_ids=[record_id],
+            freshness_by_record=current(record_id),
+            selected_at=SELECTED_AT,
+        )
+        self.assertEqual(pack["selection_receipt"]["selected_record_ids"], [record_id])
+        canonical = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        expected_digest = "sha-256:" + hashlib.sha256(canonical).hexdigest()
+        self.assertEqual(pack["records"][0]["revision_digest"], expected_digest)
+        receipt = recall_context(json.dumps(pack, sort_keys=True, separators=(",", ":")).encode())
+        self.assertEqual(receipt["records"][0]["summary"], record["meaning"]["summary"])
+
+    def test_opaque_non_declaration_extensions_export_without_interpretation(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record["extensions"] = {"https://synthetic.example/opaque": ["not-a-declaration-object"]}
+        self._assert_extensions_pass_through_uninterpreted(record)
+
+    def test_incomplete_required_true_dict_is_preserved_not_interpreted(self):
+        """An object like {"required": true} missing version/value is legacy opaque data, not a declaration."""
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record["extensions"] = {"https://synthetic.example/incomplete": {"required": True}}
+        self._assert_extensions_pass_through_uninterpreted(record)
+
+    def test_required_extension_negotiation_fails_closed_before_export(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_id = record["record_id"]
+        record["extensions"] = {
+            "https://synthetic.example/extensions/required": {"version": "v1", "required": True, "value": {}}
+        }
+        kwargs = {"authorized_record_ids": [record_id], "freshness_by_record": current(record_id), "selected_at": SELECTED_AT}
+        with self.assertRaises(ContextFailure) as raised:
+            export_context([record], **kwargs)
+        self.assertEqual(raised.exception.code, "required-extension-unsupported")
+        admitted = export_context(
+            [record],
+            supported_required_extensions=[("https://synthetic.example/extensions/required", "v1")],
+            **kwargs,
+        )
+        self.assertEqual(admitted["selection_receipt"]["selected_record_ids"], [record_id])
+
+    def test_malformed_supported_required_extensions_fails_closed_without_any_declaration(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_id = record["record_id"]
+        kwargs = {"authorized_record_ids": [record_id], "freshness_by_record": current(record_id), "selected_at": SELECTED_AT}
+        with self.assertRaises(ContextFailure) as raised:
+            export_context([record], supported_required_extensions="not-a-valid-iterable-of-pairs", **kwargs)
+        self.assertEqual(raised.exception.code, "invalid-supported-required")
+
+    def test_generator_backed_supported_required_extensions_applies_to_every_record(self):
+        record_one = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_one["record_id"] = "record://synthetic/generator-one"
+        record_two = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_two["record_id"] = "record://synthetic/generator-two"
+        declaration = {"version": "v1", "required": True, "value": {}}
+        record_one["extensions"] = {"https://synthetic.example/extensions/required": declaration}
+        record_two["extensions"] = {"https://synthetic.example/extensions/required": declaration}
+        record_ids = [record_one["record_id"], record_two["record_id"]]
+
+        def supported():
+            yield ("https://synthetic.example/extensions/required", "v1")
+
+        pack = export_context(
+            [record_one, record_two],
+            authorized_record_ids=record_ids,
+            freshness_by_record=current(*record_ids),
+            selected_at=SELECTED_AT,
+            supported_required_extensions=supported(),
+        )
+        self.assertEqual(sorted(pack["selection_receipt"]["selected_record_ids"]), sorted(record_ids))
+
     def test_independent_reader_recalls_without_authority(self):
         record = json.loads(FIXTURE.read_text(encoding="utf-8"))
         pack = export_context(

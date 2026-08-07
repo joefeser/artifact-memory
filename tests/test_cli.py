@@ -192,6 +192,62 @@ class CliTests(unittest.TestCase):
         self.assertEqual(receipt["excluded_record_count"], 0)
         self.assertEqual(receipt["authority_boundary"], "informational-only; no execution, routing, disclosure, or mutation authority")
 
+    def test_context_command_negotiates_required_extensions(self):
+        record = json.loads((FIXTURES / "v0-valid-record.json").read_text(encoding="utf-8"))
+        identifier = "https://synthetic.example/extensions/cli-required"
+        record["extensions"] = {identifier: {"version": "v1", "required": True, "value": {}}}
+        with tempfile.TemporaryDirectory() as temporary:
+            record_path = Path(temporary) / "record.json"
+            record_path.write_text(json.dumps(record), encoding="utf-8")
+            rejected = self.run_cli(
+                "context",
+                str(record_path),
+                "--selected-at",
+                "2026-07-30T00:00:00Z",
+                "--freshness-basis",
+                "synthetic-cli-test",
+                "--json",
+            )
+            self.assertEqual(rejected.returncode, 2)
+            self.assertEqual(json.loads(rejected.stdout)["diagnostics"][0]["code"], "required-extension-unsupported")
+            rejected_human = self.run_cli(
+                "context",
+                str(record_path),
+                "--selected-at",
+                "2026-07-30T00:00:00Z",
+                "--freshness-basis",
+                "synthetic-cli-test",
+            )
+            self.assertEqual(rejected_human.returncode, 2)
+            self.assertIn("required-extension-unsupported", rejected_human.stdout)
+            admitted = self.run_cli(
+                "context",
+                str(record_path),
+                "--selected-at",
+                "2026-07-30T00:00:00Z",
+                "--freshness-basis",
+                "synthetic-cli-test",
+                "--support-required-extension",
+                identifier,
+                "v1",
+                "--json",
+            )
+            self.assertEqual(admitted.returncode, 0, admitted.stderr)
+            self.assertEqual(json.loads(admitted.stdout)["selected_record_count"], 1)
+            admitted_human = self.run_cli(
+                "context",
+                str(record_path),
+                "--selected-at",
+                "2026-07-30T00:00:00Z",
+                "--freshness-basis",
+                "synthetic-cli-test",
+                "--support-required-extension",
+                identifier,
+                "v1",
+            )
+            self.assertEqual(admitted_human.returncode, 0, admitted_human.stderr)
+            self.assertIn("selected_record_count: 1", admitted_human.stdout)
+
     def test_codex_history_import_writes_only_admitted_derivatives(self):
         fixture = ROOT / "fixtures" / "synthetic" / "codex-history" / "v1"
         with tempfile.TemporaryDirectory() as temporary:

@@ -12,17 +12,10 @@ AUTHORITY_BOUNDARY = "local resolution does not bypass local authorization"
 
 def resolve(configs: list[dict[str, Any]], endpoint_ref: str, relative_path: str) -> dict[str, Any]:
     normalized = relative_path
-    path = PurePosixPath(normalized)
-    portable = not (
-        not normalized
-        or "\\" in normalized
-        or "://" in normalized
-        or "?" in normalized
-        or "#" in normalized
-        or path.is_absolute()
-        or ".." in path.parts
-        or path.as_posix() != normalized
-    )
+    portable = isinstance(normalized, str) and bool(normalized) and "\\" not in normalized and "://" not in normalized and "?" not in normalized and "#" not in normalized
+    if portable:
+        path = PurePosixPath(normalized)
+        portable = not (path.is_absolute() or ".." in path.parts or path.as_posix() != normalized)
     base = {
         "schema_id": "artifact-memory/resolution-receipt/v1",
         "endpoint_ref": endpoint_ref,

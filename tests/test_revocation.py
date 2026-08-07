@@ -194,6 +194,23 @@ class RevocationTests(unittest.TestCase):
         self.assertEqual(missing["outcome"], "unavailable")
         self.assertEqual(missing["diagnostics"][0]["code"], "replay-ledger-unavailable")
 
+    def test_retain_validates_and_binds_receipt_before_inserting(self):
+        """A malformed or mismatched receipt must not be persisted, even via direct retain()."""
+        ledger = self._ledger()
+        with self.assertRaises(ValidationFailure):
+            ledger.retain("envelope://x\x00agent://synthetic/reader-a", {"not": "a-valid-receipt"})
+        envelope = self._envelope("correlation://synthetic/revocation-retain-binding")
+        valid_receipt = acknowledge_revocation(
+            envelope,
+            recipient_ref="agent://synthetic/reader-a",
+            replay_ledger=self._ledger(),
+            outcome="acknowledged",
+            suppression_state="applied",
+            now=NOW,
+        )
+        with self.assertRaises(ValidationFailure):
+            ledger.retain(envelope["envelope_id"] + "\x00agent://synthetic/wrong-recipient", valid_receipt)
+
     def test_durable_replay_survives_restart_and_preserves_first_writer(self):
         envelope = self._envelope("correlation://synthetic/revocation-restart")
         path = Path(self._temporary.name) / "restart.sqlite"

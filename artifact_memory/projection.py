@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from .canonical import canonical_bytes, sha256_bytes
-from .extensions import ExtensionFailure, preserve_extensions
+from .extensions import ExtensionFailure, is_required_declaration, preserve_extensions
 from .knowledge import knowledge_schema
 from .schema_resources import load_contract_text, load_schema
 from .validator import ValidationFailure, load_json, validate
@@ -164,7 +164,7 @@ def canonical_records(record_paths: Iterable[Path]) -> list[dict[str, Any]]:
             required_extensions = {
                 identifier: declaration
                 for identifier, declaration in record.get("extensions", {}).items()
-                if isinstance(declaration, dict) and declaration.get("required") is True
+                if is_required_declaration(identifier, declaration)
             }
             if required_extensions:
                 preserve_extensions(
