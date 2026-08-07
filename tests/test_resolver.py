@@ -29,6 +29,8 @@ class ResolverTests(unittest.TestCase):
             "objects//x",
             "objects/./x",
             "objects\\x",
+            "objects/x?token=synthetic",
+            "objects/x#fragment",
             "https://example.test/x?token=synthetic",
         ):
             with self.subTest(relative_path=relative_path):
