@@ -19,6 +19,7 @@ from .validator import ValidationFailure, load_json_bytes
 
 AUTHORITY_BOUNDARY = "backup and restore do not grant execution, disclosure, or mutation authority"
 ZERO_DIGEST = "sha-256:" + "0" * 64
+DIGEST_PATTERN = re.compile(r"^sha-256:[0-9a-f]{64}$")
 
 
 _canonical = canonical_bytes
@@ -184,11 +185,18 @@ def restore_isolated(
     target_dir: Path,
     passphrase: str,
     backup_ref: str,
-    expected_backup_digest: str | None = None,
-    expected_source_manifest_digest: str | None = None,
+    expected_backup_digest: str,
+    expected_source_manifest_digest: str,
 ) -> dict[str, Any]:
     try:
-        if expected_backup_digest and sha256_path(backup_file) != expected_backup_digest:
+        if (
+            not isinstance(expected_backup_digest, str)
+            or DIGEST_PATTERN.fullmatch(expected_backup_digest) is None
+            or not isinstance(expected_source_manifest_digest, str)
+            or DIGEST_PATTERN.fullmatch(expected_source_manifest_digest) is None
+        ):
+            return _restore_receipt("failed", backup_ref, ZERO_DIGEST, ["expected backup binding is invalid"])
+        if sha256_path(backup_file) != expected_backup_digest:
             return _restore_receipt("failed", backup_ref, ZERO_DIGEST, ["backup ciphertext digest did not match the receipt"])
         if target_dir.exists() and (not target_dir.is_dir() or any(target_dir.iterdir())):
             return _restore_receipt("rejected", backup_ref, ZERO_DIGEST, ["target is not an empty isolated location"])
@@ -271,10 +279,7 @@ def restore_isolated(
             if manifest_bytes != canonical_manifest:
                 raise BackupFailure("backup-manifest-noncanonical")
             manifest_digest = _digest_bytes(canonical_manifest)
-            if (
-                expected_source_manifest_digest is not None
-                and manifest_digest != expected_source_manifest_digest
-            ):
+            if manifest_digest != expected_source_manifest_digest:
                 raise BackupFailure("backup-manifest-digest-mismatch")
             if target_dir.exists():
                 target_dir.rmdir()

@@ -1,0 +1,1 @@
+{"diagnostics":[{"code":"archive-receipt-id-mismatch","message":"archive receipt identity does not match its canonical body","path":"$.receipt_id"}],"outcome":"rejected","schema_id":"artifact-memory/archive-receipt/v2","valid":false}

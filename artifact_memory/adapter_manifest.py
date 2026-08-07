@@ -19,7 +19,12 @@ def receipt(manifest: Any, outcome: str, diagnostics: list[dict[str, str]] | Non
     claimed_ref = manifest.get("adapter_id") if isinstance(manifest, dict) else None
     adapter_ref = claimed_ref if isinstance(claimed_ref, str) and ADAPTER_ID.fullmatch(claimed_ref) else "adapter://unknown/unknown"
     body = {"adapter_ref": adapter_ref, "outcome": outcome, "authority_boundary": AUTHORITY_BOUNDARY, "diagnostics": diagnostics or []}
-    return receipt_with_digest("artifact-memory/adapter-receipt/v1", "adapter-receipt://", body)
+    result = receipt_with_digest("artifact-memory/adapter-receipt/v1", "adapter-receipt://", body)
+    try:
+        validate(result, load_schema("adapters", "adapter-receipt.v1.schema.json"))
+    except ValidationFailure as exc:
+        raise ValueError("adapter receipt does not satisfy its contract") from exc
+    return result
 
 
 def validate_manifest(manifest: Any) -> dict[str, Any]:

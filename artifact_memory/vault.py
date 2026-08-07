@@ -90,6 +90,8 @@ def _write_immutable(path: Path, data: bytes) -> str:
 
 
 def register_bytes(vault_root: Path, data: bytes, media_type: str = "application/octet-stream") -> dict[str, Any]:
+    if not isinstance(media_type, str) or not media_type:
+        raise ValueError("media_type must be a non-empty string")
     digest_hex = hashlib.sha256(data).hexdigest()
     digest = "sha-256:" + digest_hex
     target = _object_path(vault_root, digest_hex)
@@ -127,7 +129,7 @@ def register_bytes(vault_root: Path, data: bytes, media_type: str = "application
         "authority_boundary": AUTHORITY_BOUNDARY,
     }
     return receipt_with_digest(
-        "artifact-memory/content-registration-receipt/v1",
+        "artifact-memory/content-registration-receipt/v2",
         "registration-receipt://",
         body,
     )

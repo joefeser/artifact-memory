@@ -8,7 +8,7 @@
   "properties": {
     "schema_id": {"const": "artifact-memory/resolution-receipt/v1"},
     "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$"},
-    "relative_path": {"type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(?:/|$)).+$"},
+    "relative_path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*[\\\\?#])(?!.*://)[^/]+(?:/[^/]+)*$"},
     "resolved_path_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
     "outcome": {"enum": ["resolved", "unavailable-endpoint", "ambiguous", "not-authorized", "unsupported"]},
     "authority_boundary": {"const": "local resolution does not bypass local authorization"},

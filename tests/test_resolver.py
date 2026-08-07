@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 
 from artifact_memory.resolver import resolve
+from artifact_memory.schema_resources import load_schema
+from artifact_memory.validator import ValidationFailure
 from artifact_memory.validator import validate
 
 
@@ -34,6 +36,10 @@ class ResolverTests(unittest.TestCase):
                     resolve(config, "endpoint://synthetic/vault", relative_path)["outcome"],
                     "unsupported",
                 )
+                forged = resolve(config, "endpoint://synthetic/vault", "objects/x")
+                forged["relative_path"] = relative_path
+                with self.assertRaises(ValidationFailure):
+                    validate(forged, load_schema("core", "resolution-receipt.v1.schema.json"))
 
     def test_single_segment_endpoint_identity_is_valid_resolver_config(self):
         root = Path(__file__).resolve().parents[1]

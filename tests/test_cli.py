@@ -13,6 +13,7 @@ from artifact_memory.scan import ScanLimits, make_scan_policy, scan_path
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "fixtures" / "synthetic" / "contracts"
 RELEASE_FIXTURES = ROOT / "fixtures" / "synthetic" / "release"
+ARCHIVE_FIXTURES = ROOT / "fixtures" / "synthetic" / "archives" / "v1"
 
 
 class CliTests(unittest.TestCase):
@@ -43,9 +44,18 @@ class CliTests(unittest.TestCase):
             receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
 
             result = self.run_cli("validate", str(receipt_path), "--json")
+            human_result = self.run_cli("validate", str(receipt_path))
 
         self.assertEqual(result.returncode, 2)
-        self.assertFalse(json.loads(result.stdout)["valid"])
+        self.assertEqual(
+            result.stdout,
+            (ARCHIVE_FIXTURES / "cli-semantic-rejection.json").read_text(encoding="utf-8"),
+        )
+        self.assertEqual(human_result.returncode, 2)
+        self.assertEqual(
+            human_result.stdout,
+            (ARCHIVE_FIXTURES / "cli-semantic-rejection.txt").read_text(encoding="utf-8"),
+        )
 
     def test_absolute_path_rejected(self):
         result = self.run_cli("validate", str(FIXTURES / "v0-invalid-absolute-path.json"), "--json")

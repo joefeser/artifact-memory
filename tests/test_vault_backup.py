@@ -19,6 +19,11 @@ from artifact_memory.validator import validate
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ZERO_DIGEST = "sha-256:" + "0" * 64
+
+
+def file_digest(path: Path) -> str:
+    return "sha-256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 class VaultBackupTests(unittest.TestCase):
@@ -45,7 +50,7 @@ class VaultBackupTests(unittest.TestCase):
             vault = Path(temporary) / "vault"
             first = register_bytes(vault, b"synthetic vault bytes\n", "text/plain")
             second = register_bytes(vault, b"synthetic vault bytes\n", "text/plain")
-            schema = json.loads((ROOT / "artifact_memory/schemas/core/content-registration-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            schema = json.loads((ROOT / "artifact_memory/schemas/core/content-registration-receipt.v2.schema.json").read_text(encoding="utf-8"))
             validate(first, schema)
             validate(second, schema)
             self.assertEqual(first["outcome"], "registered")
@@ -67,6 +72,14 @@ class VaultBackupTests(unittest.TestCase):
             expected_receipt_id(binary, "registration-receipt://"),
         )
 
+    def test_content_registration_rejects_invalid_media_type_before_writing(self):
+        for media_type in ("", 7, []):
+            with self.subTest(media_type=media_type), tempfile.TemporaryDirectory() as temporary:
+                vault = Path(temporary) / "vault"
+                with self.assertRaises(ValueError):
+                    register_bytes(vault, b"synthetic", media_type)  # type: ignore[arg-type]
+                self.assertFalse(vault.exists())
+
     def test_content_registration_fails_when_existing_object_is_corrupt(self):
         with tempfile.TemporaryDirectory() as temporary:
             vault = Path(temporary) / "vault"
@@ -77,7 +90,7 @@ class VaultBackupTests(unittest.TestCase):
             stored.write_bytes(b"corrupt")
 
             receipt = register_bytes(vault, data, "text/plain")
-            schema = json.loads((ROOT / "artifact_memory/schemas/core/content-registration-receipt.v1.schema.json").read_text(encoding="utf-8"))
+            schema = json.loads((ROOT / "artifact_memory/schemas/core/content-registration-receipt.v2.schema.json").read_text(encoding="utf-8"))
             validate(receipt, schema)
             self.assertEqual(receipt["outcome"], "failed")
             self.assertEqual(receipt["diagnostics"], ["existing-object-integrity-failed"])
@@ -216,7 +229,17 @@ class VaultBackupTests(unittest.TestCase):
             validate(receipt, restore_schema)
             self.assertEqual(receipt["outcome"], "restored")
             self.assertEqual((restored / "knowledge" / "records.ndjson").read_text(encoding="utf-8"), '{"synthetic":true}\n')
-            self.assertEqual(restore_isolated(backup_dir / "backup.enc", restored, "synthetic-passphrase", backup["backup_ref"], backup["backup_digest"])["outcome"], "rejected")
+            self.assertEqual(
+                restore_isolated(
+                    backup_dir / "backup.enc",
+                    restored,
+                    "synthetic-passphrase",
+                    backup["backup_ref"],
+                    backup["backup_digest"],
+                    backup["source_manifest_digest"],
+                )["outcome"],
+                "rejected",
+            )
 
             mismatched = restore_isolated(
                 backup_dir / "backup.enc",
@@ -228,6 +251,14 @@ class VaultBackupTests(unittest.TestCase):
             )
             self.assertEqual(mismatched["outcome"], "failed")
             self.assertIn("backup-manifest-digest-mismatch", mismatched["limitations"])
+
+            with self.assertRaises(TypeError):
+                restore_isolated(  # type: ignore[call-arg]
+                    backup_dir / "backup.enc",
+                    root / "unbound-restore",
+                    "synthetic-passphrase",
+                    backup["backup_ref"],
+                )
 
     def test_missing_openssl_returns_schema_valid_failure_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -254,11 +285,54 @@ class VaultBackupTests(unittest.TestCase):
                 info.size = len(manifest)
                 archive.addfile(info, io.BytesIO(manifest))
             with patch("artifact_memory.backup._run_openssl", side_effect=copy_without_encryption):
-                receipt = restore_isolated(malformed, root / "malformed-restore", "unused", "backup://synthetic/test")
+                receipt = restore_isolated(
+                    malformed,
+                    root / "malformed-restore",
+                    "unused",
+                    "backup://synthetic/test",
+                    file_digest(malformed),
+                    ZERO_DIGEST,
+                )
             schema = json.loads((ROOT / "artifact_memory/schemas/core/restore-receipt.v1.schema.json").read_text(encoding="utf-8"))
             validate(receipt, schema)
             self.assertEqual(receipt["outcome"], "failed")
             self.assertIn("backup-manifest-invalid", receipt["limitations"])
+
+            noncanonical = root / "noncanonical-manifest.tar"
+            payload = b"synthetic"
+            valid_manifest = {
+                "schema_id": "artifact-memory/backup-manifest/v1",
+                "entries": [
+                    {
+                        "path": "knowledge/record",
+                        "digest": "sha-256:" + hashlib.sha256(payload).hexdigest(),
+                        "byte_size": len(payload),
+                    }
+                ],
+            }
+            noncanonical_manifest_bytes = json.dumps(valid_manifest, indent=2).encode("utf-8")
+            with tarfile.open(noncanonical, "w") as archive:
+                entry = tarfile.TarInfo("knowledge/record")
+                entry.size = len(payload)
+                archive.addfile(entry, io.BytesIO(payload))
+                manifest_entry = tarfile.TarInfo("backup-manifest.json")
+                manifest_entry.size = len(noncanonical_manifest_bytes)
+                archive.addfile(manifest_entry, io.BytesIO(noncanonical_manifest_bytes))
+            expected_manifest_digest = (
+                "sha-256:" + hashlib.sha256(canonical_bytes(valid_manifest)).hexdigest()
+            )
+            with patch("artifact_memory.backup._run_openssl", side_effect=copy_without_encryption):
+                receipt = restore_isolated(
+                    noncanonical,
+                    root / "noncanonical-restore",
+                    "unused",
+                    "backup://synthetic/test",
+                    file_digest(noncanonical),
+                    expected_manifest_digest,
+                )
+            validate(receipt, schema)
+            self.assertEqual(receipt["outcome"], "failed")
+            self.assertIn("backup-manifest-noncanonical", receipt["limitations"])
 
             unsafe = root / "unsafe.tar"
             with tarfile.open(unsafe, "w") as archive:
@@ -266,7 +340,14 @@ class VaultBackupTests(unittest.TestCase):
                 fifo.type = tarfile.FIFOTYPE
                 archive.addfile(fifo)
             with patch("artifact_memory.backup._run_openssl", side_effect=copy_without_encryption):
-                receipt = restore_isolated(unsafe, root / "unsafe-restore", "unused", "backup://synthetic/test")
+                receipt = restore_isolated(
+                    unsafe,
+                    root / "unsafe-restore",
+                    "unused",
+                    "backup://synthetic/test",
+                    file_digest(unsafe),
+                    ZERO_DIGEST,
+                )
             validate(receipt, schema)
             self.assertEqual(receipt["outcome"], "failed")
             self.assertIn("unsafe-backup-member", receipt["limitations"])
@@ -279,7 +360,14 @@ class VaultBackupTests(unittest.TestCase):
                     entry.size = len(payload)
                     archive.addfile(entry, io.BytesIO(payload))
                 with patch("artifact_memory.backup._run_openssl", side_effect=copy_without_encryption):
-                    receipt = restore_isolated(windows_unsafe, root / f"windows-unsafe-restore-{index}", "unused", "backup://synthetic/test")
+                    receipt = restore_isolated(
+                        windows_unsafe,
+                        root / f"windows-unsafe-restore-{index}",
+                        "unused",
+                        "backup://synthetic/test",
+                        file_digest(windows_unsafe),
+                        ZERO_DIGEST,
+                    )
                 validate(receipt, schema)
                 self.assertEqual(receipt["outcome"], "failed")
                 self.assertIn("unsafe-backup-member", receipt["limitations"])
@@ -292,7 +380,14 @@ class VaultBackupTests(unittest.TestCase):
                     entry.size = len(payload)
                     archive.addfile(entry, io.BytesIO(payload))
             with patch("artifact_memory.backup._run_openssl", side_effect=copy_without_encryption):
-                receipt = restore_isolated(alias_collision, root / "alias-collision-restore", "unused", "backup://synthetic/test")
+                receipt = restore_isolated(
+                    alias_collision,
+                    root / "alias-collision-restore",
+                    "unused",
+                    "backup://synthetic/test",
+                    file_digest(alias_collision),
+                    ZERO_DIGEST,
+                )
             validate(receipt, schema)
             self.assertEqual(receipt["outcome"], "failed")
             self.assertIn("unsafe-backup-member", receipt["limitations"])
@@ -312,7 +407,14 @@ class VaultBackupTests(unittest.TestCase):
                 manifest_entry.size = len(manifest_bytes)
                 archive.addfile(manifest_entry, io.BytesIO(manifest_bytes))
             with patch("artifact_memory.backup._run_openssl", side_effect=copy_without_encryption):
-                receipt = restore_isolated(boolean_size, root / "boolean-size-restore", "unused", "backup://synthetic/test")
+                receipt = restore_isolated(
+                    boolean_size,
+                    root / "boolean-size-restore",
+                    "unused",
+                    "backup://synthetic/test",
+                    file_digest(boolean_size),
+                    ZERO_DIGEST,
+                )
             validate(receipt, schema)
             self.assertEqual(receipt["outcome"], "failed")
             self.assertIn("backup-manifest-invalid", receipt["limitations"])
