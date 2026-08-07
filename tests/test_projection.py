@@ -138,6 +138,17 @@ class ProjectionTests(unittest.TestCase):
 
             receipt = project_records([record_path], output)
             self.assertEqual(receipt["outcome"], "complete")
+            ndjson_record = json.loads((output / "records.ndjson").read_text(encoding="utf-8"))
+            connection = sqlite3.connect(output / "records.sqlite")
+            try:
+                sqlite_record = json.loads(connection.execute("SELECT record_json FROM records").fetchone()[0])
+            finally:
+                connection.close()
+            self.assertEqual(ndjson_record, sqlite_record)
+            self.assertEqual(
+                ndjson_record["extensions"]["https://synthetic.example/incomplete"],
+                {"required": True},
+            )
 
     def test_projection_preserves_unknown_optional_extensions_in_generated_views(self):
         with tempfile.TemporaryDirectory() as temporary:

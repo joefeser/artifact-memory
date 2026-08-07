@@ -106,10 +106,14 @@ class ContextTests(unittest.TestCase):
             export_context([record], [malformed], authorized_record_ids=[record_id], **kwargs)
         self.assertEqual(evidence_error.exception.code, "external-evidence-invalid")
 
-    def test_opaque_non_declaration_extensions_export_without_interpretation(self):
-        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    def _assert_extensions_pass_through_uninterpreted(self, record):
+        """export_context never carries `extensions` into the pack; the only observable
+        proof that a value flowed through byte-for-byte and uninterpreted is that the
+        pack's revision_digest matches an independent canonical digest of the exact
+        input record (extensions included), and that independent recall accepts it."""
+        import hashlib
+
         record_id = record["record_id"]
-        record["extensions"] = {"https://synthetic.example/opaque": ["not-a-declaration-object"]}
         pack = export_context(
             [record],
             authorized_record_ids=[record_id],
@@ -117,19 +121,22 @@ class ContextTests(unittest.TestCase):
             selected_at=SELECTED_AT,
         )
         self.assertEqual(pack["selection_receipt"]["selected_record_ids"], [record_id])
+        canonical = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        expected_digest = "sha-256:" + hashlib.sha256(canonical).hexdigest()
+        self.assertEqual(pack["records"][0]["revision_digest"], expected_digest)
+        receipt = recall_context(json.dumps(pack, sort_keys=True, separators=(",", ":")).encode())
+        self.assertEqual(receipt["records"][0]["summary"], record["meaning"]["summary"])
+
+    def test_opaque_non_declaration_extensions_export_without_interpretation(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record["extensions"] = {"https://synthetic.example/opaque": ["not-a-declaration-object"]}
+        self._assert_extensions_pass_through_uninterpreted(record)
 
     def test_incomplete_required_true_dict_is_preserved_not_interpreted(self):
         """An object like {"required": true} missing version/value is legacy opaque data, not a declaration."""
         record = json.loads(FIXTURE.read_text(encoding="utf-8"))
-        record_id = record["record_id"]
         record["extensions"] = {"https://synthetic.example/incomplete": {"required": True}}
-        pack = export_context(
-            [record],
-            authorized_record_ids=[record_id],
-            freshness_by_record=current(record_id),
-            selected_at=SELECTED_AT,
-        )
-        self.assertEqual(pack["selection_receipt"]["selected_record_ids"], [record_id])
+        self._assert_extensions_pass_through_uninterpreted(record)
 
     def test_required_extension_negotiation_fails_closed_before_export(self):
         record = json.loads(FIXTURE.read_text(encoding="utf-8"))
