@@ -176,6 +176,7 @@ def export_context(
     _parse_utc(selected_at, "selection-time-invalid", "selection time is not a valid whole-second UTC instant")
     if not isinstance(policy_id, str) or not policy_id:
         raise ContextFailure("selection-policy-invalid", "selection policy identity is required")
+    supported_required_extensions = list(supported_required_extensions)
     record_list = list(records)
     for record in record_list:
         validate(record, knowledge_schema(record))

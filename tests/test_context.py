@@ -135,6 +135,28 @@ class ContextTests(unittest.TestCase):
         )
         self.assertEqual(admitted["selection_receipt"]["selected_record_ids"], [record_id])
 
+    def test_generator_backed_supported_required_extensions_applies_to_every_record(self):
+        record_one = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_one["record_id"] = "record://synthetic/generator-one"
+        record_two = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_two["record_id"] = "record://synthetic/generator-two"
+        declaration = {"version": "v1", "required": True, "value": {}}
+        record_one["extensions"] = {"https://synthetic.example/extensions/required": declaration}
+        record_two["extensions"] = {"https://synthetic.example/extensions/required": declaration}
+        record_ids = [record_one["record_id"], record_two["record_id"]]
+
+        def supported():
+            yield ("https://synthetic.example/extensions/required", "v1")
+
+        pack = export_context(
+            [record_one, record_two],
+            authorized_record_ids=record_ids,
+            freshness_by_record=current(*record_ids),
+            selected_at=SELECTED_AT,
+            supported_required_extensions=supported(),
+        )
+        self.assertEqual(sorted(pack["selection_receipt"]["selected_record_ids"]), sorted(record_ids))
+
     def test_independent_reader_recalls_without_authority(self):
         record = json.loads(FIXTURE.read_text(encoding="utf-8"))
         pack = export_context(
