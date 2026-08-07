@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from artifact_memory.release import validate_release_manifest
 from artifact_memory.release_conformance import render_release_conformance, run_release_conformance
@@ -99,6 +100,18 @@ class ReleaseManifestTests(unittest.TestCase):
             )
         self.assertTrue(receipt["extensions"][identifier]["required"])
 
+    def test_correct_adapter_schema_claim_passes_conformance(self):
+        manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
+        manifest["surfaces"]["adapters"]["supported_manifest_schemas"] = ["artifact-memory/adapter-manifest/v1"]
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            for source in FIXTURE.iterdir():
+                if source.is_file():
+                    (fixture / source.name).write_bytes(source.read_bytes())
+            (fixture / "v0-preview-manifest.v2.json").write_text(json.dumps(manifest), encoding="utf-8")
+            receipt = run_release_conformance(fixture)
+        self.assertEqual(receipt["outcome"], "pass")
+
     def test_stale_adapter_schema_claim_fails_closed(self):
         manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
         manifest["surfaces"]["adapters"]["supported_manifest_schemas"] = [
@@ -113,6 +126,25 @@ class ReleaseManifestTests(unittest.TestCase):
             (fixture / "v0-preview-manifest.v2.json").write_text(json.dumps(manifest), encoding="utf-8")
             with self.assertRaises(ValidationFailure) as failure:
                 run_release_conformance(fixture)
+        self.assertEqual(failure.exception.code, "release-adapter-schema-claim-mismatch")
+
+    def test_primary_schema_is_still_checked_when_supported_list_is_absent(self):
+        """A v2 manifest omitting supported_manifest_schemas must not skip verification."""
+        manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
+        self.assertNotIn("supported_manifest_schemas", manifest["surfaces"]["adapters"])
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            for source in FIXTURE.iterdir():
+                if source.is_file():
+                    (fixture / source.name).write_bytes(source.read_bytes())
+            (fixture / "v0-preview-manifest.v2.json").write_text(json.dumps(manifest), encoding="utf-8")
+            with mock.patch(
+                "artifact_memory.release_conformance._supported_adapter_manifest_schemas",
+                return_value=["artifact-memory/adapter-manifest/v2"],
+            ) as reproduced:
+                with self.assertRaises(ValidationFailure) as failure:
+                    run_release_conformance(fixture)
+            reproduced.assert_called_once()
         self.assertEqual(failure.exception.code, "release-adapter-schema-claim-mismatch")
 
     def test_v1_fixture_reports_typed_migration_requirement(self):
