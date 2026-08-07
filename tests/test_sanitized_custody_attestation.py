@@ -37,6 +37,20 @@ class SanitizedCustodyAttestationTests(unittest.TestCase):
             with self.subTest(path=path.name):
                 validate_historical_sanitized_custody_attestation(load_json(path))
 
+    def test_historical_v1_receipts_are_semantically_pinned(self):
+        compatibility = ROOT / "evidence/sanitized/custody/v1/compatibility"
+        for path in sorted(compatibility.glob("*.json")):
+            with self.subTest(path=path.name):
+                attestation = copy.deepcopy(load_json(path))
+                attestation["observed"] = "2026-08-07"
+                with self.assertRaises(ValidationFailure) as failure:
+                    validate_historical_sanitized_custody_attestation(attestation)
+                if path.name == "provenance-v1.json":
+                    self.assertEqual(
+                        failure.exception.code,
+                        "unsupported-contract-shape",
+                    )
+
     def test_historical_markdown_requires_an_exact_supported_rendering(self):
         current = MARKDOWN.read_text(encoding="utf-8")
         validate_historical_sanitized_custody_markdown(

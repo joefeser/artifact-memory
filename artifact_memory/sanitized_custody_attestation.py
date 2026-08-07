@@ -6,6 +6,7 @@ from datetime import date
 from hashlib import sha256
 from typing import Any
 
+from .canonical import canonical_bytes, sha256_bytes
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -16,6 +17,12 @@ HISTORICAL_MARKDOWN_COMPATIBILITY_SHA256 = frozenset(
         "462b08a4ead6bbd32c1e2746df3b82ccdfec16637217f40e7d08be5afbc5cf0a",
         "1d534de1cd4b65a87df4e1c54be2222c4530f15e9cc130e7a4e77bfbb17d86ca",
         "4beba734716679afa2e7ef71f20d18a9e6f1c11d5769216d912685ef336e8526",
+    }
+)
+HISTORICAL_JSON_COMPATIBILITY_DIGESTS = frozenset(
+    {
+        "sha-256:048ee34db7f4ef505541910f28d626fd54e5e770d72fe1ffeed315b7ec869743",
+        "sha-256:061e70ab0bf15ccf9d1a73cb7b67bdea1da91742be851fb631b676baaf688152",
     }
 )
 
@@ -49,6 +56,10 @@ def validate_sanitized_custody_attestation(attestation: dict[str, Any]) -> None:
         attestation,
         load_schema("core", "sanitized-custody-attestation.v2.schema.json"),
     )
+    _validate_observed_date(attestation)
+
+
+def _validate_observed_date(attestation: dict[str, Any]) -> None:
     try:
         date.fromisoformat(attestation["observed"])
     except (TypeError, ValueError) as exc:
@@ -91,14 +102,13 @@ def validate_historical_sanitized_custody_attestation(
                 "sanitized-custody-attestation.pre-provenance-v1.schema.json",
             ),
         )
-    try:
-        date.fromisoformat(attestation["observed"])
-    except (TypeError, ValueError) as exc:
+    _validate_observed_date(attestation)
+    digest = sha256_bytes(canonical_bytes(attestation))
+    if digest not in HISTORICAL_JSON_COMPATIBILITY_DIGESTS:
         raise ValidationFailure(
-            "constraint-failed",
-            "observed must be a valid calendar date",
-            "$.observed",
-        ) from exc
+            "unsupported-contract-shape",
+            "sanitized custody JSON compatibility record is unsupported",
+        )
 
 
 def render_sanitized_custody_attestation(attestation: dict[str, Any]) -> str:

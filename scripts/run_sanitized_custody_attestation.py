@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import subprocess
 import sys
@@ -101,8 +102,20 @@ def main(argv: list[str] | None = None) -> int:
 
     attestation = load_json(ATTESTATION)
     validate_sanitized_custody_attestation(attestation)
-    for historical in COMPATIBILITY:
-        validate_historical_sanitized_custody_attestation(load_json(historical))
+    for historical_path in COMPATIBILITY:
+        historical = load_json(historical_path)
+        validate_historical_sanitized_custody_attestation(historical)
+        mutated = copy.deepcopy(historical)
+        mutated["observed"] = "2026-08-07"
+        try:
+            validate_historical_sanitized_custody_attestation(mutated)
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure(
+                "conformance-failed",
+                "mutated custody JSON compatibility record was accepted",
+            )
     rendered = render_sanitized_custody_attestation(attestation)
     _check_markdown_compatibility(rendered)
     if args.check and rendered != MARKDOWN.read_text(encoding="utf-8"):

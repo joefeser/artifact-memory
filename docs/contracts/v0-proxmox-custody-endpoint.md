@@ -101,6 +101,15 @@ evidence binding is withheld under owner control, and states that independent
 replay is false. No public digest is presented as a substitute for access to or
 verification of the private evidence.
 
+The `evidence/sanitized/custody/v1` directory identifies the version of this
+first-proof evidence layout; it is not a parser-version signal. Consumers MUST
+select the JSON parser from `schema_id`. A v1-only reader MUST reject the live
+v2 receipt until upgraded rather than treating it as v1 or silently dropping
+the provenance fields. The paired Markdown projection is selected by the JSON
+record's schema and deterministic renderer. Files under `v1/compatibility` are
+pinned historical audit inputs only: they do not republish a current v1 record,
+promise a stable v1 artifact layout, or authorize a v1-to-v2 downgrade.
+
 Historical safety scanning preserves only the known pre-contract v0 Markdown
 shape already present in repository history: the `Endpoint` field, either LF or
 CRLF line endings, and the earlier explanatory `endpoint://` prose. Exact copies
@@ -128,8 +137,10 @@ another path where it appeared.
 The two v1 JSON shapes already present in this PR's public Git history are also
 handled explicitly: the exact pre-provenance shape is pinned by a compatibility
 schema, and the later provenance-bearing v1 shape remains under the core v1
-schema. New attestations use v2. Historical dispatch rejects duplicate keys,
-unknown schema identifiers, schema drift, and endpoint changes before applying
+schema. Both complete semantic objects are independently pinned by canonical
+JSON digest; the schemas alone do not authorize changed claims or dates. New
+attestations use v2. Historical dispatch rejects duplicate keys, unknown schema
+identifiers, schema drift, semantic drift, and endpoint changes before applying
 the same machine-binding scan used for current content. Exact public copies of
 both historical v1 JSON forms are pinned under
 `evidence/sanitized/custody/v1/compatibility` and replayed by the custody
