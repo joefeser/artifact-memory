@@ -16,8 +16,19 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from artifact_memory.canonical import receipt_with_digest
+from artifact_memory.sanitized_custody_attestation import (
+    render_sanitized_custody_attestation,
+    validate_historical_sanitized_custody_attestation,
+    validate_historical_sanitized_custody_markdown,
+    validate_sanitized_custody_attestation,
+)
 from artifact_memory.schema_resources import load_schema
-from artifact_memory.validator import ValidationFailure, load_json, validate
+from artifact_memory.validator import (
+    ValidationFailure,
+    load_json,
+    load_json_bytes,
+    validate,
+)
 
 
 FORBIDDEN_PATH = re.compile(
@@ -38,14 +49,148 @@ SECRET_LIKE = re.compile(
 )
 
 SCANNER_PATH = "scripts/public_safety_check.py"
+SANITIZED_CUSTODY_RECEIPT_PATH = "evidence/sanitized/custody/v1/receipt.md"
+SANITIZED_CUSTODY_ATTESTATION_PATH = "evidence/sanitized/custody/v1/receipt.json"
+SANITIZED_CUSTODY_COMPATIBILITY_PATHS = {
+    "evidence/sanitized/custody/v1/compatibility/pre-provenance-v1.json",
+    "evidence/sanitized/custody/v1/compatibility/provenance-v1.json",
+}
+SANITIZED_CUSTODY_MARKDOWN_COMPATIBILITY_PATHS = {
+    "evidence/sanitized/custody/v1/compatibility/markdown-pre-contract-v0.md",
+    "evidence/sanitized/custody/v1/compatibility/markdown-network-clarified-v0.md",
+    "evidence/sanitized/custody/v1/compatibility/markdown-generated-pre-provenance-v1.md",
+}
 RECEIPT_SCHEMA_ID = "artifact-memory/public-safety-receipt/v1"
 RECEIPT_ID_PREFIX = "public-safety-receipt://"
 PUBLIC_REF_PATTERN = re.compile(r"^refs/(?:remotes/[^/]+/[^/].*|tags/[^/].*)$")
 GIT_OBJECT_ID_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+MACHINE_BINDING_PATTERNS = (
+    re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
+    re.compile(r"\[[0-9A-Fa-f:%.]+\]"),
+    re.compile(r"\b(?:[0-9A-Fa-f]{1,4}:){2,}[0-9A-Fa-f:]{1,39}\b"),
+    re.compile(r"\b(?:https?|sftp|ssh|ftp|ftps|nfs|smb)://", re.IGNORECASE),
+    re.compile(
+        r"\b(?:backup|codex-task|task|content|artifact|artifact-version|"
+        r"restore-receipt|backup-receipt|custody-receipt|endpoint)://",
+        re.IGNORECASE,
+    ),
+    re.compile(r"(?<![A-Za-z0-9])/(?:Users|home|srv|mnt|var|etc|opt|private|Volumes)/\S+"),
+    re.compile(r"\b[A-Za-z]:[\\/]\S+"),
+    re.compile(r"\\\\[^\s\\]+\\[^\s\\]+"),
+    re.compile(r"\b[A-Za-z0-9._~-]+@[A-Za-z0-9._~-]+(?::[\\/]\S+)?"),
+    re.compile(r"\b[0-9A-Fa-f]{40,64}\b"),
+    re.compile(
+        r"\b(?:private repository|snapshot reference|repository identifier|"
+        r"task identifier)\s*:",
+        re.IGNORECASE,
+    ),
+)
 
 
 class PublicSafetyInvalidGitOutput(RuntimeError):
     """Raised when Git emits data outside the exact public-audit contract."""
+
+
+def _machine_binding_findings(text: str) -> list[str]:
+    findings = []
+    binding_scope = text
+    if SECRET_LIKE.search(binding_scope):
+        findings.append("secret-like-binding")
+    for pattern in MACHINE_BINDING_PATTERNS:
+        if pattern.search(binding_scope):
+            findings.append("machine-binding-detected")
+            break
+    return sorted(set(findings))
+
+
+def _markdown_without_exact_endpoint(text: str, endpoint: str) -> tuple[str, list[str]]:
+    endpoint_line = f"- Endpoint: `{endpoint}`"
+    lines = text.splitlines(keepends=True)
+    indexes = [
+        index
+        for index, line in enumerate(lines)
+        if line.rstrip("\r\n") == endpoint_line
+    ]
+    if len(indexes) != 1:
+        return text, ["logical-endpoint-line-invalid"]
+    return "".join(line for index, line in enumerate(lines) if index != indexes[0]), []
+
+
+def _historical_custody_receipt_findings(text: str) -> list[str]:
+    try:
+        current_rendering = render_sanitized_custody_attestation(
+            _load_sanitized_custody_attestation()
+        )
+        validate_historical_sanitized_custody_markdown(text, current_rendering)
+    except (OSError, UnicodeError):
+        return ["contract-invalid"]
+    except ValidationFailure as failure:
+        return [failure.code]
+    return []
+
+
+def _load_sanitized_custody_attestation() -> dict[str, object]:
+    attestation = load_json(ROOT / SANITIZED_CUSTODY_ATTESTATION_PATH)
+    if not isinstance(attestation, dict):
+        raise ValidationFailure(
+            "type-mismatch",
+            "sanitized custody attestation must be an object",
+        )
+    validate_sanitized_custody_attestation(attestation)
+    return attestation
+
+
+def sanitized_custody_attestation_findings(text: str) -> list[str]:
+    """Validate the authoritative machine receipt and its privacy boundary."""
+
+    try:
+        attestation = load_json_bytes(text.encode("utf-8"))
+        if not isinstance(attestation, dict):
+            raise ValidationFailure("type-mismatch", "attestation must be an object")
+        validate_sanitized_custody_attestation(attestation)
+    except (UnicodeError, ValidationFailure):
+        return ["contract-invalid"]
+    endpoint = attestation["endpoint"]
+    other_values = "\n".join(
+        str(value) for key, value in attestation.items() if key != "endpoint"
+    )
+    return _machine_binding_findings(other_values)
+
+
+def _custody_compatibility_attestation_findings(text: str) -> list[str]:
+    """Validate current or historical content against supported custody contracts."""
+
+    try:
+        attestation = load_json_bytes(text.encode("utf-8"))
+        if not isinstance(attestation, dict):
+            raise ValidationFailure("type-mismatch", "attestation must be an object")
+        validate_historical_sanitized_custody_attestation(attestation)
+        approved_endpoint = _load_sanitized_custody_attestation()["endpoint"]
+        if attestation["endpoint"] != approved_endpoint:
+            return ["logical-endpoint-invalid"]
+    except (TypeError, UnicodeError, ValidationFailure):
+        return ["contract-invalid"]
+    other_values = "\n".join(
+        str(value) for key, value in attestation.items() if key != "endpoint"
+    )
+    return _machine_binding_findings(other_values)
+
+
+def sanitized_custody_receipt_findings(text: str) -> list[str]:
+    """Validate the public projection without claiming private replay."""
+
+    try:
+        attestation = _load_sanitized_custody_attestation()
+    except ValidationFailure:
+        return ["contract-invalid"]
+    findings = []
+    if text != render_sanitized_custody_attestation(attestation):
+        findings.append("contract-render-mismatch")
+    endpoint = str(attestation["endpoint"])
+    scope, endpoint_findings = _markdown_without_exact_endpoint(text, endpoint)
+    findings.extend(endpoint_findings)
+    findings.extend(_machine_binding_findings(scope))
+    return sorted(set(findings))
 
 
 def _revision_arguments(revisions: list[str] | None) -> list[str]:
@@ -64,6 +209,42 @@ def history_entries(revisions: list[str] | None = None) -> dict[str, set[str]]:
         entries.setdefault(parts[0], set())
         if len(parts) == 2:
             entries[parts[0]].add(parts[1])
+    for object_id, paths in historical_blob_path_entries(revisions).items():
+        entries.setdefault(object_id, set()).update(paths)
+    return entries
+
+
+def historical_blob_path_entries(
+    revisions: list[str] | None = None,
+) -> dict[str, set[str]]:
+    """Derive every changed blob/path association from raw history."""
+
+    output = subprocess.check_output(
+        [
+            "git",
+            "log",
+            "-m",
+            "--format=",
+            "--raw",
+            "--no-abbrev",
+            "--no-renames",
+            "-z",
+            *_revision_arguments(revisions),
+        ],
+        stderr=subprocess.STDOUT,
+    )
+    records = [record for record in output.split(b"\0") if record]
+    if len(records) % 2:
+        raise PublicSafetyInvalidGitOutput("Git raw history output is incomplete")
+    entries: dict[str, set[str]] = {}
+    for index in range(0, len(records), 2):
+        header = records[index].decode("ascii", errors="strict").split()
+        if len(header) != 5 or not header[0].startswith(":"):
+            raise PublicSafetyInvalidGitOutput("Git raw history output is invalid")
+        path = records[index + 1].decode("utf-8", errors="surrogateescape")
+        for object_id in header[2:4]:
+            if GIT_OBJECT_ID_PATTERN.fullmatch(object_id) and object_id != "0" * 40:
+                entries.setdefault(object_id, set()).add(path)
     return entries
 
 
@@ -282,6 +463,26 @@ def check_historical_content(history: dict[str, set[str]]) -> list[str]:
         if SECRET_LIKE.search(text):
             path_evidence = f", path {non_scanner_paths[0]}" if non_scanner_paths else ""
             findings.append(f"secret-like historical content: object {object_id}{path_evidence}")
+        if set(non_scanner_paths) & (
+            {SANITIZED_CUSTODY_RECEIPT_PATH}
+            | SANITIZED_CUSTODY_MARKDOWN_COMPATIBILITY_PATHS
+        ):
+            for code in _historical_custody_receipt_findings(text):
+                findings.append(
+                    "sanitized custody receipt historical content invalid: "
+                    f"object {object_id}, {code}"
+                )
+        for custody_path in sorted(
+            set(non_scanner_paths) & (
+                {SANITIZED_CUSTODY_ATTESTATION_PATH}
+                | SANITIZED_CUSTODY_COMPATIBILITY_PATHS
+            )
+        ):
+            for code in _custody_compatibility_attestation_findings(text):
+                findings.append(
+                    "sanitized custody attestation historical content invalid: "
+                    f"object {object_id}, path {custody_path}, {code}"
+                )
     return findings
 
 
@@ -353,7 +554,22 @@ def check_current_content(paths: list[str]) -> list[str]:
             text = content.decode("utf-8", errors="replace")
             if SECRET_LIKE.search(text):
                 findings.append(f"secret-like current content: path {path}")
-                break
+            if path == SANITIZED_CUSTODY_RECEIPT_PATH:
+                for code in sanitized_custody_receipt_findings(text):
+                    findings.append(f"sanitized custody receipt invalid: {code}")
+            if path in SANITIZED_CUSTODY_MARKDOWN_COMPATIBILITY_PATHS:
+                for code in _historical_custody_receipt_findings(text):
+                    findings.append(
+                        f"sanitized custody compatibility receipt invalid: {code}"
+                    )
+            if path == SANITIZED_CUSTODY_ATTESTATION_PATH:
+                for code in sanitized_custody_attestation_findings(text):
+                    findings.append(f"sanitized custody attestation invalid: {code}")
+            if path in SANITIZED_CUSTODY_COMPATIBILITY_PATHS:
+                for code in _custody_compatibility_attestation_findings(text):
+                    findings.append(
+                        f"sanitized custody compatibility attestation invalid: {code}"
+                    )
     return findings
 
 

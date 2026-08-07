@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/compatibility/sanitized-custody-attestation/pre-provenance-v1",
+  "title": "Exact pre-provenance v1 custody attestation compatibility shape",
+  "description": "Accepts only the exact first pushed v1 attestation for historical public-safety scanning.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "observed",
+    "endpoint",
+    "custody_claim",
+    "transport_profile",
+    "backup_input",
+    "remote_write",
+    "repository_verification",
+    "restore",
+    "restored_verification",
+    "storage_boundary",
+    "recovery_cadence",
+    "private_material_committed"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/sanitized-custody-attestation/v1"},
+    "observed": {"const": "2026-08-06"},
+    "endpoint": {"const": "endpoint://joe-home-proxmox-vault-1"},
+    "custody_claim": {"const": "off-machine-not-geographically-off-site"},
+    "transport_profile": {"const": "encrypted restic through the restricted SFTP fallback"},
+    "backup_input": {"const": "explicit private-vault and knowledge-store allowlist"},
+    "remote_write": {"const": "one non-empty snapshot completed"},
+    "repository_verification": {"const": "every stored data blob was read without error"},
+    "restore": {"const": "the exact remote snapshot restored into a new isolated target"},
+    "restored_verification": {"const": "ten allowlisted source files matched the private manifest; four canonical artifact/version records validated; two content objects matched their digests; the restored Git bundle verified"},
+    "storage_boundary": {"const": "ZFS-backed repository with a separately controlled weekly snapshot timer and bounded retention; a manual server-controlled post-write snapshot succeeded after the first remote backup"},
+    "recovery_cadence": {"const": "monthly restic integrity verification and quarterly isolated restore rehearsal"},
+    "private_material_committed": {"const": false}
+  }
+}

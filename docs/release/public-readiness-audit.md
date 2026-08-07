@@ -6,6 +6,35 @@ that a bounded scanner can recognize every form of protected material.
 
 ## Current pre-public evidence
 
+### First real off-machine custody proof
+
+On 2026-08-06, an external owner attestation recorded that an authorized
+private dogfood run exercised the configured
+logical endpoint `endpoint://joe-home-proxmox-vault-1`. It registered two exact
+public-source artifacts in an owner-local private vault, created and verified a
+Git bundle, admitted only explicit vault and knowledge-store inputs, wrote one
+non-empty encrypted restic snapshot through the restricted SFTP fallback, read
+every repository data blob, and restored the exact snapshot into a new isolated
+target. The restored allowlist contained ten source files; four canonical
+artifact/version records validated, two content objects matched their digests,
+and the restored Git bundle verified. No application home, credential, raw task
+transcript, browser state, or machine-local resolver configuration was admitted.
+
+The dedicated guest uses ZFS-backed storage with a separately controlled weekly
+snapshot timer and bounded retention. A manual server-controlled snapshot after
+the first remote write also succeeded, so the initial proof has a post-write
+storage rollback point without granting snapshot control to the backup client.
+The endpoint proves off-machine custody on the same owner-controlled premises,
+not geographically off-site protection. Recovery material remains
+owner-controlled and was neither requested nor inspected; the public evidence
+therefore does not prove key recoverability. The repository validates the
+sanitized attestation's exact public fields and rejects machine-binding forms;
+it cannot independently replay or establish the private operational facts.
+Private evidence retains the exact
+snapshot, manifest, backup, and restore bindings, including validated private
+receipts where the published contracts apply. The public-safe summary is
+`evidence/sanitized/custody/v1/receipt.md`.
+
 ### Post-PR #69 non-VM refresh
 
 The non-VM audit was refreshed on 2026-08-05 against exact private `dev`
@@ -66,9 +95,11 @@ merged:
   reviewer descriptions of the safety rules, not observed credentials or
   private resolver data.
 - The fixtures are declared synthetic and the current tree contains no
-  allowlisted exception for real vault data. The sole sanitized private-dogfood
-  receipt excludes source text, raw history, record content, machine paths,
-  credentials, and custody details.
+  allowlisted exception for real vault data. The earlier sanitized
+  Codex-history dogfood receipt excludes source text, raw history, record
+  content, machine paths, credentials, and custody details. The later custody
+  attestation intentionally publishes only bounded logical endpoint, transport,
+  and storage-boundary metadata while excluding private machine bindings.
 - The canonical Apache License 2.0 text and a separate copyright `NOTICE` are
   present. Security policy, contribution guidance, support scope, quickstart,
   release notes, versioning policy, roadmap, and historical WhereAreMyFiles
@@ -99,11 +130,14 @@ approving visibility.
 The following are intentionally incomplete and must not be inferred from this
 pre-public pass:
 
-- issue #21 still needs the first encrypted write to the approved logical
-  endpoint `endpoint://joe-home-proxmox-vault-1`, integrity verification, and
-  an isolated restore receipt after the owner confirms its guest address,
-  account, ZFS-backed repository, transport service, and snapshot schedule;
-  this endpoint is off-machine but not geographically off-site;
+- issue #21 has an external owner attestation backed by owner-controlled private
+  evidence for the first encrypted write, full-data integrity verification,
+  isolated restore, verified Git bundle, and post-write storage snapshot. The
+  repository gate validates the sanitized attestation's exact fields and
+  machine-binding exclusions but cannot independently verify those private
+  operations. Merging the attestation records, rather than proves, the observed
+  completion; ongoing monthly checks and quarterly restore rehearsals remain
+  owner operations rather than release-time claims;
 - the final candidate must repeat the Git, GitHub prose, Actions log/artifact,
   release, tag, and settings audit after its last merge;
 - Joe must provide the dedicated release-signing public key and fingerprint,

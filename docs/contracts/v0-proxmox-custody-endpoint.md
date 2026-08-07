@@ -89,6 +89,64 @@ v2 endpoint migration output and its human-readable receipt are pinned under
 contract behavior only; they do not prove provisioning, connectivity, custody
 transfer, credentials, or remote-write authority.
 
+The first real-operation public summary is a separate external owner
+attestation. Its authoritative machine-readable form is
+`evidence/sanitized/custody/v1/receipt.json`, validated by
+`artifact-memory/sanitized-custody-attestation/v2`; `receipt.md` is a generated,
+byte-checked projection. This proves only that the public artifact conforms to
+the versioned shape and privacy boundary. It does not independently replay or
+verify the private backup and restore operations. The machine receipt therefore
+labels the claim `owner-attested/issuer-unverified`, records that its private
+evidence binding is withheld under owner control, and states that independent
+replay is false. No public digest is presented as a substitute for access to or
+verification of the private evidence.
+
+The `evidence/sanitized/custody/v1` directory identifies the version of this
+first-proof evidence layout; it is not a parser-version signal. Consumers MUST
+select the JSON parser from `schema_id`. A v1-only reader MUST reject the live
+v2 receipt until upgraded rather than treating it as v1 or silently dropping
+the provenance fields. The paired Markdown projection is selected by the JSON
+record's schema and deterministic renderer. Files under `v1/compatibility` are
+pinned historical audit inputs only: they do not republish a current v1 record,
+promise a stable v1 artifact layout, or authorize a v1-to-v2 downgrade.
+
+Historical safety scanning preserves only the known pre-contract v0 Markdown
+shape already present in repository history: the `Endpoint` field, either LF or
+CRLF line endings, and the earlier explanatory `endpoint://` prose. Exact copies
+of every supported historical Markdown rendering are pinned under
+`evidence/sanitized/custody/v1/compatibility`; historical content must byte-match
+one of the independently pinned normalized rendering digests, or the current
+schema-validated deterministic projection, after line-ending normalization.
+The compatibility files do not authorize their own contents. The shapes are
+not silently reinterpreted as a v1 machine attestation. Unknown claims, prose,
+or formats fail as `unsupported-contract-shape` and require an explicit
+reviewed compatibility addition or versioned migration before public-readiness
+scanning can pass.
+
+The history scan associates each blob with every path observed in raw Git
+history, including merge-parent changes. A blob first committed at an unrelated
+path and later reused at a custody Markdown or JSON path is therefore subject to
+the custody contract for that historical association; a mismatched rendering
+adds an `unsupported-contract-shape` finding to `exact_candidate_receipt()` and
+the public-safety command exits 1. To remediate, add the exact historical form
+under `evidence/sanitized/custody/v1/compatibility` through explicit review, or
+ship a versioned migration that updates the pinned compatibility contract. Do
+not suppress the custody path association or reinterpret the blob based only on
+another path where it appeared.
+
+The two v1 JSON shapes already present in this PR's public Git history are also
+handled explicitly: the exact pre-provenance shape is pinned by a compatibility
+schema, and the later provenance-bearing v1 shape remains under the core v1
+schema. Both complete semantic objects are independently pinned by canonical
+JSON digest; the schemas alone do not authorize changed claims or dates. New
+attestations use v2. Historical dispatch rejects duplicate keys, unknown schema
+identifiers, schema drift, semantic drift, and endpoint changes before applying
+the same machine-binding scan used for current content. Exact public copies of
+both historical v1 JSON forms are pinned under
+`evidence/sanitized/custody/v1/compatibility` and replayed by the custody
+attestation conformance runner; they contain no private evidence or machine
+bindings.
+
 This endpoint is off-machine custody on the same owner-controlled premises. It
 must not be described as geographically off-site. A later physically separate
 endpoint may add provider, geography, and jurisdiction diversity without

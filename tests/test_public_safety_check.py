@@ -19,6 +19,225 @@ SPEC.loader.exec_module(public_safety_check)
 
 
 class PublicSafetyCurrentContentTests(unittest.TestCase):
+    def test_sanitized_custody_attestation_renders_exact_public_receipt(self):
+        attestation_path = ROOT / public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH
+        attestation_text = attestation_path.read_text(encoding="utf-8")
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(
+            public_safety_check.sanitized_custody_attestation_findings(
+                attestation_text
+            ),
+            [],
+        )
+        self.assertEqual(public_safety_check.sanitized_custody_receipt_findings(receipt), [])
+
+    def test_sanitized_custody_receipt_rejects_semantic_drift(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        )
+        for original, replacement in (("ten allowlisted", "zero allowlisted"), ("snapshot completed", "snapshot failed")):
+            with self.subTest(replacement=replacement):
+                findings = public_safety_check.sanitized_custody_receipt_findings(
+                    receipt.replace(original, replacement)
+                )
+                self.assertIn("contract-render-mismatch", findings)
+
+    def test_sanitized_custody_receipt_rejects_unrecognized_prose(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        )
+        findings = public_safety_check.sanitized_custody_receipt_findings(
+            receipt + "\nPrivate repository: vault-prod-7\n"
+        )
+        self.assertIn("contract-render-mismatch", findings)
+        self.assertIn("machine-binding-detected", findings)
+
+    def test_sanitized_custody_receipt_rejects_endpoint_alias_suffix(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        )
+        findings = public_safety_check.sanitized_custody_receipt_findings(
+            receipt + "\nEndpoint alias: endpoint://joe-home-proxmox-vault-1-nas\n"
+        )
+        self.assertIn("contract-render-mismatch", findings)
+        self.assertIn("machine-binding-detected", findings)
+
+    def test_sanitized_custody_receipt_rejects_private_binding_forms(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        )
+        private_bindings = (
+            "https://[fd00::1]/repo",
+            "C:/vault",
+            r"\\server\share",
+            "backup@host:/mnt/repo",
+            "backup://vault-1/abc",
+            "codex-task://local/job-1",
+            "A" * 64,
+        )
+        for binding in private_bindings:
+            with self.subTest(binding=binding):
+                findings = public_safety_check.sanitized_custody_receipt_findings(
+                    receipt + f"\nObserved private binding: {binding}\n"
+                )
+                self.assertIn("machine-binding-detected", findings)
+
+    def test_historical_custody_receipt_uses_path_aware_privacy_scan(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        )
+        object_id = "a" * 40
+        history = {
+            object_id: {public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH}
+        }
+        with patch.object(
+            public_safety_check,
+            "read_blobs",
+            return_value={
+                object_id: (
+                    receipt
+                    + "\nEndpoint alias: endpoint://joe-home-proxmox-vault-1-nas\n"
+                ).encode()
+            },
+        ):
+            findings = public_safety_check.check_historical_content(history)
+        self.assertEqual(
+            findings,
+            [
+                "sanitized custody receipt historical content invalid: "
+                f"object {object_id}, unsupported-contract-shape"
+            ],
+        )
+
+    def test_historical_custody_receipt_allows_legacy_scheme_explanation(self):
+        receipt = (
+            ROOT
+            / "evidence/sanitized/custody/v1/compatibility/markdown-network-clarified-v0.md"
+        ).read_text(encoding="utf-8")
+        object_id = "b" * 40
+        history = {
+            object_id: {public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH}
+        }
+        with patch.object(
+            public_safety_check,
+            "read_blobs",
+            return_value={object_id: receipt.encode()},
+        ):
+            findings = public_safety_check.check_historical_content(history)
+        self.assertEqual(findings, [])
+
+    def test_historical_custody_receipt_rejects_changed_claim_or_extra_prose(self):
+        receipt = (
+            ROOT
+            / "evidence/sanitized/custody/v1/compatibility/markdown-pre-contract-v0.md"
+        ).read_text(encoding="utf-8")
+        mutations = (
+            receipt.replace(
+                "one non-empty snapshot completed",
+                "snapshot failed",
+            ),
+            receipt + "\nUnexpected custody assertion.\n",
+            receipt + "\n/srv/private-vault\n",
+        )
+        for text in mutations:
+            with self.subTest(text_length=len(text)):
+                self.assertEqual(
+                    public_safety_check._historical_custody_receipt_findings(text),
+                    ["unsupported-contract-shape"],
+                )
+
+    def test_historical_custody_receipt_allows_crlf(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        ).replace("\n", "\r\n")
+        object_id = "c" * 40
+        history = {
+            object_id: {public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH}
+        }
+        with patch.object(
+            public_safety_check,
+            "read_blobs",
+            return_value={object_id: receipt.encode()},
+        ):
+            findings = public_safety_check.check_historical_content(history)
+        self.assertEqual(findings, [])
+
+    def test_sanitized_custody_attestation_rejects_duplicate_keys(self):
+        attestation = (ROOT / public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH).read_text(
+            encoding="utf-8"
+        )
+        duplicate = attestation.replace(
+            '  "transport_profile":',
+            '  "transport_profile": "backup@private-host:/srv/repo",\n'
+            '  "transport_profile":',
+        )
+        self.assertEqual(
+            public_safety_check.sanitized_custody_attestation_findings(duplicate),
+            ["contract-invalid"],
+        )
+
+    def test_historical_custody_attestation_dispatches_known_versions(self):
+        paths = (
+            ROOT / "evidence/sanitized/custody/v1/compatibility/pre-provenance-v1.json",
+            ROOT / "evidence/sanitized/custody/v1/compatibility/provenance-v1.json",
+            ROOT / public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH,
+        )
+        for path in paths:
+            with self.subTest(path=path.name):
+                self.assertEqual(
+                    public_safety_check._custody_compatibility_attestation_findings(
+                        path.read_text(encoding="utf-8")
+                    ),
+                    [],
+                )
+
+    def test_historical_custody_attestation_rejects_duplicate_keys(self):
+        text = (ROOT / public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH).read_text(
+            encoding="utf-8"
+        ).replace(
+            '  "transport_profile":',
+            '  "transport_profile": "backup@private-host:/srv/repo",\n'
+            '  "transport_profile":',
+        )
+        object_id = "d" * 40
+        history = {
+            object_id: {public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH}
+        }
+        with patch.object(
+            public_safety_check,
+            "read_blobs",
+            return_value={object_id: text.encode()},
+        ):
+            findings = public_safety_check.check_historical_content(history)
+        self.assertEqual(
+            findings,
+            [
+                "sanitized custody attestation historical content invalid: "
+                f"object {object_id}, path "
+                f"{public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH}, "
+                "contract-invalid"
+            ],
+        )
+
+    def test_current_compatibility_attestation_rejects_duplicate_keys(self):
+        path = next(iter(sorted(public_safety_check.SANITIZED_CUSTODY_COMPATIBILITY_PATHS)))
+        text = (ROOT / path).read_text(encoding="utf-8").replace(
+            '  "transport_profile":',
+            '  "transport_profile": "backup@private-host:/srv/repo",\n'
+            '  "transport_profile":',
+        )
+        with (
+            patch.object(public_safety_check, "staged_objects", return_value={}),
+            patch.object(Path, "read_bytes", return_value=text.encode()),
+        ):
+            findings = public_safety_check.check_current_content([path])
+        self.assertEqual(
+            findings,
+            ["sanitized custody compatibility attestation invalid: contract-invalid"],
+        )
+
     def test_unstaged_worktree_content_is_scanned_when_index_is_clean(self):
         marker = ("pass" + "word") + "=synthetic-sensitive-value"
         with tempfile.TemporaryDirectory() as temporary:
@@ -79,6 +298,89 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
 
 
 class PublicSafetyCandidateReceiptTests(unittest.TestCase):
+    def test_raw_history_preserves_every_blob_path_association(self):
+        malicious = (
+            ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH
+        ).read_text(encoding="utf-8").replace(
+            "one non-empty snapshot completed",
+            "snapshot failed",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"
+            repo.mkdir()
+            subprocess.run(
+                ["git", "init", "-b", "main"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Synthetic Fixture"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "fixture@example.invalid"],
+                cwd=repo,
+                check=True,
+            )
+            shared = repo / "shared.md"
+            shared.write_text(malicious, encoding="utf-8")
+            subprocess.run(
+                ["git", "add", "shared.md"], cwd=repo, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Add shared blob"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            receipt = repo / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH
+            receipt.parent.mkdir(parents=True)
+            receipt.write_text(malicious, encoding="utf-8")
+            subprocess.run(
+                ["git", "add", public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Reuse blob as receipt"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            receipt.unlink()
+            subprocess.run(
+                ["git", "add", "-u"], cwd=repo, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Remove receipt path"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            blob = subprocess.check_output(
+                ["git", "hash-object", "shared.md"],
+                cwd=repo,
+                text=True,
+            ).strip()
+            previous = Path.cwd()
+            os.chdir(repo)
+            try:
+                history = public_safety_check.history_entries(["HEAD"])
+                findings = public_safety_check.check_historical_content(history)
+            finally:
+                os.chdir(previous)
+        self.assertEqual(
+            history[blob],
+            {"shared.md", public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH},
+        )
+        self.assertIn(
+            "sanitized custody receipt historical content invalid: "
+            f"object {blob}, unsupported-contract-shape",
+            findings,
+        )
+
     def test_public_refs_excludes_only_remote_head_and_keeps_head_tag(self):
         output = (
             "refs/remotes/origin/HEAD\t" + "a" * 40 + "\n"
