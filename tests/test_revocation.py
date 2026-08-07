@@ -155,14 +155,56 @@ class RevocationTests(unittest.TestCase):
         )
         self.assertEqual(unavailable["outcome"], "unavailable")
         self.assertEqual(unavailable["diagnostics"][0]["code"], "replay-ledger-unavailable")
-        with self.assertRaises(TypeError):
+        missing = acknowledge_revocation(
+            envelope,
+            recipient_ref="agent://synthetic/reader-a",
+            outcome="acknowledged",
+            suppression_state="applied",
+            now=NOW,
+        )
+        self.assertEqual(missing["outcome"], "unavailable")
+        self.assertEqual(missing["diagnostics"][0]["code"], "replay-ledger-unavailable")
+
+    def test_non_terminal_and_invalid_acknowledgements_do_not_consume_replay_claim(self):
+        envelope = self._envelope("correlation://synthetic/revocation-retry")
+        ledger = self._ledger()
+        unavailable = acknowledge_revocation(
+            envelope,
+            recipient_ref="agent://synthetic/reader-a",
+            replay_ledger=ledger,
+            outcome="unavailable",
+            suppression_state="unknown",
+            now=NOW,
+        )
+        self.assertEqual(unavailable["outcome"], "unavailable")
+        with self.assertRaises(ValidationFailure):
             acknowledge_revocation(
                 envelope,
                 recipient_ref="agent://synthetic/reader-a",
+                replay_ledger=ledger,
                 outcome="acknowledged",
                 suppression_state="applied",
+                endpoint_receipt_refs=[[]],
                 now=NOW,
             )
+        acknowledged = acknowledge_revocation(
+            envelope,
+            recipient_ref="agent://synthetic/reader-a",
+            replay_ledger=ledger,
+            outcome="acknowledged",
+            suppression_state="applied",
+            now=NOW,
+        )
+        self.assertEqual(acknowledged["outcome"], "acknowledged")
+        duplicate = acknowledge_revocation(
+            envelope,
+            recipient_ref="agent://synthetic/reader-a",
+            replay_ledger=ledger,
+            outcome="acknowledged",
+            suppression_state="applied",
+            now=NOW,
+        )
+        self.assertEqual(duplicate["outcome"], "duplicate")
 
     def test_tombstone_suppresses_projection_and_context(self):
         record = self._record()

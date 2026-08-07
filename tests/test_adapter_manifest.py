@@ -86,6 +86,16 @@ class AdapterManifestTests(unittest.TestCase):
             self.assertEqual(result["diagnostics"][0]["code"], "manifest-invalid")
             self.assertNotIn("root", json.dumps(result))
 
+    def test_non_string_schema_ids_emit_failure_receipts(self):
+        manifest = json.loads((ROOT / "fixtures/synthetic/adapters/v1/independent-reference-manifest.json").read_text(encoding="utf-8"))
+        for schema_id in ([], {}):
+            malformed = deepcopy(manifest)
+            malformed["schema_id"] = schema_id
+            result = validate_manifest(malformed)
+            self.assertEqual(result["outcome"], "failed")
+            self.assertEqual(result["diagnostics"][0]["code"], "manifest-invalid")
+            self.assertEqual(result["diagnostics"][0]["path"], "$.schema_id")
+
     def test_non_object_manifest_uses_safe_fallback_identity(self):
         receipt = validate_manifest([])
         self.assertEqual(receipt["outcome"], "failed")

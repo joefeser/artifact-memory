@@ -34,7 +34,8 @@ def validate_manifest(
     supported_required: Iterable[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Validate a manifest without interpreting or executing the adapter."""
-    schema_id = manifest.get("schema_id") if isinstance(manifest, dict) else None
+    claimed_schema_id = manifest.get("schema_id") if isinstance(manifest, dict) else None
+    schema_id = claimed_schema_id if isinstance(claimed_schema_id, str) else None
     schema_name = {
         "artifact-memory/adapter-manifest/v1": "adapter-manifest.v1.schema.json",
         "artifact-memory/adapter-manifest/v2": "adapter-manifest.v2.schema.json",
