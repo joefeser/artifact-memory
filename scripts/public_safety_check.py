@@ -16,6 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from artifact_memory.canonical import receipt_with_digest
+from artifact_memory.sanitized_custody_attestation import (
+    render_sanitized_custody_attestation,
+    validate_sanitized_custody_attestation,
+)
 from artifact_memory.schema_resources import load_schema
 from artifact_memory.validator import ValidationFailure, load_json, validate
 
@@ -39,35 +43,14 @@ SECRET_LIKE = re.compile(
 
 SCANNER_PATH = "scripts/public_safety_check.py"
 SANITIZED_CUSTODY_RECEIPT_PATH = "evidence/sanitized/custody/v1/receipt.md"
+SANITIZED_CUSTODY_ATTESTATION_PATH = "evidence/sanitized/custody/v1/receipt.json"
 RECEIPT_SCHEMA_ID = "artifact-memory/public-safety-receipt/v1"
 RECEIPT_ID_PREFIX = "public-safety-receipt://"
 PUBLIC_REF_PATTERN = re.compile(r"^refs/(?:remotes/[^/]+/[^/].*|tags/[^/].*)$")
 GIT_OBJECT_ID_PATTERN = re.compile(r"^[0-9a-f]{40}$")
-SANITIZED_CUSTODY_FIELDS = {
-    "Observed": "`2026-08-06`",
-    "Endpoint": "`endpoint://joe-home-proxmox-vault-1`",
-    "Custody claim": "`off-machine-not-geographically-off-site`",
-    "Transport profile": "encrypted restic through the restricted SFTP fallback",
-    "Backup input": "explicit private-vault and knowledge-store allowlist",
-    "Remote write": "one non-empty snapshot completed",
-    "Repository verification": "every stored data blob was read without error",
-    "Restore": "the exact remote snapshot restored into a new isolated target",
-    "Restored verification": (
-        "ten allowlisted source files matched the private manifest; four canonical "
-        "artifact/version records validated; two content objects matched their "
-        "digests; the restored Git bundle verified"
-    ),
-    "Storage boundary": (
-        "ZFS-backed repository with a separately controlled weekly snapshot timer "
-        "and bounded retention; a manual server-controlled post-write snapshot "
-        "succeeded after the first remote backup"
-    ),
-    "Recovery cadence": (
-        "monthly restic integrity verification and quarterly isolated restore rehearsal"
-    ),
-    "Private material committed": "`false`",
-}
-SANITIZED_CUSTODY_ALLOWED_ENDPOINT = "endpoint://joe-home-proxmox-vault-1"
+LOGICAL_ENDPOINT_PATTERN = re.compile(
+    r"^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$"
+)
 MACHINE_BINDING_PATTERNS = (
     re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
     re.compile(r"\[[0-9A-Fa-f:%.]+\]"),
@@ -75,7 +58,7 @@ MACHINE_BINDING_PATTERNS = (
     re.compile(r"\b(?:https?|sftp|ssh|ftp|ftps|nfs|smb)://", re.IGNORECASE),
     re.compile(
         r"\b(?:backup|codex-task|task|content|artifact|artifact-version|"
-        r"restore-receipt|backup-receipt|custody-receipt)://",
+        r"restore-receipt|backup-receipt|custody-receipt|endpoint)://",
         re.IGNORECASE,
     ),
     re.compile(r"(?<![A-Za-z0-9])/(?:Users|home|srv|mnt|var|etc|opt|private|Volumes)/\S+"),
@@ -83,6 +66,11 @@ MACHINE_BINDING_PATTERNS = (
     re.compile(r"\\\\[^\s\\]+\\[^\s\\]+"),
     re.compile(r"\b[A-Za-z0-9._~-]+@[A-Za-z0-9._~-]+(?::[\\/]\S+)?"),
     re.compile(r"\b[0-9A-Fa-f]{40,64}\b"),
+    re.compile(
+        r"\b(?:private repository|snapshot reference|repository identifier|"
+        r"task identifier)\s*:",
+        re.IGNORECASE,
+    ),
 )
 
 
@@ -90,43 +78,89 @@ class PublicSafetyInvalidGitOutput(RuntimeError):
     """Raised when Git emits data outside the exact public-audit contract."""
 
 
-def _markdown_receipt_fields(text: str) -> tuple[dict[str, str], list[str]]:
-    fields: dict[str, str] = {}
-    findings: list[str] = []
-    current: str | None = None
-    for line in text.splitlines():
-        if line.startswith("- "):
-            key, separator, value = line[2:].partition(": ")
-            if not separator or not key or key in fields:
-                findings.append("field-shape-invalid")
-                current = None
-                continue
-            fields[key] = value.strip()
-            current = key
-        elif current is not None and line.startswith("  "):
-            fields[current] += " " + line.strip()
-        else:
-            current = None
-    return fields, findings
-
-
-def sanitized_custody_receipt_findings(text: str) -> list[str]:
-    """Validate the public attestation shape without claiming private replay."""
-
-    fields, findings = _markdown_receipt_fields(text)
-    if fields != SANITIZED_CUSTODY_FIELDS:
-        findings.append("field-semantics-mismatch")
-    endpoint = fields.get("Endpoint", "").strip("`")
-    if endpoint != SANITIZED_CUSTODY_ALLOWED_ENDPOINT:
-        findings.append("logical-endpoint-invalid")
-
-    binding_scope = text.replace(SANITIZED_CUSTODY_ALLOWED_ENDPOINT, "")
+def _machine_binding_findings(text: str) -> list[str]:
+    findings = []
+    binding_scope = text
     if SECRET_LIKE.search(binding_scope):
         findings.append("secret-like-binding")
     for pattern in MACHINE_BINDING_PATTERNS:
         if pattern.search(binding_scope):
             findings.append("machine-binding-detected")
             break
+    return sorted(set(findings))
+
+
+def _markdown_without_exact_endpoint(text: str, endpoint: str) -> tuple[str, list[str]]:
+    endpoint_line = f"- Endpoint: `{endpoint}`"
+    lines = text.splitlines(keepends=True)
+    indexes = [
+        index
+        for index, line in enumerate(lines)
+        if line.rstrip("\r\n") == endpoint_line
+    ]
+    if len(indexes) != 1:
+        return text, ["logical-endpoint-line-invalid"]
+    return "".join(line for index, line in enumerate(lines) if index != indexes[0]), []
+
+
+def _historical_custody_receipt_findings(text: str) -> list[str]:
+    matches = re.findall(
+        r"^- Endpoint: `([^`]+)`$",
+        text,
+        flags=re.MULTILINE,
+    )
+    if len(matches) != 1 or LOGICAL_ENDPOINT_PATTERN.fullmatch(matches[0]) is None:
+        return sorted(set(["logical-endpoint-invalid", *_machine_binding_findings(text)]))
+    scope, findings = _markdown_without_exact_endpoint(text, matches[0])
+    scope = scope.replace(
+        "published `endpoint://` value is a portable logical identity",
+        "published logical endpoint value is a portable identity",
+    )
+    return sorted(set([*findings, *_machine_binding_findings(scope)]))
+
+
+def _load_sanitized_custody_attestation() -> dict[str, object]:
+    attestation = load_json(ROOT / SANITIZED_CUSTODY_ATTESTATION_PATH)
+    if not isinstance(attestation, dict):
+        raise ValidationFailure(
+            "type-mismatch",
+            "sanitized custody attestation must be an object",
+        )
+    validate_sanitized_custody_attestation(attestation)
+    return attestation
+
+
+def sanitized_custody_attestation_findings(text: str) -> list[str]:
+    """Validate the authoritative machine receipt and its privacy boundary."""
+
+    try:
+        attestation = json.loads(text)
+        if not isinstance(attestation, dict):
+            raise ValidationFailure("type-mismatch", "attestation must be an object")
+        validate_sanitized_custody_attestation(attestation)
+    except (json.JSONDecodeError, ValidationFailure):
+        return ["contract-invalid"]
+    endpoint = attestation["endpoint"]
+    other_values = "\n".join(
+        str(value) for key, value in attestation.items() if key != "endpoint"
+    )
+    return _machine_binding_findings(other_values)
+
+
+def sanitized_custody_receipt_findings(text: str) -> list[str]:
+    """Validate the public projection without claiming private replay."""
+
+    try:
+        attestation = _load_sanitized_custody_attestation()
+    except ValidationFailure:
+        return ["contract-invalid"]
+    findings = []
+    if text != render_sanitized_custody_attestation(attestation):
+        findings.append("contract-render-mismatch")
+    endpoint = str(attestation["endpoint"])
+    scope, endpoint_findings = _markdown_without_exact_endpoint(text, endpoint)
+    findings.extend(endpoint_findings)
+    findings.extend(_machine_binding_findings(scope))
     return sorted(set(findings))
 
 
@@ -364,6 +398,12 @@ def check_historical_content(history: dict[str, set[str]]) -> list[str]:
         if SECRET_LIKE.search(text):
             path_evidence = f", path {non_scanner_paths[0]}" if non_scanner_paths else ""
             findings.append(f"secret-like historical content: object {object_id}{path_evidence}")
+        if SANITIZED_CUSTODY_RECEIPT_PATH in non_scanner_paths:
+            for code in _historical_custody_receipt_findings(text):
+                findings.append(
+                    "sanitized custody receipt historical content invalid: "
+                    f"object {object_id}, {code}"
+                )
     return findings
 
 
@@ -435,10 +475,12 @@ def check_current_content(paths: list[str]) -> list[str]:
             text = content.decode("utf-8", errors="replace")
             if SECRET_LIKE.search(text):
                 findings.append(f"secret-like current content: path {path}")
-                break
             if path == SANITIZED_CUSTODY_RECEIPT_PATH:
                 for code in sanitized_custody_receipt_findings(text):
                     findings.append(f"sanitized custody receipt invalid: {code}")
+            if path == SANITIZED_CUSTODY_ATTESTATION_PATH:
+                for code in sanitized_custody_attestation_findings(text):
+                    findings.append(f"sanitized custody attestation invalid: {code}")
     return findings
 
 

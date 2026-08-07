@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/sanitized-custody-attestation/v1",
+  "title": "Artifact Memory sanitized custody attestation v1",
+  "description": "Public, machine-readable owner attestation for one bounded custody observation. Validation does not independently replay the private operation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "observed",
+    "endpoint",
+    "custody_claim",
+    "transport_profile",
+    "backup_input",
+    "remote_write",
+    "repository_verification",
+    "restore",
+    "restored_verification",
+    "storage_boundary",
+    "recovery_cadence",
+    "private_material_committed"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/sanitized-custody-attestation/v1"},
+    "observed": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "endpoint": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$"},
+    "custody_claim": {"const": "off-machine-not-geographically-off-site"},
+    "transport_profile": {"type": "string", "minLength": 1},
+    "backup_input": {"type": "string", "minLength": 1},
+    "remote_write": {"type": "string", "minLength": 1},
+    "repository_verification": {"type": "string", "minLength": 1},
+    "restore": {"type": "string", "minLength": 1},
+    "restored_verification": {"type": "string", "minLength": 1},
+    "storage_boundary": {"type": "string", "minLength": 1},
+    "recovery_cadence": {"type": "string", "minLength": 1},
+    "private_material_committed": {"const": false}
+  }
+}

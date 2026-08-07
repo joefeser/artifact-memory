@@ -89,6 +89,14 @@ v2 endpoint migration output and its human-readable receipt are pinned under
 contract behavior only; they do not prove provisioning, connectivity, custody
 transfer, credentials, or remote-write authority.
 
+The first real-operation public summary is a separate external owner
+attestation. Its authoritative machine-readable form is
+`evidence/sanitized/custody/v1/receipt.json`, validated by
+`artifact-memory/sanitized-custody-attestation/v1`; `receipt.md` is a generated,
+byte-checked projection. This proves only that the public artifact conforms to
+the versioned shape and privacy boundary. It does not independently replay or
+verify the private backup and restore operations.
+
 This endpoint is off-machine custody on the same owner-controlled premises. It
 must not be described as geographically off-site. A later physically separate
 endpoint may add provider, geography, and jurisdiction diversity without

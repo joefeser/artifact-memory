@@ -19,9 +19,17 @@ SPEC.loader.exec_module(public_safety_check)
 
 
 class PublicSafetyCurrentContentTests(unittest.TestCase):
-    def test_sanitized_custody_receipt_has_exact_public_semantics(self):
+    def test_sanitized_custody_attestation_renders_exact_public_receipt(self):
+        attestation_path = ROOT / public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH
+        attestation_text = attestation_path.read_text(encoding="utf-8")
         receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
             encoding="utf-8"
+        )
+        self.assertEqual(
+            public_safety_check.sanitized_custody_attestation_findings(
+                attestation_text
+            ),
+            [],
         )
         self.assertEqual(public_safety_check.sanitized_custody_receipt_findings(receipt), [])
 
@@ -34,7 +42,27 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
                 findings = public_safety_check.sanitized_custody_receipt_findings(
                     receipt.replace(original, replacement)
                 )
-                self.assertIn("field-semantics-mismatch", findings)
+                self.assertIn("contract-render-mismatch", findings)
+
+    def test_sanitized_custody_receipt_rejects_unrecognized_prose(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        )
+        findings = public_safety_check.sanitized_custody_receipt_findings(
+            receipt + "\nPrivate repository: vault-prod-7\n"
+        )
+        self.assertIn("contract-render-mismatch", findings)
+        self.assertIn("machine-binding-detected", findings)
+
+    def test_sanitized_custody_receipt_rejects_endpoint_alias_suffix(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        )
+        findings = public_safety_check.sanitized_custody_receipt_findings(
+            receipt + "\nEndpoint alias: endpoint://joe-home-proxmox-vault-1-nas\n"
+        )
+        self.assertIn("contract-render-mismatch", findings)
+        self.assertIn("machine-binding-detected", findings)
 
     def test_sanitized_custody_receipt_rejects_private_binding_forms(self):
         receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
@@ -55,6 +83,52 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
                     receipt + f"\nObserved private binding: {binding}\n"
                 )
                 self.assertIn("machine-binding-detected", findings)
+
+    def test_historical_custody_receipt_uses_path_aware_privacy_scan(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        )
+        object_id = "a" * 40
+        history = {
+            object_id: {public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH}
+        }
+        with patch.object(
+            public_safety_check,
+            "read_blobs",
+            return_value={
+                object_id: (
+                    receipt
+                    + "\nEndpoint alias: endpoint://joe-home-proxmox-vault-1-nas\n"
+                ).encode()
+            },
+        ):
+            findings = public_safety_check.check_historical_content(history)
+        self.assertEqual(
+            findings,
+            [
+                "sanitized custody receipt historical content invalid: "
+                f"object {object_id}, machine-binding-detected"
+            ],
+        )
+
+    def test_historical_custody_receipt_allows_legacy_scheme_explanation(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        ).replace(
+            "published logical endpoint value is a portable identity",
+            "published `endpoint://` value is a portable logical identity",
+        )
+        object_id = "b" * 40
+        history = {
+            object_id: {public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH}
+        }
+        with patch.object(
+            public_safety_check,
+            "read_blobs",
+            return_value={object_id: receipt.encode()},
+        ):
+            findings = public_safety_check.check_historical_content(history)
+        self.assertEqual(findings, [])
 
     def test_unstaged_worktree_content_is_scanned_when_index_is_clean(self):
         marker = ("pass" + "word") + "=synthetic-sensitive-value"
