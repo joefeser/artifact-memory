@@ -13,6 +13,8 @@ from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
 EXTENSION_ID = re.compile(r"^https://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~/-]+)?$")
+_DECLARATION_FIELDS = {"version", "required", "value"}
+_VERSION = re.compile(r"^v[0-9]+$")
 
 
 class ExtensionFailure(Exception):
@@ -24,6 +26,26 @@ class ExtensionFailure(Exception):
 
 
 _canonical = canonical_bytes
+
+
+def is_required_declaration(identifier: Any, declaration: Any) -> bool:
+    """Return True only for a complete {version, required, value} declaration with required:true.
+
+    Incomplete or malformed values (including a bare {"required": true}) are
+    legacy opaque data per docs/contracts/v0-extensions.md and must not be
+    treated as a structured declaration that triggers negotiation.
+    """
+    return (
+        isinstance(identifier, str)
+        and EXTENSION_ID.fullmatch(identifier) is not None
+        and isinstance(declaration, dict)
+        and set(declaration) == _DECLARATION_FIELDS
+        and isinstance(declaration.get("version"), str)
+        and _VERSION.fullmatch(declaration["version"]) is not None
+        and isinstance(declaration.get("required"), bool)
+        and declaration["required"] is True
+        and isinstance(declaration.get("value"), dict)
+    )
 
 
 def validate_extension_bundle(extension_bundle: dict[str, Any]) -> None:

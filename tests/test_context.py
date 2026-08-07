@@ -118,6 +118,19 @@ class ContextTests(unittest.TestCase):
         )
         self.assertEqual(pack["selection_receipt"]["selected_record_ids"], [record_id])
 
+    def test_incomplete_required_true_dict_is_preserved_not_interpreted(self):
+        """An object like {"required": true} missing version/value is legacy opaque data, not a declaration."""
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_id = record["record_id"]
+        record["extensions"] = {"https://synthetic.example/incomplete": {"required": True}}
+        pack = export_context(
+            [record],
+            authorized_record_ids=[record_id],
+            freshness_by_record=current(record_id),
+            selected_at=SELECTED_AT,
+        )
+        self.assertEqual(pack["selection_receipt"]["selected_record_ids"], [record_id])
+
     def test_required_extension_negotiation_fails_closed_before_export(self):
         record = json.loads(FIXTURE.read_text(encoding="utf-8"))
         record_id = record["record_id"]

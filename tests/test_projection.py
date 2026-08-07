@@ -126,6 +126,19 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual(receipt["outcome"], "complete")
             self.assertEqual(ndjson_record["extensions"]["https://synthetic.example/opaque"], "not-a-declaration-object")
 
+    def test_projection_preserves_incomplete_required_true_dict(self):
+        """An object like {"required": true} missing version/value is legacy opaque data, not a declaration."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            record["extensions"] = {"https://synthetic.example/incomplete": {"required": True}}
+            record_path = root / "incomplete.json"
+            record_path.write_text(json.dumps(record), encoding="utf-8")
+            output = root / "generated"
+
+            receipt = project_records([record_path], output)
+            self.assertEqual(receipt["outcome"], "complete")
+
     def test_projection_preserves_unknown_optional_extensions_in_generated_views(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
