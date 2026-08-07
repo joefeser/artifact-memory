@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import os
+import sqlite3
 from collections.abc import Iterable, Mapping
+from contextlib import closing
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from pathlib import Path
+from typing import Any
 
 from .canonical import canonical_bytes, expected_receipt_id, receipt_with_digest, sha256_bytes
 from .knowledge import knowledge_schema
 from .schema_resources import load_schema
-from .validator import ValidationFailure, validate
+from .validator import ValidationFailure, load_json_bytes, validate
 
 
 AUTHORITY_BOUNDARY = "revocation propagation grants no execution, disclosure, routing, mutation, or erasure authority"
@@ -17,11 +21,115 @@ OUTCOMES = {"acknowledged", "duplicate", "rejected", "unsupported", "unavailable
 SUPPRESSION_STATES = {"applied", "not-applied", "not-applicable", "unknown"}
 
 
-class RevocationReplayLedger(Protocol):
-    """Caller-supplied ledger that atomically retains canonical acknowledgements."""
+class SQLiteRevocationReplayLedger:
+    """Durable v0 replay ledger with atomic first-writer-wins retention."""
+
+    capability_id = "artifact-memory/revocation-replay-ledger/sqlite-v1"
+    _schema_id = "artifact-memory/revocation-replay-ledger-state/v1"
+
+    def __init__(self, path: Path) -> None:
+        candidate = Path(path)
+        if candidate.is_symlink():
+            raise ValidationFailure("revocation-ledger-invalid", "revocation replay ledger must not be a symbolic link")
+        try:
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            self.path = candidate.parent.resolve() / candidate.name
+        except OSError as exc:
+            raise ValidationFailure("revocation-ledger-unavailable", "revocation replay ledger path is unavailable") from exc
+        if self.path.exists() and (self.path.is_symlink() or not self.path.is_file()):
+            raise ValidationFailure("revocation-ledger-invalid", "revocation replay ledger must be a regular file")
+        try:
+            if not self.path.exists():
+                try:
+                    descriptor = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+                except FileExistsError:
+                    pass
+                else:
+                    os.close(descriptor)
+            with closing(self._connect(validate_contract=False)) as connection:
+                connection.executescript(
+                    """
+                    CREATE TABLE IF NOT EXISTS replay_ledger_metadata (
+                        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                        schema_id TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS revocation_acknowledgements (
+                        acknowledgement_key TEXT PRIMARY KEY,
+                        receipt_json BLOB NOT NULL
+                    ) WITHOUT ROWID;
+                    INSERT OR IGNORE INTO replay_ledger_metadata (singleton, schema_id)
+                    VALUES (1, 'artifact-memory/revocation-replay-ledger-state/v1');
+                    PRAGMA user_version = 1;
+                    """
+                )
+                self._validate_contract(connection)
+            if os.name == "posix":
+                os.chmod(self.path, 0o600)
+        except (OSError, sqlite3.Error, ValidationFailure) as exc:
+            raise ValidationFailure("revocation-ledger-invalid", "revocation replay ledger contract is invalid") from exc
+
+    def _connect(self, *, validate_contract: bool = True) -> sqlite3.Connection:
+        if self.path.is_symlink():
+            raise ValidationFailure("revocation-ledger-invalid", "revocation replay ledger must not be a symbolic link")
+        connection = sqlite3.connect(self.path, timeout=5.0)
+        try:
+            connection.execute("PRAGMA journal_mode = DELETE")
+            connection.execute("PRAGMA synchronous = FULL")
+            connection.execute("PRAGMA trusted_schema = OFF")
+            connection.execute("PRAGMA busy_timeout = 5000")
+            if validate_contract:
+                self._validate_contract(connection)
+        except Exception:
+            connection.close()
+            raise
+        return connection
+
+    def _validate_contract(self, connection: sqlite3.Connection) -> None:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            )
+        }
+        if tables != {"replay_ledger_metadata", "revocation_acknowledgements"}:
+            raise ValidationFailure("revocation-ledger-invalid", "revocation replay ledger tables are invalid")
+        triggers = connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger'").fetchone()
+        metadata = connection.execute(
+            "SELECT singleton, schema_id FROM replay_ledger_metadata ORDER BY singleton"
+        ).fetchall()
+        version = connection.execute("PRAGMA user_version").fetchone()
+        columns = connection.execute("PRAGMA table_info(revocation_acknowledgements)").fetchall()
+        column_contract = [(row[1], row[2], row[3], row[5]) for row in columns]
+        if (
+            triggers != (0,)
+            or metadata != [(1, self._schema_id)]
+            or version != (1,)
+            or column_contract != [("acknowledgement_key", "TEXT", 1, 1), ("receipt_json", "BLOB", 1, 0)]
+        ):
+            raise ValidationFailure("revocation-ledger-invalid", "revocation replay ledger metadata is invalid")
 
     def retain(self, acknowledgement_key: str, receipt: dict[str, Any]) -> dict[str, Any]:
-        """Atomically retain-if-absent and return the canonical retained receipt."""
+        """Commit once and return the original canonical receipt across restarts."""
+        if not isinstance(acknowledgement_key, str) or not acknowledgement_key:
+            raise ValidationFailure("revocation-ledger-key-invalid", "revocation replay ledger key is invalid")
+        requested_bytes = canonical_bytes(receipt)
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "INSERT OR IGNORE INTO revocation_acknowledgements (acknowledgement_key, receipt_json) VALUES (?, ?)",
+                (acknowledgement_key, requested_bytes),
+            )
+            row = connection.execute(
+                "SELECT receipt_json FROM revocation_acknowledgements WHERE acknowledgement_key = ?",
+                (acknowledgement_key,),
+            ).fetchone()
+            connection.commit()
+        if row is None or not isinstance(row[0], bytes):
+            raise ValidationFailure("revocation-ledger-invalid", "revocation replay ledger lost the retained receipt")
+        retained = load_json_bytes(row[0])
+        if not isinstance(retained, dict) or canonical_bytes(retained) != row[0]:
+            raise ValidationFailure("revocation-ledger-invalid", "revocation replay ledger receipt is not canonical")
+        return retained
 
 
 def _tombstone_schema_name(schema_id: str) -> str:
@@ -150,7 +258,7 @@ def acknowledge_revocation(
     recipient_ref: str,
     outcome: str,
     suppression_state: str,
-    replay_ledger: RevocationReplayLedger | None = None,
+    replay_ledger: SQLiteRevocationReplayLedger | None = None,
     endpoint_receipt_refs: Iterable[str] = (),
     diagnostics: Iterable[dict[str, str]] = (),
     expected_audience_ref: str | None = None,
@@ -186,6 +294,8 @@ def acknowledge_revocation(
         return requested_receipt
     if replay_ledger is None:
         return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="unavailable", suppression_state="unknown", endpoint_receipt_refs=endpoint_values, diagnostics=[{"code": "replay-ledger-unavailable", "message": "a durable atomic replay ledger is required"}])
+    if type(replay_ledger) is not SQLiteRevocationReplayLedger:
+        return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="unavailable", suppression_state="unknown", endpoint_receipt_refs=endpoint_values, diagnostics=[{"code": "replay-ledger-unapproved", "message": "the replay ledger does not provide the approved durable v0 capability"}])
     replay_key = envelope["envelope_id"] + "\x00" + recipient_ref
     try:
         retained_receipt = replay_ledger.retain(replay_key, requested_receipt)

@@ -17,6 +17,10 @@ SUPPORTED_MANIFEST_SCHEMA_IDS = (
     "artifact-memory/adapter-manifest/v1",
     "artifact-memory/adapter-manifest/v2",
 )
+MANIFEST_SCHEMA_FILES = {
+    SUPPORTED_MANIFEST_SCHEMA_IDS[0]: "adapter-manifest.v1.schema.json",
+    SUPPORTED_MANIFEST_SCHEMA_IDS[1]: "adapter-manifest.v2.schema.json",
+}
 
 
 def receipt(manifest: Any, outcome: str, diagnostics: list[dict[str, str]] | None = None) -> dict[str, Any]:
@@ -41,10 +45,7 @@ def validate_manifest(
     """Validate a manifest without interpreting or executing the adapter."""
     claimed_schema_id = manifest.get("schema_id") if isinstance(manifest, dict) else None
     schema_id = claimed_schema_id if isinstance(claimed_schema_id, str) else None
-    schema_name = {
-        SUPPORTED_MANIFEST_SCHEMA_IDS[0]: "adapter-manifest.v1.schema.json",
-        SUPPORTED_MANIFEST_SCHEMA_IDS[1]: "adapter-manifest.v2.schema.json",
-    }.get(schema_id, "adapter-manifest.v1.schema.json")
+    schema_name = MANIFEST_SCHEMA_FILES.get(schema_id, MANIFEST_SCHEMA_FILES[SUPPORTED_MANIFEST_SCHEMA_IDS[0]])
     manifest_schema = load_schema("adapters", schema_name)
     if (
         isinstance(manifest, dict)

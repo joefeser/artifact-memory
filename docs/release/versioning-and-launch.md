@@ -16,8 +16,10 @@ an explicit migration or rejection rule.
 
 Release manifests retain the legacy `manifest_schema` field and may also list
 `supported_manifest_schemas`. Preview preparation derives that list from the
-exact source commit, so an archive advertises adapter-manifest v2 only when its
-schema is actually present while keeping v1 discoverable.
+exact source commit and advertises a version only when the candidate bytes match
+the runtime's immutable versioned schema contract. A matching filename alone is
+not support evidence. Isolated v1-only and no-adapter commit fixtures prove that
+discovery does not fall back to the running checkout.
 
 Once a supported surface is deprecated, Artifact Memory retains it for at
 least one subsequent minor release and 90 days after the public deprecation

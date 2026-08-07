@@ -10,12 +10,12 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .adapter_manifest import SUPPORTED_MANIFEST_SCHEMA_IDS
-from .canonical import receipt_with_digest, sha256_bytes
+from .adapter_manifest import MANIFEST_SCHEMA_FILES, SUPPORTED_MANIFEST_SCHEMA_IDS
+from .canonical import CanonicalizationFailure, canonical_bytes, receipt_with_digest, sha256_bytes
 from .release import validate_release_manifest
 from .release_metadata import read_package_version, schema_inventory
 from .schema_resources import load_schema
-from .validator import ValidationFailure, validate
+from .validator import ValidationFailure, load_json_bytes, validate
 
 
 AUTHORITY_BOUNDARY = (
@@ -132,10 +132,30 @@ def _supported_adapter_manifest_schemas(repository: Path, commit: str) -> list[s
         ).decode("utf-8").splitlines()
     )
     candidates = {
-        SUPPORTED_MANIFEST_SCHEMA_IDS[0]: "artifact_memory/schemas/adapters/adapter-manifest.v1.schema.json",
-        SUPPORTED_MANIFEST_SCHEMA_IDS[1]: "artifact_memory/schemas/adapters/adapter-manifest.v2.schema.json",
+        schema_id: f"artifact_memory/schemas/adapters/{MANIFEST_SCHEMA_FILES[schema_id]}"
+        for schema_id in SUPPORTED_MANIFEST_SCHEMA_IDS
     }
-    supported = [schema_id for schema_id in SUPPORTED_MANIFEST_SCHEMA_IDS if candidates[schema_id] in paths]
+    supported: list[str] = []
+    for schema_id in SUPPORTED_MANIFEST_SCHEMA_IDS:
+        path = candidates[schema_id]
+        if path not in paths:
+            continue
+        try:
+            candidate_schema = load_json_bytes(_git(repository, "show", f"{commit}:{path}"))
+            expected_schema = load_schema("adapters", MANIFEST_SCHEMA_FILES[schema_id])
+            candidate_schema_bytes = canonical_bytes(candidate_schema)
+            expected_schema_bytes = canonical_bytes(expected_schema)
+        except (CanonicalizationFailure, ValidationFailure) as exc:
+            raise ValidationFailure(
+                "release-preparation-adapter-contract-invalid",
+                "release preview source contains an invalid supported adapter manifest schema",
+            ) from exc
+        if not isinstance(candidate_schema, dict) or candidate_schema_bytes != expected_schema_bytes:
+            raise ValidationFailure(
+                "release-preparation-adapter-contract-invalid",
+                "release preview source adapter manifest schema does not match its versioned contract",
+            )
+        supported.append(schema_id)
     if not supported:
         raise ValidationFailure(
             "release-preparation-adapter-contract-missing",
