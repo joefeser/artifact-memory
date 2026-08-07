@@ -35,6 +35,43 @@ class SanitizedCustodyAttestationTests(unittest.TestCase):
         with self.assertRaises(ValidationFailure):
             validate_sanitized_custody_attestation(attestation)
 
+    def test_invalid_calendar_dates_fail_closed(self):
+        for observed in ("2026-99-99", "2024-02-30"):
+            with self.subTest(observed=observed):
+                attestation = copy.deepcopy(load_json(ATTESTATION))
+                attestation["observed"] = observed
+                with self.assertRaises(ValidationFailure):
+                    validate_sanitized_custody_attestation(attestation)
+
+    def test_machine_bound_endpoint_values_fail_closed(self):
+        for endpoint in (
+            "endpoint://192.168.1.10",
+            "endpoint://vault.example",
+            "endpoint://other-portable-slug",
+        ):
+            with self.subTest(endpoint=endpoint):
+                attestation = copy.deepcopy(load_json(ATTESTATION))
+                attestation["endpoint"] = endpoint
+                with self.assertRaises(ValidationFailure):
+                    validate_sanitized_custody_attestation(attestation)
+
+    def test_claim_outcomes_and_provenance_are_pinned(self):
+        mutations = {
+            "remote_write": "failed",
+            "repository_verification": "not attempted",
+            "restore": "failed",
+            "restored_verification": "not checked",
+            "attestation_status": "verified",
+            "private_evidence_binding": "publicly-bound",
+            "independent_replay": True,
+        }
+        for field, value in mutations.items():
+            with self.subTest(field=field):
+                attestation = copy.deepcopy(load_json(ATTESTATION))
+                attestation[field] = value
+                with self.assertRaises(ValidationFailure):
+                    validate_sanitized_custody_attestation(attestation)
+
 
 if __name__ == "__main__":
     unittest.main()

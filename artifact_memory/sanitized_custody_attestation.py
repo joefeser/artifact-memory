@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from .schema_resources import load_schema
-from .validator import validate
+from .validator import ValidationFailure, validate
 
 
 SCHEMA_ID = "artifact-memory/sanitized-custody-attestation/v1"
@@ -18,6 +19,14 @@ def validate_sanitized_custody_attestation(attestation: dict[str, Any]) -> None:
         attestation,
         load_schema("core", "sanitized-custody-attestation.v1.schema.json"),
     )
+    try:
+        date.fromisoformat(attestation["observed"])
+    except (TypeError, ValueError) as exc:
+        raise ValidationFailure(
+            "constraint-failed",
+            "observed must be a valid calendar date",
+            "$.observed",
+        ) from exc
 
 
 def render_sanitized_custody_attestation(attestation: dict[str, Any]) -> str:
@@ -26,6 +35,10 @@ def render_sanitized_custody_attestation(attestation: dict[str, Any]) -> str:
     validate_sanitized_custody_attestation(attestation)
     return (
         "# Sanitized first off-machine custody receipt\n\n"
+        f"- Attester role: `{attestation['attester_role']}`\n"
+        f"- Attestation status: `{attestation['attestation_status']}`\n"
+        f"- Private evidence binding: `{attestation['private_evidence_binding']}`\n"
+        f"- Independent replay: `{str(attestation['independent_replay']).lower()}`\n"
         f"- Observed: `{attestation['observed']}`\n"
         f"- Endpoint: `{attestation['endpoint']}`\n"
         f"- Custody claim: `{attestation['custody_claim']}`\n"

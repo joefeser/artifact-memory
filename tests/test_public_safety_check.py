@@ -130,6 +130,36 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
             findings = public_safety_check.check_historical_content(history)
         self.assertEqual(findings, [])
 
+    def test_historical_custody_receipt_allows_crlf(self):
+        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
+            encoding="utf-8"
+        ).replace("\n", "\r\n")
+        object_id = "c" * 40
+        history = {
+            object_id: {public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH}
+        }
+        with patch.object(
+            public_safety_check,
+            "read_blobs",
+            return_value={object_id: receipt.encode()},
+        ):
+            findings = public_safety_check.check_historical_content(history)
+        self.assertEqual(findings, [])
+
+    def test_sanitized_custody_attestation_rejects_duplicate_keys(self):
+        attestation = (ROOT / public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH).read_text(
+            encoding="utf-8"
+        )
+        duplicate = attestation.replace(
+            '  "transport_profile":',
+            '  "transport_profile": "backup@private-host:/srv/repo",\n'
+            '  "transport_profile":',
+        )
+        self.assertEqual(
+            public_safety_check.sanitized_custody_attestation_findings(duplicate),
+            ["contract-invalid"],
+        )
+
     def test_unstaged_worktree_content_is_scanned_when_index_is_clean(self):
         marker = ("pass" + "word") + "=synthetic-sensitive-value"
         with tempfile.TemporaryDirectory() as temporary:

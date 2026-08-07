@@ -21,7 +21,12 @@ from artifact_memory.sanitized_custody_attestation import (
     validate_sanitized_custody_attestation,
 )
 from artifact_memory.schema_resources import load_schema
-from artifact_memory.validator import ValidationFailure, load_json, validate
+from artifact_memory.validator import (
+    ValidationFailure,
+    load_json,
+    load_json_bytes,
+    validate,
+)
 
 
 FORBIDDEN_PATH = re.compile(
@@ -48,9 +53,12 @@ RECEIPT_SCHEMA_ID = "artifact-memory/public-safety-receipt/v1"
 RECEIPT_ID_PREFIX = "public-safety-receipt://"
 PUBLIC_REF_PATTERN = re.compile(r"^refs/(?:remotes/[^/]+/[^/].*|tags/[^/].*)$")
 GIT_OBJECT_ID_PATTERN = re.compile(r"^[0-9a-f]{40}$")
-LOGICAL_ENDPOINT_PATTERN = re.compile(
-    r"^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$"
-)
+SUPPORTED_LEGACY_CUSTODY_MARKDOWN_REWRITES = {
+    "pre-contract-v0": (
+        "published `endpoint://` value is a portable logical identity",
+        "published logical endpoint value is a portable identity",
+    )
+}
 MACHINE_BINDING_PATTERNS = (
     re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
     re.compile(r"\[[0-9A-Fa-f:%.]+\]"),
@@ -104,18 +112,23 @@ def _markdown_without_exact_endpoint(text: str, endpoint: str) -> tuple[str, lis
 
 
 def _historical_custody_receipt_findings(text: str) -> list[str]:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    for old, new in SUPPORTED_LEGACY_CUSTODY_MARKDOWN_REWRITES.values():
+        normalized = normalized.replace(old, new)
     matches = re.findall(
         r"^- Endpoint: `([^`]+)`$",
-        text,
+        normalized,
         flags=re.MULTILINE,
     )
-    if len(matches) != 1 or LOGICAL_ENDPOINT_PATTERN.fullmatch(matches[0]) is None:
-        return sorted(set(["logical-endpoint-invalid", *_machine_binding_findings(text)]))
-    scope, findings = _markdown_without_exact_endpoint(text, matches[0])
-    scope = scope.replace(
-        "published `endpoint://` value is a portable logical identity",
-        "published logical endpoint value is a portable identity",
-    )
+    try:
+        approved_endpoint = str(_load_sanitized_custody_attestation()["endpoint"])
+    except ValidationFailure:
+        return ["contract-invalid"]
+    if len(matches) != 1 or matches[0] != approved_endpoint:
+        return sorted(
+            set(["logical-endpoint-invalid", *_machine_binding_findings(normalized)])
+        )
+    scope, findings = _markdown_without_exact_endpoint(normalized, approved_endpoint)
     return sorted(set([*findings, *_machine_binding_findings(scope)]))
 
 
@@ -134,11 +147,11 @@ def sanitized_custody_attestation_findings(text: str) -> list[str]:
     """Validate the authoritative machine receipt and its privacy boundary."""
 
     try:
-        attestation = json.loads(text)
+        attestation = load_json_bytes(text.encode("utf-8"))
         if not isinstance(attestation, dict):
             raise ValidationFailure("type-mismatch", "attestation must be an object")
         validate_sanitized_custody_attestation(attestation)
-    except (json.JSONDecodeError, ValidationFailure):
+    except (UnicodeError, ValidationFailure):
         return ["contract-invalid"]
     endpoint = attestation["endpoint"]
     other_values = "\n".join(

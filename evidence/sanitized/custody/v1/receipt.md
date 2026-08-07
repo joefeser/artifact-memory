@@ -1,5 +1,9 @@
 # Sanitized first off-machine custody receipt
 
+- Attester role: `repository-owner`
+- Attestation status: `owner-attested/issuer-unverified`
+- Private evidence binding: `withheld-owner-controlled`
+- Independent replay: `false`
 - Observed: `2026-08-06`
 - Endpoint: `endpoint://joe-home-proxmox-vault-1`
 - Custody claim: `off-machine-not-geographically-off-site`

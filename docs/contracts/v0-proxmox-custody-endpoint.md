@@ -95,7 +95,19 @@ attestation. Its authoritative machine-readable form is
 `artifact-memory/sanitized-custody-attestation/v1`; `receipt.md` is a generated,
 byte-checked projection. This proves only that the public artifact conforms to
 the versioned shape and privacy boundary. It does not independently replay or
-verify the private backup and restore operations.
+verify the private backup and restore operations. The machine receipt therefore
+labels the claim `owner-attested/issuer-unverified`, records that its private
+evidence binding is withheld under owner control, and states that independent
+replay is false. No public digest is presented as a substitute for access to or
+verification of the private evidence.
+
+Historical safety scanning preserves only the known pre-contract v0 Markdown
+shape already present in repository history: the `Endpoint` field, either LF or
+CRLF line endings, and the earlier explanatory `endpoint://` prose. That shape
+is normalized only for privacy scanning; it is not silently reinterpreted as a
+v1 machine attestation. Unknown historical shapes fail closed and require an
+explicit compatibility rule or versioned migration before public-readiness
+scanning can pass.
 
 This endpoint is off-machine custody on the same owner-controlled premises. It
 must not be described as geographically off-site. A later physically separate
