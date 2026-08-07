@@ -106,11 +106,13 @@ shape already present in repository history: the `Endpoint` field, either LF or
 CRLF line endings, and the earlier explanatory `endpoint://` prose. Exact copies
 of every supported historical Markdown rendering are pinned under
 `evidence/sanitized/custody/v1/compatibility`; historical content must byte-match
-one of those renderings after line-ending normalization. The shapes are not
-silently reinterpreted as a v1 machine attestation. Unknown claims, prose, or
-formats fail as `unsupported-contract-shape` and require an explicit reviewed
-compatibility addition or versioned migration before public-readiness scanning
-can pass.
+one of the independently pinned normalized rendering digests, or the current
+schema-validated deterministic projection, after line-ending normalization.
+The compatibility files do not authorize their own contents. The shapes are
+not silently reinterpreted as a v1 machine attestation. Unknown claims, prose,
+or formats fail as `unsupported-contract-shape` and require an explicit
+reviewed compatibility addition or versioned migration before public-readiness
+scanning can pass.
 
 The history scan associates each blob with every path observed in raw Git
 history, including merge-parent changes. A blob first committed at an unrelated

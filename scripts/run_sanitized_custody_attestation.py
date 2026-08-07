@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -35,18 +36,20 @@ MARKDOWN_COMPATIBILITY = (
 )
 
 
-def _check_markdown_compatibility() -> None:
-    renderings = tuple(
-        path.read_text(encoding="utf-8")
-        for path in (MARKDOWN, *MARKDOWN_COMPATIBILITY)
+def _check_markdown_compatibility(current_rendering: str) -> None:
+    historical_renderings = tuple(
+        path.read_text(encoding="utf-8") for path in MARKDOWN_COMPATIBILITY
     )
-    for rendering in renderings:
-        validate_historical_sanitized_custody_markdown(rendering, renderings)
+    for rendering in (current_rendering, *historical_renderings):
+        validate_historical_sanitized_custody_markdown(
+            rendering,
+            current_rendering,
+        )
         validate_historical_sanitized_custody_markdown(
             rendering.replace("\n", "\r\n"),
-            renderings,
+            current_rendering,
         )
-    historical = renderings[1]
+    historical = historical_renderings[0]
     mutations = (
         historical.replace(
             "one non-empty snapshot completed",
@@ -56,7 +59,10 @@ def _check_markdown_compatibility() -> None:
     )
     for mutation in mutations:
         try:
-            validate_historical_sanitized_custody_markdown(mutation, renderings)
+            validate_historical_sanitized_custody_markdown(
+                mutation,
+                current_rendering,
+            )
         except ValidationFailure as failure:
             if failure.code != "unsupported-contract-shape":
                 raise
@@ -64,6 +70,26 @@ def _check_markdown_compatibility() -> None:
             raise ValidationFailure(
                 "conformance-failed",
                 "mutated custody Markdown rendering was accepted",
+            )
+
+
+def _check_cli_output_modes(attestation: dict[str, object]) -> None:
+    commands = (
+        (
+            ("--format", "json"),
+            (json.dumps(attestation, sort_keys=True, indent=2) + "\n").encode("utf-8"),
+        ),
+        (("--format", "markdown"), MARKDOWN.read_bytes()),
+    )
+    for arguments, expected in commands:
+        actual = subprocess.check_output(
+            [sys.executable, str(Path(__file__).resolve()), *arguments],
+            cwd=ROOT,
+        )
+        if actual != expected:
+            raise ValidationFailure(
+                "conformance-failed",
+                f"custody CLI {' '.join(arguments)} output does not match",
             )
 
 
@@ -77,11 +103,13 @@ def main(argv: list[str] | None = None) -> int:
     validate_sanitized_custody_attestation(attestation)
     for historical in COMPATIBILITY:
         validate_historical_sanitized_custody_attestation(load_json(historical))
-    _check_markdown_compatibility()
     rendered = render_sanitized_custody_attestation(attestation)
+    _check_markdown_compatibility(rendered)
     if args.check and rendered != MARKDOWN.read_text(encoding="utf-8"):
         print("sanitized custody attestation projection does not match", file=sys.stderr)
         return 1
+    if args.check:
+        _check_cli_output_modes(attestation)
     if args.format == "markdown":
         print(rendered, end="")
     else:

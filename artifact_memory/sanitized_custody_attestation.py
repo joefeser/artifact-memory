@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from hashlib import sha256
 from typing import Any
 
 from .schema_resources import load_schema
@@ -10,6 +11,13 @@ from .validator import ValidationFailure, validate
 
 
 SCHEMA_ID = "artifact-memory/sanitized-custody-attestation/v2"
+HISTORICAL_MARKDOWN_COMPATIBILITY_SHA256 = frozenset(
+    {
+        "462b08a4ead6bbd32c1e2746df3b82ccdfec16637217f40e7d08be5afbc5cf0a",
+        "1d534de1cd4b65a87df4e1c54be2222c4530f15e9cc130e7a4e77bfbb17d86ca",
+        "4beba734716679afa2e7ef71f20d18a9e6f1c11d5769216d912685ef336e8526",
+    }
+)
 
 
 def _normalize_markdown_line_endings(text: str) -> str:
@@ -18,20 +26,20 @@ def _normalize_markdown_line_endings(text: str) -> str:
 
 def validate_historical_sanitized_custody_markdown(
     text: str,
-    supported_renderings: tuple[str, ...],
+    current_rendering: str,
 ) -> None:
     """Accept only an exact reviewed rendering, allowing portable line endings."""
 
     normalized = _normalize_markdown_line_endings(text)
-    supported = {
-        _normalize_markdown_line_endings(rendering)
-        for rendering in supported_renderings
-    }
-    if normalized not in supported:
-        raise ValidationFailure(
-            "unsupported-contract-shape",
-            "sanitized custody Markdown rendering is unsupported",
-        )
+    if normalized == _normalize_markdown_line_endings(current_rendering):
+        return
+    digest = sha256(normalized.encode("utf-8")).hexdigest()
+    if digest in HISTORICAL_MARKDOWN_COMPATIBILITY_SHA256:
+        return
+    raise ValidationFailure(
+        "unsupported-contract-shape",
+        "sanitized custody Markdown rendering is unsupported",
+    )
 
 
 def validate_sanitized_custody_attestation(attestation: dict[str, Any]) -> None:

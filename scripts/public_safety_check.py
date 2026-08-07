@@ -118,14 +118,10 @@ def _markdown_without_exact_endpoint(text: str, endpoint: str) -> tuple[str, lis
 
 def _historical_custody_receipt_findings(text: str) -> list[str]:
     try:
-        supported = tuple(
-            (ROOT / path).read_text(encoding="utf-8")
-            for path in (
-                SANITIZED_CUSTODY_RECEIPT_PATH,
-                *sorted(SANITIZED_CUSTODY_MARKDOWN_COMPATIBILITY_PATHS),
-            )
+        current_rendering = render_sanitized_custody_attestation(
+            _load_sanitized_custody_attestation()
         )
-        validate_historical_sanitized_custody_markdown(text, supported)
+        validate_historical_sanitized_custody_markdown(text, current_rendering)
     except (OSError, UnicodeError):
         return ["contract-invalid"]
     except ValidationFailure as failure:

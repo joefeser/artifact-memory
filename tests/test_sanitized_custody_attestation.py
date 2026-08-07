@@ -38,17 +38,30 @@ class SanitizedCustodyAttestationTests(unittest.TestCase):
                 validate_historical_sanitized_custody_attestation(load_json(path))
 
     def test_historical_markdown_requires_an_exact_supported_rendering(self):
-        supported = (MARKDOWN.read_text(encoding="utf-8"),)
+        current = MARKDOWN.read_text(encoding="utf-8")
         validate_historical_sanitized_custody_markdown(
-            supported[0].replace("\n", "\r\n"),
-            supported,
+            current.replace("\n", "\r\n"),
+            current,
         )
         with self.assertRaises(ValidationFailure) as failure:
             validate_historical_sanitized_custody_markdown(
-                supported[0] + "\nUnexpected custody assertion.\n",
-                supported,
+                current + "\nUnexpected custody assertion.\n",
+                current,
             )
         self.assertEqual(failure.exception.code, "unsupported-contract-shape")
+
+    def test_historical_markdown_compatibility_is_independently_pinned(self):
+        current = MARKDOWN.read_text(encoding="utf-8")
+        compatibility = ROOT / "evidence/sanitized/custody/v1/compatibility"
+        for path in sorted(compatibility.glob("*.md")):
+            with self.subTest(path=path.name):
+                rendering = path.read_text(encoding="utf-8")
+                validate_historical_sanitized_custody_markdown(rendering, current)
+                with self.assertRaises(ValidationFailure):
+                    validate_historical_sanitized_custody_markdown(
+                        rendering + "\n/srv/private-vault\n",
+                        current,
+                    )
 
     def test_non_object_historical_receipt_fails_typed(self):
         for value in (None, [], "receipt", 7):

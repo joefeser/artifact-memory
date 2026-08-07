@@ -139,6 +139,7 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
                 "snapshot failed",
             ),
             receipt + "\nUnexpected custody assertion.\n",
+            receipt + "\n/srv/private-vault\n",
         )
         for text in mutations:
             with self.subTest(text_length=len(text)):
