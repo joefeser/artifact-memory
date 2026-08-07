@@ -9,7 +9,7 @@ from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
 
-SCHEMA_ID = "artifact-memory/sanitized-custody-attestation/v1"
+SCHEMA_ID = "artifact-memory/sanitized-custody-attestation/v2"
 
 
 def validate_sanitized_custody_attestation(attestation: dict[str, Any]) -> None:
@@ -17,7 +17,7 @@ def validate_sanitized_custody_attestation(attestation: dict[str, Any]) -> None:
 
     validate(
         attestation,
-        load_schema("core", "sanitized-custody-attestation.v1.schema.json"),
+        load_schema("core", "sanitized-custody-attestation.v2.schema.json"),
     )
     try:
         date.fromisoformat(attestation["observed"])

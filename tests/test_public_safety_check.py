@@ -160,6 +160,59 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
             ["contract-invalid"],
         )
 
+    def test_historical_custody_attestation_dispatches_known_versions(self):
+        current = json.loads(
+            (ROOT / public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH).read_text(
+                encoding="utf-8"
+            )
+        )
+        provenance_v1 = dict(current, schema_id="artifact-memory/sanitized-custody-attestation/v1")
+        pre_provenance_v1 = {
+            key: value
+            for key, value in provenance_v1.items()
+            if key
+            not in {
+                "attester_role",
+                "attestation_status",
+                "private_evidence_binding",
+                "independent_replay",
+            }
+        }
+        for attestation in (pre_provenance_v1, provenance_v1, current):
+            with self.subTest(schema_id=attestation["schema_id"], fields=len(attestation)):
+                self.assertEqual(
+                    public_safety_check._historical_custody_attestation_findings(
+                        json.dumps(attestation)
+                    ),
+                    [],
+                )
+
+    def test_historical_custody_attestation_rejects_duplicate_keys(self):
+        text = (ROOT / public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH).read_text(
+            encoding="utf-8"
+        ).replace(
+            '  "transport_profile":',
+            '  "transport_profile": "backup@private-host:/srv/repo",\n'
+            '  "transport_profile":',
+        )
+        object_id = "d" * 40
+        history = {
+            object_id: {public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH}
+        }
+        with patch.object(
+            public_safety_check,
+            "read_blobs",
+            return_value={object_id: text.encode()},
+        ):
+            findings = public_safety_check.check_historical_content(history)
+        self.assertEqual(
+            findings,
+            [
+                "sanitized custody attestation historical content invalid: "
+                f"object {object_id}, contract-invalid"
+            ],
+        )
+
     def test_unstaged_worktree_content_is_scanned_when_index_is_clean(self):
         marker = ("pass" + "word") + "=synthetic-sensitive-value"
         with tempfile.TemporaryDirectory() as temporary:

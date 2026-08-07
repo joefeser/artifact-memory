@@ -92,7 +92,7 @@ transfer, credentials, or remote-write authority.
 The first real-operation public summary is a separate external owner
 attestation. Its authoritative machine-readable form is
 `evidence/sanitized/custody/v1/receipt.json`, validated by
-`artifact-memory/sanitized-custody-attestation/v1`; `receipt.md` is a generated,
+`artifact-memory/sanitized-custody-attestation/v2`; `receipt.md` is a generated,
 byte-checked projection. This proves only that the public artifact conforms to
 the versioned shape and privacy boundary. It does not independently replay or
 verify the private backup and restore operations. The machine receipt therefore
@@ -108,6 +108,13 @@ is normalized only for privacy scanning; it is not silently reinterpreted as a
 v1 machine attestation. Unknown historical shapes fail closed and require an
 explicit compatibility rule or versioned migration before public-readiness
 scanning can pass.
+
+The two v1 JSON shapes already present in this PR's public Git history are also
+handled explicitly: the exact pre-provenance shape is pinned by a compatibility
+schema, and the later provenance-bearing v1 shape remains under the core v1
+schema. New attestations use v2. Historical dispatch rejects duplicate keys,
+unknown schema identifiers, schema drift, and endpoint changes before applying
+the same machine-binding scan used for current content.
 
 This endpoint is off-machine custody on the same owner-controlled premises. It
 must not be described as geographically off-site. A later physically separate

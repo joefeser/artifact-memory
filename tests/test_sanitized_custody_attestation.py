@@ -25,7 +25,7 @@ class SanitizedCustodyAttestationTests(unittest.TestCase):
 
     def test_unknown_contract_version_fails_closed(self):
         attestation = copy.deepcopy(load_json(ATTESTATION))
-        attestation["schema_id"] = "artifact-memory/sanitized-custody-attestation/v2"
+        attestation["schema_id"] = "artifact-memory/sanitized-custody-attestation/v3"
         with self.assertRaises(ValidationFailure):
             validate_sanitized_custody_attestation(attestation)
 

@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -154,6 +155,45 @@ def sanitized_custody_attestation_findings(text: str) -> list[str]:
     except (UnicodeError, ValidationFailure):
         return ["contract-invalid"]
     endpoint = attestation["endpoint"]
+    other_values = "\n".join(
+        str(value) for key, value in attestation.items() if key != "endpoint"
+    )
+    return _machine_binding_findings(other_values)
+
+
+def _historical_custody_attestation_findings(text: str) -> list[str]:
+    try:
+        attestation = load_json_bytes(text.encode("utf-8"))
+        if not isinstance(attestation, dict):
+            raise ValidationFailure("type-mismatch", "attestation must be an object")
+        schema_id = attestation.get("schema_id")
+        if schema_id == "artifact-memory/sanitized-custody-attestation/v2":
+            validate_sanitized_custody_attestation(attestation)
+        elif schema_id == "artifact-memory/sanitized-custody-attestation/v1":
+            try:
+                validate(
+                    attestation,
+                    load_schema(
+                        "core",
+                        "sanitized-custody-attestation.v1.schema.json",
+                    ),
+                )
+            except ValidationFailure:
+                validate(
+                    attestation,
+                    load_schema(
+                        "compatibility",
+                        "sanitized-custody-attestation.pre-provenance-v1.schema.json",
+                    ),
+                )
+            date.fromisoformat(attestation["observed"])
+        else:
+            raise ValidationFailure("unsupported-schema", "attestation schema is unsupported")
+        approved_endpoint = _load_sanitized_custody_attestation()["endpoint"]
+        if attestation["endpoint"] != approved_endpoint:
+            return ["logical-endpoint-invalid"]
+    except (TypeError, UnicodeError, ValueError, ValidationFailure):
+        return ["contract-invalid"]
     other_values = "\n".join(
         str(value) for key, value in attestation.items() if key != "endpoint"
     )
@@ -415,6 +455,12 @@ def check_historical_content(history: dict[str, set[str]]) -> list[str]:
             for code in _historical_custody_receipt_findings(text):
                 findings.append(
                     "sanitized custody receipt historical content invalid: "
+                    f"object {object_id}, {code}"
+                )
+        if SANITIZED_CUSTODY_ATTESTATION_PATH in non_scanner_paths:
+            for code in _historical_custody_attestation_findings(text):
+                findings.append(
+                    "sanitized custody attestation historical content invalid: "
                     f"object {object_id}, {code}"
                 )
     return findings
