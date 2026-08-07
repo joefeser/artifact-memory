@@ -625,14 +625,12 @@ def admit_bundle_v2(
                 raise ReaderFailure("bundled record schema was not negotiated")
             if not isinstance(extensions, dict):
                 raise ReaderFailure("record extensions must be an object")
-            if any(
-                isinstance(declaration, dict)
-                and declaration.get("required") is True
-                for declaration in extensions.values()
-            ):
-                _v2_extensions(extensions, supported)
-            else:
-                _preserve_record_extensions(extensions, supported)
+            # Classify per declaration, not per bundle: a mixed extensions map
+            # combining a complete supported required declaration with an
+            # incomplete legacy opaque value must admit the complete
+            # declaration and preserve the legacy value unchanged, matching
+            # _record_revision()'s is_required_declaration()-based gating.
+            _preserve_record_extensions(extensions, supported)
             revision = _strict_revision_digest(record)
         except ReaderFailure as exc:
             if str(exc) == "required extension is unsupported":

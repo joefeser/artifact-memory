@@ -15,7 +15,7 @@ def resolve(configs: list[dict[str, Any]], endpoint_ref: str, relative_path: str
     portable = isinstance(normalized, str) and bool(normalized) and "\\" not in normalized and "://" not in normalized and "?" not in normalized and "#" not in normalized
     if portable:
         path = PurePosixPath(normalized)
-        portable = not (path.is_absolute() or ".." in path.parts or path.as_posix() != normalized)
+        portable = not (normalized == "." or path.is_absolute() or ".." in path.parts or path.as_posix() != normalized)
     base = {
         "schema_id": "artifact-memory/resolution-receipt/v1",
         "endpoint_ref": endpoint_ref,

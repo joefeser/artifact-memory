@@ -163,6 +163,20 @@ class ContextTests(unittest.TestCase):
             export_context([record], supported_required_extensions="not-a-valid-iterable-of-pairs", **kwargs)
         self.assertEqual(raised.exception.code, "invalid-supported-required")
 
+    def test_non_iterable_supported_required_extensions_fails_closed_not_typeerror(self):
+        """A non-iterable value (None is the documented default; other scalars are not) must
+        raise ContextFailure, never a raw TypeError."""
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record_id = record["record_id"]
+        kwargs = {"authorized_record_ids": [record_id], "freshness_by_record": current(record_id), "selected_at": SELECTED_AT}
+        for malformed in (7, 3.5, True):
+            with self.subTest(malformed=malformed):
+                with self.assertRaises(ContextFailure) as raised:
+                    export_context([record], supported_required_extensions=malformed, **kwargs)
+                self.assertEqual(raised.exception.code, "invalid-supported-required")
+        none_result = export_context([record], supported_required_extensions=None, **kwargs)
+        self.assertEqual(none_result["selection_receipt"]["selected_record_ids"], [record_id])
+
     def test_generator_backed_supported_required_extensions_applies_to_every_record(self):
         record_one = json.loads(FIXTURE.read_text(encoding="utf-8"))
         record_one["record_id"] = "record://synthetic/generator-one"

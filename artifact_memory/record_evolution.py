@@ -208,7 +208,20 @@ def admit_candidate(
     accepted_record = deepcopy(candidate["candidate_record"])
     accepted_record["lifecycle"] = "accepted"
     source_revisions = {item["record_id"]: item["revision_digest"] for item in candidate["source_record_refs"]}
-    for relationship in accepted_record.get("relationships", []):
+    relationships = accepted_record.get("relationships", [])
+    if not isinstance(relationships, list) or any(
+        not isinstance(relationship, dict)
+        or not isinstance(relationship.get("type"), str)
+        or not relationship["type"]
+        or not isinstance(relationship.get("target_ref"), str)
+        or not relationship["target_ref"]
+        for relationship in relationships
+    ):
+        return {
+            "record": None,
+            "receipt": _receipt(candidate, outcome="rejected", decision_ref=decision_ref, diagnostics=[{"code": "candidate-record-invalid", "message": "embedded candidate record relationships are malformed"}]),
+        }
+    for relationship in relationships:
         if relationship["type"] in RECORD_RELATIONSHIPS and (
             relationship["target_ref"] not in source_revisions
             or relationship.get("target_revision_digest") != source_revisions[relationship["target_ref"]]

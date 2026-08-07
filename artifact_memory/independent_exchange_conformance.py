@@ -227,8 +227,69 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
         legacy_malformed_envelope,
         audience_ref=audience_ref,
         evaluation_time=vectors["evaluation_time"],
-        expected_outcome="quarantined",
+        expected_outcome="admitted",
     )
+
+    mixed_optional_declaration = {
+        "version": "v1",
+        "required": False,
+        "value": {"opaque": "preserve-unchanged"},
+    }
+    mixed_required_declaration = {
+        "version": "v1",
+        "required": True,
+        "value": {"behavior": "explicit-support-required"},
+    }
+    mixed_legacy_value = {
+        "required": True,
+        "legacy": "missing-v2-declaration-fields",
+    }
+    mixed_record = {
+        **legacy_record,
+        "record_id": "record://synthetic/independent-exchange-mixed",
+        "extensions": {
+            "https://synthetic.example/extensions/mixed-optional": mixed_optional_declaration,
+            "https://synthetic.example/extensions/legacy-required": mixed_required_declaration,
+            "https://synthetic.example/extensions/legacy-opaque": mixed_legacy_value,
+        },
+    }
+    validate(mixed_record, load_schema("core", "knowledge-record.v1.schema.json"))
+    mixed_envelope = make_envelope_v2(
+        correlation_id="independent-mixed-required-and-legacy",
+        audience_ref=audience_ref,
+        expires_at=vectors["expires_at"],
+        record_refs=[_revision(mixed_record)],
+        artifact_refs=[vectors["artifact_ref"]],
+        record_bundle=[mixed_record],
+    )
+    mixed_support = {
+        (
+            "https://synthetic.example/extensions/legacy-required",
+            "v1",
+        )
+    }
+    mixed_reference, _, mixed_case = _run_case(
+        mixed_envelope,
+        audience_ref=audience_ref,
+        evaluation_time=vectors["evaluation_time"],
+        expected_outcome="admitted",
+        supported_required_extensions=mixed_support,
+    )
+    if mixed_reference["outcome"] != "admitted":
+        raise ValidationFailure(
+            "mixed-extensions-not-admitted",
+            "a bundled record mixing a supported complete required declaration, "
+            "an unknown optional declaration, and an incomplete legacy opaque "
+            "value must be admitted",
+        )
+    if any(
+        record_id != mixed_record["record_id"]
+        for record_id in mixed_reference["accepted_record_ids"]
+    ) or mixed_record["record_id"] not in mixed_reference["accepted_record_ids"]:
+        raise ValidationFailure(
+            "mixed-extensions-record-not-accepted",
+            "the mixed-extensions record must be the sole accepted record",
+        )
 
     body = {
         "outcome": "complete",
@@ -244,6 +305,7 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
             "legacy_opaque_record_extension": legacy_case,
             "legacy_required_declaration": legacy_declaration_case,
             "legacy_malformed_required_declaration": legacy_malformed_case,
+            "mixed_required_and_legacy_extensions": mixed_case,
         },
         "artifact_retrieval": "not-attempted/separately-authorized",
         "authority_boundary": AUTHORITY_BOUNDARY,
@@ -254,7 +316,9 @@ def run_independent_exchange_conformance(fixture: Path) -> dict[str, Any]:
             "one unknown required extension fails closed and is admitted only after explicit support",
             "identical manifest declarations are deduplicated without changing admission",
             "a v1 record's opaque extension is preserved without v2 interpretation",
-            "v1 required-looking declarations fail closed at the v2 admission boundary",
+            "a complete required declaration fails closed at the v2 admission boundary when unsupported",
+            "an incomplete legacy value that merely contains a required key remains opaque and is admitted",
+            "a bundled record mixing a supported complete required declaration, an unknown optional declaration, and an incomplete legacy opaque value is admitted as the sole accepted record, proving extensions are classified per declaration rather than gated by the presence of any single required declaration",
             "artifact retrieval remains unattempted and separately authorized",
         ],
         "limitations": [
