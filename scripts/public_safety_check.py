@@ -10,7 +10,6 @@ import re
 import subprocess
 import sys
 import tempfile
-from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 from artifact_memory.canonical import receipt_with_digest
 from artifact_memory.sanitized_custody_attestation import (
     render_sanitized_custody_attestation,
+    validate_historical_sanitized_custody_attestation,
     validate_sanitized_custody_attestation,
 )
 from artifact_memory.schema_resources import load_schema
@@ -166,33 +166,11 @@ def _historical_custody_attestation_findings(text: str) -> list[str]:
         attestation = load_json_bytes(text.encode("utf-8"))
         if not isinstance(attestation, dict):
             raise ValidationFailure("type-mismatch", "attestation must be an object")
-        schema_id = attestation.get("schema_id")
-        if schema_id == "artifact-memory/sanitized-custody-attestation/v2":
-            validate_sanitized_custody_attestation(attestation)
-        elif schema_id == "artifact-memory/sanitized-custody-attestation/v1":
-            try:
-                validate(
-                    attestation,
-                    load_schema(
-                        "core",
-                        "sanitized-custody-attestation.v1.schema.json",
-                    ),
-                )
-            except ValidationFailure:
-                validate(
-                    attestation,
-                    load_schema(
-                        "compatibility",
-                        "sanitized-custody-attestation.pre-provenance-v1.schema.json",
-                    ),
-                )
-            date.fromisoformat(attestation["observed"])
-        else:
-            raise ValidationFailure("unsupported-schema", "attestation schema is unsupported")
+        validate_historical_sanitized_custody_attestation(attestation)
         approved_endpoint = _load_sanitized_custody_attestation()["endpoint"]
         if attestation["endpoint"] != approved_endpoint:
             return ["logical-endpoint-invalid"]
-    except (TypeError, UnicodeError, ValueError, ValidationFailure):
+    except (TypeError, UnicodeError, ValidationFailure):
         return ["contract-invalid"]
     other_values = "\n".join(
         str(value) for key, value in attestation.items() if key != "endpoint"

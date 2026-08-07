@@ -29,6 +29,43 @@ def validate_sanitized_custody_attestation(attestation: dict[str, Any]) -> None:
         ) from exc
 
 
+def validate_historical_sanitized_custody_attestation(
+    attestation: dict[str, Any],
+) -> None:
+    """Dispatch the current and exact known historical public contracts."""
+
+    schema_id = attestation.get("schema_id")
+    if schema_id == SCHEMA_ID:
+        validate_sanitized_custody_attestation(attestation)
+        return
+    if schema_id != "artifact-memory/sanitized-custody-attestation/v1":
+        raise ValidationFailure(
+            "unsupported-schema",
+            "sanitized custody attestation schema is unsupported",
+        )
+    try:
+        validate(
+            attestation,
+            load_schema("core", "sanitized-custody-attestation.v1.schema.json"),
+        )
+    except ValidationFailure:
+        validate(
+            attestation,
+            load_schema(
+                "compatibility",
+                "sanitized-custody-attestation.pre-provenance-v1.schema.json",
+            ),
+        )
+    try:
+        date.fromisoformat(attestation["observed"])
+    except (TypeError, ValueError) as exc:
+        raise ValidationFailure(
+            "constraint-failed",
+            "observed must be a valid calendar date",
+            "$.observed",
+        ) from exc
+
+
 def render_sanitized_custody_attestation(attestation: dict[str, Any]) -> str:
     """Render the human-readable projection of a validated attestation."""
 

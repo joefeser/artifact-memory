@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from artifact_memory.sanitized_custody_attestation import (
     render_sanitized_custody_attestation,
+    validate_historical_sanitized_custody_attestation,
     validate_sanitized_custody_attestation,
 )
 from artifact_memory.validator import load_json
@@ -20,6 +21,10 @@ from artifact_memory.validator import load_json
 
 ATTESTATION = ROOT / "evidence/sanitized/custody/v1/receipt.json"
 MARKDOWN = ROOT / "evidence/sanitized/custody/v1/receipt.md"
+COMPATIBILITY = (
+    ROOT / "evidence/sanitized/custody/v1/compatibility/pre-provenance-v1.json",
+    ROOT / "evidence/sanitized/custody/v1/compatibility/provenance-v1.json",
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
 
     attestation = load_json(ATTESTATION)
     validate_sanitized_custody_attestation(attestation)
+    for historical in COMPATIBILITY:
+        validate_historical_sanitized_custody_attestation(load_json(historical))
     rendered = render_sanitized_custody_attestation(attestation)
     if args.check and rendered != MARKDOWN.read_text(encoding="utf-8"):
         print("sanitized custody attestation projection does not match", file=sys.stderr)

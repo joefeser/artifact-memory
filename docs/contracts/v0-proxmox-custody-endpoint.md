@@ -114,7 +114,11 @@ handled explicitly: the exact pre-provenance shape is pinned by a compatibility
 schema, and the later provenance-bearing v1 shape remains under the core v1
 schema. New attestations use v2. Historical dispatch rejects duplicate keys,
 unknown schema identifiers, schema drift, and endpoint changes before applying
-the same machine-binding scan used for current content.
+the same machine-binding scan used for current content. Exact public copies of
+both historical v1 JSON forms are pinned under
+`evidence/sanitized/custody/v1/compatibility` and replayed by the custody
+attestation conformance runner; they contain no private evidence or machine
+bindings.
 
 This endpoint is off-machine custody on the same owner-controlled premises. It
 must not be described as geographically off-site. A later physically separate

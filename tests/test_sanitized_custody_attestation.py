@@ -4,6 +4,7 @@ from pathlib import Path
 
 from artifact_memory.sanitized_custody_attestation import (
     render_sanitized_custody_attestation,
+    validate_historical_sanitized_custody_attestation,
     validate_sanitized_custody_attestation,
 )
 from artifact_memory.validator import ValidationFailure, load_json
@@ -28,6 +29,12 @@ class SanitizedCustodyAttestationTests(unittest.TestCase):
         attestation["schema_id"] = "artifact-memory/sanitized-custody-attestation/v3"
         with self.assertRaises(ValidationFailure):
             validate_sanitized_custody_attestation(attestation)
+
+    def test_checked_historical_v1_receipts_remain_supported(self):
+        compatibility = ROOT / "evidence/sanitized/custody/v1/compatibility"
+        for path in sorted(compatibility.glob("*.json")):
+            with self.subTest(path=path.name):
+                validate_historical_sanitized_custody_attestation(load_json(path))
 
     def test_private_material_cannot_be_claimed_as_committed(self):
         attestation = copy.deepcopy(load_json(ATTESTATION))

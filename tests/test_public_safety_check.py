@@ -161,28 +161,16 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
         )
 
     def test_historical_custody_attestation_dispatches_known_versions(self):
-        current = json.loads(
-            (ROOT / public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH).read_text(
-                encoding="utf-8"
-            )
+        paths = (
+            ROOT / "evidence/sanitized/custody/v1/compatibility/pre-provenance-v1.json",
+            ROOT / "evidence/sanitized/custody/v1/compatibility/provenance-v1.json",
+            ROOT / public_safety_check.SANITIZED_CUSTODY_ATTESTATION_PATH,
         )
-        provenance_v1 = dict(current, schema_id="artifact-memory/sanitized-custody-attestation/v1")
-        pre_provenance_v1 = {
-            key: value
-            for key, value in provenance_v1.items()
-            if key
-            not in {
-                "attester_role",
-                "attestation_status",
-                "private_evidence_binding",
-                "independent_replay",
-            }
-        }
-        for attestation in (pre_provenance_v1, provenance_v1, current):
-            with self.subTest(schema_id=attestation["schema_id"], fields=len(attestation)):
+        for path in paths:
+            with self.subTest(path=path.name):
                 self.assertEqual(
                     public_safety_check._historical_custody_attestation_findings(
-                        json.dumps(attestation)
+                        path.read_text(encoding="utf-8")
                     ),
                     [],
                 )
