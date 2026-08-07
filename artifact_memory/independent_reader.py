@@ -306,20 +306,35 @@ def _supported_required_pairs(value: Iterable[tuple[str, str]] | None) -> set[tu
     return set(entries)
 
 
-def _preserve_record_extensions(extensions: dict[str, Any], supported_required: set[tuple[str, str]]) -> dict[str, Any]:
-    """Preserve v1 opaque values; interpret only complete v0 declarations."""
+def _preserve_record_extensions(
+    extensions: dict[str, Any],
+    supported_required: set[tuple[str, str]],
+    *,
+    legacy_opaque_values_allowed: bool = True,
+) -> dict[str, Any]:
+    """Preserve v1 opaque values; interpret only complete v0 declarations.
+
+    Every extension identifier must be globally namespaced regardless of
+    value shape. The exception that a value need not be a complete
+    declaration to be preserved applies only to the legacy
+    knowledge-record/v1 contract; other record schemas must reject a
+    non-namespaced identifier even when its value is otherwise opaque.
+    """
     preserved: dict[str, Any] = {}
     declaration_fields = {"version", "required", "value"}
     for identifier, value in extensions.items():
+        namespaced = isinstance(identifier, str) and EXTENSION_ID.fullmatch(identifier) is not None
         is_declaration = (
-            isinstance(value, dict)
+            namespaced
+            and isinstance(value, dict)
             and set(value) == declaration_fields
             and isinstance(value.get("version"), str)
             and re.fullmatch(r"v[0-9]+", value["version"]) is not None
             and isinstance(value.get("required"), bool)
             and isinstance(value.get("value"), dict)
-            and EXTENSION_ID.fullmatch(identifier) is not None
         )
+        if not namespaced and not legacy_opaque_values_allowed:
+            raise ReaderFailure("extension identifier must be globally namespaced")
         if is_declaration and value["required"] and (identifier, value["version"]) not in supported_required:
             raise ReaderFailure("required extension is unsupported")
         preserved[identifier] = value
@@ -370,7 +385,12 @@ def read_bundle(envelope_json: bytes, supported_required_extensions: Iterable[tu
         extensions = record.get("extensions", {})
         if not isinstance(extensions, dict):
             raise ReaderFailure("record extensions must be an object")
-        preserved = _preserve_record_extensions(extensions, supported_required_extensions)
+        preserved = _preserve_record_extensions(
+            extensions,
+            supported_required_extensions,
+            legacy_opaque_values_allowed=record.get("schema_id")
+            == "artifact-memory/knowledge-record/v1",
+        )
         accepted.append({"record_id": record["record_id"], "extensions": preserved})
     if bundle_present and bundled_ids != set(declared_revisions):
         raise ReaderFailure("record bundle does not match declared record references")
@@ -391,7 +411,6 @@ def admit_bundle_v2(
     profile. The reference runtime remains responsible for replay, partial local
     resolution, and the wider issue #22 outcome matrix.
     """
-    supported = _supported_required_pairs(supported_required_extensions)
     if supported_record_schema_ids is None:
         supported_record_schemas = set(DEFAULT_RECORD_SCHEMAS)
     elif isinstance(supported_record_schema_ids, str):
@@ -505,6 +524,15 @@ def admit_bundle_v2(
             envelope_ref,
             "invalid-envelope",
             "exchange envelope does not satisfy the v2 contract",
+        )
+
+    try:
+        supported = _supported_required_pairs(supported_required_extensions)
+    except ReaderFailure as exc:
+        return _receipt_v2(
+            envelope_ref,
+            "quarantined",
+            diagnostics=[{"code": "invalid-supported-required", "message": str(exc)}],
         )
 
     try:
@@ -630,7 +658,14 @@ def admit_bundle_v2(
             # incomplete legacy opaque value must admit the complete
             # declaration and preserve the legacy value unchanged, matching
             # _record_revision()'s is_required_declaration()-based gating.
-            _preserve_record_extensions(extensions, supported)
+            # The non-namespaced-identifier opaque exception is scoped to the
+            # legacy knowledge-record/v1 contract only.
+            _preserve_record_extensions(
+                extensions,
+                supported,
+                legacy_opaque_values_allowed=record.get("schema_id")
+                == "artifact-memory/knowledge-record/v1",
+            )
             revision = _strict_revision_digest(record)
         except ReaderFailure as exc:
             if str(exc) == "required extension is unsupported":

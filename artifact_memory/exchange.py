@@ -9,7 +9,12 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from .canonical import canonical_bytes, receipt_with_digest
-from .extensions import ExtensionFailure, is_required_declaration, preserve_extensions
+from .extensions import (
+    ExtensionFailure,
+    is_required_declaration,
+    preserve_extensions,
+    validate_extension_identifiers,
+)
 from .knowledge import knowledge_schema
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
@@ -35,6 +40,7 @@ _DEFAULT_RECORD_SCHEMAS = {
     "artifact-memory/knowledge-record/v1",
     "artifact-memory/knowledge-record/v2",
 }
+_LEGACY_RECORD_SCHEMA_ID = "artifact-memory/knowledge-record/v1"
 
 
 class ReplayLedger(Protocol):
@@ -208,6 +214,11 @@ def _record_revision(
         raise ValidationFailure("unsupported-record", "bundled record schema is unsupported") from exc
     validate(record, schema)
     extensions = record.get("extensions", {})
+    if extensions and schema_id != _LEGACY_RECORD_SCHEMA_ID:
+        try:
+            validate_extension_identifiers(extensions)
+        except ExtensionFailure as exc:
+            raise ValidationFailure(exc.code, exc.message, exc.path) from exc
     required_extensions = {
         identifier: declaration
         for identifier, declaration in extensions.items()

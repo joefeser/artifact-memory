@@ -7,7 +7,12 @@ import re
 from datetime import datetime
 from typing import Any, Iterable, Mapping
 
-from .extensions import ExtensionFailure, is_required_declaration, preserve_extensions
+from .extensions import (
+    ExtensionFailure,
+    is_required_declaration,
+    preserve_extensions,
+    validate_extension_identifiers,
+)
 from .knowledge import knowledge_schema
 from .projection import _canonical
 from .schema_resources import load_schema
@@ -15,6 +20,7 @@ from .validator import ValidationFailure, validate
 
 
 AUTHORITY_BOUNDARY = "informational-only; no execution, routing, disclosure, or mutation authority"
+_LEGACY_RECORD_SCHEMA_ID = "artifact-memory/knowledge-record/v1"
 SENSITIVITY_RANK = {"public": 0, "private": 1, "restricted": 2}
 UTC_INSTANT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SHA256 = re.compile(r"^sha-256:[0-9a-f]{64}$")
@@ -193,9 +199,15 @@ def export_context(
     record_list = list(records)
     for record in record_list:
         validate(record, knowledge_schema(record))
+        extensions = record.get("extensions", {})
+        if extensions and record.get("schema_id") != _LEGACY_RECORD_SCHEMA_ID:
+            try:
+                validate_extension_identifiers(extensions)
+            except ExtensionFailure as exc:
+                raise ContextFailure(exc.code, exc.message) from exc
         required_extensions = {
             identifier: declaration
-            for identifier, declaration in record.get("extensions", {}).items()
+            for identifier, declaration in extensions.items()
             if is_required_declaration(identifier, declaration)
         }
         if required_extensions:

@@ -138,6 +138,30 @@ class ContextTests(unittest.TestCase):
         record["extensions"] = {"https://synthetic.example/incomplete": {"required": True}}
         self._assert_extensions_pass_through_uninterpreted(record)
 
+    def test_v1_legacy_record_preserves_non_namespaced_extension_identifier(self):
+        """The legacy knowledge-record/v1 contract preserves an opaque value under a
+        non-namespaced identifier unchanged; this exception does not extend to v2/v3."""
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record["extensions"] = {"local-name": "opaque"}
+        self._assert_extensions_pass_through_uninterpreted(record)
+
+    def test_v2_record_rejects_non_namespaced_extension_identifier(self):
+        """Per docs/contracts/v0-extensions.md, only the legacy v1 contract's opaque
+        exception may skip identifier validation; v2/v3 records must fail closed on
+        a non-namespaced extension identifier even when required_extensions is empty."""
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        record["schema_id"] = "artifact-memory/knowledge-record/v2"
+        record["extensions"] = {"local-name": "opaque"}
+        record_id = record["record_id"]
+        with self.assertRaises(ContextFailure) as raised:
+            export_context(
+                [record],
+                authorized_record_ids=[record_id],
+                freshness_by_record=current(record_id),
+                selected_at=SELECTED_AT,
+            )
+        self.assertEqual(raised.exception.code, "invalid-extension-identifier")
+
     def test_required_extension_negotiation_fails_closed_before_export(self):
         record = json.loads(FIXTURE.read_text(encoding="utf-8"))
         record_id = record["record_id"]

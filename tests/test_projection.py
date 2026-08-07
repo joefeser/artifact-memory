@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from artifact_memory.projection import (
+    canonical_records,
     logical_projection_snapshot,
     project_records,
     projection_metadata,
@@ -20,6 +21,30 @@ FIXTURE = ROOT / "fixtures" / "synthetic" / "contracts" / "v0-valid-record.json"
 
 
 class ProjectionTests(unittest.TestCase):
+    def test_v1_legacy_record_preserves_non_namespaced_extension_identifier(self):
+        """The legacy knowledge-record/v1 contract preserves an opaque value under a
+        non-namespaced identifier unchanged; this exception does not extend to v2/v3."""
+        with tempfile.TemporaryDirectory() as temporary:
+            record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            record["extensions"] = {"local-name": "opaque"}
+            path = Path(temporary) / "record.json"
+            path.write_text(json.dumps(record), encoding="utf-8")
+            records = canonical_records([path])
+            self.assertEqual(records[0]["extensions"], {"local-name": "opaque"})
+
+    def test_v2_record_rejects_non_namespaced_extension_identifier(self):
+        """A non-legacy record must fail closed on a non-namespaced extension
+        identifier instead of silently letting it reach generated views."""
+        with tempfile.TemporaryDirectory() as temporary:
+            record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            record["schema_id"] = "artifact-memory/knowledge-record/v2"
+            record["extensions"] = {"local-name": "opaque"}
+            path = Path(temporary) / "record.json"
+            path.write_text(json.dumps(record), encoding="utf-8")
+            with self.assertRaises(ValidationFailure) as raised:
+                canonical_records([path])
+            self.assertEqual(raised.exception.code, "invalid-extension-identifier")
+
     def test_projection_is_rebuildable_and_queryable(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

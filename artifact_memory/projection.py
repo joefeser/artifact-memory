@@ -13,7 +13,12 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from .canonical import canonical_bytes, sha256_bytes
-from .extensions import ExtensionFailure, is_required_declaration, preserve_extensions
+from .extensions import (
+    ExtensionFailure,
+    is_required_declaration,
+    preserve_extensions,
+    validate_extension_identifiers,
+)
 from .knowledge import knowledge_schema
 from .schema_resources import load_contract_text, load_schema
 from .validator import ValidationFailure, load_json, validate
@@ -23,6 +28,7 @@ _canonical = canonical_bytes
 PROJECTION_SCHEMA_ID = "artifact-memory/sqlite-projection/v1"
 PROJECTION_USER_VERSION = 1
 CANONICAL_JSON_PROFILE = "artifact-memory/canonical-json/v0"
+_LEGACY_RECORD_SCHEMA_ID = "artifact-memory/knowledge-record/v1"
 _DIGEST_PATTERN = re.compile(r"^sha-256:[0-9a-f]{64}$")
 _REQUIRED_COLUMNS = {
     "projection_metadata": ["singleton_id", "projection_schema_id", "canonical_json_profile", "source_record_set_digest", "record_count"],
@@ -161,9 +167,12 @@ def canonical_records(record_paths: Iterable[Path]) -> list[dict[str, Any]]:
             if not isinstance(record, dict):
                 raise ValidationFailure("invalid-input", "canonical record must be an object")
             validate(record, _knowledge_schema(record))
+            extensions = record.get("extensions", {})
+            if extensions and record.get("schema_id") != _LEGACY_RECORD_SCHEMA_ID:
+                validate_extension_identifiers(extensions)
             required_extensions = {
                 identifier: declaration
-                for identifier, declaration in record.get("extensions", {}).items()
+                for identifier, declaration in extensions.items()
                 if is_required_declaration(identifier, declaration)
             }
             if required_extensions:

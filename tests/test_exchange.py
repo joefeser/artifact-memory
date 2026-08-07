@@ -12,7 +12,7 @@ from artifact_memory.exchange import (
     make_envelope,
     make_envelope_v2,
 )
-from artifact_memory.independent_reader import ReaderFailure, read_bundle
+from artifact_memory.independent_reader import ReaderFailure, admit_bundle_v2, read_bundle
 from artifact_memory.validator import ValidationFailure, validate
 
 
@@ -448,6 +448,47 @@ class ExchangeTests(unittest.TestCase):
         self.assertEqual(prose_receipt["outcome"], "admitted")
         self.assertEqual(prose_receipt["extensions"], {identifier: prose_declaration})
 
+    def test_v2_rejects_non_namespaced_bundled_extension_identifier_on_v2_record(self):
+        """A non-legacy bundled record must fail closed on a non-namespaced extension
+        identifier; the opaque-value exception is scoped to knowledge-record/v1 only."""
+        record = canonical_record(schema_id="artifact-memory/knowledge-record/v2")
+        record["extensions"] = {"not-https-namespaced": {"anything": "goes"}}
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-non-namespaced-optional",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(record)],
+            [],
+            record_bundle=[record],
+        )
+        receipt = admit_v2(
+            envelope,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(receipt["outcome"], "quarantined")
+        self.assertIn("invalid-extension-identifier", receipt["diagnostics"][0]["message"])
+
+    def test_v2_preserves_legacy_v1_bundled_record_non_namespaced_extension(self):
+        """The legacy knowledge-record/v1 contract's opaque-value exception still
+        preserves a non-namespaced extension identifier unchanged."""
+        record = canonical_record(schema_id="artifact-memory/knowledge-record/v1", sensitivity="public")
+        record["extensions"] = {"not-https-namespaced": {"anything": "goes"}}
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v1-legacy-non-namespaced-optional",
+            "2099-01-01T00:00:00Z",
+            [revision_ref(record)],
+            [],
+            record_bundle=[record],
+        )
+        receipt = admit_v2(
+            envelope,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+        )
+        self.assertEqual(receipt["outcome"], "admitted")
+
     def test_v2_does_not_interpret_opaque_optional_extension_keys(self):
         for key in ("api-key", "private_key", "cookie"):
             envelope = make_envelope_v2(
@@ -771,6 +812,35 @@ class ExchangeTests(unittest.TestCase):
         envelope = make_envelope("system://independent-reader", "bad-support", "2099-01-01T00:00:00Z", [revision_ref(record)], [], record_bundle=[record])
         with self.assertRaisesRegex(ReaderFailure, "supported required"):
             read_bundle(json.dumps(envelope).encode(), supported_required_extensions={"legacy-string-form"})
+
+    def test_admit_bundle_v2_returns_typed_receipt_for_malformed_support_input(self):
+        """admit_bundle_v2 must return a typed quarantined receipt for malformed
+        supported_required_extensions, matching admit_v2's fail-closed behavior,
+        instead of leaking an uncaught ReaderFailure to the caller."""
+        envelope = make_envelope_v2(
+            "system://synthetic-receiver",
+            "v2-malformed-support-input",
+            "2099-01-01T00:00:00Z",
+            [],
+            [],
+        )
+        malformed_support = [["https://synthetic.example/x", "v1"]]
+        receipt = admit_bundle_v2(
+            json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode(),
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+            supported_required_extensions=malformed_support,
+        )
+        self.assertEqual(receipt["outcome"], "quarantined")
+        self.assertEqual(receipt["diagnostics"][0]["code"], "invalid-supported-required")
+        reference = admit_v2(
+            envelope,
+            expected_audience_ref="system://synthetic-receiver",
+            now="2026-08-03T00:00:00Z",
+            supported_required_extensions=malformed_support,
+        )
+        self.assertEqual(reference["outcome"], "quarantined")
+        self.assertEqual(reference["diagnostics"][0]["code"], "invalid-supported-required")
 
     def test_independent_reader_binds_bundle_ids_and_revision_digests(self):
         record = canonical_record()

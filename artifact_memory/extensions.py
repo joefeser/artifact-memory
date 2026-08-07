@@ -48,6 +48,32 @@ def is_required_declaration(identifier: Any, declaration: Any) -> bool:
     )
 
 
+def validate_extension_identifiers(extensions: Any) -> None:
+    """Reject any non-namespaced extension identifier, regardless of value shape.
+
+    Per docs/contracts/v0-extensions.md, only globally namespaced extension
+    identifiers are admitted. The opaque-value exception (a value that is not
+    a complete {version, required, value} declaration) applies only to the
+    legacy knowledge-record/v1 contract; every other record and envelope
+    extension map must use HTTPS-namespaced identifiers even when its value
+    is not interpreted as a structured declaration.
+    """
+    if not isinstance(extensions, dict):
+        raise ExtensionFailure("invalid-extension-map", "extensions must be an object")
+    invalid_identifiers = [
+        identifier
+        for identifier in extensions
+        if not isinstance(identifier, str) or EXTENSION_ID.fullmatch(identifier) is None
+    ]
+    if invalid_identifiers:
+        identifier = invalid_identifiers[0]
+        raise ExtensionFailure(
+            "invalid-extension-identifier",
+            "extension identifier must be globally namespaced",
+            f"$.extensions[{identifier!r}]",
+        )
+
+
 def validate_extension_bundle(extension_bundle: dict[str, Any]) -> None:
     """Validate the public declaration shape and optional digest binding."""
     extensions = extension_bundle.get("extensions") if isinstance(extension_bundle, dict) else None
