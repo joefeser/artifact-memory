@@ -65,6 +65,13 @@ class ReleasePreparationTests(unittest.TestCase):
             self.assertEqual(receipt["signature_state"], "unsigned-preview")
             self.assertEqual(receipt["publication_state"], "not-authorized")
             self.assertEqual(manifest["source"]["commit"], commit)
+            self.assertEqual(
+                manifest["surfaces"]["adapters"]["supported_manifest_schemas"],
+                [
+                    "artifact-memory/adapter-manifest/v1",
+                    "artifact-memory/adapter-manifest/v2",
+                ],
+            )
             self.assertEqual(manifest["signature"]["public_key_fingerprint"], None)
             self.assertEqual(
                 manifest["checksum_manifest"]["scope"],

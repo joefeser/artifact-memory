@@ -18,10 +18,10 @@ SUPPRESSION_STATES = {"applied", "not-applied", "not-applicable", "unknown"}
 
 
 class RevocationReplayLedger(Protocol):
-    """Caller-supplied durable ledger with an atomic insert-if-absent claim."""
+    """Caller-supplied ledger that atomically retains canonical acknowledgements."""
 
-    def claim(self, acknowledgement_key: str) -> bool:
-        """Return true only when this call atomically claims a new acknowledgement."""
+    def retain(self, acknowledgement_key: str, receipt: dict[str, Any]) -> dict[str, Any]:
+        """Atomically retain-if-absent and return the canonical retained receipt."""
 
 
 def _tombstone_schema_name(schema_id: str) -> str:
@@ -188,14 +188,20 @@ def acknowledge_revocation(
         return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="unavailable", suppression_state="unknown", endpoint_receipt_refs=endpoint_values, diagnostics=[{"code": "replay-ledger-unavailable", "message": "a durable atomic replay ledger is required"}])
     replay_key = envelope["envelope_id"] + "\x00" + recipient_ref
     try:
-        claimed = replay_ledger.claim(replay_key)
+        retained_receipt = replay_ledger.retain(replay_key, requested_receipt)
+        retained_receipt = _validated_acknowledgement(retained_receipt)
     except Exception:
-        claimed = None
-    if not isinstance(claimed, bool):
-        return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="unavailable", suppression_state="unknown", endpoint_receipt_refs=endpoint_values, diagnostics=[{"code": "replay-ledger-unavailable", "message": "the durable atomic replay ledger could not claim the acknowledgement"}])
-    if not claimed:
-        return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="duplicate", suppression_state="not-applicable", endpoint_receipt_refs=endpoint_values, diagnostics=[{"code": "replay", "message": "revocation envelope was already acknowledged"}])
-    return requested_receipt
+        return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="unavailable", suppression_state="unknown", endpoint_receipt_refs=endpoint_values, diagnostics=[{"code": "replay-ledger-unavailable", "message": "the durable atomic replay ledger could not retain the acknowledgement"}])
+    if (
+        retained_receipt["envelope_ref"] != envelope["envelope_id"]
+        or retained_receipt["recipient_ref"] != recipient_ref
+        or retained_receipt["target_ref"] != envelope["target_ref"]
+        or retained_receipt["target_revision_digest"] != envelope["target_revision_digest"]
+        or retained_receipt["outcome"] != "acknowledged"
+        or retained_receipt["suppression_state"] != "applied"
+    ):
+        return _ack_receipt(envelope, recipient_ref=recipient_ref, outcome="unavailable", suppression_state="unknown", endpoint_receipt_refs=endpoint_values, diagnostics=[{"code": "replay-ledger-invalid", "message": "the durable replay ledger returned an invalid acknowledgement binding"}])
+    return retained_receipt
 
 
 def aggregate_revocation(envelope: dict[str, Any], acknowledgements: Iterable[dict[str, Any]]) -> dict[str, Any]:

@@ -14,6 +14,11 @@ Unknown optional extensions are preserved without interpretation. Unknown
 required extensions fail closed. A breaking change requires a new version plus
 an explicit migration or rejection rule.
 
+Release manifests retain the legacy `manifest_schema` field and may also list
+`supported_manifest_schemas`. Preview preparation derives that list from the
+exact source commit, so an archive advertises adapter-manifest v2 only when its
+schema is actually present while keeping v1 discoverable.
+
 Once a supported surface is deprecated, Artifact Memory retains it for at
 least one subsequent minor release and 90 days after the public deprecation
 announcement, whichever is later. Security fixes may reject unsafe input

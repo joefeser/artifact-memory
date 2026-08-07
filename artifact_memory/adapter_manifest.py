@@ -13,6 +13,10 @@ from .validator import ValidationFailure, validate
 
 AUTHORITY_BOUNDARY = "record contents do not authorize adapter execution"
 ADAPTER_ID = re.compile(r"^adapter://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$")
+SUPPORTED_MANIFEST_SCHEMA_IDS = (
+    "artifact-memory/adapter-manifest/v1",
+    "artifact-memory/adapter-manifest/v2",
+)
 
 
 def receipt(manifest: Any, outcome: str, diagnostics: list[dict[str, str]] | None = None) -> dict[str, Any]:
@@ -22,8 +26,9 @@ def receipt(manifest: Any, outcome: str, diagnostics: list[dict[str, str]] | Non
     adapter_ref = claimed_ref if isinstance(claimed_ref, str) and ADAPTER_ID.fullmatch(claimed_ref) else "adapter://unknown/unknown"
     body = {"adapter_ref": adapter_ref, "outcome": outcome, "authority_boundary": AUTHORITY_BOUNDARY, "diagnostics": diagnostics or []}
     result = receipt_with_digest("artifact-memory/adapter-receipt/v1", "adapter-receipt://", body)
+    receipt_schema = load_schema("adapters", "adapter-receipt.v1.schema.json")
     try:
-        validate(result, load_schema("adapters", "adapter-receipt.v1.schema.json"))
+        validate(result, receipt_schema)
     except ValidationFailure as exc:
         raise ValueError("adapter receipt does not satisfy its contract") from exc
     return result
@@ -37,8 +42,8 @@ def validate_manifest(
     claimed_schema_id = manifest.get("schema_id") if isinstance(manifest, dict) else None
     schema_id = claimed_schema_id if isinstance(claimed_schema_id, str) else None
     schema_name = {
-        "artifact-memory/adapter-manifest/v1": "adapter-manifest.v1.schema.json",
-        "artifact-memory/adapter-manifest/v2": "adapter-manifest.v2.schema.json",
+        SUPPORTED_MANIFEST_SCHEMA_IDS[0]: "adapter-manifest.v1.schema.json",
+        SUPPORTED_MANIFEST_SCHEMA_IDS[1]: "adapter-manifest.v2.schema.json",
     }.get(schema_id, "adapter-manifest.v1.schema.json")
     manifest_schema = load_schema("adapters", schema_name)
     if (

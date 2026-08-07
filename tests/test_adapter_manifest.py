@@ -107,6 +107,15 @@ class AdapterManifestTests(unittest.TestCase):
             with self.assertRaisesRegex(ValidationFailure, "unavailable"):
                 validate_manifest(manifest)
 
+    def test_receipt_schema_load_failure_remains_typed(self):
+        with patch(
+            "artifact_memory.adapter_manifest.load_schema",
+            side_effect=ValidationFailure("invalid-schema", "unavailable"),
+        ):
+            with self.assertRaises(ValidationFailure) as raised:
+                receipt({"adapter_id": "adapter://synthetic/test"}, "succeeded")
+        self.assertEqual(raised.exception.code, "invalid-schema")
+
     def test_failed_receipt_requires_path_aware_diagnostics(self):
         schema = json.loads((ROOT / "artifact_memory/schemas/adapters/adapter-receipt.v1.schema.json").read_text(encoding="utf-8"))
         failed = validate_manifest([])

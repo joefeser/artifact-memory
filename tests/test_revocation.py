@@ -117,8 +117,15 @@ class RevocationTests(unittest.TestCase):
     def test_duplicate_ack_and_audience_mismatch_are_receipted(self):
         envelope = self._envelope("correlation://synthetic/revocation-0002")
         ledger = self._ledger()
-        ledger.claim(envelope["envelope_id"] + "\x00agent://synthetic/reader-a")
-        duplicate = acknowledge_revocation(
+        first = acknowledge_revocation(
+            envelope,
+            recipient_ref="agent://synthetic/reader-a",
+            replay_ledger=ledger,
+            outcome="acknowledged",
+            suppression_state="applied",
+            now=NOW,
+        )
+        replay = acknowledge_revocation(
             envelope,
             recipient_ref="agent://synthetic/reader-a",
             replay_ledger=ledger,
@@ -135,14 +142,15 @@ class RevocationTests(unittest.TestCase):
             expected_audience_ref="audience://synthetic/other",
             now=NOW,
         )
-        self.assertEqual(duplicate["outcome"], "duplicate")
+        self.assertEqual(replay, first)
+        self.assertEqual(replay["outcome"], "acknowledged")
         self.assertEqual(mismatch["outcome"], "rejected")
 
     def test_replay_ledger_is_required_atomic_and_fails_closed(self):
         envelope = self._envelope("correlation://synthetic/revocation-ledger")
 
         class UnavailableLedger:
-            def claim(self, acknowledgement_key):
+            def retain(self, acknowledgement_key, receipt):
                 raise OSError("synthetic unavailable ledger")
 
         unavailable = acknowledge_revocation(
@@ -196,7 +204,7 @@ class RevocationTests(unittest.TestCase):
             now=NOW,
         )
         self.assertEqual(acknowledged["outcome"], "acknowledged")
-        duplicate = acknowledge_revocation(
+        replay = acknowledge_revocation(
             envelope,
             recipient_ref="agent://synthetic/reader-a",
             replay_ledger=ledger,
@@ -204,7 +212,7 @@ class RevocationTests(unittest.TestCase):
             suppression_state="applied",
             now=NOW,
         )
-        self.assertEqual(duplicate["outcome"], "duplicate")
+        self.assertEqual(replay, acknowledged)
 
     def test_tombstone_suppresses_projection_and_context(self):
         record = self._record()
@@ -317,7 +325,8 @@ class RevocationTests(unittest.TestCase):
             envelope, recipient_ref="agent://synthetic/reader-a", replay_ledger=ledger, outcome="acknowledged",
             suppression_state="applied", now=NOW,
         )
-        self.assertEqual(replay["outcome"], "duplicate")
+        self.assertEqual(replay, first)
+        self.assertEqual(aggregate_revocation(envelope, [replay])["outcome"], "acknowledged")
         aggregate = aggregate_revocation(envelope, [first, second_recipient])
         self.assertEqual(aggregate["outcome"], "acknowledged")
 

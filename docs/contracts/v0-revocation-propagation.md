@@ -11,6 +11,13 @@ whether the audit receipt was retained. Aggregation reports acknowledged and
 unresolved recipients; unavailable or rejected recipients keep the aggregate
 `partially-complete`.
 
+Successful acknowledgements require a caller-supplied durable replay ledger.
+The ledger atomically retains the canonical acknowledgement together with its
+`(envelope_id, recipient_ref)` replay key and returns that same receipt on a
+retry. A missing, unavailable, malformed, or incorrectly bound ledger result
+fails closed as `unavailable`. Validation failures and non-terminal recipient
+outcomes do not consume replay state.
+
 Only digest-valid recipient acknowledgements with `outcome: acknowledged`,
 `suppression_state: applied`, and an exact target revision match can suppress a
 record from generated projections and context-export input. Raw record IDs and
