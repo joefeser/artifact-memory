@@ -210,6 +210,16 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(rejected.returncode, 2)
             self.assertEqual(json.loads(rejected.stdout)["diagnostics"][0]["code"], "required-extension-unsupported")
+            rejected_human = self.run_cli(
+                "context",
+                str(record_path),
+                "--selected-at",
+                "2026-07-30T00:00:00Z",
+                "--freshness-basis",
+                "synthetic-cli-test",
+            )
+            self.assertEqual(rejected_human.returncode, 2)
+            self.assertIn("required-extension-unsupported", rejected_human.stdout)
             admitted = self.run_cli(
                 "context",
                 str(record_path),
@@ -224,6 +234,19 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(admitted.returncode, 0, admitted.stderr)
             self.assertEqual(json.loads(admitted.stdout)["selected_record_count"], 1)
+            admitted_human = self.run_cli(
+                "context",
+                str(record_path),
+                "--selected-at",
+                "2026-07-30T00:00:00Z",
+                "--freshness-basis",
+                "synthetic-cli-test",
+                "--support-required-extension",
+                identifier,
+                "v1",
+            )
+            self.assertEqual(admitted_human.returncode, 0, admitted_human.stderr)
+            self.assertIn("selected_record_count: 1", admitted_human.stdout)
 
     def test_codex_history_import_writes_only_admitted_derivatives(self):
         fixture = ROOT / "fixtures" / "synthetic" / "codex-history" / "v1"

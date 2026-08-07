@@ -177,6 +177,14 @@ def export_context(
     if not isinstance(policy_id, str) or not policy_id:
         raise ContextFailure("selection-policy-invalid", "selection policy identity is required")
     supported_required_extensions = list(supported_required_extensions)
+    try:
+        preserve_extensions(
+            {"extensions": {}},
+            {"schema_id": "artifact-memory/extension-bundle/v1", "extensions": {}},
+            supported_required_extensions,
+        )
+    except ExtensionFailure as exc:
+        raise ContextFailure(exc.code, exc.message) from exc
     record_list = list(records)
     for record in record_list:
         validate(record, knowledge_schema(record))
