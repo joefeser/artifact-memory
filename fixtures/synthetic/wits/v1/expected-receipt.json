@@ -1,22 +1,22 @@
 {
   "authority_boundary": "informational projection only; no HACP task, route, continuation, or execution authority",
   "backup_outcome": "created",
-  "context_pack_id": "context-pack://8f2c11edb1c579983684d1e3514d685927639d5b7fd6679310a87858e84bd785",
+  "context_pack_id": "context-pack://6e4716489e4f81595f7b32e2017d0232fbf213ac44c18708d15027ce7c7c304d",
   "fixture_end": "before_hacp_task_creation_or_execution",
   "limitations": [
     "synthetic WITS response is an independently supplied opaque fixture, not a live WITS interoperability claim",
     "Artifact Memory does not interpret WITS owner meaning or readiness"
   ],
   "outcome": "complete",
-  "projection_source_digest": "sha-256:c6c9cf640f17ba1714d954207a955a8fcde6465784a35c8654e1d9e4bcfe432c",
-  "receipt_id": "wits-conformance-receipt://56214a224268581f596e875cb218241ce3ad58d43df14b70a8a53ecb2d02e01f",
-  "registered_projection_content_ref": "content://vault/295f1f195a190adb98edc25efc72f0723cec4ad74b074b4cd6add30d8370148c",
+  "projection_source_digest": "sha-256:851e6d6a7d974c41850191e77cbcde7090dafe5e64a3aab315ab024683f4cf40",
+  "receipt_id": "wits-conformance-receipt://784c505746f4548db6b3709d95f9f32993b5b21f5ed50f79820b7bc800f0a9f8",
+  "registered_projection_content_ref": "content://vault/424aaa67a9224cbbfbaa291dba9a217cdb508628f91db3fbdbe7e879c22a8b82",
   "restore_outcome": "restored",
   "schema_id": "artifact-memory/wits-conformance-receipt/v1",
   "source_record_refs": [
     {
       "record_id": "record://synthetic/orders-status-static-read",
-      "revision_digest": "sha-256:65d7b920c428f42a8b54e5b2a9bcaf8da33cad68bc4ec7d15b8c02619a20db4e"
+      "revision_digest": "sha-256:6416b109e20a1c15a6dc5a901b989f56943ddc6dc89f79b4489505eb7ce30b5d"
     }
   ],
   "stages": [
@@ -30,9 +30,9 @@
     {"name": "stop-before-hacp-task-creation", "outcome": "complete"}
   ],
   "synthetic": true,
-  "tracemap_binding_ref": "binding://tracemap/2030a59b2177027e3d95c9fe08a7e5a9733bb530783653030d9fb6bf9bf6eaaf",
+  "tracemap_binding_ref": "binding://tracemap/318a06d31c3adb165ed29890e0d67b630a120b883f75aa8a699fc86271cf8019",
   "wits_artifact_version_ref": "artifact-version://synthetic/wits-projection/1",
-  "wits_binding_ref": "wits-binding://2e4a84dbe8a535b18a2f68cf606ba11e6d52e3a175ae1cd1428d18a945d02f37",
+  "wits_binding_ref": "wits-binding://e96abcb04c818f0802ede62620f7e3bd25336af77fa85f146d424f10bbd661ea",
   "wits_contract_commit": "d675ba6d632dc03826f27940014d4cd672f7d910",
   "wits_license": "BSL-1.1",
   "wits_projection_ref": "wits-projection://synthetic/meaning-0001"

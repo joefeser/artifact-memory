@@ -15,6 +15,17 @@ COMMIT = "1111111111111111111111111111111111111111"
 TOOL_COMMIT = "2222222222222222222222222222222222222222"
 CONFIG_DIGEST = "sha-256:" + "3" * 64
 RULE_CATALOG_DIGEST = "sha-256:" + "4" * 64
+SYNTHETIC_SQLITE_VERSION = 3_040_000
+
+
+def _normalize_sqlite_header(path: Path) -> None:
+    """Remove the writer-library version from synthetic generated-view identity."""
+    with path.open("r+b") as stream:
+        header = stream.read(100)
+        if len(header) != 100 or not header.startswith(b"SQLite format 3\x00"):
+            raise RuntimeError("synthetic TraceMap index has an invalid SQLite header")
+        stream.seek(96)
+        stream.write(SYNTHETIC_SQLITE_VERSION.to_bytes(4, "big"))
 
 
 def materialize_synthetic_packet(packet_fixture: Path, root: Path) -> Path:
@@ -63,6 +74,7 @@ def materialize_synthetic_packet(packet_fixture: Path, root: Path) -> Path:
         connection.commit()
     finally:
         connection.close()
+    _normalize_sqlite_header(packet / "index.sqlite")
     return packet
 
 
