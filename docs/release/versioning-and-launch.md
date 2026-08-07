@@ -22,17 +22,17 @@ not support evidence. Isolated v1-only and no-adapter commit fixtures prove that
 discovery does not fall back to the running checkout.
 
 The v1 adapter manifest schema remains the release surface's required primary
-contract; a candidate whose exact commit supports only v2 fails preparation
-closed with `release-preparation-adapter-primary-schema-unsupported`. This is a
-permanent rejection for that commit, not a transient or retryable failure: the
-candidate tree must retain the v1 adapter manifest schema alongside v2 (v2-only
-candidates cannot yet publish previews or releases). Migrating a v2-only
-candidate requires restoring the checked-in v1 schema file at that exact commit
-before preparation is retried. Release conformance independently re-derives the
-supported adapter manifest schema set from the exact source commit and rejects
-a manifest whose `manifest_schema` or `supported_manifest_schemas` claim does
-not match that reproduction, even when `supported_manifest_schemas` is absent
-from the manifest.
+contract; a candidate whose exact commit supports only v2 causes preparation
+to fail closed with `release-preparation-adapter-primary-schema-unsupported`.
+This is a permanent rejection for that commit, not a transient or retryable
+failure: the candidate tree must retain the v1 adapter manifest schema
+alongside v2 (v2-only candidates cannot yet publish previews or releases).
+Migrating a v2-only candidate requires restoring the checked-in v1 schema
+file at that exact commit before preparation is retried. Release conformance
+independently re-derives the supported adapter manifest schema set from the
+exact source commit and rejects a manifest whose `manifest_schema` or
+`supported_manifest_schemas` claim does not match that reproduction, even
+when `supported_manifest_schemas` is absent from the manifest.
 
 Once a supported surface is deprecated, Artifact Memory retains it for at
 least one subsequent minor release and 90 days after the public deprecation
