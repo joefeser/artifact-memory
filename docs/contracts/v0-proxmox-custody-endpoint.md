@@ -103,11 +103,14 @@ verification of the private evidence.
 
 Historical safety scanning preserves only the known pre-contract v0 Markdown
 shape already present in repository history: the `Endpoint` field, either LF or
-CRLF line endings, and the earlier explanatory `endpoint://` prose. That shape
-is normalized only for privacy scanning; it is not silently reinterpreted as a
-v1 machine attestation. Unknown historical shapes fail closed and require an
-explicit compatibility rule or versioned migration before public-readiness
-scanning can pass.
+CRLF line endings, and the earlier explanatory `endpoint://` prose. Exact copies
+of every supported historical Markdown rendering are pinned under
+`evidence/sanitized/custody/v1/compatibility`; historical content must byte-match
+one of those renderings after line-ending normalization. The shapes are not
+silently reinterpreted as a v1 machine attestation. Unknown claims, prose, or
+formats fail as `unsupported-contract-shape` and require an explicit reviewed
+compatibility addition or versioned migration before public-readiness scanning
+can pass.
 
 The two v1 JSON shapes already present in this PR's public Git history are also
 handled explicitly: the exact pre-provenance shape is pinned by a compatibility

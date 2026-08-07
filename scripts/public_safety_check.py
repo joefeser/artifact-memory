@@ -54,16 +54,15 @@ SANITIZED_CUSTODY_COMPATIBILITY_PATHS = {
     "evidence/sanitized/custody/v1/compatibility/pre-provenance-v1.json",
     "evidence/sanitized/custody/v1/compatibility/provenance-v1.json",
 }
+SANITIZED_CUSTODY_MARKDOWN_COMPATIBILITY_PATHS = {
+    "evidence/sanitized/custody/v1/compatibility/markdown-pre-contract-v0.md",
+    "evidence/sanitized/custody/v1/compatibility/markdown-network-clarified-v0.md",
+    "evidence/sanitized/custody/v1/compatibility/markdown-generated-pre-provenance-v1.md",
+}
 RECEIPT_SCHEMA_ID = "artifact-memory/public-safety-receipt/v1"
 RECEIPT_ID_PREFIX = "public-safety-receipt://"
 PUBLIC_REF_PATTERN = re.compile(r"^refs/(?:remotes/[^/]+/[^/].*|tags/[^/].*)$")
 GIT_OBJECT_ID_PATTERN = re.compile(r"^[0-9a-f]{40}$")
-SUPPORTED_LEGACY_CUSTODY_MARKDOWN_REWRITES = {
-    "pre-contract-v0": (
-        "published `endpoint://` value is a portable logical identity",
-        "published logical endpoint value is a portable identity",
-    )
-}
 MACHINE_BINDING_PATTERNS = (
     re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
     re.compile(r"\[[0-9A-Fa-f:%.]+\]"),
@@ -118,23 +117,25 @@ def _markdown_without_exact_endpoint(text: str, endpoint: str) -> tuple[str, lis
 
 def _historical_custody_receipt_findings(text: str) -> list[str]:
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    for old, new in SUPPORTED_LEGACY_CUSTODY_MARKDOWN_REWRITES.values():
-        normalized = normalized.replace(old, new)
-    matches = re.findall(
-        r"^- Endpoint: `([^`]+)`$",
-        normalized,
-        flags=re.MULTILINE,
-    )
     try:
-        approved_endpoint = str(_load_sanitized_custody_attestation()["endpoint"])
-    except ValidationFailure:
-        return ["contract-invalid"]
-    if len(matches) != 1 or matches[0] != approved_endpoint:
-        return sorted(
-            set(["logical-endpoint-invalid", *_machine_binding_findings(normalized)])
+        supported = {
+            (ROOT / SANITIZED_CUSTODY_RECEIPT_PATH)
+            .read_text(encoding="utf-8")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+        }
+        supported.update(
+            (ROOT / path)
+            .read_text(encoding="utf-8")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            for path in SANITIZED_CUSTODY_MARKDOWN_COMPATIBILITY_PATHS
         )
-    scope, findings = _markdown_without_exact_endpoint(normalized, approved_endpoint)
-    return sorted(set([*findings, *_machine_binding_findings(scope)]))
+    except (OSError, UnicodeError):
+        return ["contract-invalid"]
+    if normalized not in supported:
+        return ["unsupported-contract-shape"]
+    return []
 
 
 def _load_sanitized_custody_attestation() -> dict[str, object]:
@@ -217,6 +218,42 @@ def history_entries(revisions: list[str] | None = None) -> dict[str, set[str]]:
         entries.setdefault(parts[0], set())
         if len(parts) == 2:
             entries[parts[0]].add(parts[1])
+    for object_id, paths in historical_blob_path_entries(revisions).items():
+        entries.setdefault(object_id, set()).update(paths)
+    return entries
+
+
+def historical_blob_path_entries(
+    revisions: list[str] | None = None,
+) -> dict[str, set[str]]:
+    """Derive every changed blob/path association from raw history."""
+
+    output = subprocess.check_output(
+        [
+            "git",
+            "log",
+            "-m",
+            "--format=",
+            "--raw",
+            "--no-abbrev",
+            "--no-renames",
+            "-z",
+            *_revision_arguments(revisions),
+        ],
+        stderr=subprocess.STDOUT,
+    )
+    records = [record for record in output.split(b"\0") if record]
+    if len(records) % 2:
+        raise PublicSafetyInvalidGitOutput("Git raw history output is incomplete")
+    entries: dict[str, set[str]] = {}
+    for index in range(0, len(records), 2):
+        header = records[index].decode("ascii", errors="strict").split()
+        if len(header) != 5 or not header[0].startswith(":"):
+            raise PublicSafetyInvalidGitOutput("Git raw history output is invalid")
+        path = records[index + 1].decode("utf-8", errors="surrogateescape")
+        for object_id in header[2:4]:
+            if GIT_OBJECT_ID_PATTERN.fullmatch(object_id) and object_id != "0" * 40:
+                entries.setdefault(object_id, set()).add(path)
     return entries
 
 
@@ -435,7 +472,10 @@ def check_historical_content(history: dict[str, set[str]]) -> list[str]:
         if SECRET_LIKE.search(text):
             path_evidence = f", path {non_scanner_paths[0]}" if non_scanner_paths else ""
             findings.append(f"secret-like historical content: object {object_id}{path_evidence}")
-        if SANITIZED_CUSTODY_RECEIPT_PATH in non_scanner_paths:
+        if set(non_scanner_paths) & (
+            {SANITIZED_CUSTODY_RECEIPT_PATH}
+            | SANITIZED_CUSTODY_MARKDOWN_COMPATIBILITY_PATHS
+        ):
             for code in _historical_custody_receipt_findings(text):
                 findings.append(
                     "sanitized custody receipt historical content invalid: "
@@ -526,6 +566,11 @@ def check_current_content(paths: list[str]) -> list[str]:
             if path == SANITIZED_CUSTODY_RECEIPT_PATH:
                 for code in sanitized_custody_receipt_findings(text):
                     findings.append(f"sanitized custody receipt invalid: {code}")
+            if path in SANITIZED_CUSTODY_MARKDOWN_COMPATIBILITY_PATHS:
+                for code in _historical_custody_receipt_findings(text):
+                    findings.append(
+                        f"sanitized custody compatibility receipt invalid: {code}"
+                    )
             if path == SANITIZED_CUSTODY_ATTESTATION_PATH:
                 for code in sanitized_custody_attestation_findings(text):
                     findings.append(f"sanitized custody attestation invalid: {code}")

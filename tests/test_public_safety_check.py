@@ -107,17 +107,15 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
             findings,
             [
                 "sanitized custody receipt historical content invalid: "
-                f"object {object_id}, machine-binding-detected"
+                f"object {object_id}, unsupported-contract-shape"
             ],
         )
 
     def test_historical_custody_receipt_allows_legacy_scheme_explanation(self):
-        receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
-            encoding="utf-8"
-        ).replace(
-            "published logical endpoint value is a portable identity",
-            "published `endpoint://` value is a portable logical identity",
-        )
+        receipt = (
+            ROOT
+            / "evidence/sanitized/custody/v1/compatibility/markdown-network-clarified-v0.md"
+        ).read_text(encoding="utf-8")
         object_id = "b" * 40
         history = {
             object_id: {public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH}
@@ -129,6 +127,25 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
         ):
             findings = public_safety_check.check_historical_content(history)
         self.assertEqual(findings, [])
+
+    def test_historical_custody_receipt_rejects_changed_claim_or_extra_prose(self):
+        receipt = (
+            ROOT
+            / "evidence/sanitized/custody/v1/compatibility/markdown-pre-contract-v0.md"
+        ).read_text(encoding="utf-8")
+        mutations = (
+            receipt.replace(
+                "one non-empty snapshot completed",
+                "snapshot failed",
+            ),
+            receipt + "\nUnexpected custody assertion.\n",
+        )
+        for text in mutations:
+            with self.subTest(text_length=len(text)):
+                self.assertEqual(
+                    public_safety_check._historical_custody_receipt_findings(text),
+                    ["unsupported-contract-shape"],
+                )
 
     def test_historical_custody_receipt_allows_crlf(self):
         receipt = (ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH).read_text(
@@ -280,6 +297,89 @@ class PublicSafetyCurrentContentTests(unittest.TestCase):
 
 
 class PublicSafetyCandidateReceiptTests(unittest.TestCase):
+    def test_raw_history_preserves_every_blob_path_association(self):
+        malicious = (
+            ROOT / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH
+        ).read_text(encoding="utf-8").replace(
+            "one non-empty snapshot completed",
+            "snapshot failed",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"
+            repo.mkdir()
+            subprocess.run(
+                ["git", "init", "-b", "main"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Synthetic Fixture"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "fixture@example.invalid"],
+                cwd=repo,
+                check=True,
+            )
+            shared = repo / "shared.md"
+            shared.write_text(malicious, encoding="utf-8")
+            subprocess.run(
+                ["git", "add", "shared.md"], cwd=repo, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Add shared blob"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            receipt = repo / public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH
+            receipt.parent.mkdir(parents=True)
+            receipt.write_text(malicious, encoding="utf-8")
+            subprocess.run(
+                ["git", "add", public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Reuse blob as receipt"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            receipt.unlink()
+            subprocess.run(
+                ["git", "add", "-u"], cwd=repo, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Remove receipt path"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            blob = subprocess.check_output(
+                ["git", "hash-object", "shared.md"],
+                cwd=repo,
+                text=True,
+            ).strip()
+            previous = Path.cwd()
+            os.chdir(repo)
+            try:
+                history = public_safety_check.history_entries(["HEAD"])
+                findings = public_safety_check.check_historical_content(history)
+            finally:
+                os.chdir(previous)
+        self.assertEqual(
+            history[blob],
+            {"shared.md", public_safety_check.SANITIZED_CUSTODY_RECEIPT_PATH},
+        )
+        self.assertIn(
+            "sanitized custody receipt historical content invalid: "
+            f"object {blob}, unsupported-contract-shape",
+            findings,
+        )
+
     def test_public_refs_excludes_only_remote_head_and_keeps_head_tag(self):
         output = (
             "refs/remotes/origin/HEAD\t" + "a" * 40 + "\n"
