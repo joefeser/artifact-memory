@@ -43,9 +43,14 @@ immediately, but the rejection and migration boundary must be documented.
 
 A development preview is not a release. `release-manifest/v2` requires preview
 manifests to be `unsigned-preview` with no tag, fingerprint, or key generation.
-A manifest may claim `status: release` only with an owner-signed annotated tag,
-the dedicated SSH Ed25519 public fingerprint and key generation, and a tag that
-matches the release identifier.
+Preparation emits `status: release-candidate` and
+`signature.state: pending-owner-signature`, even though it records the dedicated
+SSH Ed25519 public fingerprint, key generation, and intended matching tag. A
+standalone manifest cannot authenticate itself: semantic validation always
+rejects a standalone `status: release` claim. The signed-candidate verifier
+accepts the immutable pending candidate and emits a digest-bound verification
+receipt; those two records establish the release evidence without rewriting
+bytes after signing.
 
 The published v2 schema remains able to read its earlier permissive fingerprint
 shape, but such a value is not releasable evidence. Semantic validation returns
@@ -61,7 +66,9 @@ A public release requires one reviewed exact-head set containing:
 2. a v2 release manifest naming the source commit and reproducible source-tree
    digest, all five versioned surfaces, artifacts, byte sizes, SHA-256 digests,
    checksum manifest, provenance, signature generation, and limitations;
-3. a canonical `SHA256SUMS` asset covering every release asset except itself;
+3. a canonical `SHA256SUMS` asset covering every manifest-listed release asset
+   except itself, followed by verifier replay of the exact staged archive and
+   release notes against both their checksums and the tagged source;
 4. a final public history and repository-surface audit, including Actions
    history and artifact review;
 5. an anonymous clone/install/verify smoke using the quickstart and confirmed
@@ -133,22 +140,34 @@ python3 scripts/prepare_release_candidate.py \
 ```
 
 The command deterministically writes the source tar, exact release-note bytes,
-`SHA256SUMS`, the v2 final release manifest, and machine/human candidate
+`SHA256SUMS`, the v2 pending release-candidate manifest, and machine/human candidate
 preparation receipts. The checksum file covers the source tar and release
 notes. The preparation receipt separately binds the release manifest and
 prints the exact `Artifact-Memory-Manifest-SHA256` trailer required in the
 annotated tag message.
 
-The final manifest describes the state required after owner signing; its
-companion preparation receipt remains
+Use `--plain-text` to print the exact persisted human receipt. Independent
+readers can run
+`artifact-memory validate-release-candidate-preparation-receipt <receipt.json>`
+for that canonical rendering, or add `--json` for a machine-readable
+schema/identity/trailer-coherence result. Neither mode verifies an owner
+signature.
+
+The manifest remains `status: release-candidate` with
+`signature.state: pending-owner-signature`; its companion preparation receipt remains
 `signature_verification_state: pending-owner-signature` and
-`publication_state: not-authorized`. Preparation accepts no private-key path or
+`publication_state: not-authorized`. A standalone manifest therefore cannot claim
+that its owner signature has already been verified. Preparation accepts no private-key path or
 secret, does not invoke signing, and creates no tag or release. The owner must
 independently confirm the public fingerprint, sign an annotated tag containing
 the exact printed trailer, and separately authorize publication. The existing
 `artifact-memory verify-release-candidate` command then verifies the tag,
 manifest binding, commit identity, package version, signer fingerprint, source
-tree, and isolated-checkout boundary before publication.
+tree, every staged asset against the manifest and canonical `SHA256SUMS`, exact
+archive and release-note reproduction from the tagged commit, and the
+isolated-checkout boundary before publication. Pass the external candidate
+directory with `--asset-dir`; missing, substituted, or concurrently changed assets
+fail closed.
 
 Keyless build and artifact attestations remain explicitly
 `deferred-public-workflow-review`; they are not implied by the source release

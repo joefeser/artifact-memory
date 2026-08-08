@@ -49,9 +49,10 @@ class ReleasePreparationTests(unittest.TestCase):
         repository: Path,
         candidate: str,
         output: Path,
+        *,
+        plain_text: bool = False,
     ) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [
+        command = [
                 sys.executable,
                 str(ROOT / "scripts/prepare_release_candidate.py"),
                 "--candidate",
@@ -64,7 +65,11 @@ class ReleasePreparationTests(unittest.TestCase):
                 SYNTHETIC_FINGERPRINT,
                 "--key-generation",
                 "synthetic-generation-1",
-            ],
+            ]
+        if plain_text:
+            command.append("--plain-text")
+        return subprocess.run(
+            command,
             cwd=ROOT,
             text=True,
             stdout=subprocess.PIPE,
@@ -107,12 +112,17 @@ class ReleasePreparationTests(unittest.TestCase):
         root: Path,
         *,
         package_version: str = "0.1.0",
+        runtime_version: str | None = None,
         release_notes: bytes | None = b"# Synthetic 0.1.0 release notes\n",
     ) -> tuple[Path, str]:
         v1_schema = (
             ROOT / "artifact_memory/schemas/adapters/adapter-manifest.v1.schema.json"
         ).read_bytes()
-        extra_files = {}
+        extra_files = {
+            "artifact_memory/__init__.py": (
+                f'__version__ = "{runtime_version or package_version}"\n'.encode("utf-8")
+            )
+        }
         if release_notes is not None:
             extra_files["docs/release/v0.1.0-release-notes.md"] = release_notes
         return self.synthetic_repository(
@@ -191,7 +201,9 @@ class ReleasePreparationTests(unittest.TestCase):
             manifest_bytes = (output / "release-manifest.json").read_bytes()
             manifest = json.loads(manifest_bytes)
             validate_release_manifest(manifest)
-            self.assertEqual(manifest["status"], "release")
+            self.assertEqual(manifest["status"], "release-candidate")
+            self.assertEqual(manifest["signature"]["state"], "pending-owner-signature")
+            self.assertFalse(manifest["signature"]["owner_signed_annotated_tag"])
             self.assertEqual(manifest["source"]["commit"], commit)
             self.assertEqual(manifest["surfaces"]["reference_cli"]["package_version"], "0.1.0")
             self.assertEqual(
@@ -265,6 +277,25 @@ class ReleasePreparationTests(unittest.TestCase):
             self.assertEqual(summary["tag_message_trailer"], receipt["tag_message_trailer"])
             self.assertEqual(summary["signature_verification_state"], "pending-owner-signature")
 
+    def test_release_candidate_cli_emits_canonical_plain_text_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, commit = self.release_repository(root / "candidate")
+            output = root / "output"
+            result = self.run_candidate_cli(
+                repository,
+                commit,
+                output,
+                plain_text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                result.stdout,
+                (output / "release-candidate-preparation-receipt.md").read_text(
+                    encoding="utf-8"
+                ),
+            )
+
     def test_release_candidate_fails_closed_without_final_public_inputs(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -291,6 +322,56 @@ class ReleasePreparationTests(unittest.TestCase):
                             key_generation="synthetic-generation-1",
                         )
                     self.assertFalse(output.exists())
+
+    def test_release_candidate_rejects_mismatched_runtime_version(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, commit = self.release_repository(
+                root / "candidate",
+                runtime_version="0.1.0.dev0",
+            )
+            with self.assertRaises(ValidationFailure) as failure:
+                prepare_release_candidate(
+                    repository,
+                    commit,
+                    root / "output",
+                    owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    key_generation="synthetic-generation-1",
+                )
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-runtime-version-mismatch",
+            )
+
+    def test_release_candidate_rejects_missing_runtime_version_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, _commit = self.release_repository(root / "candidate")
+            subprocess.run(
+                ["git", "rm", "--quiet", "artifact_memory/__init__.py"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "--quiet", "-m", "Remove runtime version"],
+                cwd=repository,
+                check=True,
+            )
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+            ).strip()
+            with self.assertRaises(ValidationFailure) as failure:
+                prepare_release_candidate(
+                    repository,
+                    commit,
+                    root / "output",
+                    owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    key_generation="synthetic-generation-1",
+                )
+            self.assertEqual(
+                failure.exception.code,
+                "release-runtime-version-unavailable",
+            )
 
     def test_release_candidate_rejects_invalid_public_signing_metadata(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -340,6 +421,54 @@ class ReleasePreparationTests(unittest.TestCase):
         self.assertEqual(
             failure.exception.code,
             "release-candidate-preparation-manifest-binding-invalid",
+        )
+
+    def test_candidate_preparation_receipt_cli_supports_json_and_canonical_text(self):
+        fixture_root = ROOT / "fixtures/synthetic/release"
+        fixture = fixture_root / "v0-release-candidate-preparation-receipt.json"
+        text_result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "artifact_memory",
+                "validate-release-candidate-preparation-receipt",
+                str(fixture),
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        json_result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "artifact_memory",
+                "validate-release-candidate-preparation-receipt",
+                str(fixture),
+                "--json",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(text_result.returncode, 0, text_result.stderr)
+        self.assertEqual(
+            text_result.stdout,
+            (fixture_root / "v0-release-candidate-preparation-receipt.md").read_text(
+                encoding="utf-8"
+            ),
+        )
+        self.assertEqual(json_result.returncode, 0, json_result.stderr)
+        summary = json.loads(json_result.stdout)
+        self.assertEqual(summary["outcome"], "integrity-verified")
+        self.assertFalse(summary["owner_signature_verified"])
+        self.assertEqual(
+            summary["tag_message_trailer"],
+            json.loads(fixture.read_text(encoding="utf-8"))["tag_message_trailer"],
         )
 
     def test_adapter_schema_discovery_uses_the_exact_candidate_tree(self):

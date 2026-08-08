@@ -8,7 +8,7 @@
   ],
   "key_generation": "synthetic-generation-1",
   "limitations": [
-    "the release manifest signature fields describe the required final state but are not verified by this preparation receipt",
+    "the release manifest remains explicitly pending until the owner-signed annotated tag is independently verified",
     "the owner must independently verify the public fingerprint and sign the exact tag message trailer",
     "publication requires separate owner authorization after signed-candidate verification"
   ],
@@ -16,7 +16,7 @@
   "package_version": "0.1.0",
   "public_key_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
   "publication_state": "not-authorized",
-  "receipt_id": "release-candidate-preparation-receipt://5b1826081015ddf5c7b5a71cd9060b7fffe5d15f6b092cde0e05a703eccdc9d8",
+  "receipt_id": "release-candidate-preparation-receipt://94b93382752cf6bf46337e39644a1ec35e4cc9fba840544abfbe9dc82c53cfef",
   "release_id": "artifact-memory/v0.1.0",
   "release_manifest_digest": "sha-256:4444444444444444444444444444444444444444444444444444444444444444",
   "release_notes_byte_size": 512,

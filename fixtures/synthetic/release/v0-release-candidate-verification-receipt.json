@@ -1,7 +1,9 @@
 {
   "annotated_tag_verified": true,
+  "asset_replay": "exact-staged-bytes-and-tagged-source-v1",
   "authority_boundary": "release preparation grants no signing, tag, publication, visibility, or deployment authority",
   "checkout_isolation": "caller-asserted-exclusive-fresh-checkout",
+  "checksum_manifest_sha256": "sha-256:ef0acd192f2a89dde8d07095325c514c86d26156493809218662cb9c9baa1d1c",
   "concurrent_mutation_detection": "initial-final-endpoint-equality-no-aba-detection",
   "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "limitations": [
@@ -13,13 +15,13 @@
   ],
   "manifest_binding": "signed-annotated-tag-trailer-v1",
   "manifest_package_version": "0.1.0",
-  "manifest_sha256": "sha-256:5052709316e39ee38cc4fc969a9ce4b8360d2737a8515d568f1adbd1e42dada2",
+  "manifest_sha256": "sha-256:7c143d54a8801f070369d2c66b17dde96fce8510213bbecb35a987e4b0e3601b",
   "manifest_source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "manifest_tree_digest": "sha-256:d30bf7fb2e85d9083251f7a5339025306ac517ee64bce79350588486156df03e",
   "outcome": "pass",
   "owner_publication_authorization_evaluated": false,
   "package_version": "0.1.0",
-  "receipt_id": "release-candidate-verification-receipt://4907b570b21011d70ea0d3823dc9686b582423efa966e7c2a12870e4cfa7e381",
+  "receipt_id": "release-candidate-verification-receipt://70cf4c628bec4e4c0f9f1ccdbb35026037bfcc1e065f7cb4143f95e66a273984",
   "release_id": "artifact-memory/v0.1.0",
   "repository_scope": "explicit-git-checkout",
   "repository_settings_evidence_evaluated": false,
@@ -30,5 +32,6 @@
   "tag_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "tag_object_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "verification_output_profile": "git-verify-tag-filtered-allowed-signers-v1",
+  "verified_asset_count": 3,
   "verified_signer_fingerprint": "SHA256:3DdhLCMCRK7PRnTYHUlTiWPN9KijGyATZHW0fB5n6yY"
 }

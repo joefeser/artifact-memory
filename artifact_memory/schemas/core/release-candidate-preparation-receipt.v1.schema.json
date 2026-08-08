@@ -40,7 +40,7 @@
     "limitations": {
       "type": "array",
       "const": [
-        "the release manifest signature fields describe the required final state but are not verified by this preparation receipt",
+        "the release manifest remains explicitly pending until the owner-signed annotated tag is independently verified",
         "the owner must independently verify the public fingerprint and sign the exact tag message trailer",
         "publication requires separate owner authorization after signed-candidate verification"
       ]

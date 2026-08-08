@@ -14,7 +14,12 @@ from typing import Any
 from .adapter_manifest import SUPPORTED_MANIFEST_SCHEMA_IDS
 from .canonical import CanonicalizationFailure, expected_receipt_id, receipt_with_digest, sha256_bytes
 from .release import SIGNED_MANIFEST_TRAILER, SSH_FINGERPRINT_PATTERN, validate_release_manifest
-from .release_metadata import read_package_version, schema_inventory, supported_adapter_manifest_schemas
+from .release_metadata import (
+    read_package_version,
+    read_runtime_version,
+    schema_inventory,
+    supported_adapter_manifest_schemas,
+)
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
 
@@ -127,6 +132,17 @@ def _package_version(repository: Path, commit: str) -> str:
     return read_package_version(_git(repository, "show", f"{commit}:pyproject.toml"))
 
 
+def _runtime_version(repository: Path, commit: str) -> str:
+    try:
+        source = _git(repository, "show", f"{commit}:artifact_memory/__init__.py")
+    except ValidationFailure as exc:
+        raise ValidationFailure(
+            "release-runtime-version-unavailable",
+            "release candidate runtime version source is unavailable at the exact commit",
+        ) from exc
+    return read_runtime_version(source)
+
+
 def _regular_commit_file(repository: Path, commit: str, path: str) -> bytes:
     try:
         listing = _git(repository, "ls-tree", commit, "--", path).decode("utf-8")
@@ -227,7 +243,7 @@ def _write_exclusive(path: Path, content: bytes) -> None:
     except OSError as exc:
         raise ValidationFailure(
             "release-preparation-output-invalid",
-            "release preview staging rejected a conflicting output path",
+            "release staging rejected a conflicting output path",
         ) from exc
 
 
@@ -545,11 +561,17 @@ def prepare_release_candidate(
             "release-candidate-package-version-invalid",
             "v0.1.0 release candidate requires exact package version 0.1.0",
         )
+    runtime_version = _runtime_version(root, commit)
+    if runtime_version != package_version:
+        raise ValidationFailure(
+            "release-candidate-runtime-version-mismatch",
+            "release candidate runtime and project package versions must match at the exact commit",
+        )
     adapter_manifest_schemas = _supported_adapter_manifest_schemas(root, commit)
     manifest = {
         "schema_id": "artifact-memory/release-manifest/v2",
         "release_id": release_id,
-        "status": "release",
+        "status": "release-candidate",
         "source": {
             "commit": commit,
             "tree_digest": tree_digest,
@@ -595,12 +617,12 @@ def prepare_release_candidate(
             "scope": "all-manifest-listed-artifacts-except-checksum-manifest-itself",
         },
         "signature": {
-            "state": "owner-signed",
+            "state": "pending-owner-signature",
             "tag": tag,
             "algorithm": "ssh-ed25519",
             "public_key_fingerprint": owner_fingerprint,
             "key_generation": key_generation,
-            "owner_signed_annotated_tag": True,
+            "owner_signed_annotated_tag": False,
         },
         "attestations": {
             "state": "deferred-public-workflow-review",
@@ -608,7 +630,7 @@ def prepare_release_candidate(
         },
         "authority_boundary": AUTHORITY_BOUNDARY,
         "limitations": [
-            "the manifest describes the intended final release but remains unverified until its digest is bound by the owner-signed annotated tag",
+            "the manifest is pending candidate evidence until its digest is bound by the owner-signed annotated tag",
             "preparation does not authorize tag creation, release publication, deployment, or any authority conveyed by Artifact Memory records",
             "keyless build and artifact attestations remain deferred pending public workflow review",
         ],
@@ -645,7 +667,7 @@ def prepare_release_candidate(
         ],
         "authority_boundary": AUTHORITY_BOUNDARY,
         "limitations": [
-            "the release manifest signature fields describe the required final state but are not verified by this preparation receipt",
+            "the release manifest remains explicitly pending until the owner-signed annotated tag is independently verified",
             "the owner must independently verify the public fingerprint and sign the exact tag message trailer",
             "publication requires separate owner authorization after signed-candidate verification",
         ],

@@ -1,7 +1,7 @@
 # Release candidate preparation receipt
 
 - Outcome: `pass`
-- Receipt: `release-candidate-preparation-receipt://5b1826081015ddf5c7b5a71cd9060b7fffe5d15f6b092cde0e05a703eccdc9d8`
+- Receipt: `release-candidate-preparation-receipt://94b93382752cf6bf46337e39644a1ec35e4cc9fba840544abfbe9dc82c53cfef`
 - Release/tag: `artifact-memory/v0.1.0` / `v0.1.0`
 - Source commit: `1111111111111111111111111111111111111111`
 - Release manifest: `sha-256:4444444444444444444444444444444444444444444444444444444444444444`

@@ -15,6 +15,15 @@
       }
     },
     {
+      "if": {"properties": {"status": {"const": "release-candidate"}}},
+      "then": {
+        "properties": {
+          "release_id": {"pattern": "^artifact-memory/v[0-9]+\\.[0-9]+\\.[0-9]+$"},
+          "signature": {"properties": {"state": {"const": "pending-owner-signature"}, "tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"}, "public_key_fingerprint": {"type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{20,}={0,2}$"}, "key_generation": {"type": "string", "minLength": 1}, "owner_signed_annotated_tag": {"const": false}}}
+        }
+      }
+    },
+    {
       "if": {"properties": {"status": {"const": "release"}}},
       "then": {
         "properties": {
@@ -28,7 +37,7 @@
   "properties": {
     "schema_id": {"const": "artifact-memory/release-manifest/v2"},
     "release_id": {"type": "string", "pattern": "^artifact-memory/v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9.-]+)?$"},
-    "status": {"enum": ["preview", "release"]},
+    "status": {"enum": ["preview", "release-candidate", "release"]},
     "source": {
       "type": "object",
       "additionalProperties": false,
@@ -86,7 +95,7 @@
       "additionalProperties": false,
       "required": ["state", "tag", "algorithm", "public_key_fingerprint", "key_generation", "owner_signed_annotated_tag"],
       "properties": {
-        "state": {"enum": ["unsigned-preview", "owner-signed"]},
+        "state": {"enum": ["unsigned-preview", "pending-owner-signature", "owner-signed"]},
         "tag": {"anyOf": [{"type": "string"}, {"type": "null"}]},
         "algorithm": {"const": "ssh-ed25519"},
         "public_key_fingerprint": {"anyOf": [{"type": "string"}, {"type": "null"}]},

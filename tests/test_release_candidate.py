@@ -36,23 +36,67 @@ TREE_LISTING = b"100644 blob 0123456789abcdef0123456789abcdef01234567\tdocs/rele
 SYNTHETIC_KEY_BLOB = b"synthetic-ed25519-public-key-blob"
 SYNTHETIC_PUBLIC_KEY = base64.b64encode(SYNTHETIC_KEY_BLOB).decode("ascii")
 SYNTHETIC_FINGERPRINT = _ssh_ed25519_fingerprint(SYNTHETIC_PUBLIC_KEY)
+SYNTHETIC_ARCHIVE = b"synthetic release archive\n"
+SYNTHETIC_NOTES = b"# Synthetic release notes\n"
+SYNTHETIC_ARCHIVE_NAME = "artifact-memory-0.1.0.tar"
+SYNTHETIC_NOTES_NAME = "artifact-memory-0.1.0-release-notes.md"
+SYNTHETIC_NOTES_SOURCE = "docs/release/v0.1.0-release-notes.md"
 
 
 def release_manifest() -> dict:
     manifest = copy.deepcopy(MANIFEST)
     commit = "a" * 40
     manifest["release_id"] = "artifact-memory/v0.1.0"
-    manifest["status"] = "release"
+    manifest["status"] = "release-candidate"
     manifest["source"]["commit"] = commit
     manifest["source"]["tree_digest"] = f"sha-256:{hashlib.sha256(TREE_LISTING).hexdigest()}"
     manifest["surfaces"]["reference_cli"] = {"package_version": "0.1.0", "stability": "stable"}
     manifest["signature"] = {
-        "state": "owner-signed",
+        "state": "pending-owner-signature",
         "tag": "v0.1.0",
         "algorithm": "ssh-ed25519",
         "public_key_fingerprint": SYNTHETIC_FINGERPRINT,
         "key_generation": "generation-1",
-        "owner_signed_annotated_tag": True,
+        "owner_signed_annotated_tag": False,
+    }
+    archive_digest = hashlib.sha256(SYNTHETIC_ARCHIVE).hexdigest()
+    notes_digest = hashlib.sha256(SYNTHETIC_NOTES).hexdigest()
+    checksum = (
+        f"{archive_digest}  {SYNTHETIC_ARCHIVE_NAME}\n"
+        f"{notes_digest}  {SYNTHETIC_NOTES_NAME}\n"
+    ).encode("ascii")
+    manifest["artifacts"] = [
+        {
+            "name": SYNTHETIC_ARCHIVE_NAME,
+            "kind": "source-archive",
+            "format": "git-archive-tar",
+            "byte_size": len(SYNTHETIC_ARCHIVE),
+            "sha256": "sha-256:" + archive_digest,
+            "provenance": (
+                "git archive --format=tar --prefix=artifact-memory-0.1.0/ " + commit
+            ),
+        },
+        {
+            "name": SYNTHETIC_NOTES_NAME,
+            "kind": "documentation",
+            "format": "markdown",
+            "byte_size": len(SYNTHETIC_NOTES),
+            "sha256": "sha-256:" + notes_digest,
+            "provenance": f"exact bytes from {commit}:{SYNTHETIC_NOTES_SOURCE}",
+        },
+        {
+            "name": "SHA256SUMS",
+            "kind": "checksum-file",
+            "format": "sha256sum-v1",
+            "byte_size": len(checksum),
+            "sha256": "sha-256:" + hashlib.sha256(checksum).hexdigest(),
+            "provenance": "synthetic canonical checksum fixture",
+        },
+    ]
+    manifest["checksum_manifest"] = {
+        "artifact_name": "SHA256SUMS",
+        "format": "sha256sum-v1",
+        "scope": "all-manifest-listed-artifacts-except-checksum-manifest-itself",
     }
     manifest["limitations"] = [
         "verification proves only the identities and cryptographic bindings represented in this receipt",
@@ -85,6 +129,13 @@ def git_output_for(manifest_bytes: bytes):
             ("cat-file", "-t", "b" * 40): "tag\n",
             ("cat-file", "tag", "b" * 40): tag_object,
             ("ls-tree", "-r", "--full-tree", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb^{commit}"): TREE_LISTING,
+            (
+                "archive",
+                "--format=tar",
+                "--prefix=artifact-memory-0.1.0/",
+                "a" * 40,
+            ): SYNTHETIC_ARCHIVE,
+            ("show", f"{'a' * 40}:{SYNTHETIC_NOTES_SOURCE}"): SYNTHETIC_NOTES,
         }
         value = values[command]
         if kwargs.get("text") and isinstance(value, bytes):
@@ -103,6 +154,22 @@ def write_allowed_signers(root: Path, *, public_key: str = SYNTHETIC_PUBLIC_KEY)
         encoding="utf-8",
     )
     return path
+
+
+def write_release_assets(root: Path, manifest: dict | None = None) -> None:
+    manifest = manifest or release_manifest()
+    contents = {
+        SYNTHETIC_ARCHIVE_NAME: SYNTHETIC_ARCHIVE,
+        SYNTHETIC_NOTES_NAME: SYNTHETIC_NOTES,
+    }
+    checksum = "".join(
+        f"{artifact['sha256'].removeprefix('sha-256:')}  {artifact['name']}\n"
+        for artifact in manifest["artifacts"]
+        if artifact["kind"] != "checksum-file"
+    ).encode("ascii")
+    contents["SHA256SUMS"] = checksum
+    for name, content in contents.items():
+        (root / name).write_bytes(content)
 
 
 class ReleaseCandidateIdentityTests(unittest.TestCase):
@@ -163,6 +230,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             manifest_path = root / "release.json"
             manifest_path.write_bytes(manifest_bytes)
             write_allowed_signers(root)
+            write_release_assets(root)
             fingerprint = release_manifest()["signature"]["public_key_fingerprint"]
             verification = subprocess.CompletedProcess(
                 args=["git", "verify-tag"],
@@ -183,6 +251,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                     manifest_path,
                     "v0.1.0",
                     root,
+                    asset_directory=root,
                     owner_fingerprint=SYNTHETIC_FINGERPRINT,
                     isolated_checkout=True,
                 )
@@ -270,7 +339,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             )
 
     def test_rejects_preview_manifest(self):
-        with self.assertRaisesRegex(ValidationFailure, "release status"):
+        with self.assertRaisesRegex(ValidationFailure, "release-candidate status"):
             validate_release_candidate_identity(
                 MANIFEST,
                 tag="v0.1.0-preview",
@@ -320,6 +389,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         manifest,
                         "v0.1.0",
                         Path(temporary),
+                        asset_directory=Path(temporary),
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
                         isolated_checkout=True,
                     )
@@ -333,6 +403,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             manifest_bytes = json.dumps(release_manifest()).encode("utf-8")
             manifest_path.write_bytes(manifest_bytes)
             write_allowed_signers(root)
+            write_release_assets(root)
             fingerprint = release_manifest()["signature"]["public_key_fingerprint"]
             verification = subprocess.CompletedProcess(
                 args=["git", "verify-tag"],
@@ -353,6 +424,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                     manifest_path,
                     "v0.1.0",
                     root,
+                    asset_directory=root,
                     owner_fingerprint=SYNTHETIC_FINGERPRINT,
                     isolated_checkout=True,
                 )
@@ -384,6 +456,93 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             self.assertEqual(
                 failure.exception.code,
                 "release-candidate-receipt-identity-mismatch",
+            )
+
+    def test_verifier_rejects_substituted_staged_asset_bytes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = release_manifest()
+            manifest_bytes = json.dumps(manifest).encode("utf-8")
+            manifest_path = root / "release.json"
+            manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(root)
+            write_release_assets(root, manifest)
+            (root / SYNTHETIC_NOTES_NAME).write_bytes(b"substituted notes\n")
+            verification = subprocess.CompletedProcess(
+                args=["git", "verify-tag"], returncode=0, stdout="", stderr=""
+            )
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.__version__", "0.1.0"),
+                patch("artifact_memory.release.subprocess.run", return_value=verification),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    side_effect=git_output_for(manifest_bytes),
+                ),
+            ):
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        asset_directory=root,
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=True,
+                    )
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-asset-digest-mismatch",
+            )
+
+    def test_verifier_rejects_self_consistent_asset_not_in_tagged_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = release_manifest()
+            substituted_notes = b"self-consistent but not from tagged source\n"
+            notes = manifest["artifacts"][1]
+            notes["byte_size"] = len(substituted_notes)
+            notes["sha256"] = "sha-256:" + hashlib.sha256(substituted_notes).hexdigest()
+            checksum = "".join(
+                f"{artifact['sha256'].removeprefix('sha-256:')}  {artifact['name']}\n"
+                for artifact in manifest["artifacts"]
+                if artifact["kind"] != "checksum-file"
+            ).encode("ascii")
+            checksum_artifact = manifest["artifacts"][2]
+            checksum_artifact["byte_size"] = len(checksum)
+            checksum_artifact["sha256"] = (
+                "sha-256:" + hashlib.sha256(checksum).hexdigest()
+            )
+            manifest_bytes = json.dumps(manifest).encode("utf-8")
+            manifest_path = root / "release.json"
+            manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(root)
+            (root / SYNTHETIC_ARCHIVE_NAME).write_bytes(SYNTHETIC_ARCHIVE)
+            (root / SYNTHETIC_NOTES_NAME).write_bytes(substituted_notes)
+            (root / "SHA256SUMS").write_bytes(checksum)
+            verification = subprocess.CompletedProcess(
+                args=["git", "verify-tag"], returncode=0, stdout="", stderr=""
+            )
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.__version__", "0.1.0"),
+                patch("artifact_memory.release.subprocess.run", return_value=verification),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    side_effect=git_output_for(manifest_bytes),
+                ),
+            ):
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        asset_directory=root,
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=True,
+                    )
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-asset-replay-mismatch",
             )
 
     def test_verifier_rejects_allowed_signers_without_expected_key(self):
@@ -419,6 +578,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         manifest_path,
                         "v0.1.0",
                         root,
+                        asset_directory=root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
                         isolated_checkout=True,
                     )
@@ -453,6 +613,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         manifest_path,
                         "v0.1.0",
                         root,
+                        asset_directory=root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
                         isolated_checkout=True,
                     )
@@ -469,6 +630,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             manifest_bytes = json.dumps(manifest).encode("utf-8")
             manifest_path.write_bytes(manifest_bytes)
             write_allowed_signers(root)
+            write_release_assets(root, manifest)
             fingerprint = manifest["signature"]["public_key_fingerprint"]
             verification = subprocess.CompletedProcess(
                 args=["git", "verify-tag"],
@@ -489,6 +651,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                     manifest_path,
                     "v0.1.0",
                     root,
+                    asset_directory=root,
                     owner_fingerprint=SYNTHETIC_FINGERPRINT,
                     isolated_checkout=True,
                 )
@@ -520,6 +683,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         manifest_path,
                         "v0.1.0",
                         root,
+                        asset_directory=root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
                         isolated_checkout=True,
                     )
@@ -552,6 +716,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         manifest_path,
                         "v0.1.0",
                         root,
+                        asset_directory=root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
                         isolated_checkout=True,
                     )
@@ -576,6 +741,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         manifest_path,
                         "v0.1.0",
                         root,
+                        asset_directory=root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
                         isolated_checkout=True,
                     )
@@ -601,6 +767,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         manifest_path,
                         "v0.1.0",
                         root,
+                        asset_directory=root,
                         owner_fingerprint=other_fingerprint,
                         isolated_checkout=True,
                     )
@@ -628,6 +795,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         manifest_path,
                         "v0.1.0",
                         root,
+                        asset_directory=root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
                         isolated_checkout=True,
                     )
@@ -653,6 +821,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         manifest_path,
                         "v0.1.0",
                         root,
+                        asset_directory=root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
                         isolated_checkout=False,
                     )
@@ -675,6 +844,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         manifest_path,
                         "v0.1.0",
                         root,
+                        asset_directory=root,
                         owner_fingerprint=None,  # type: ignore[arg-type]
                         isolated_checkout=True,
                     )
@@ -749,6 +919,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         manifest_path,
                         "v0.1.0",
                         root,
+                        asset_directory=root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
                         isolated_checkout=True,
                     )
@@ -788,6 +959,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                         manifest_path,
                         "v0.1.0",
                         root,
+                        asset_directory=root,
                         owner_fingerprint=SYNTHETIC_FINGERPRINT,
                         isolated_checkout=True,
                     )
@@ -811,7 +983,10 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             )
             tracked = repository / "synthetic.txt"
             tracked.write_text("synthetic release content\n", encoding="utf-8")
-            subprocess.run(["git", "add", "synthetic.txt"], cwd=repository, check=True)
+            notes_source = repository / SYNTHETIC_NOTES_SOURCE
+            notes_source.parent.mkdir(parents=True)
+            notes_source.write_bytes(SYNTHETIC_NOTES)
+            subprocess.run(["git", "add", "."], cwd=repository, check=True)
             subprocess.run(["git", "commit", "-q", "-m", "synthetic"], cwd=repository, check=True)
             commit = subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], cwd=repository, text=True
@@ -849,6 +1024,42 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 f"sha-256:{hashlib.sha256(tree_listing).hexdigest()}"
             )
             manifest["signature"]["public_key_fingerprint"] = fingerprint
+            archive_bytes = subprocess.check_output(
+                [
+                    "git",
+                    "archive",
+                    "--format=tar",
+                    "--prefix=artifact-memory-0.1.0/",
+                    commit,
+                ],
+                cwd=repository,
+            )
+            archive_digest = hashlib.sha256(archive_bytes).hexdigest()
+            notes_digest = hashlib.sha256(SYNTHETIC_NOTES).hexdigest()
+            checksum_bytes = (
+                f"{archive_digest}  {SYNTHETIC_ARCHIVE_NAME}\n"
+                f"{notes_digest}  {SYNTHETIC_NOTES_NAME}\n"
+            ).encode("ascii")
+            manifest["artifacts"][0].update(
+                byte_size=len(archive_bytes),
+                sha256="sha-256:" + archive_digest,
+                provenance=(
+                    "git archive --format=tar --prefix=artifact-memory-0.1.0/ "
+                    + commit
+                ),
+            )
+            manifest["artifacts"][1].update(
+                byte_size=len(SYNTHETIC_NOTES),
+                sha256="sha-256:" + notes_digest,
+                provenance=f"exact bytes from {commit}:{SYNTHETIC_NOTES_SOURCE}",
+            )
+            manifest["artifacts"][2].update(
+                byte_size=len(checksum_bytes),
+                sha256="sha-256:" + hashlib.sha256(checksum_bytes).hexdigest(),
+            )
+            (root / SYNTHETIC_ARCHIVE_NAME).write_bytes(archive_bytes)
+            (root / SYNTHETIC_NOTES_NAME).write_bytes(SYNTHETIC_NOTES)
+            (root / "SHA256SUMS").write_bytes(checksum_bytes)
             manifest_bytes = json.dumps(manifest).encode("utf-8")
             manifest_path = root / "release.json"
             manifest_path.write_bytes(manifest_bytes)
@@ -877,6 +1088,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                     manifest_path,
                     "v0.1.0",
                     repository,
+                    asset_directory=root,
                     owner_fingerprint=fingerprint,
                     isolated_checkout=True,
                 )

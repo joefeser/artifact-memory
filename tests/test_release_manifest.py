@@ -235,6 +235,27 @@ class ReleaseManifestTests(unittest.TestCase):
             validate_release_manifest(released)
         self.assertEqual(failure.exception.code, "release-tag-mismatch")
 
+    def test_standalone_release_status_requires_external_signature_evidence(self):
+        manifest = json.loads(
+            (FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8")
+        )
+        manifest["status"] = "release"
+        manifest["release_id"] = "artifact-memory/v0.1.0"
+        manifest["signature"] = {
+            "state": "owner-signed",
+            "tag": "v0.1.0",
+            "algorithm": "ssh-ed25519",
+            "public_key_fingerprint": "SHA256:" + "A" * 43,
+            "key_generation": "generation-1",
+            "owner_signed_annotated_tag": True,
+        }
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_release_manifest(manifest)
+        self.assertEqual(
+            failure.exception.code,
+            "release-signature-verification-required",
+        )
+
     def test_legacy_v2_fingerprint_is_schema_readable_but_requires_migration(self):
         manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
         manifest["status"] = "release"
