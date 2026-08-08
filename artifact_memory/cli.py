@@ -53,7 +53,8 @@ def main(argv: list[str] | None = None) -> int:
     record_commands = {
         "validate": (
             "validate JSON syntax, duplicate keys, schema constraints, and supported "
-            "semantic rules (including release-manifest releasability)"
+            "semantic rules (including release-manifest releasability); validation "
+            "does not verify authenticity or accept release evidence"
         ),
         "inspect": "report schema and field names without validating record semantics",
     }
@@ -412,22 +413,6 @@ def main(argv: list[str] | None = None) -> int:
         result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}
     else:
         result = {"valid": True, "outcome": "accepted", "diagnostics": []}
-        if schema_id in {
-            "artifact-memory/release-manifest/v1",
-            "artifact-memory/release-manifest/v2",
-        }:
-            signature = record.get("signature", {})
-            result.update(
-                {
-                    "validation_scope": "schema-and-semantic-rules-only",
-                    "lifecycle_status": record.get("status"),
-                    "signature_state": (
-                        signature.get("state") if isinstance(signature, dict) else None
-                    ),
-                    "owner_signature_verified": False,
-                    "release_evidence_accepted": False,
-                }
-            )
     result["schema_id"] = schema_id
     _receipt(result, args.as_json)
     return EXIT_OK if result["valid"] else EXIT_INVALID

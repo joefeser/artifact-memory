@@ -395,6 +395,25 @@ class ReleasePreparationTests(unittest.TestCase):
                         )
                     self.assertEqual(failure.exception.code, code)
 
+    def test_invalid_signing_metadata_does_not_create_output_parents(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, commit = self.release_repository(root / "candidate")
+            output = root / "missing" / "nested" / "release"
+            with self.assertRaises(ValidationFailure) as failure:
+                prepare_release_candidate(
+                    repository,
+                    commit,
+                    output,
+                    owner_fingerprint="SHA256:short",
+                    key_generation="generation-1",
+                )
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-owner-fingerprint-invalid",
+            )
+            self.assertFalse(output.parent.parent.exists())
+
     def test_candidate_receipt_fixture_and_manifest_binding_are_checked(self):
         fixture_root = ROOT / "fixtures/synthetic/release"
         receipt = json.loads(

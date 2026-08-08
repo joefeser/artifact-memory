@@ -48,12 +48,15 @@ Preparation emits `status: release-candidate` and
 SSH Ed25519 public fingerprint, key generation, and intended matching tag. A
 standalone manifest cannot authenticate itself. Existing v2 `status: release`
 records remain structurally and semantically readable for compatibility, while
-generic validation explicitly reports that no owner signature was verified and
-no release evidence was accepted. The signed-candidate verifier accepts the
+the generic validation command explicitly documents that it does not verify an
+owner signature or accept release evidence. Its stable v0 result shape is not
+expanded with authenticity claims. The signed-candidate verifier accepts the
 immutable pending candidate and emits a digest-bound v2 verification receipt;
 those two records establish the release evidence without rewriting bytes after
-signing. Historical v1 verification receipts remain integrity-readable but do
-not contain the mandatory staged-asset replay evidence added in v2.
+signing. For compatibility, the verifier also accepts an existing valid v2
+`status: release` record and applies the same tag, manifest, signer, asset, and
+source checks. Historical v1 verification receipts remain integrity-readable
+but do not contain the mandatory staged-asset replay evidence added in v2.
 
 The published v2 schema remains able to read its earlier permissive fingerprint
 shape, but such a value is not releasable evidence. Semantic validation returns

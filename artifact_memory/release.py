@@ -141,10 +141,10 @@ def _validate_v2_release_candidate_manifest(manifest: Any) -> None:
             "release-candidate-schema-unsupported",
             "release candidate identity verification requires a v2 release manifest",
         )
-    if manifest.get("status") != "release-candidate":
+    if manifest.get("status") not in {"release-candidate", "release"}:
         raise ValidationFailure(
             "release-candidate-status-invalid",
-            "candidate manifest must have pending release-candidate status",
+            "verification requires pending release-candidate or historical release status",
         )
     signature = manifest.get("signature")
     fingerprint = (

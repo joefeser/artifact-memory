@@ -105,6 +105,14 @@ def release_manifest() -> dict:
     return manifest
 
 
+def historical_release_manifest() -> dict:
+    manifest = release_manifest()
+    manifest["status"] = "release"
+    manifest["signature"]["state"] = "owner-signed"
+    manifest["signature"]["owner_signed_annotated_tag"] = True
+    return manifest
+
+
 def git_output_for(manifest_bytes: bytes):
     manifest_digest = f"sha-256:{hashlib.sha256(manifest_bytes).hexdigest()}"
     tag_object = (
@@ -334,6 +342,17 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
         self.assertEqual(result["tag_commit"], "a" * 40)
         self.assertEqual(result["manifest_package_version"], "0.1.0")
 
+    def test_accepts_historical_release_identity(self):
+        result = validate_release_candidate_identity(
+            historical_release_manifest(),
+            tag="v0.1.0",
+            head_commit="a" * 40,
+            tag_commit="a" * 40,
+            package_version="0.1.0",
+        )
+        self.assertEqual(result["outcome"], "pass")
+        self.assertEqual(result["release_id"], "artifact-memory/v0.1.0")
+
     def test_rejects_wrong_tag_commit(self):
         with self.assertRaisesRegex(ValidationFailure, "tag, HEAD, and manifest"):
             validate_release_candidate_identity(
@@ -355,7 +374,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             )
 
     def test_rejects_preview_manifest(self):
-        with self.assertRaisesRegex(ValidationFailure, "release-candidate status"):
+        with self.assertRaisesRegex(ValidationFailure, "historical release status"):
             validate_release_candidate_identity(
                 MANIFEST,
                 tag="v0.1.0-preview",

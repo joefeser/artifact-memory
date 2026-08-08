@@ -502,9 +502,6 @@ def prepare_release_candidate(
 ) -> dict[str, Any]:
     """Prepare exact v0.1.0 assets that still require owner signing and publication."""
 
-    root = _repository_root(repository)
-    commit = _exact_commit(root, candidate)
-    output = _prepare_output(root, output)
     if (
         not isinstance(owner_fingerprint, str)
         or SSH_FINGERPRINT_PATTERN.fullmatch(owner_fingerprint) is None
@@ -521,6 +518,9 @@ def prepare_release_candidate(
             "release-candidate-key-generation-invalid",
             "release candidate preparation requires the public signing-key generation identifier",
         )
+    root = _repository_root(repository)
+    commit = _exact_commit(root, candidate)
+    output = _prepare_output(root, output)
 
     release_name = "artifact-memory-0.1.0"
     release_id = "artifact-memory/v0.1.0"
