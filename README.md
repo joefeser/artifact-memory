@@ -77,9 +77,12 @@ This repository must not contain:
 See [Security](SECURITY.md) and the
 [repository operating rules](AGENTS.md) before contributing.
 
-Start with the [quickstart](docs/quickstart.md). Versioning and release
-requirements are in [the release policy](docs/release/versioning-and-launch.md)
-and [the readiness audit](docs/release/public-readiness-audit.md). The current
+Start with the [quickstart](docs/quickstart.md). Repositories evaluating or
+adopting Artifact Memory can use the bounded
+[repository adoption prompts](docs/onboarding/repository-adoption.md).
+Versioning and release requirements are in
+[the release policy](docs/release/versioning-and-launch.md) and
+[the readiness audit](docs/release/public-readiness-audit.md). The current
 [support boundary](SUPPORT.md),
 [v0.1.1 release notes](docs/release/v0.1.1-release-notes.md), historical
 [v0.1.0 release notes](docs/release/v0.1.0-release-notes.md), and historical
@@ -96,6 +99,7 @@ are needed; `inspect` does not validate record semantics.
 
 - [Foundation and rewrite concept](docs/architecture/foundation.md)
 - [Initial roadmap](docs/roadmap/initial-roadmap.md)
+- [Repository adoption prompts](docs/onboarding/repository-adoption.md)
 - [Decision log](docs/decisions/README.md)
 - [Extension and adapter boundary](adapters/README.md)
 - [Schema work area](artifact_memory/schemas/README.md)
