@@ -1,10 +1,38 @@
 # Public-readiness audit record
 
-This record is a repeatable audit procedure and current evidence summary. It
-does not itself change repository visibility, authorize publication, or prove
-that a bounded scanner can recognize every form of protected material.
+This record is a repeatable audit procedure and evidence summary. It does not
+authorize a tag or release publication, authenticate an owner signing key, or
+prove that a bounded scanner can recognize every form of protected material.
 
-## Current pre-public evidence
+## Current public evidence
+
+On 2026-08-08, owner-authorized publication and bounded post-visibility
+verification completed against exact `main` commit
+`e74b87e0cb81baa2a56b59281d724413a19204d9`. Two fresh anonymous clones
+reproduced external receipt
+`public-safety-receipt://194e6ecf3f95b00844f8e93402e495766583e4f69b8a326841f617ba9748a555`.
+The checked source passed 531 tests, 231 public JSON validations, aggregate
+conformance, compilation, `git fsck`, install, CLI, and packaged-schema smoke
+checks. Exact release-preview preparation also passed as
+`release-preparation-receipt://56b5865ebdde2219d046dfd984030aac04875242961ba25da7b8d7be28017fc7`.
+
+The public repository has protected `main` and `dev` branches. Both reject
+force pushes and deletions, require pull requests, dismiss stale review state,
+require resolved conversations, enforce their rules for administrators, and
+require the public-safety plus macOS, Ubuntu, and Windows probe checks. Only Joe
+has direct write access. Secret scanning, push protection, vulnerability
+alerts, and private vulnerability reporting are enabled. Merge commits are
+enabled while squash and rebase merges are disabled. No tag, release, or
+retained Actions artifact existed at the audited head.
+
+The visibility and public-control gates are complete; their accepted evidence
+is recorded in the closed public-readiness issue. They do not establish an
+owner-signed `v0.1.0` release. Final release preparation must repeat the relevant
+source/history checks against its own exact commit, bind the final manifest to
+the dedicated owner-signed tag, and verify that tag before publishing release
+assets.
+
+## Historical pre-public evidence
 
 ### First real off-machine custody proof
 
@@ -59,13 +87,10 @@ reproduced external receipt
   are disabled; the default branch is `main`; merged branches auto-delete;
   Pages, wiki, and Projects are disabled.
 
-The repository remains private. Branch/ruleset protection and security-feature
-evidence are not available on the current private personal-repository plan and
-are not recorded as enabled. They remain mandatory post-visibility gates. This
-refresh is a pre-public baseline, not owner visibility approval, a signed
-release, or a substitute for #21 remote-custody evidence. The audit-preparation
-PR itself changes the candidate, so the two-clone and GitHub-surface pass must
-run once more after its final merge.
+At that historical point the repository remained private and the private-plan
+branch/security controls were unavailable. Those observations were superseded
+by the current public evidence above. The refresh was not a signed release or a
+substitute for #21 remote-custody evidence.
 
 ### Earlier baseline
 
@@ -109,26 +134,27 @@ merged:
   synthetic profile rather than universal guarantees.
 
 This dated snapshot describes the accepted `dev` base before the audit patch;
-it is not the final visibility-approval receipt. Final approval consumes one
-external `artifact-memory/public-safety-receipt/v1` generated for the frozen
-candidate after the last merge. The receipt binds its own candidate and HEAD
-commits, scanned remote refs and tags, commit/object/path counts, clean
-index/worktree scope, and canonical receipt identity.
+it is not the final visibility-approval receipt. The later public evidence above
+supersedes it and identifies the external
+`artifact-memory/public-safety-receipt/v1` consumed for owner approval. Such a
+receipt binds its own candidate and HEAD commits, scanned remote refs and tags,
+commit/object/path counts, clean index/worktree scope, and canonical receipt
+identity.
 
 The contract has checked synthetic machine and human evidence at
 `fixtures/synthetic/public-safety/v1/expected-receipt.json` and
 `fixtures/synthetic/public-safety/v1/receipt.md`. Those fixtures are reviewable
-contract evidence, not visibility approval. The real final receipt remains
-external so recording it cannot change the clone it claims was clean.
+contract evidence, not visibility approval. The accepted real receipt remains
+external so recording it did not change the clone it claimed was clean.
 
-These checks are high-confidence guardrails, not proof of absence. A human must
-still review the exact final public candidate and repository settings before
-approving visibility.
+These checks are high-confidence guardrails, not proof of absence. Public
+visibility does not remove the requirement for human review of each exact
+release candidate and its repository settings before publication.
 
-## Remaining gates
+## Remaining release gates
 
-The following are intentionally incomplete and must not be inferred from this
-pre-public pass:
+The following remain incomplete and must not be inferred from public visibility
+or the earlier unsigned preview:
 
 - issue #21 has an external owner attestation backed by owner-controlled private
   evidence for the first encrypted write, full-data integrity verification,
@@ -138,19 +164,19 @@ pre-public pass:
   operations. Merging the attestation records, rather than proves, the observed
   completion; ongoing monthly checks and quarterly restore rehearsals remain
   owner operations rather than release-time claims;
-- the final candidate must repeat the Git, GitHub prose, Actions log/artifact,
-  release, tag, and settings audit after its last merge;
+- the final candidate must repeat the relevant Git, GitHub prose, Actions
+  log/artifact, release, tag, and settings audit after its last merge;
 - Joe must provide the dedicated release-signing public key and fingerprint,
   add it to GitHub as a signing key, and personally create the owner-signed
   annotated tag; agents must not receive or invoke the private key;
-- Joe must explicitly approve the visibility change after reviewing the final
-  audit. The repository remains private until that approval;
-- after visibility changes, an anonymous environment must clone, run
-  `git fsck`, install, test, and verify the exact release candidate, and public
-  branch protection/security settings must be restored before release
-  publication. Failure stops publication and returns the repository to private.
+- the exact signed candidate must pass isolated verification and an anonymous
+  clone, `git fsck`, install, test, checksum, and tag-verification replay;
+- Joe must separately authorize tag and GitHub release publication. A failed
+  verification stops publication while the candidate is corrected;
+- keyless build and artifact attestations remain deferred pending a reviewed
+  public workflow.
 
-## Final pre-public procedure
+## Final release-candidate procedure
 
 1. From a clean full-history clone, detach `HEAD` at the exact owner-approved
    candidate and enumerate every remote branch, tag, release, Actions
@@ -184,15 +210,15 @@ pre-public pass:
 8. Record the frozen external receipt and its human rendering (using the same
    deterministic form demonstrated by `fixtures/synthetic/public-safety/v1`),
    successful replay result, reviewed GitHub surfaces, known gaps, and Joe's
-   explicit visibility decision without recording secrets. Do not compare a
-   prose count tuple from another commit.
+   public settings state and owner release decision without recording secrets.
+   Do not compare a prose count tuple from another commit.
 
-## Post-visibility anonymous clone
+## Signed-release anonymous verification
 
-Only after Joe explicitly approves and performs the visibility change, use a
-machine or environment with no repository credentials or vault mounts. First
-configure SSH signature verification with the owner-published release public
-key as described in `ssh-signing-key-policy.md`, then run:
+After Joe authorizes publication of the owner-signed tag, use a machine or
+environment with no repository credentials or vault mounts. First configure
+SSH signature verification with the owner-published release public key as
+described in `ssh-signing-key-policy.md`, then run:
 
 ```shell
 set -eu
@@ -206,7 +232,7 @@ python -m pip install --no-deps .
 release_manifest_path=/external/release/release-manifest.json
 release_verification_path=/external/audit/release-candidate-verification.json
 : "${ARTIFACT_MEMORY_RELEASE_OWNER_FINGERPRINT:?set from the owner-published release policy}"
-artifact-memory verify-release-candidate "$release_manifest_path" --tag v0.1.0 --repo . --owner-fingerprint "$ARTIFACT_MEMORY_RELEASE_OWNER_FINGERPRINT" --isolated-checkout --json > "$release_verification_path"
+artifact-memory verify-release-candidate "$release_manifest_path" --tag v0.1.0 --repo . --asset-dir "$(dirname "$release_manifest_path")" --owner-fingerprint "$ARTIFACT_MEMORY_RELEASE_OWNER_FINGERPRINT" --isolated-checkout --json > "$release_verification_path"
 artifact-memory validate-release-candidate-receipt "$release_verification_path" --json
 python tests/smoke_installed_package.py
 python -m unittest discover -s tests -v
@@ -225,14 +251,19 @@ file to the independently supplied owner-published Ed25519 fingerprint,
 rejects any different fingerprint claimed by the candidate manifest, verifies
 one pinned tag object against that key, and compares initial/final ref, commit,
 and detached-HEAD endpoints. The caller must assert exclusive control of this
-fresh checkout; endpoint equality does not detect an A→B→A mutation. This
+fresh checkout; endpoint equality does not detect an A→B→A mutation. The
+verifier also requires every manifest-listed asset as a regular file in the
+explicit `--asset-dir`, validates exact sizes and SHA-256 digests, requires a
+canonical complete `SHA256SUMS`, reproduces the source archive and release notes
+from the verified tag commit, and rejects concurrent staged-asset changes. This
 behavior is
 the `git-verify-tag-filtered-allowed-signers-v1` profile and is covered by a
 real ephemeral Git/SSH signing regression test. Git SHA-256 object-format
 repositories receive an explicit unsupported outcome in v0. Its pass evidence
 is a digest-bound
-`artifact-memory/release-candidate-verification-receipt/v1` containing that
-fingerprint, signed tag object, exact manifest digest, key generation,
+`artifact-memory/release-candidate-verification-receipt/v2` containing that
+fingerprint, signed tag object, exact manifest digest, staged-asset replay,
+checksum-manifest digest, key generation,
 authority boundary, caller-asserted isolation, endpoint-only concurrency scope,
 and explicit unevaluated owner-authorization and repository-settings gates.
 Preserve the external
@@ -245,7 +276,7 @@ installed-package smoke runs the console script and packaged-schema checks from
 a temporary directory outside the source checkout.
 
 The newly authored synthetic contract evidence at
-`fixtures/synthetic/release/v0-release-candidate-verification-receipt.json` and
+`fixtures/synthetic/release/v0-release-candidate-verification-receipt.v2.json` and
 its `.md` rendering demonstrates the receipt shape without claiming that a real
 key, tag, release, or visibility decision exists.
 
@@ -267,6 +298,6 @@ evidence for every control below:
 - the default branch is `main`, head branches delete after merge, and no Pages,
   wiki, or Projects surface is enabled unintentionally.
 
-If GitHub cannot enforce or positively report any required control on the
-public repository plan, the settings gate fails: stop publication and return
-the repository to private rather than recording the control as “unavailable.”
+If GitHub cannot enforce or positively report any required control, the
+settings gate fails: stop release publication rather than recording the control
+as “unavailable.”

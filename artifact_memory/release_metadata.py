@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 import tomllib
 from collections.abc import Callable, Iterable
@@ -33,6 +34,38 @@ def read_package_version(pyproject_bytes: bytes) -> str:
             "release candidate package version must use X.Y.Z or X.Y.Z.devN",
         )
     return version
+
+
+def read_runtime_version(init_bytes: bytes) -> str:
+    """Read one literal ``__version__`` assignment from package source."""
+
+    try:
+        module = ast.parse(init_bytes.decode("utf-8"))
+    except (UnicodeError, SyntaxError) as exc:
+        raise ValidationFailure(
+            "release-runtime-version-invalid",
+            "release candidate runtime version source is invalid",
+        ) from exc
+    versions: list[str] = []
+    for statement in module.body:
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        if not any(isinstance(target, ast.Name) and target.id == "__version__" for target in targets):
+            continue
+        value = statement.value
+        if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+            raise ValidationFailure(
+                "release-runtime-version-invalid",
+                "release candidate runtime version must be one literal string",
+            )
+        versions.append(value.value)
+    if len(versions) != 1 or PACKAGE_VERSION_PATTERN.fullmatch(versions[0]) is None:
+        raise ValidationFailure(
+            "release-runtime-version-invalid",
+            "release candidate runtime source must contain one supported __version__ assignment",
+        )
+    return versions[0]
 
 
 def schema_inventory(schema_documents: Iterable[bytes]) -> tuple[int, str]:

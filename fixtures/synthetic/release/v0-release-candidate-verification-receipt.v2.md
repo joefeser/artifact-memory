@@ -1,0 +1,32 @@
+# Release candidate verification receipt
+
+- Outcome: `pass`
+- Receipt: `release-candidate-verification-receipt://70cf4c628bec4e4c0f9f1ccdbb35026037bfcc1e065f7cb4143f95e66a273984`
+- Release/tag: `artifact-memory/v0.1.0` / `v0.1.0`
+- Tag object: `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`
+- Tag commit: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- HEAD commit: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- Manifest source commit: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- Manifest SHA-256: `sha-256:7c143d54a8801f070369d2c66b17dde96fce8510213bbecb35a987e4b0e3601b`
+- Manifest binding: `signed-annotated-tag-trailer-v1`
+- Manifest tree digest: `sha-256:d30bf7fb2e85d9083251f7a5339025306ac517ee64bce79350588486156df03e`
+- Manifest package version: `0.1.0`
+- Installed package version: `0.1.0`
+- Verified signer: `SHA256:3DdhLCMCRK7PRnTYHUlTiWPN9KijGyATZHW0fB5n6yY`
+- Signing key generation: `generation-1`
+- Annotated tag verified: `true`
+- Verification output profile: `git-verify-tag-filtered-allowed-signers-v1`
+- Asset replay: `exact-staged-bytes-and-tagged-source-v1` (3 assets)
+- SHA256SUMS digest: `sha-256:ef0acd192f2a89dde8d07095325c514c86d26156493809218662cb9c9baa1d1c`
+- Repository scope: `explicit-git-checkout`
+- Checkout isolation: `caller-asserted-exclusive-fresh-checkout`
+- Concurrent mutation detection: `initial-final-endpoint-equality-no-aba-detection`
+- Owner publication authorization evaluated: `false`
+- Repository settings evidence evaluated: `false`
+- Authority boundary: release preparation grants no signing, tag, publication, visibility, or deployment authority
+- Limitations:
+  - verification proves only the identities and cryptographic bindings represented in this receipt
+  - publication, visibility, deployment, and release authority remain absent
+  - owner publication authorization and explicit visibility approval were not evaluated
+  - required repository-settings evidence was not evaluated
+  - checkout isolation is caller-asserted and endpoint checks do not detect ABA mutations

@@ -5,13 +5,15 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import os
 import re
 import shlex
+import stat
 import subprocess
 import tempfile
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from . import __version__
 from .canonical import CanonicalizationFailure, expected_receipt_id, receipt_with_digest
@@ -24,8 +26,9 @@ SSH_VERIFICATION_OUTPUT_PROFILE = "git-verify-tag-filtered-allowed-signers-v1"
 SSH_FINGERPRINT_PATTERN = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
 ALLOWED_SIGNER_OPTIONS = ("namespaces=", "valid-after=", "valid-before=")
 SIGNED_MANIFEST_TRAILER = "Artifact-Memory-Manifest-SHA256:"
-RELEASE_VERIFICATION_SCHEMA_ID = "artifact-memory/release-candidate-verification-receipt/v1"
+RELEASE_VERIFICATION_SCHEMA_ID = "artifact-memory/release-candidate-verification-receipt/v2"
 RELEASE_VERIFICATION_RECEIPT_PREFIX = "release-candidate-verification-receipt://"
+RELEASE_ASSET_CHUNK_BYTES = 1024 * 1024
 
 
 def validate_release_manifest(
@@ -74,7 +77,7 @@ def validate_release_manifest(
         raise ValidationFailure("release-source-archive-format", "v2 source archive must use the reproducible Git tar profile", "$.artifacts")
     if manifest["status"] == "preview" and manifest["attestations"]["state"] != "deferred-private-incubation":
         raise ValidationFailure("release-preview-attestation-invalid", "private preview cannot claim published attestations", "$.attestations.state")
-    if manifest["status"] == "release":
+    if manifest["status"] in {"release-candidate", "release"}:
         fingerprint = manifest["signature"]["public_key_fingerprint"]
         if not isinstance(fingerprint, str) or SSH_FINGERPRINT_PATTERN.fullmatch(fingerprint) is None:
             raise ValidationFailure(
@@ -84,7 +87,11 @@ def validate_release_manifest(
             )
         version = manifest["release_id"].removeprefix("artifact-memory/")
         if manifest["signature"]["tag"] != version:
-            raise ValidationFailure("release-tag-mismatch", "owner-signed tag must match the release identifier", "$.signature.tag")
+            raise ValidationFailure(
+                "release-tag-mismatch",
+                "declared release tag must match the release identifier",
+                "$.signature.tag",
+            )
 
 
 def validate_release_candidate_identity(
@@ -136,6 +143,23 @@ def _validate_v2_release_candidate_manifest(manifest: Any) -> None:
             "release-candidate-schema-unsupported",
             "release candidate identity verification requires a v2 release manifest",
         )
+    if manifest.get("status") not in {"release-candidate", "release"}:
+        raise ValidationFailure(
+            "release-candidate-status-invalid",
+            "verification requires pending release-candidate or historical release status",
+        )
+    signature = manifest.get("signature")
+    fingerprint = (
+        signature.get("public_key_fingerprint") if isinstance(signature, dict) else None
+    )
+    try:
+        _require_canonical_owner_fingerprint(fingerprint)
+    except ValidationFailure as exc:
+        raise ValidationFailure(
+            "release-candidate-owner-fingerprint-invalid",
+            "candidate manifest fingerprint must use canonical unpadded SHA-256 form",
+            "$.signature.public_key_fingerprint",
+        ) from exc
     try:
         validate_release_manifest(manifest)
     except ValidationFailure as exc:
@@ -146,8 +170,252 @@ def _validate_v2_release_candidate_manifest(manifest: Any) -> None:
                 "$.signature.public_key_fingerprint",
             ) from exc
         raise
-    if manifest["status"] != "release":
-        raise ValidationFailure("release-candidate-status-invalid", "candidate manifest must have release status")
+
+
+def _open_regular_release_asset(asset_directory: Path, name: str) -> BinaryIO:
+    """Open one staged regular file without a pathname-check/read race."""
+
+    path = asset_directory / name
+    descriptor = -1
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        opened_metadata = os.fstat(descriptor)
+        path_metadata = os.stat(path, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(opened_metadata.st_mode)
+            or not stat.S_ISREG(path_metadata.st_mode)
+            or (opened_metadata.st_dev, opened_metadata.st_ino)
+            != (path_metadata.st_dev, path_metadata.st_ino)
+        ):
+            raise OSError("not a regular file")
+        stream = os.fdopen(descriptor, "rb")
+        descriptor = -1
+        return stream
+    except OSError as exc:
+        raise ValidationFailure(
+            "release-candidate-asset-unavailable",
+            "every manifest-listed release asset must be one staged regular file",
+        ) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _snapshot_release_asset(asset_directory: Path, name: str) -> tuple[int, str]:
+    digest = hashlib.sha256()
+    byte_size = 0
+    with _open_regular_release_asset(asset_directory, name) as stream:
+        while chunk := stream.read(RELEASE_ASSET_CHUNK_BYTES):
+            byte_size += len(chunk)
+            digest.update(chunk)
+    return byte_size, f"sha-256:{digest.hexdigest()}"
+
+
+def _regular_release_asset_equals_bytes(
+    asset_directory: Path,
+    name: str,
+    expected: bytes,
+) -> bool:
+    offset = 0
+    with _open_regular_release_asset(asset_directory, name) as stream:
+        while chunk := stream.read(RELEASE_ASSET_CHUNK_BYTES):
+            if chunk != expected[offset : offset + len(chunk)]:
+                return False
+            offset += len(chunk)
+    return offset == len(expected)
+
+
+def _replay_git_output_against_asset(
+    git_args: list[str],
+    repository_root: Path,
+    asset_directory: Path,
+    asset_name: str,
+) -> None:
+    """Stream one Git reproduction and compare it with one opened staged asset."""
+
+    process: subprocess.Popen[bytes] | None = None
+    mismatch = False
+    try:
+        with _open_regular_release_asset(asset_directory, asset_name) as asset:
+            process = subprocess.Popen(
+                ["git", *git_args],
+                cwd=repository_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            if process.stdout is None:
+                raise OSError("Git replay stdout unavailable")
+            while chunk := process.stdout.read(RELEASE_ASSET_CHUNK_BYTES):
+                if chunk != asset.read(len(chunk)):
+                    mismatch = True
+                    break
+            if not mismatch and asset.read(1):
+                mismatch = True
+            if mismatch and process.poll() is None:
+                process.kill()
+            return_code = process.wait()
+    except OSError as exc:
+        if process is not None and process.poll() is None:
+            process.kill()
+            process.wait()
+        raise ValidationFailure(
+            "release-candidate-asset-replay-failed",
+            "release asset bytes could not be reproduced from the verified tag commit",
+        ) from exc
+    finally:
+        if process is not None and process.stdout is not None:
+            process.stdout.close()
+    if mismatch:
+        raise ValidationFailure(
+            "release-candidate-asset-replay-mismatch",
+            "staged release asset bytes do not match the verified tag commit",
+        )
+    if return_code != 0:
+        raise ValidationFailure(
+            "release-candidate-asset-replay-failed",
+            "release asset bytes could not be reproduced from the verified tag commit",
+        )
+
+
+def _require_asset_directory(value: Any) -> Path:
+    if value is None:
+        raise ValidationFailure(
+            "release-candidate-asset-directory-required",
+            "asset-aware release verification requires an explicit staged-asset Path",
+        )
+    if not isinstance(value, Path):
+        raise ValidationFailure(
+            "release-candidate-asset-directory-invalid",
+            "release candidate asset directory must be supplied as a Path",
+        )
+    return value
+
+
+def _verify_release_assets(
+    manifest: dict[str, Any],
+    asset_directory: Path | None,
+    repository_root: Path,
+    tag_commit: str,
+) -> dict[str, Any]:
+    """Replay staged assets against the manifest, checksum file, and tagged source."""
+
+    asset_directory = _require_asset_directory(asset_directory)
+    try:
+        resolved_assets = asset_directory.resolve(strict=True)
+        if not resolved_assets.is_dir() or asset_directory.is_symlink():
+            raise OSError("not a real directory")
+    except OSError as exc:
+        raise ValidationFailure(
+            "release-candidate-asset-directory-invalid",
+            "release verification requires an explicit real staged-asset directory",
+        ) from exc
+
+    initial = {
+        artifact["name"]: _snapshot_release_asset(resolved_assets, artifact["name"])
+        for artifact in manifest["artifacts"]
+    }
+    for artifact in manifest["artifacts"]:
+        byte_size, digest = initial[artifact["name"]]
+        if byte_size != artifact["byte_size"] or digest != artifact["sha256"]:
+            raise ValidationFailure(
+                "release-candidate-asset-digest-mismatch",
+                "staged release asset size or digest does not match the signed manifest",
+            )
+
+    checksum_name = manifest["checksum_manifest"]["artifact_name"]
+    expected_checksum = "".join(
+        f"{artifact['sha256'].removeprefix('sha-256:')}  {artifact['name']}\n"
+        for artifact in manifest["artifacts"]
+        if artifact["name"] != checksum_name
+    ).encode("ascii")
+    if not _regular_release_asset_equals_bytes(
+        resolved_assets,
+        checksum_name,
+        expected_checksum,
+    ):
+        raise ValidationFailure(
+            "release-candidate-checksum-scope-mismatch",
+            "staged SHA256SUMS must canonically cover every non-checksum manifest asset exactly once",
+        )
+
+    for artifact in manifest["artifacts"]:
+        if artifact["kind"] == "checksum-file":
+            continue
+        if artifact["kind"] == "source-archive":
+            prefix = artifact["name"].removesuffix(".tar") + "/"
+            expected_provenance = (
+                f"git archive --format=tar --prefix={prefix} {tag_commit}"
+            )
+            if artifact["provenance"] != expected_provenance:
+                if manifest["status"] == "release":
+                    raise ValidationFailure(
+                        "release-candidate-historical-asset-replay-unsupported",
+                        "historical release provenance without the strict replay profile remains readable but is not live-verifiable",
+                    )
+                raise ValidationFailure(
+                    "release-candidate-asset-provenance-invalid",
+                    "source archive provenance must bind the exact replay command and tag commit",
+                )
+            replay_args = [
+                "archive",
+                "--format=tar",
+                f"--prefix={prefix}",
+                tag_commit,
+            ]
+        elif artifact["kind"] == "documentation":
+            match = re.fullmatch(
+                r"exact bytes from ([0-9a-f]{40}):([A-Za-z0-9][A-Za-z0-9._/-]*)",
+                artifact["provenance"],
+            )
+            if match is None or match.group(1) != tag_commit:
+                if manifest["status"] == "release":
+                    raise ValidationFailure(
+                        "release-candidate-historical-asset-replay-unsupported",
+                        "historical release provenance without the strict replay profile remains readable but is not live-verifiable",
+                    )
+                raise ValidationFailure(
+                    "release-candidate-asset-provenance-invalid",
+                    "documentation provenance must bind one safe path at the tagged commit",
+                )
+            source_path = Path(match.group(2))
+            if (
+                source_path.is_absolute()
+                or source_path.as_posix() != match.group(2)
+                or any(part in {"", ".", ".."} for part in source_path.parts)
+            ):
+                raise ValidationFailure(
+                    "release-candidate-asset-provenance-invalid",
+                    "documentation provenance must bind one safe path at the tagged commit",
+                )
+            replay_args = ["show", f"{tag_commit}:{source_path.as_posix()}"]
+        else:
+            raise ValidationFailure(
+                "release-candidate-asset-kind-unsupported",
+                "release asset replay does not support this manifest artifact kind",
+            )
+        _replay_git_output_against_asset(
+            replay_args,
+            repository_root,
+            resolved_assets,
+            artifact["name"],
+        )
+
+    final = {
+        artifact["name"]: _snapshot_release_asset(resolved_assets, artifact["name"])
+        for artifact in manifest["artifacts"]
+    }
+    if final != initial:
+        raise ValidationFailure(
+            "release-candidate-assets-changed",
+            "staged release assets changed during verification",
+        )
+    return {
+        "asset_replay": "exact-staged-bytes-and-tagged-source-v1",
+        "verified_asset_count": len(initial),
+        "checksum_manifest_sha256": initial[checksum_name][1],
+    }
 
 
 def _repository_root(repository: Path) -> Path:
@@ -282,9 +550,24 @@ def _signed_manifest_digest(tag_object: bytes) -> str:
 
 
 def validate_release_candidate_verification_receipt(receipt: dict[str, Any]) -> None:
+    schema_id = receipt.get("schema_id") if isinstance(receipt, dict) else None
+    schema_files = {
+        "artifact-memory/release-candidate-verification-receipt/v1": (
+            "release-candidate-verification-receipt.v1.schema.json"
+        ),
+        "artifact-memory/release-candidate-verification-receipt/v2": (
+            "release-candidate-verification-receipt.v2.schema.json"
+        ),
+    }
+    schema_file = schema_files.get(schema_id)
+    if schema_file is None:
+        raise ValidationFailure(
+            "release-candidate-receipt-schema-unsupported",
+            "release verification receipt requires a supported versioned schema",
+        )
     validate(
         receipt,
-        load_schema("core", "release-candidate-verification-receipt.v1.schema.json"),
+        load_schema("core", schema_file),
     )
     if len(
         {
@@ -323,6 +606,12 @@ def validate_release_candidate_verification_receipt(receipt: dict[str, Any]) -> 
 
 def render_release_candidate_verification_receipt(receipt: dict[str, Any]) -> str:
     validate_release_candidate_verification_receipt(receipt)
+    asset_lines = ""
+    if receipt["schema_id"] == "artifact-memory/release-candidate-verification-receipt/v2":
+        asset_lines = (
+            f"- Asset replay: `{receipt['asset_replay']}` ({receipt['verified_asset_count']} assets)\n"
+            f"- SHA256SUMS digest: `{receipt['checksum_manifest_sha256']}`\n"
+        )
     return (
         "# Release candidate verification receipt\n\n"
         f"- Outcome: `{receipt['outcome']}`\n"
@@ -341,7 +630,8 @@ def render_release_candidate_verification_receipt(receipt: dict[str, Any]) -> st
         f"- Signing key generation: `{receipt['signing_key_generation']}`\n"
         f"- Annotated tag verified: `{str(receipt['annotated_tag_verified']).lower()}`\n"
         f"- Verification output profile: `{receipt['verification_output_profile']}`\n"
-        f"- Repository scope: `{receipt['repository_scope']}`\n"
+        + asset_lines
+        + f"- Repository scope: `{receipt['repository_scope']}`\n"
         f"- Checkout isolation: `{receipt['checkout_isolation']}`\n"
         f"- Concurrent mutation detection: `{receipt['concurrent_mutation_detection']}`\n"
         f"- Owner publication authorization evaluated: `{str(receipt['owner_publication_authorization_evaluated']).lower()}`\n"
@@ -357,6 +647,7 @@ def verify_checked_out_release_candidate(
     tag: str,
     repository: Path,
     *,
+    asset_directory: Path | None = None,
     owner_fingerprint: str,
     isolated_checkout: bool,
 ) -> dict[str, Any]:
@@ -368,6 +659,7 @@ def verify_checked_out_release_candidate(
     manifest = load_json_bytes(manifest_bytes)
     if not isinstance(manifest, dict):
         raise ValidationFailure("release-candidate-manifest-invalid", "release manifest must be an object")
+    asset_directory = _require_asset_directory(asset_directory)
     repository_root = _repository_root(repository)
     tag_ref = f"refs/tags/{tag}"
     try:
@@ -463,27 +755,6 @@ def verify_checked_out_release_candidate(
         tree_listing = subprocess.check_output(
             ["git", "ls-tree", "-r", "--full-tree", f"{tag_object_id}^{{commit}}"], cwd=repository_root
         )
-        final_tag_object_id = subprocess.check_output(
-            ["git", "rev-parse", tag_ref], cwd=repository_root, text=True
-        ).strip()
-        final_head_commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=repository_root, text=True
-        ).strip()
-        final_head_symbolic_name = subprocess.check_output(
-            ["git", "rev-parse", "--symbolic-full-name", "HEAD"],
-            cwd=repository_root,
-            text=True,
-        ).strip()
-        final_allowed_signers_setting = subprocess.check_output(
-            ["git", "config", "--path", "--get", "gpg.ssh.allowedSignersFile"],
-            cwd=repository_root,
-            text=True,
-        ).strip()
-        final_allowed_signers_path = Path(final_allowed_signers_setting)
-        if not final_allowed_signers_path.is_absolute():
-            final_allowed_signers_path = repository_root / final_allowed_signers_path
-        final_resolved_allowed_signers_path = final_allowed_signers_path.resolve(strict=True)
-        final_allowed_signers_bytes = final_resolved_allowed_signers_path.read_bytes()
     except OSError as exc:
         raise ValidationFailure(
             "release-candidate-git-verification-failed",
@@ -494,29 +765,6 @@ def verify_checked_out_release_candidate(
             "release-candidate-git-verification-failed",
             "signed release tag or Git identity could not be verified",
         ) from exc
-    if final_tag_object_id != tag_object_id:
-        raise ValidationFailure(
-            "release-candidate-tag-ref-changed",
-            "release tag ref changed during verification",
-        )
-    if (
-        final_resolved_allowed_signers_path != resolved_allowed_signers_path
-        or final_allowed_signers_bytes != allowed_signers_bytes
-    ):
-        raise ValidationFailure(
-            "release-candidate-signer-policy-changed",
-            "configured SSH allowed-signers policy changed during verification",
-        )
-    if head_symbolic_name != "HEAD" or final_head_symbolic_name != "HEAD":
-        raise ValidationFailure(
-            "release-candidate-head-not-detached",
-            "release verification requires a detached HEAD",
-        )
-    if final_head_commit != head_commit:
-        raise ValidationFailure(
-            "release-candidate-head-changed",
-            "HEAD changed during release verification",
-        )
     if tag_type != "tag":
         raise ValidationFailure(
             "release-candidate-tag-not-annotated",
@@ -541,8 +789,65 @@ def verify_checked_out_release_candidate(
         tag_commit=tag_commit,
         package_version=__version__,
     )
+    asset_evidence = _verify_release_assets(
+        manifest,
+        asset_directory,
+        repository_root,
+        tag_commit,
+    )
+    try:
+        final_tag_object_id = subprocess.check_output(
+            ["git", "rev-parse", tag_ref], cwd=repository_root, text=True
+        ).strip()
+        final_head_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repository_root, text=True
+        ).strip()
+        final_head_symbolic_name = subprocess.check_output(
+            ["git", "rev-parse", "--symbolic-full-name", "HEAD"],
+            cwd=repository_root,
+            text=True,
+        ).strip()
+        final_allowed_signers_setting = subprocess.check_output(
+            ["git", "config", "--path", "--get", "gpg.ssh.allowedSignersFile"],
+            cwd=repository_root,
+            text=True,
+        ).strip()
+        final_allowed_signers_path = Path(final_allowed_signers_setting)
+        if not final_allowed_signers_path.is_absolute():
+            final_allowed_signers_path = repository_root / final_allowed_signers_path
+        final_resolved_allowed_signers_path = final_allowed_signers_path.resolve(strict=True)
+        final_allowed_signers_bytes = final_resolved_allowed_signers_path.read_bytes()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValidationFailure(
+            "release-candidate-git-verification-failed",
+            "final signed release tag, Git identity, or signer policy could not be verified",
+        ) from exc
+    if final_tag_object_id != tag_object_id:
+        raise ValidationFailure(
+            "release-candidate-tag-ref-changed",
+            "release tag ref changed during verification",
+        )
+    if (
+        final_resolved_allowed_signers_path != resolved_allowed_signers_path
+        or final_allowed_signers_bytes != allowed_signers_bytes
+    ):
+        raise ValidationFailure(
+            "release-candidate-signer-policy-changed",
+            "configured SSH allowed-signers policy changed during verification",
+        )
+    if head_symbolic_name != "HEAD" or final_head_symbolic_name != "HEAD":
+        raise ValidationFailure(
+            "release-candidate-head-not-detached",
+            "release verification requires a detached HEAD",
+        )
+    if final_head_commit != head_commit:
+        raise ValidationFailure(
+            "release-candidate-head-changed",
+            "HEAD changed during release verification",
+        )
     body: dict[str, Any] = {
         **identity,
+        **asset_evidence,
         "tag_object_id": tag_object_id,
         "manifest_sha256": manifest_digest,
         "manifest_binding": "signed-annotated-tag-trailer-v1",

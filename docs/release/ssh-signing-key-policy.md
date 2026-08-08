@@ -54,6 +54,6 @@ revokes the key, records the affected tag range, and rejects it for future
 releases. Recovery material remains under the owner's separate recovery policy,
 not in the repository, workstation backup, or custody VM.
 
-Keyless build/artifact attestations are intentionally deferred until the
-repository is public and the reviewed workflow supports them. No final key,
-signed tag, release, or visibility change is performed by this preparation.
+Keyless build/artifact attestations are intentionally deferred until a reviewed
+public workflow supports them. No final key, signed tag, or release publication
+is performed by release preparation.

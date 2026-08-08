@@ -101,6 +101,23 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("semantic rules", result.stdout)
         self.assertIn("release-manifest releasability", result.stdout)
+        self.assertIn("verify authenticity or accept release evidence", result.stdout)
+
+    def test_release_manifest_validation_preserves_v0_result_shape(self):
+        for fixture in (
+            RELEASE_FIXTURES / "v0-preview-manifest.json",
+            RELEASE_FIXTURES / "v0-pending-candidate-manifest.v2.json",
+        ):
+            with self.subTest(fixture=fixture.name):
+                result = self.run_cli("validate", str(fixture), "--json")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                receipt = json.loads(result.stdout)
+                self.assertEqual(
+                    set(receipt),
+                    {"valid", "outcome", "diagnostics", "schema_id"},
+                )
+                self.assertTrue(receipt["valid"])
+                self.assertEqual(receipt["outcome"], "accepted")
 
     def test_validate_rejects_v1_release_claim_that_requires_migration(self):
         fixture = RELEASE_FIXTURES / "v0-preview-manifest.json"

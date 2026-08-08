@@ -23,12 +23,12 @@ Never commit:
 If a credential enters Git history, revoke or rotate it immediately before
 attempting history repair.
 
-During private incubation, GitHub secret scanning and private vulnerability
-reporting are unavailable for this personal repository. The repository uses a
-full-history public-safety check in local development and CI as a compensating
-guardrail; this is not equivalent protection. Before changing visibility,
-review all refs, workflow logs, artifacts, and releases, then enable every
-available GitHub security feature and restore branch protections.
+GitHub secret scanning, push protection, vulnerability alerts, and private
+vulnerability reporting are enabled. Protected `main` and `dev` branches also
+require the public-safety and cross-platform contract checks. The repository's
+full-history public-safety check remains a defense-in-depth control in local
+development and CI; no scanner proves that private material is safe to publish
+without human review of its meaning and provenance.
 
 ## Trust boundary
 

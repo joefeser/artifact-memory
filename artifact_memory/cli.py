@@ -22,6 +22,10 @@ from .release import (
     validate_release_candidate_verification_receipt,
     verify_checked_out_release_candidate,
 )
+from .release_preparation import (
+    render_release_candidate_preparation_receipt,
+    validate_release_candidate_preparation_receipt,
+)
 from .scan import diff_manifests, scan_path, verify_path
 from .schema_resources import core_schemas
 from .validator import ValidationFailure, load_json, validate
@@ -49,7 +53,8 @@ def main(argv: list[str] | None = None) -> int:
     record_commands = {
         "validate": (
             "validate JSON syntax, duplicate keys, schema constraints, and supported "
-            "semantic rules (including release-manifest releasability)"
+            "semantic rules (including release-manifest releasability); validation "
+            "does not verify authenticity or accept release evidence"
         ),
         "inspect": "report schema and field names without validating record semantics",
     }
@@ -113,6 +118,11 @@ def main(argv: list[str] | None = None) -> int:
     release_candidate.add_argument("manifest", type=Path)
     release_candidate.add_argument("--tag", required=True)
     release_candidate.add_argument("--repo", required=True, type=Path)
+    release_candidate.add_argument(
+        "--asset-dir",
+        type=Path,
+        help="explicit staged-asset directory required by asset-aware v2 verification",
+    )
     release_candidate.add_argument("--owner-fingerprint", required=True)
     release_candidate.add_argument(
         "--isolated-checkout",
@@ -123,6 +133,11 @@ def main(argv: list[str] | None = None) -> int:
     release_receipt = subparsers.add_parser("validate-release-candidate-receipt")
     release_receipt.add_argument("receipt", type=Path)
     release_receipt.add_argument("--json", action="store_true", dest="as_json")
+    preparation_receipt = subparsers.add_parser(
+        "validate-release-candidate-preparation-receipt"
+    )
+    preparation_receipt.add_argument("receipt", type=Path)
+    preparation_receipt.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args(argv)
 
     if args.command == "version":
@@ -134,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.manifest,
                 args.tag,
                 args.repo,
+                asset_directory=args.asset_dir,
                 owner_fingerprint=args.owner_fingerprint,
                 isolated_checkout=args.isolated_checkout,
             )
@@ -147,6 +163,35 @@ def main(argv: list[str] | None = None) -> int:
             _receipt(result, True)
         else:
             print(render_release_candidate_verification_receipt(result), end="")
+        return EXIT_OK
+    if args.command == "validate-release-candidate-preparation-receipt":
+        try:
+            receipt = load_json(args.receipt)
+            if not isinstance(receipt, dict):
+                raise ValidationFailure(
+                    "invalid-input",
+                    "release candidate preparation receipt must be an object",
+                )
+            validate_release_candidate_preparation_receipt(receipt)
+        except ValidationFailure as exc:
+            _receipt(
+                {"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]},
+                args.as_json,
+            )
+            return EXIT_INVALID
+        if args.as_json:
+            _receipt(
+                {
+                    "outcome": "integrity-verified",
+                    "receipt_id": receipt["receipt_id"],
+                    "tag_message_trailer": receipt["tag_message_trailer"],
+                    "verification_scope": "receipt-schema-canonical-identity-and-trailer-coherence-only",
+                    "owner_signature_verified": False,
+                },
+                True,
+            )
+        else:
+            print(render_release_candidate_preparation_receipt(receipt), end="")
         return EXIT_OK
     if args.command == "validate-release-candidate-receipt":
         try:
