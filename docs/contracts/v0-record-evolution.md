@@ -89,6 +89,11 @@ Receipt-only validation proves internal integrity, not authenticity or the
 truth of a predecessor lifecycle claim. Verifying the superseded revision body
 still requires the corresponding canonical record evidence.
 
+An accepted v2 result must differ from every exact declared source revision,
+even when no `supersedes` transition exists. Admission receipts an exact match
+as `duplicate`; standalone semantic receipt validation rejects an accepted
+self-replacement claim.
+
 For v2, `decision_ref` is likewise restricted to the logical
 `decision://segment[/segment]` form before it enters a machine or human receipt.
 V1 retains its released non-empty-string behavior.

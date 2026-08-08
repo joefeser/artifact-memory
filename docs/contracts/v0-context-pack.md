@@ -85,3 +85,7 @@ separate stdlib-only reader. Its recall receipt contains only selected
 summaries and references and states that artifact retrieval was not attempted
 and execution, mutation, and disclosure authority are absent. The fixture ends
 at informational recall; it does not create a HACP task or invoke a provider.
+
+Human selection-receipt rendering first runs the same independent semantic pack
+validation used by recall. A schema-valid pack with a mismatched pack identity,
+record selection, evidence binding, ordering, or byte bound is not rendered.

@@ -3,7 +3,7 @@ import json
 import unittest
 from pathlib import Path
 
-from artifact_memory.context import AUTHORITY_BOUNDARY, ContextFailure, export_context
+from artifact_memory.context import AUTHORITY_BOUNDARY, ContextFailure, export_context, render_context_selection_receipt
 from artifact_memory.independent_context_reader import ContextReaderFailure, recall_context
 from artifact_memory.validator import ValidationFailure, validate
 
@@ -346,6 +346,20 @@ class ContextTests(unittest.TestCase):
                 supported_context_schema_ids={"artifact-memory/context-pack/v4"},
             )
         self.assertEqual(raised.exception.code, "duplicate-record")
+
+    def test_human_receipt_rejects_semantically_cross_wired_pack(self):
+        record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        pack = export_context(
+            [record],
+            authorized_record_ids=[record["record_id"]],
+            freshness_by_record=current(record["record_id"]),
+            selected_at=SELECTED_AT,
+        )
+        pack["selection_receipt"]["selected_record_ids"] = []
+        cross_wired = repack(pack)
+        with self.assertRaises(ContextFailure) as raised:
+            render_context_selection_receipt(cross_wired)
+        self.assertEqual(raised.exception.code, "context-pack-invalid")
 
 
 if __name__ == "__main__":

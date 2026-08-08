@@ -401,6 +401,12 @@ def render_context_selection_receipt(pack: dict[str, Any]) -> str:
         validate(pack, load_schema("core", f"context-pack.{version}.schema.json"))
     except ValidationFailure as exc:
         raise ContextFailure("context-pack-invalid", "context pack does not satisfy its declared schema") from exc
+    from .independent_context_reader import ContextReaderFailure, recall_context
+
+    try:
+        recall_context(_canonical(pack))
+    except ContextReaderFailure as exc:
+        raise ContextFailure("context-pack-invalid", "context pack semantic bindings are invalid") from exc
     receipt = pack["selection_receipt"]
     lines = [
         "# Context selection receipt",

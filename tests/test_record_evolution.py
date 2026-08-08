@@ -506,7 +506,7 @@ class RecordEvolutionTests(unittest.TestCase):
         self_replacement["result_record_ref"]["revision_digest"] = source_digest
         self_replacement["predecessor_transitions"][0]["superseded_by"]["revision_digest"] = source_digest
         self_replacement["receipt_id"] = expected_receipt_id(self_replacement, "candidate-admission-receipt://")
-        with self.assertRaisesRegex(ValidationFailure, "does not bind"):
+        with self.assertRaisesRegex(ValidationFailure, "must differ"):
             validate_candidate_admission_receipt(self_replacement)
 
     def test_v2_supersession_requires_exact_current_predecessor(self):
@@ -521,6 +521,38 @@ class RecordEvolutionTests(unittest.TestCase):
         self.assertIsNone(result["record"])
         self.assertEqual(result["receipt"]["outcome"], "conflict")
         self.assertEqual(result["receipt"]["diagnostics"][0]["code"], "predecessor-transition-unproven")
+
+    def test_v2_exact_source_result_is_receipted_duplicate_without_transitions(self):
+        from artifact_memory.record_evolution import _record_digest
+
+        source = source_record()
+        draft = copy.deepcopy(source)
+        draft["lifecycle"] = "draft"
+        candidate = build_candidate(
+            draft,
+            [{"record_id": source["record_id"], "revision_digest": _record_digest(source)}],
+            [{"kind": "agent", "source_ref": "actor://synthetic/agent-b"}],
+            candidate_namespace="synthetic-evolution",
+            bounded_input_refs=["fixture://synthetic/record-evolution/v2/duplicate-result"],
+        )
+        result = admit_candidate(
+            candidate,
+            decision="accepted",
+            decision_ref="decision://synthetic/duplicate-result",
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v2"},
+        )
+        self.assertIsNone(result["record"])
+        self.assertEqual(result["receipt"]["outcome"], "duplicate")
+        self.assertEqual(result["receipt"]["diagnostics"][0]["code"], "result-revision-duplicate")
+
+        fixture = ROOT / "fixtures/synthetic/record-evolution/v2"
+        forged = json.loads((fixture / "disputes-receipt.json").read_text(encoding="utf-8"))
+        forged["result_record_ref"]["revision_digest"] = forged["source_record_refs"][0]["revision_digest"]
+        from artifact_memory.canonical import expected_receipt_id
+
+        forged["receipt_id"] = expected_receipt_id(forged, "candidate-admission-receipt://")
+        with self.assertRaisesRegex(ValidationFailure, "must differ"):
+            validate_candidate_admission_receipt(forged)
 
 
 if __name__ == "__main__":

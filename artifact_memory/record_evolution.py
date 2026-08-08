@@ -259,6 +259,12 @@ def validate_candidate_admission_receipt(receipt: dict[str, Any]) -> None:
     ):
         raise ValidationFailure("candidate-order-invalid", "receipt source references must use canonical order")
     transitions = receipt.get("predecessor_transitions", [])
+    if (
+        version == "v2"
+        and receipt["outcome"] == "accepted"
+        and receipt["result_record_ref"]["revision_digest"] in set(source_revisions.values())
+    ):
+        raise ValidationFailure("candidate-result-duplicate", "accepted candidate result must differ from every declared source revision")
     if transitions != sorted(transitions, key=lambda item: item["record_id"]):
         raise ValidationFailure("candidate-transition-order-invalid", "predecessor transitions must use canonical order")
     transition_ids = [transition["record_id"] for transition in transitions]
@@ -382,6 +388,12 @@ def admit_candidate(
             receipt = _receipt(candidate, outcome="conflict", decision_ref=decision_ref, diagnostics=[{"code": "relationship-source-unbound", "message": "evolution relationship does not bind a declared source record"}])
             return _admission_result(candidate, record=None, receipt=receipt)
     validate(accepted_record, knowledge_schema(accepted_record))
+    if (
+        candidate_schema_id == "artifact-memory/knowledge-candidate/v2"
+        and _record_digest(accepted_record) in set(source_revisions.values())
+    ):
+        receipt = _receipt(candidate, outcome="duplicate", decision_ref=decision_ref, diagnostics=[{"code": "result-revision-duplicate", "message": "candidate result matches an exact declared source revision"}])
+        return _admission_result(candidate, record=None, receipt=receipt)
 
     predecessor_records: list[dict[str, Any]] = []
     predecessor_transitions: list[dict[str, Any]] = []
