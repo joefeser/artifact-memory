@@ -65,3 +65,9 @@ matrix. Provider schemas remain TraceMap-owned contracts.
 `vault-intake-vector.v1.schema.json`, `vault-intake-receipt.v1.schema.json`, and
 `vault-intake-conformance-receipt.v1.schema.json` define the issue #18 private
 filesystem intake outcomes and checked public-safe synthetic evidence.
+
+`release-manifest.v2.schema.json`,
+`release-candidate-preparation-receipt.v1.schema.json`, and
+`release-candidate-verification-receipt.v1.schema.json` separate deterministic
+asset preparation, pending owner signature, verified signed-tag evidence, and
+publication authority. Synthetic examples never represent a real key or tag.

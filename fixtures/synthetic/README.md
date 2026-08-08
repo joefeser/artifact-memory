@@ -42,6 +42,11 @@ declares benchmark-receipt v2 in `schema_id`; directory names do not select a
 receipt schema. Projection records in this fixture are generated ephemeral
 inputs whose versioned generator and exact record-set digest are receipt-bound.
 
+`release/` preserves historical unsigned-preview evidence plus synthetic
+pending-signature and signed-candidate receipt shapes. Its fingerprints,
+commits, digests, and tag objects are newly authored placeholders and do not
+claim a real owner key, signature, or publication decision.
+
 The wider fixture set covers or is expected to cover:
 
 - equivalent logical trees under Windows, macOS, and Linux paths;

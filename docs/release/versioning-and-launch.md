@@ -6,7 +6,7 @@ Artifact Memory versions five surfaces independently:
 | --- | --- | --- |
 | Protocol | Product protocol generation such as `v0`. | Describes the supported product contract set; it is not an implementation API promise. |
 | Schemas | Every schema identifier ends in its own `/vN`. | Breaking field, identity, authority, or required-behavior changes require a new schema version. |
-| Reference CLI/package | Python package semantic version, currently `0.1.0.dev0`. | Before 1.0, implementation APIs may change; versioned record and receipt contracts are not silently reinterpreted. |
+| Reference CLI/package | Python package semantic version, currently `0.1.0`. | Before 1.0, implementation APIs may change; versioned record and receipt contracts are not silently reinterpreted. |
 | Adapters/providers | Provider-owned contract `/vN` plus the Artifact Memory adapter-manifest version. | Provider schemas remain provider contracts and never become core schemas implicitly. |
 | Fixtures/receipts | Each vector and receipt schema has its own `/vN`. | Checked receipts bind exact fixture bytes and cannot be carried forward after vectors change. |
 
@@ -62,12 +62,11 @@ A public release requires one reviewed exact-head set containing:
    digest, all five versioned surfaces, artifacts, byte sizes, SHA-256 digests,
    checksum manifest, provenance, signature generation, and limitations;
 3. a canonical `SHA256SUMS` asset covering every release asset except itself;
-4. a final pre-public history and repository-surface audit, including Actions
+4. a final public history and repository-surface audit, including Actions
    history and artifact review;
-5. after explicit owner visibility approval, an anonymous clone/install/verify
-   smoke using the quickstart and restoration of public push rules; if either
-   fails, stop release publication and return the repository to private while
-   correcting the failure;
+5. an anonymous clone/install/verify smoke using the quickstart and confirmed
+   public branch/security controls; repeat the smoke for the signed tag before
+   release publication, and stop publication while correcting any failure;
 6. release notes, support scope, roadmap, known gaps, and explicit historical
    WhereAreMyFiles lineage and attribution.
 
@@ -116,3 +115,41 @@ leaving a passing receipt in the requested output directory.
 
 The final release must be regenerated from the owner-approved release commit;
 preview checksums and receipts cannot be relabeled as release evidence.
+
+## Exact release-candidate preparation
+
+After the reviewed source commit carries package version `0.1.0` and final
+release notes, prepare the exact candidate in a new external directory using
+only the owner's independently published public fingerprint and key-generation
+label:
+
+```sh
+python3 scripts/prepare_release_candidate.py \
+  --candidate <full-candidate-commit> \
+  --repo . \
+  --out <external-empty-directory> \
+  --owner-fingerprint 'SHA256:<canonical-public-fingerprint>' \
+  --key-generation 'generation-1'
+```
+
+The command deterministically writes the source tar, exact release-note bytes,
+`SHA256SUMS`, the v2 final release manifest, and machine/human candidate
+preparation receipts. The checksum file covers the source tar and release
+notes. The preparation receipt separately binds the release manifest and
+prints the exact `Artifact-Memory-Manifest-SHA256` trailer required in the
+annotated tag message.
+
+The final manifest describes the state required after owner signing; its
+companion preparation receipt remains
+`signature_verification_state: pending-owner-signature` and
+`publication_state: not-authorized`. Preparation accepts no private-key path or
+secret, does not invoke signing, and creates no tag or release. The owner must
+independently confirm the public fingerprint, sign an annotated tag containing
+the exact printed trailer, and separately authorize publication. The existing
+`artifact-memory verify-release-candidate` command then verifies the tag,
+manifest binding, commit identity, package version, signer fingerprint, source
+tree, and isolated-checkout boundary before publication.
+
+Keyless build and artifact attestations remain explicitly
+`deferred-public-workflow-review`; they are not implied by the source release
+or owner signature.
