@@ -334,6 +334,11 @@ def validate_release_preparation_receipt(receipt: dict[str, Any]) -> None:
             receipt["package_version"],
             allow_development=True,
         )
+        if release_version == "0.1.0":
+            raise ValidationFailure(
+                "release-preparation-receipt-version-mismatch",
+                "the frozen 0.1.0 preview identity requires the v1 receipt contract",
+            )
         if receipt["release_id"] != f"artifact-memory/v{release_version}-preview":
             raise ValidationFailure(
                 "release-preparation-receipt-version-binding-invalid",
@@ -393,6 +398,11 @@ def validate_release_candidate_preparation_receipt(receipt: dict[str, Any]) -> N
             receipt["package_version"],
             allow_development=False,
         )
+        if release_version == "0.1.0":
+            raise ValidationFailure(
+                "release-candidate-preparation-receipt-version-mismatch",
+                "the frozen 0.1.0 release identity requires the v1 receipt contract",
+            )
         if (
             receipt["release_id"] != f"artifact-memory/v{release_version}"
             or receipt["tag"] != f"v{release_version}"

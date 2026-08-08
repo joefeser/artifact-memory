@@ -11,6 +11,7 @@ from artifact_memory.release import validate_release_manifest
 from artifact_memory.release_preparation import (
     RELEASE_CANDIDATE_PREPARATION_RECEIPT_PREFIX,
     RELEASE_CANDIDATE_PREPARATION_SCHEMA_ID,
+    RELEASE_PREPARATION_RECEIPT_PREFIX,
     prepare_release_candidate,
     prepare_unsigned_release_preview,
     render_release_candidate_preparation_receipt,
@@ -253,6 +254,23 @@ class ReleasePreparationTests(unittest.TestCase):
                 "release-preparation-receipt-identity-mismatch",
             )
 
+            body = {
+                key: value
+                for key, value in receipt.items()
+                if key not in {"schema_id", "receipt_id"}
+            }
+            reversioned = receipt_with_digest(
+                "artifact-memory/release-preparation-receipt/v2",
+                RELEASE_PREPARATION_RECEIPT_PREFIX,
+                body,
+            )
+            with self.assertRaises(ValidationFailure) as failure:
+                validate_release_preparation_receipt(reversioned)
+            self.assertEqual(
+                failure.exception.code,
+                "release-preparation-receipt-version-mismatch",
+            )
+
     def test_exact_commit_prepares_pending_signature_release_candidate(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -307,6 +325,23 @@ class ReleasePreparationTests(unittest.TestCase):
                 content = (output / artifact["name"]).read_bytes()
                 self.assertEqual(artifact["byte_size"], len(content))
                 self.assertEqual(artifact["sha256"], sha256_bytes(content))
+
+            body = {
+                key: value
+                for key, value in receipt.items()
+                if key not in {"schema_id", "receipt_id"}
+            }
+            reversioned = receipt_with_digest(
+                "artifact-memory/release-candidate-preparation-receipt/v2",
+                RELEASE_CANDIDATE_PREPARATION_RECEIPT_PREFIX,
+                body,
+            )
+            with self.assertRaises(ValidationFailure) as failure:
+                validate_release_candidate_preparation_receipt(reversioned)
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-preparation-receipt-version-mismatch",
+            )
 
     def test_release_candidate_is_deterministic_for_one_exact_commit(self):
         with tempfile.TemporaryDirectory() as temporary:
