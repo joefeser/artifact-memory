@@ -1,0 +1,10 @@
+{
+  "artifact_refs": [],
+  "lifecycle": "superseded",
+  "meaning": {"labels": ["synthetic"], "summary": "Use the synthetic canonical profile."},
+  "provenance": [{"kind": "author", "source_ref": "actor://synthetic/owner"}],
+  "record_id": "record://synthetic/decision-0001",
+  "record_type": "decision",
+  "schema_id": "artifact-memory/knowledge-record/v2",
+  "sensitivity": "public"
+}

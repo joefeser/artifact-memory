@@ -1,0 +1,20 @@
+{
+  "authority_boundary": "candidate admission grants no execution, disclosure, routing, mutation, merge, deployment, spending, credential, declassification, or approval authority",
+  "candidate_id": "candidate://synthetic-evolution/53c15a94c566bac640f041c04b7d1eec8a738f48e173abbe4a7eb26dd8d79f40",
+  "candidate_revision_digest": "sha-256:53c15a94c566bac640f041c04b7d1eec8a738f48e173abbe4a7eb26dd8d79f40",
+  "decision_ref": "decision://synthetic/wits-owner-v2-accepted",
+  "diagnostics": [],
+  "outcome": "accepted",
+  "predecessor_transitions": [{
+    "from_lifecycle": "accepted",
+    "from_revision_digest": "sha-256:5463997e6faa4945ed0fd8f1c8520ce91b861dd5bf2494e9d81f38952d3530c6",
+    "record_id": "record://synthetic/decision-0001",
+    "superseded_by": {"record_id": "record://synthetic/decision-0001", "revision_digest": "sha-256:eee20b83025a210ce4c322d4cbb8972bcad501099c6dff61369752b92572be0b"},
+    "to_lifecycle": "superseded",
+    "to_revision_digest": "sha-256:49159b6b4782b12eb1b2d79cecb88689dc597b52d7d6b9bdd3625fed7ac638e1"
+  }],
+  "receipt_id": "candidate-admission-receipt://872097604666c525f92653b44a42a3bcfc360327fc8681f1921c8f348278833f",
+  "result_record_ref": {"record_id": "record://synthetic/decision-0001", "revision_digest": "sha-256:eee20b83025a210ce4c322d4cbb8972bcad501099c6dff61369752b92572be0b"},
+  "schema_id": "artifact-memory/candidate-admission-receipt/v2",
+  "source_record_refs": [{"record_id": "record://synthetic/decision-0001", "revision_digest": "sha-256:5463997e6faa4945ed0fd8f1c8520ce91b861dd5bf2494e9d81f38952d3530c6"}]
+}

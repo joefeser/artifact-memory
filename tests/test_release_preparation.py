@@ -11,10 +11,12 @@ from artifact_memory.release import validate_release_manifest
 from artifact_memory.release_preparation import (
     RELEASE_CANDIDATE_PREPARATION_RECEIPT_PREFIX,
     RELEASE_CANDIDATE_PREPARATION_SCHEMA_ID,
+    RELEASE_PREPARATION_RECEIPT_PREFIX,
     prepare_release_candidate,
     prepare_unsigned_release_preview,
     render_release_candidate_preparation_receipt,
     validate_release_candidate_preparation_receipt,
+    validate_release_preparation_receipt,
 )
 from artifact_memory.release_metadata import read_package_version, schema_inventory
 from artifact_memory.validator import ValidationFailure
@@ -124,7 +126,8 @@ class ReleasePreparationTests(unittest.TestCase):
             )
         }
         if release_notes is not None:
-            extra_files["docs/release/v0.1.0-release-notes.md"] = release_notes
+            release_version = package_version.split(".dev", 1)[0]
+            extra_files[f"docs/release/v{release_version}-release-notes.md"] = release_notes
         return self.synthetic_repository(
             root,
             {"adapter-manifest.v1.schema.json": v1_schema},
@@ -152,6 +155,13 @@ class ReleasePreparationTests(unittest.TestCase):
 
     def test_exact_commit_prepares_external_unsigned_assets(self):
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+        package_version = read_package_version(
+            subprocess.check_output(
+                ["git", "show", f"{commit}:pyproject.toml"],
+                cwd=ROOT,
+            )
+        )
+        release_version = package_version.split(".dev", 1)[0]
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "preview"
             output.mkdir()
@@ -177,12 +187,88 @@ class ReleasePreparationTests(unittest.TestCase):
             self.assertEqual(
                 set(path.name for path in output.iterdir()),
                 {
-                    "artifact-memory-0.1.0-preview.tar",
+                    f"artifact-memory-{release_version}-preview.tar",
                     "SHA256SUMS",
                     "release-manifest.json",
                     "release-preparation-receipt.json",
                     "release-preparation-receipt.md",
                 },
+            )
+
+    def test_subsequent_patch_preview_uses_versioned_v2_receipt(self):
+        v1_schema = (
+            ROOT / "artifact_memory/schemas/adapters/adapter-manifest.v1.schema.json"
+        ).read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, commit = self.synthetic_repository(
+                root / "preview",
+                {"adapter-manifest.v1.schema.json": v1_schema},
+                package_version="0.1.1.dev0",
+            )
+            output = root / "output"
+            receipt = prepare_unsigned_release_preview(repository, commit, output)
+            self.assertEqual(
+                receipt["schema_id"],
+                "artifact-memory/release-preparation-receipt/v2",
+            )
+            self.assertEqual(receipt["release_id"], "artifact-memory/v0.1.1-preview")
+            self.assertEqual(receipt["package_version"], "0.1.1.dev0")
+            self.assertTrue((output / "artifact-memory-0.1.1-preview.tar").is_file())
+
+            tampered = dict(receipt)
+            tampered["source_commit"] = "f" * 40
+            with self.assertRaises(ValidationFailure) as failure:
+                validate_release_preparation_receipt(tampered)
+            self.assertEqual(
+                failure.exception.code,
+                "release-preparation-receipt-identity-mismatch",
+            )
+
+    def test_v1_preview_receipt_still_enforces_canonical_identity(self):
+        v1_schema = (
+            ROOT / "artifact_memory/schemas/adapters/adapter-manifest.v1.schema.json"
+        ).read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, commit = self.synthetic_repository(
+                root / "preview",
+                {"adapter-manifest.v1.schema.json": v1_schema},
+                package_version="0.1.0.dev0",
+            )
+            receipt = prepare_unsigned_release_preview(
+                repository,
+                commit,
+                root / "output",
+            )
+            self.assertEqual(
+                receipt["schema_id"],
+                "artifact-memory/release-preparation-receipt/v1",
+            )
+            tampered = dict(receipt)
+            tampered["source_commit"] = "f" * 40
+            with self.assertRaises(ValidationFailure) as failure:
+                validate_release_preparation_receipt(tampered)
+            self.assertEqual(
+                failure.exception.code,
+                "release-preparation-receipt-identity-mismatch",
+            )
+
+            body = {
+                key: value
+                for key, value in receipt.items()
+                if key not in {"schema_id", "receipt_id"}
+            }
+            reversioned = receipt_with_digest(
+                "artifact-memory/release-preparation-receipt/v2",
+                RELEASE_PREPARATION_RECEIPT_PREFIX,
+                body,
+            )
+            with self.assertRaises(ValidationFailure) as failure:
+                validate_release_preparation_receipt(reversioned)
+            self.assertEqual(
+                failure.exception.code,
+                "release-preparation-receipt-version-mismatch",
             )
 
     def test_exact_commit_prepares_pending_signature_release_candidate(self):
@@ -240,6 +326,23 @@ class ReleasePreparationTests(unittest.TestCase):
                 self.assertEqual(artifact["byte_size"], len(content))
                 self.assertEqual(artifact["sha256"], sha256_bytes(content))
 
+            body = {
+                key: value
+                for key, value in receipt.items()
+                if key not in {"schema_id", "receipt_id"}
+            }
+            reversioned = receipt_with_digest(
+                "artifact-memory/release-candidate-preparation-receipt/v2",
+                RELEASE_CANDIDATE_PREPARATION_RECEIPT_PREFIX,
+                body,
+            )
+            with self.assertRaises(ValidationFailure) as failure:
+                validate_release_candidate_preparation_receipt(reversioned)
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-preparation-receipt-version-mismatch",
+            )
+
     def test_release_candidate_is_deterministic_for_one_exact_commit(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -259,6 +362,60 @@ class ReleasePreparationTests(unittest.TestCase):
             self.assertEqual(
                 {path.name: path.read_bytes() for path in outputs[0].iterdir()},
                 {path.name: path.read_bytes() for path in outputs[1].iterdir()},
+            )
+
+    def test_subsequent_patch_release_candidate_uses_versioned_v2_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, commit = self.release_repository(
+                root / "candidate",
+                package_version="0.1.1",
+                release_notes=b"# Synthetic 0.1.1 release notes\n",
+            )
+            output = root / "output"
+            receipt = prepare_release_candidate(
+                repository,
+                commit,
+                output,
+                owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                key_generation="synthetic-generation-1",
+            )
+            validate_release_candidate_preparation_receipt(receipt)
+            self.assertEqual(
+                receipt["schema_id"],
+                "artifact-memory/release-candidate-preparation-receipt/v2",
+            )
+            self.assertEqual(receipt["release_id"], "artifact-memory/v0.1.1")
+            self.assertEqual(receipt["package_version"], "0.1.1")
+            self.assertEqual(receipt["tag"], "v0.1.1")
+            self.assertEqual(
+                set(path.name for path in output.iterdir()),
+                {
+                    "artifact-memory-0.1.1.tar",
+                    "artifact-memory-0.1.1-release-notes.md",
+                    "SHA256SUMS",
+                    "release-manifest.json",
+                    "release-candidate-preparation-receipt.json",
+                    "release-candidate-preparation-receipt.md",
+                },
+            )
+
+            body = {
+                key: value
+                for key, value in receipt.items()
+                if key not in {"schema_id", "receipt_id"}
+            }
+            body["tag"] = "v0.1.2"
+            mismatched = receipt_with_digest(
+                "artifact-memory/release-candidate-preparation-receipt/v2",
+                RELEASE_CANDIDATE_PREPARATION_RECEIPT_PREFIX,
+                body,
+            )
+            with self.assertRaises(ValidationFailure) as failure:
+                validate_release_candidate_preparation_receipt(mismatched)
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-preparation-version-binding-invalid",
             )
 
     def test_release_candidate_cli_reports_exact_manifest_binding(self):

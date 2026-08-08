@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 from typing import Any, Iterable, Mapping
 
+from .canonical import CanonicalizationFailure
 from .extensions import (
     ExtensionFailure,
     is_required_declaration,
@@ -24,6 +25,11 @@ _LEGACY_RECORD_SCHEMA_ID = "artifact-memory/knowledge-record/v1"
 SENSITIVITY_RANK = {"public": 0, "private": 1, "restricted": 2}
 UTC_INSTANT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SHA256 = re.compile(r"^sha-256:[0-9a-f]{64}$")
+CONTEXT_SCHEMAS = {
+    "artifact-memory/context-pack/v2",
+    "artifact-memory/context-pack/v3",
+    "artifact-memory/context-pack/v4",
+}
 
 
 class ContextFailure(Exception):
@@ -160,6 +166,18 @@ def _authorized_evidence(values: Iterable[Any]) -> set[tuple[str, str]]:
     return normalized
 
 
+def _supported_context_schemas(values: Iterable[str]) -> set[str]:
+    if isinstance(values, str):
+        raise ContextFailure("context-schema-negotiation-invalid", "supported context schemas must be an iterable of non-empty strings")
+    try:
+        materialized = list(values)
+    except TypeError as exc:
+        raise ContextFailure("context-schema-negotiation-invalid", "supported context schemas must be an iterable of non-empty strings") from exc
+    if not materialized or any(not isinstance(value, str) or not value for value in materialized):
+        raise ContextFailure("context-schema-negotiation-invalid", "supported context schemas must be an iterable of non-empty strings")
+    return set(materialized) & CONTEXT_SCHEMAS
+
+
 def export_context(
     records: Iterable[dict[str, Any]],
     external_evidence: Iterable[dict[str, Any]] = (),
@@ -173,8 +191,15 @@ def export_context(
     policy_id: str = "artifact-memory/context-selection/v1",
     revocation_receipts: Iterable[dict[str, Any]] = (),
     supported_required_extensions: Iterable[tuple[str, str]] | None = (),
+    supported_context_schema_ids: Iterable[str] = (
+        "artifact-memory/context-pack/v2",
+        "artifact-memory/context-pack/v3",
+    ),
 ) -> dict[str, Any]:
-    """Export only explicitly authorized, current records and evidence references."""
+    """Export caller-selected records that are lifecycle-eligible and current.
+
+    The selection inputs are not authenticated and grant no authority.
+    """
     if allowed_sensitivity not in SENSITIVITY_RANK:
         raise ContextFailure("sensitivity-policy-unsupported", "sensitivity policy is unsupported")
     if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
@@ -182,6 +207,7 @@ def export_context(
     _parse_utc(selected_at, "selection-time-invalid", "selection time is not a valid whole-second UTC instant")
     if not isinstance(policy_id, str) or not policy_id:
         raise ContextFailure("selection-policy-invalid", "selection policy identity is required")
+    supported_context_schemas = _supported_context_schemas(supported_context_schema_ids)
     if supported_required_extensions is not None:
         try:
             supported_required_extensions = list(supported_required_extensions)
@@ -219,32 +245,101 @@ def export_context(
                 )
             except ExtensionFailure as exc:
                 raise ContextFailure(exc.code, exc.message) from exc
-    ordered = sorted(record_list, key=lambda record: record["record_id"])
+    ordered = sorted(record_list, key=lambda record: (record["record_id"], _digest(_canonical(record))))
     record_ids = [record["record_id"] for record in ordered]
-    if len(record_ids) != len(set(record_ids)):
-        raise ContextFailure("duplicate-record", "context input contains duplicate record identities")
     authorized_records = _authorized_records(authorized_record_ids)
     if authorized_records - set(record_ids):
         raise ContextFailure("authorized-record-unavailable", "an authorized record was not supplied")
 
+    lifecycle_eligible = [record for record in ordered if record["lifecycle"] in {"accepted", "sealed"}]
+    lifecycle_exclusions = len(ordered) - len(lifecycle_eligible)
+    eligible_record_ids = [record["record_id"] for record in lifecycle_eligible]
+    if len(eligible_record_ids) != len(set(eligible_record_ids)):
+        code = "duplicate-current-record" if lifecycle_exclusions else "duplicate-record"
+        raise ContextFailure(code, "context input contains duplicate lifecycle-eligible record identities")
+    if lifecycle_exclusions and "artifact-memory/context-pack/v4" not in supported_context_schemas:
+        raise ContextFailure("context-schema-unnegotiated", "lifecycle exclusions require negotiated context-pack/v4")
+
     from .revocation import validated_suppressions
 
-    suppression_bindings = validated_suppressions(ordered, revocation_receipts)
+    eligible_revision_keys = {
+        (record["record_id"], _digest(_canonical(record)))
+        for record in lifecycle_eligible
+    }
+    ineligible_records_by_revision = {
+        (record["record_id"], _digest(_canonical(record))): record
+        for record in ordered
+        if record["lifecycle"] not in {"accepted", "sealed"}
+    }
+    applicable_revocation_receipts = []
+    ineligible_revocation_receipts: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    try:
+        for receipt in revocation_receipts:
+            target_ref = receipt.get("target_ref") if isinstance(receipt, dict) else None
+            target_revision_digest = receipt.get("target_revision_digest") if isinstance(receipt, dict) else None
+            revision_key = (
+                (target_ref, target_revision_digest)
+                if isinstance(target_ref, str) and isinstance(target_revision_digest, str)
+                else (None, None)
+            )
+            ineligible_record = ineligible_records_by_revision.get(revision_key)
+            if ineligible_record is not None and revision_key not in eligible_revision_keys:
+                ineligible_revocation_receipts.setdefault(revision_key, []).append(receipt)
+                continue
+            applicable_revocation_receipts.append(receipt)
+        for revision_key in sorted(ineligible_revocation_receipts):
+            # Validate each exact historical revision as one acknowledgement set so
+            # duplicate suppression evidence cannot be hidden by lifecycle exclusion.
+            validated_suppressions(
+                [ineligible_records_by_revision[revision_key]],
+                ineligible_revocation_receipts[revision_key],
+            )
+        suppression_bindings = validated_suppressions(
+            lifecycle_eligible,
+            applicable_revocation_receipts,
+        )
+    except ValidationFailure as exc:
+        raise ContextFailure(exc.code, exc.message) from exc
     revoked = set(suppression_bindings)
     revocation_receipt_refs = sorted(suppression_bindings.values())
+
+    if lifecycle_exclusions:
+        pack_version = "v4"
+    elif revoked and "artifact-memory/context-pack/v3" in supported_context_schemas:
+        pack_version = "v3"
+    elif not revoked and "artifact-memory/context-pack/v2" in supported_context_schemas:
+        pack_version = "v2"
+    elif "artifact-memory/context-pack/v4" in supported_context_schemas:
+        pack_version = "v4"
+    else:
+        raise ContextFailure("context-schema-unnegotiated", "no negotiated context-pack schema can represent the selection receipt")
 
     source_lines = b"".join(_canonical(record) + b"\n" for record in ordered)
     selected: list[dict[str, Any]] = []
     selected_evidence_bindings: set[str] = set()
     revoked_evidence_bindings: set[str] = set()
-    exclusions = {"not-authorized": 0, "sensitivity": 0, "freshness": 0}
-    if revoked:
-        exclusions["revocation"] = 0
+    if pack_version == "v4":
+        exclusions = {
+            "not-caller-selected": 0,
+            "lifecycle": 0,
+            "sensitivity": 0,
+            "freshness": 0,
+            "revocation": 0,
+        }
+        caller_selection_counter = "not-caller-selected"
+    else:
+        exclusions = {"not-authorized": 0, "sensitivity": 0, "freshness": 0}
+        if revoked:
+            exclusions["revocation"] = 0
+        caller_selection_counter = "not-authorized"
     artifact_refs: set[str] = set()
     for record in ordered:
         record_id = record["record_id"]
+        if record["lifecycle"] not in {"accepted", "sealed"}:
+            exclusions["lifecycle"] += 1
+            continue
         if record_id not in authorized_records:
-            exclusions["not-authorized"] += 1
+            exclusions[caller_selection_counter] += 1
             continue
         if record_id in revoked:
             exclusions["revocation"] += 1
@@ -310,10 +405,12 @@ def export_context(
         "artifact_policy": "references-only/separately-authorized-retrieval",
         "disclosure": "informational-only",
     }
+    if pack_version == "v4":
+        selection["selection_input_trust"] = "caller-supplied/not-authenticated"
+        selection["lifecycle_policy"] = "accepted-or-sealed"
     if revoked:
         selection["revocation_policy"] = "validated-tombstone-suppression"
         selection["revocation_receipt_refs"] = revocation_receipt_refs
-    pack_version = "v3" if revoked else "v2"
     body = {
         "schema_id": f"artifact-memory/context-pack/{pack_version}",
         "authority_boundary": AUTHORITY_BOUNDARY,
@@ -330,3 +427,35 @@ def export_context(
     if len(_canonical(result)) > max_bytes:
         raise ContextFailure("size-limit-exceeded", "context pack exceeds the declared bound")
     return result
+
+
+def render_context_selection_receipt(pack: dict[str, Any]) -> str:
+    """Render a stable human-readable projection of a context selection receipt."""
+    schema_id = pack.get("schema_id") if isinstance(pack, dict) else None
+    if schema_id not in CONTEXT_SCHEMAS:
+        raise ContextFailure("context-schema-unsupported", "context pack schema is unsupported")
+    version = schema_id.rsplit("/", 1)[-1]
+    try:
+        validate(pack, load_schema("core", f"context-pack.{version}.schema.json"))
+    except ValidationFailure as exc:
+        raise ContextFailure("context-pack-invalid", "context pack does not satisfy its declared schema") from exc
+    from .independent_context_reader import ContextReaderFailure, recall_context
+
+    try:
+        recall_context(_canonical(pack))
+    except (CanonicalizationFailure, ContextReaderFailure) as exc:
+        raise ContextFailure("context-pack-invalid", "context pack semantic bindings are invalid") from exc
+    receipt = pack["selection_receipt"]
+    lines = [
+        "# Context selection receipt",
+        "",
+        f'- Pack: `{pack["pack_id"]}`',
+        f'- Contract: `{schema_id}`',
+        f'- Selected records: `{len(receipt["selected_record_ids"])}`',
+    ]
+    for reason, count in sorted(receipt["exclusion_counts"].items()):
+        lines.append(f'- Excluded by `{reason}`: `{count}`')
+    if "selection_input_trust" in receipt:
+        lines.append(f'- Selection input trust: `{receipt["selection_input_trust"]}`')
+    lines.extend(["", f'Authority boundary: {pack["authority_boundary"]}.', ""])
+    return "\n".join(lines)

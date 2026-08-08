@@ -27,12 +27,41 @@ from .validator import ValidationFailure, validate
 AUTHORITY_BOUNDARY = (
     "release preparation grants no signing, tag, publication, visibility, or deployment authority"
 )
+RELEASE_PREPARATION_SCHEMAS = {
+    "artifact-memory/release-preparation-receipt/v1": "release-preparation-receipt.v1.schema.json",
+    "artifact-memory/release-preparation-receipt/v2": "release-preparation-receipt.v2.schema.json",
+}
+RELEASE_PREPARATION_RECEIPT_PREFIX = "release-preparation-receipt://"
+RELEASE_CANDIDATE_PREPARATION_SCHEMAS = {
+    "artifact-memory/release-candidate-preparation-receipt/v1": "release-candidate-preparation-receipt.v1.schema.json",
+    "artifact-memory/release-candidate-preparation-receipt/v2": "release-candidate-preparation-receipt.v2.schema.json",
+}
 RELEASE_CANDIDATE_PREPARATION_SCHEMA_ID = (
     "artifact-memory/release-candidate-preparation-receipt/v1"
 )
 RELEASE_CANDIDATE_PREPARATION_RECEIPT_PREFIX = (
     "release-candidate-preparation-receipt://"
 )
+
+
+def _release_version(package_version: str, *, allow_development: bool) -> str:
+    """Return the X.Y.Z release identity bound to one validated package version."""
+
+    release_version = package_version.split(".dev", 1)[0]
+    if not allow_development and release_version != package_version:
+        raise ValidationFailure(
+            "release-candidate-package-version-invalid",
+            "release candidate package version must use final X.Y.Z form",
+        )
+    return release_version
+
+
+def _preparation_schema_id(package_version: str, *, candidate: bool) -> str:
+    """Preserve the frozen 0.1.0 receipt contract and negotiate v2 thereafter."""
+
+    suffix = "release-candidate-preparation-receipt" if candidate else "release-preparation-receipt"
+    version = "v1" if _release_version(package_version, allow_development=True) == "0.1.0" else "v2"
+    return f"artifact-memory/{suffix}/{version}"
 
 
 def _git(repository: Path, *args: str) -> bytes:
@@ -289,10 +318,53 @@ def _publish_output(output: Path, assets: dict[str, bytes]) -> None:
             shutil.rmtree(staging, ignore_errors=True)
 
 
+def validate_release_preparation_receipt(receipt: dict[str, Any]) -> None:
+    """Validate one versioned unsigned-preview receipt and its version binding."""
+
+    schema_id = receipt.get("schema_id") if isinstance(receipt, dict) else None
+    schema_name = RELEASE_PREPARATION_SCHEMAS.get(schema_id)
+    if schema_name is None:
+        raise ValidationFailure(
+            "release-preparation-receipt-schema-unsupported",
+            "release preparation receipt schema is unsupported",
+        )
+    validate(receipt, load_schema("core", schema_name))
+    if schema_id == "artifact-memory/release-preparation-receipt/v2":
+        release_version = _release_version(
+            receipt["package_version"],
+            allow_development=True,
+        )
+        if release_version == "0.1.0":
+            raise ValidationFailure(
+                "release-preparation-receipt-version-mismatch",
+                "the frozen 0.1.0 preview identity requires the v1 receipt contract",
+            )
+        if receipt["release_id"] != f"artifact-memory/v{release_version}-preview":
+            raise ValidationFailure(
+                "release-preparation-receipt-version-binding-invalid",
+                "preview release identity does not match its package version",
+            )
+    try:
+        expected_id = expected_receipt_id(
+            receipt,
+            RELEASE_PREPARATION_RECEIPT_PREFIX,
+        )
+    except CanonicalizationFailure as exc:
+        raise ValidationFailure(
+            "release-preparation-receipt-noncanonical",
+            "release preparation receipt contains noncanonical content",
+        ) from exc
+    if receipt["receipt_id"] != expected_id:
+        raise ValidationFailure(
+            "release-preparation-receipt-identity-mismatch",
+            "release preparation receipt identity does not match its content",
+        )
+
+
 def render_release_preparation_receipt(receipt: dict[str, Any]) -> str:
     """Render the validated unsigned preview preparation evidence."""
 
-    validate(receipt, load_schema("core", "release-preparation-receipt.v1.schema.json"))
+    validate_release_preparation_receipt(receipt)
     return (
         "# Unsigned release preview preparation receipt\n\n"
         f"- Outcome: `{receipt['outcome']}`\n"
@@ -313,10 +385,32 @@ def render_release_preparation_receipt(receipt: dict[str, Any]) -> str:
 def validate_release_candidate_preparation_receipt(receipt: dict[str, Any]) -> None:
     """Validate structure and canonical identity of pending-signature evidence."""
 
-    validate(
-        receipt,
-        load_schema("core", "release-candidate-preparation-receipt.v1.schema.json"),
-    )
+    schema_id = receipt.get("schema_id") if isinstance(receipt, dict) else None
+    schema_name = RELEASE_CANDIDATE_PREPARATION_SCHEMAS.get(schema_id)
+    if schema_name is None:
+        raise ValidationFailure(
+            "release-candidate-preparation-receipt-schema-unsupported",
+            "release candidate preparation receipt schema is unsupported",
+        )
+    validate(receipt, load_schema("core", schema_name))
+    if schema_id == "artifact-memory/release-candidate-preparation-receipt/v2":
+        release_version = _release_version(
+            receipt["package_version"],
+            allow_development=False,
+        )
+        if release_version == "0.1.0":
+            raise ValidationFailure(
+                "release-candidate-preparation-receipt-version-mismatch",
+                "the frozen 0.1.0 release identity requires the v1 receipt contract",
+            )
+        if (
+            receipt["release_id"] != f"artifact-memory/v{release_version}"
+            or receipt["tag"] != f"v{release_version}"
+        ):
+            raise ValidationFailure(
+                "release-candidate-preparation-version-binding-invalid",
+                "release identity and tag must match the exact package version",
+            )
     try:
         expected_id = expected_receipt_id(
             receipt,
@@ -377,8 +471,11 @@ def prepare_unsigned_release_preview(
     root = _repository_root(repository)
     commit = _exact_commit(root, candidate)
     output = _prepare_output(root, output)
-    release_name = "artifact-memory-0.1.0-preview"
-    release_id = "artifact-memory/v0.1.0-preview"
+    package_version = _package_version(root, commit)
+    release_version = _release_version(package_version, allow_development=True)
+    receipt_schema_id = _preparation_schema_id(package_version, candidate=False)
+    release_name = f"artifact-memory-{release_version}-preview"
+    release_id = f"artifact-memory/v{release_version}-preview"
     archive_name = f"{release_name}.tar"
     archive_bytes = _git(
         root,
@@ -392,7 +489,6 @@ def prepare_unsigned_release_preview(
     checksum_digest = sha256_bytes(checksum_bytes)
     tree_digest = sha256_bytes(_git(root, "ls-tree", "-r", "--full-tree", commit))
     schema_count, schema_digest = _schema_inventory(root, commit)
-    package_version = _package_version(root, commit)
     adapter_manifest_schemas = _supported_adapter_manifest_schemas(root, commit)
     manifest = {
         "schema_id": "artifact-memory/release-manifest/v2",
@@ -476,11 +572,11 @@ def prepare_unsigned_release_preview(
         "limitations": manifest["limitations"],
     }
     receipt = receipt_with_digest(
-        "artifact-memory/release-preparation-receipt/v1",
-        "release-preparation-receipt://",
+        receipt_schema_id,
+        RELEASE_PREPARATION_RECEIPT_PREFIX,
         body,
     )
-    validate(receipt, load_schema("core", "release-preparation-receipt.v1.schema.json"))
+    validate_release_preparation_receipt(receipt)
     assets = {
         archive_name: archive_bytes,
         "SHA256SUMS": checksum_bytes,
@@ -500,7 +596,7 @@ def prepare_release_candidate(
     owner_fingerprint: str,
     key_generation: str,
 ) -> dict[str, Any]:
-    """Prepare exact v0.1.0 assets that still require owner signing and publication."""
+    """Prepare exact versioned assets that still require owner signing and publication."""
 
     if (
         not isinstance(owner_fingerprint, str)
@@ -522,11 +618,14 @@ def prepare_release_candidate(
     commit = _exact_commit(root, candidate)
     output = _prepare_output(root, output)
 
-    release_name = "artifact-memory-0.1.0"
-    release_id = "artifact-memory/v0.1.0"
-    tag = "v0.1.0"
+    package_version = _package_version(root, commit)
+    release_version = _release_version(package_version, allow_development=False)
+    receipt_schema_id = _preparation_schema_id(package_version, candidate=True)
+    release_name = f"artifact-memory-{release_version}"
+    release_id = f"artifact-memory/v{release_version}"
+    tag = f"v{release_version}"
     archive_name = f"{release_name}.tar"
-    notes_source = "docs/release/v0.1.0-release-notes.md"
+    notes_source = f"docs/release/v{release_version}-release-notes.md"
     notes_name = f"{release_name}-release-notes.md"
     archive_bytes = _git(
         root,
@@ -558,12 +657,6 @@ def prepare_release_candidate(
     checksum_digest = sha256_bytes(checksum_bytes)
     tree_digest = sha256_bytes(_git(root, "ls-tree", "-r", "--full-tree", commit))
     schema_count, schema_digest = _schema_inventory(root, commit)
-    package_version = _package_version(root, commit)
-    if package_version != "0.1.0":
-        raise ValidationFailure(
-            "release-candidate-package-version-invalid",
-            "v0.1.0 release candidate requires exact package version 0.1.0",
-        )
     runtime_version = _runtime_version(root, commit)
     if runtime_version != package_version:
         raise ValidationFailure(
@@ -676,7 +769,7 @@ def prepare_release_candidate(
         ],
     }
     receipt = receipt_with_digest(
-        RELEASE_CANDIDATE_PREPARATION_SCHEMA_ID,
+        receipt_schema_id,
         RELEASE_CANDIDATE_PREPARATION_RECEIPT_PREFIX,
         body,
     )

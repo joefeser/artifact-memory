@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/knowledge-candidate/v2",
+  "title": "Artifact Memory portable knowledge candidate v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "candidate_id", "candidate_revision_digest", "candidate_record", "source_record_refs", "candidate_provenance", "candidate_scope", "sensitivity", "owner_review_state", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/knowledge-candidate/v2"},
+    "candidate_id": {"type": "string", "pattern": "^candidate://[A-Za-z0-9._~-]+/[0-9a-f]{64}$"},
+    "candidate_revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "candidate_record": {"type": "object"},
+    "source_record_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["record_id", "revision_digest"],
+        "properties": {
+          "record_id": {"type": "string", "pattern": "^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+          "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "candidate_provenance": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "source_ref"],
+        "properties": {
+          "kind": {"enum": ["agent", "adapter", "derivation"]},
+          "source_ref": {
+            "type": "string",
+            "allOf": [
+              {"pattern": "^(?:actor|adapter|artifact|artifact-version|authority|candidate|codex-task|content|decision|external-evidence-binding|fixture|record|record-revision|release|task|tombstone|transformation)://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$"}
+            ]
+          }
+        }
+      }
+    },
+    "candidate_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "bounded_input_refs"],
+      "properties": {
+        "namespace": {"type": "string", "pattern": "^[A-Za-z0-9._~-]+$"},
+        "bounded_input_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "allOf": [
+              {"pattern": "^(?:actor|adapter|artifact|artifact-version|authority|candidate|codex-task|content|decision|external-evidence-binding|fixture|record|record-revision|release|task|tombstone|transformation)://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$"}
+            ]
+          }
+        }
+      }
+    },
+    "uncertainty": {"type": "string", "minLength": 1},
+    "sensitivity": {"enum": ["public", "private", "restricted"]},
+    "owner_review_state": {"const": "required"},
+    "authority_boundary": {"const": "candidate admission grants no execution, disclosure, routing, mutation, merge, deployment, spending, credential, declassification, or approval authority"}
+  }
+}

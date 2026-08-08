@@ -209,6 +209,38 @@ class CliTests(unittest.TestCase):
         self.assertEqual(receipt["excluded_record_count"], 0)
         self.assertEqual(receipt["authority_boundary"], "informational-only; no execution, routing, disclosure, or mutation authority")
 
+    def test_context_command_explicitly_negotiates_lifecycle_aware_v4(self):
+        fixture = ROOT / "fixtures/synthetic/record-evolution/v2"
+        predecessor = fixture / "superseded-predecessor.json"
+        replacement = fixture / "accepted-record.json"
+        base_args = (
+            "context",
+            str(predecessor),
+            str(replacement),
+            "--selected-at",
+            "2026-08-08T00:00:00Z",
+            "--freshness-basis",
+            "synthetic-cli-lifecycle-test",
+            "--json",
+        )
+        unnegotiated = self.run_cli(*base_args)
+        self.assertEqual(unnegotiated.returncode, 2)
+        self.assertEqual(json.loads(unnegotiated.stdout)["diagnostics"][0]["code"], "context-schema-unnegotiated")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "context"
+            negotiated = self.run_cli(
+                *base_args,
+                "--support-context-schema",
+                "artifact-memory/context-pack/v4",
+                "--out",
+                str(output),
+            )
+            pack = json.loads((output / "context-pack.json").read_text(encoding="utf-8"))
+        self.assertEqual(negotiated.returncode, 0, negotiated.stderr)
+        self.assertEqual(pack["schema_id"], "artifact-memory/context-pack/v4")
+        self.assertEqual(pack["selection_receipt"]["exclusion_counts"]["lifecycle"], 1)
+
     def test_context_command_negotiates_required_extensions(self):
         record = json.loads((FIXTURES / "v0-valid-record.json").read_text(encoding="utf-8"))
         identifier = "https://synthetic.example/extensions/cli-required"

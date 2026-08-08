@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from artifact_memory.context import export_context
+from artifact_memory.context import ContextFailure, export_context
 from artifact_memory.independent_context_reader import recall_context
 from artifact_memory.projection import project_records
 from artifact_memory.revocation import (
@@ -321,6 +321,28 @@ class RevocationTests(unittest.TestCase):
             with self.assertRaises(ContextReaderFailure):
                 recall_context(json.dumps(opaque, sort_keys=True, separators=(",", ":")).encode())
 
+            unsupported_claim = json.loads(
+                (
+                    ROOT
+                    / "fixtures/synthetic/record-evolution/v2/current-context-pack.json"
+                ).read_text(encoding="utf-8")
+            )
+            unsupported_claim["selection_receipt"]["exclusion_counts"]["revocation"] = 1
+            body = {key: value for key, value in unsupported_claim.items() if key != "pack_id"}
+            unsupported_claim["pack_id"] = "context-pack://" + sha256_bytes(
+                canonical_bytes(body)
+            ).removeprefix("sha-256:")
+            with self.assertRaises(ValidationFailure):
+                validate(unsupported_claim, load_schema("core", "context-pack.v4.schema.json"))
+            with self.assertRaises(ContextReaderFailure):
+                recall_context(
+                    json.dumps(
+                        unsupported_claim,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode()
+                )
+
     def test_filter_requires_supported_tombstones_and_preserves_history(self):
         record = self._record()
         retained = copy.deepcopy(record)
@@ -428,6 +450,54 @@ class RevocationTests(unittest.TestCase):
                 selected_at=NOW, revocation_receipts=[acknowledgement],
             )
         self.assertEqual(raised.exception.code, "external-evidence-unbound")
+
+    def test_context_ignores_valid_revocation_for_lifecycle_excluded_revision(self):
+        record = self._record()
+        record["lifecycle"] = "superseded"
+        envelope = build_revocation_envelope(
+            self._tombstone(), target_record=record, issuer_ref="actor://synthetic/owner",
+            audience_ref="audience://synthetic/agents", correlation_id="correlation://synthetic/lifecycle-excluded",
+            expires_at="2026-08-05T00:00:00Z",
+        )
+        acknowledgement = acknowledge_revocation(
+            envelope, recipient_ref="agent://synthetic/reader-a", replay_ledger=self._ledger(), outcome="acknowledged",
+            suppression_state="applied", now=NOW,
+        )
+        pack = export_context(
+            [record], authorized_record_ids=[record["record_id"]],
+            freshness_by_record={record["record_id"]: {"status": "current", "assessed_at": NOW, "basis": "synthetic"}},
+            selected_at=NOW, revocation_receipts=[acknowledgement],
+            supported_context_schema_ids={"artifact-memory/context-pack/v4"},
+        )
+        self.assertEqual(pack["records"], [])
+        self.assertEqual(pack["selection_receipt"]["exclusion_counts"]["lifecycle"], 1)
+        self.assertEqual(pack["selection_receipt"]["exclusion_counts"]["revocation"], 0)
+        self.assertNotIn("revocation_receipt_refs", pack["selection_receipt"])
+
+        duplicate_acknowledgement = self._acknowledged(
+            envelope,
+            recipient_ref="agent://synthetic/reader-b",
+        )
+        with self.assertRaises(ContextFailure) as duplicate_failure:
+            export_context(
+                [record],
+                authorized_record_ids=[record["record_id"]],
+                freshness_by_record={record["record_id"]: {"status": "current", "assessed_at": NOW, "basis": "synthetic"}},
+                selected_at=NOW,
+                revocation_receipts=[acknowledgement, duplicate_acknowledgement],
+                supported_context_schema_ids={"artifact-memory/context-pack/v4"},
+            )
+        self.assertEqual(duplicate_failure.exception.code, "suppression-duplicate")
+
+        malformed = copy.deepcopy(acknowledgement)
+        malformed["target_ref"] = []
+        with self.assertRaises(ContextFailure):
+            export_context(
+                [record], authorized_record_ids=[record["record_id"]],
+                freshness_by_record={record["record_id"]: {"status": "current", "assessed_at": NOW, "basis": "synthetic"}},
+                selected_at=NOW, revocation_receipts=[malformed],
+                supported_context_schema_ids={"artifact-memory/context-pack/v4"},
+            )
 
 
 if __name__ == "__main__":

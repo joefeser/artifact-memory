@@ -14,12 +14,11 @@ a database is canonical, or receiving knowledge grants authority to act.
 
 ## Project status
 
-Artifact Memory is public open source and its source tree is prepared for the
-first `0.1.0` release. Until the dedicated owner-signed `v0.1.0` tag and GitHub
-release are published and verified, the repository remains an unreleased
-candidate with no stability promise. Real product records, customer material,
-credentials, resolver configuration, and artifact bytes belong in private
-vaults and must never be committed here.
+Artifact Memory is public open source. Release status is established by a
+dedicated owner-signed annotated tag and independently verified release assets;
+source-tree version text alone does not claim publication or authenticity. Real
+product records, customer material, credentials, resolver configuration, and
+artifact bytes belong in private vaults and must never be committed here.
 
 The first useful release must prove:
 
@@ -81,9 +80,11 @@ See [Security](SECURITY.md) and the
 Start with the [quickstart](docs/quickstart.md). Versioning and release
 requirements are in [the release policy](docs/release/versioning-and-launch.md)
 and [the readiness audit](docs/release/public-readiness-audit.md). The current
-[support boundary](SUPPORT.md), [v0.1.0 release notes](docs/release/v0.1.0-release-notes.md),
-and historical [preview notes](docs/release/v0.1.0-preview-notes.md) distinguish
-the reviewed source candidate from an owner-signed published release.
+[support boundary](SUPPORT.md),
+[v0.1.1 release notes](docs/release/v0.1.1-release-notes.md), historical
+[v0.1.0 release notes](docs/release/v0.1.0-release-notes.md), and historical
+[preview notes](docs/release/v0.1.0-preview-notes.md) distinguish reviewed source
+candidates from owner-signed published releases.
 
 `artifact-memory validate RECORD` applies schema validation plus the supported
 semantic rules for recognized contracts. In particular, a schema-readable

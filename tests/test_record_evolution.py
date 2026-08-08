@@ -3,7 +3,16 @@ import json
 import unittest
 from pathlib import Path
 
-from artifact_memory.record_evolution import AUTHORITY_BOUNDARY, admit_candidate, build_candidate, current_records
+from artifact_memory.context import export_context, render_context_selection_receipt
+from artifact_memory.independent_context_reader import recall_context
+from artifact_memory.record_evolution import (
+    AUTHORITY_BOUNDARY,
+    admit_candidate,
+    build_candidate,
+    current_records,
+    render_candidate_admission_receipt,
+    validate_candidate_admission_receipt,
+)
 from artifact_memory.independent_reader import ReaderFailure, _validate_record
 from artifact_memory.independent_reader import admit_bundle_v2
 from artifact_memory.conformance_helpers import SyntheticReplayLedger
@@ -303,6 +312,306 @@ class RecordEvolutionTests(unittest.TestCase):
         self.assertEqual(unnegotiated["outcome"], "quarantined")
         self.assertIn("unsupported-record", unnegotiated["diagnostics"][0]["message"])
         self.assertEqual(independent_unnegotiated, unnegotiated)
+
+    def test_v2_fixtures_replay_candidates_outcomes_and_context_in_full(self):
+        fixture = ROOT / "fixtures/synthetic/record-evolution/v2"
+        load = lambda name: json.loads((fixture / name).read_text(encoding="utf-8"))
+        source = load("source-record.json")
+        accepted_candidate = load("accepted-candidate.json")
+        accepted = admit_candidate(
+            accepted_candidate,
+            decision="accepted",
+            decision_ref="decision://synthetic/wits-owner-v2-accepted",
+            current_source_revisions={source["record_id"]: accepted_candidate["source_record_refs"][0]["revision_digest"]},
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v3"},
+            source_records=[source],
+        )
+        self.assertEqual(accepted["record"], load("accepted-record.json"))
+        self.assertEqual(accepted["predecessor_records"], [load("superseded-predecessor.json")])
+        self.assertEqual(accepted["receipt"], load("accepted-receipt.json"))
+        self.assertEqual(
+            render_candidate_admission_receipt(accepted["receipt"]),
+            (fixture / "accepted-receipt.md").read_text(encoding="utf-8"),
+        )
+
+        rejected = admit_candidate(
+            load("rejected-candidate.json"),
+            decision="rejected",
+            decision_ref="decision://synthetic/wits-owner-v2-rejected",
+        )
+        self.assertEqual(rejected, {
+            "record": None,
+            "receipt": load("rejected-receipt.json"),
+            "predecessor_records": [],
+        })
+        self.assertEqual(
+            render_candidate_admission_receipt(rejected["receipt"]),
+            (fixture / "rejected-receipt.md").read_text(encoding="utf-8"),
+        )
+
+        dispute = admit_candidate(
+            load("disputes-candidate.json"),
+            decision="accepted",
+            decision_ref="decision://synthetic/wits-owner-v2-dispute",
+            current_source_revisions={source["record_id"]: accepted_candidate["source_record_refs"][0]["revision_digest"]},
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v3"},
+        )
+        self.assertEqual(dispute["record"], load("disputes-record.json"))
+        self.assertEqual(dispute["predecessor_records"], [])
+        self.assertEqual(dispute["receipt"], load("disputes-receipt.json"))
+        self.assertEqual(
+            render_candidate_admission_receipt(dispute["receipt"]),
+            (fixture / "disputes-receipt.md").read_text(encoding="utf-8"),
+        )
+
+        context = export_context(
+            accepted["predecessor_records"] + [accepted["record"]],
+            authorized_record_ids=[source["record_id"]],
+            freshness_by_record={source["record_id"]: {
+                "status": "current",
+                "assessed_at": "2026-08-08T00:00:00Z",
+                "basis": "synthetic-admission-receipt",
+            }},
+            selected_at="2026-08-08T00:00:00Z",
+            supported_context_schema_ids={"artifact-memory/context-pack/v4"},
+        )
+        self.assertEqual(context, load("current-context-pack.json"))
+        self.assertEqual(context["selection_receipt"]["exclusion_counts"]["lifecycle"], 1)
+        self.assertEqual(
+            render_context_selection_receipt(context),
+            (fixture / "current-context-receipt.md").read_text(encoding="utf-8"),
+        )
+        recalled = recall_context(json.dumps(context, sort_keys=True, separators=(",", ":")).encode())
+        self.assertEqual(recalled["records"][0]["revision_digest"], accepted["receipt"]["result_record_ref"]["revision_digest"])
+
+    def test_v2_identity_is_explicit_and_uncertainty_is_not_derivative(self):
+        fixture = ROOT / "fixtures/synthetic/record-evolution/v2"
+        expected = json.loads((fixture / "accepted-candidate.json").read_text(encoding="utf-8"))
+        rebuilt = build_candidate(
+            expected["candidate_record"],
+            reversed(expected["source_record_refs"]),
+            reversed(expected["candidate_provenance"]),
+            sensitivity="public",
+            candidate_namespace="synthetic-evolution",
+            bounded_input_refs=reversed(expected["candidate_scope"]["bounded_input_refs"]),
+            uncertainty="Owner confirmation remains required.",
+        )
+        self.assertEqual(rebuilt, expected)
+        self.assertNotIn("derivative", rebuilt["candidate_record"])
+        self.assertEqual(rebuilt["uncertainty"], "Owner confirmation remains required.")
+        codex_scoped = build_candidate(
+            expected["candidate_record"],
+            expected["source_record_refs"],
+            expected["candidate_provenance"],
+            candidate_namespace="synthetic-evolution",
+            bounded_input_refs=["codex-task://synthetic/task-0001"],
+        )
+        self.assertEqual(codex_scoped["candidate_scope"]["bounded_input_refs"], ["codex-task://synthetic/task-0001"])
+        unsorted = copy.deepcopy(expected)
+        unsorted["candidate_scope"]["bounded_input_refs"].reverse()
+        with self.assertRaisesRegex(ValidationFailure, "canonical order"):
+            admit_candidate(
+                unsorted,
+                decision="rejected",
+                decision_ref="decision://synthetic/unsorted",
+            )
+        for malformed in (
+            "plain text",
+            "https://contains-space.example/private",
+            "file:///Users/synthetic/private-vault",
+            "ssh://synthetic.example/repository",
+            "git://synthetic.example/repository",
+            "git+ssh://synthetic.example/repository",
+            "s3://synthetic-bucket/private-key",
+            "webdav://synthetic.example/private",
+            "//missing-scheme",
+        ):
+            with self.subTest(malformed=malformed):
+                provenance = copy.deepcopy(expected["candidate_provenance"])
+                provenance[0]["source_ref"] = malformed
+                with self.assertRaises(ValidationFailure):
+                    build_candidate(
+                        expected["candidate_record"],
+                        expected["source_record_refs"],
+                        provenance,
+                        candidate_namespace="synthetic-evolution",
+                        bounded_input_refs=expected["candidate_scope"]["bounded_input_refs"],
+                    )
+
+        duplicate_sources = copy.deepcopy(expected)
+        duplicate_sources["source_record_refs"].append({
+            "record_id": duplicate_sources["source_record_refs"][0]["record_id"],
+            "revision_digest": "sha-256:" + "f" * 64,
+        })
+        with self.assertRaisesRegex(ValidationFailure, "unique logical identities"):
+            admit_candidate(
+                duplicate_sources,
+                decision="rejected",
+                decision_ref="decision://synthetic/duplicate-source",
+            )
+
+        for decision_ref in (
+            "file:///Users/synthetic/private-vault",
+            "https://token@synthetic.example/private",
+        ):
+            with self.subTest(decision_ref=decision_ref):
+                with self.assertRaisesRegex(ValidationFailure, "logical decision reference"):
+                    admit_candidate(
+                        expected,
+                        decision="rejected",
+                        decision_ref=decision_ref,
+                    )
+
+    def test_v2_receipt_identity_and_transition_cross_bindings_are_verified(self):
+        fixture = ROOT / "fixtures/synthetic/record-evolution/v2"
+        receipt = json.loads((fixture / "accepted-receipt.json").read_text(encoding="utf-8"))
+        validate_candidate_admission_receipt(receipt)
+
+        retained_identity = copy.deepcopy(receipt)
+        retained_identity["predecessor_transitions"][0]["to_revision_digest"] = "sha-256:" + "f" * 64
+        with self.assertRaisesRegex(ValidationFailure, "identity does not match"):
+            validate_candidate_admission_receipt(retained_identity)
+
+        rebound = copy.deepcopy(receipt)
+        rebound["predecessor_transitions"][0]["from_revision_digest"] = "sha-256:" + "f" * 64
+        from artifact_memory.canonical import expected_receipt_id
+
+        rebound["receipt_id"] = expected_receipt_id(rebound, "candidate-admission-receipt://")
+        with self.assertRaisesRegex(ValidationFailure, "does not bind"):
+            validate_candidate_admission_receipt(rebound)
+
+        candidate_mismatch = copy.deepcopy(receipt)
+        candidate_mismatch["candidate_revision_digest"] = "sha-256:" + "f" * 64
+        candidate_mismatch["receipt_id"] = expected_receipt_id(candidate_mismatch, "candidate-admission-receipt://")
+        with self.assertRaisesRegex(ValidationFailure, "candidate identity does not bind"):
+            validate_candidate_admission_receipt(candidate_mismatch)
+
+        unsorted_sources = copy.deepcopy(receipt)
+        unsorted_sources["source_record_refs"].append({
+            "record_id": "record://synthetic/aaa-source",
+            "revision_digest": "sha-256:" + "a" * 64,
+        })
+        unsorted_sources["receipt_id"] = expected_receipt_id(unsorted_sources, "candidate-admission-receipt://")
+        with self.assertRaisesRegex(ValidationFailure, "canonical order"):
+            validate_candidate_admission_receipt(unsorted_sources)
+
+        impossible_transition = copy.deepcopy(receipt)
+        impossible_transition["predecessor_transitions"][0]["to_revision_digest"] = receipt["result_record_ref"]["revision_digest"]
+        impossible_transition["receipt_id"] = expected_receipt_id(impossible_transition, "candidate-admission-receipt://")
+        with self.assertRaisesRegex(ValidationFailure, "does not bind"):
+            validate_candidate_admission_receipt(impossible_transition)
+
+        self_replacement = copy.deepcopy(receipt)
+        source_digest = self_replacement["predecessor_transitions"][0]["from_revision_digest"]
+        self_replacement["result_record_ref"]["revision_digest"] = source_digest
+        self_replacement["predecessor_transitions"][0]["superseded_by"]["revision_digest"] = source_digest
+        self_replacement["receipt_id"] = expected_receipt_id(self_replacement, "candidate-admission-receipt://")
+        with self.assertRaisesRegex(ValidationFailure, "must differ"):
+            validate_candidate_admission_receipt(self_replacement)
+
+        noncanonical = json.loads((fixture / "rejected-receipt.json").read_text(encoding="utf-8"))
+        noncanonical["diagnostics"][0]["message"] = "\ud800"
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_candidate_admission_receipt(noncanonical)
+        self.assertEqual(failure.exception.code, "candidate-receipt-noncanonical")
+
+    def test_v2_candidate_requires_v3_result_even_when_v2_is_negotiated(self):
+        from artifact_memory.record_evolution import _record_digest
+
+        source = source_record()
+        draft = copy.deepcopy(source)
+        draft["lifecycle"] = "draft"
+        draft["meaning"] = {"summary": "Synthetic v2 result must not be admitted.", "labels": ["synthetic"]}
+        candidate = build_candidate(
+            draft,
+            [{"record_id": source["record_id"], "revision_digest": _record_digest(source)}],
+            [{"kind": "agent", "source_ref": "actor://synthetic/agent-b"}],
+            candidate_namespace="synthetic-evolution",
+            bounded_input_refs=["fixture://synthetic/record-evolution/v2/v2-result"],
+        )
+        result = admit_candidate(
+            candidate,
+            decision="accepted",
+            decision_ref="decision://synthetic/v2-result",
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v2"},
+        )
+        self.assertIsNone(result["record"])
+        self.assertEqual(result["receipt"]["outcome"], "unsupported")
+        self.assertEqual(
+            result["receipt"]["diagnostics"][0]["code"],
+            "result-schema-incompatible",
+        )
+
+    def test_v2_supersession_requires_exact_current_predecessor(self):
+        fixture = ROOT / "fixtures/synthetic/record-evolution/v2"
+        candidate = json.loads((fixture / "accepted-candidate.json").read_text(encoding="utf-8"))
+        source = json.loads((fixture / "source-record.json").read_text(encoding="utf-8"))
+        result = admit_candidate(
+            candidate,
+            decision="accepted",
+            decision_ref="decision://synthetic/missing-predecessor",
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v3"},
+        )
+        self.assertIsNone(result["record"])
+        self.assertEqual(result["receipt"]["outcome"], "conflict")
+        self.assertEqual(result["receipt"]["diagnostics"][0]["code"], "predecessor-transition-unproven")
+
+        unproven_currentness = admit_candidate(
+            candidate,
+            decision="accepted",
+            decision_ref="decision://synthetic/unproven-current-predecessor",
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v3"},
+            source_records=[source],
+        )
+        self.assertIsNone(unproven_currentness["record"])
+        self.assertEqual(unproven_currentness["receipt"]["outcome"], "stale")
+        self.assertEqual(
+            unproven_currentness["receipt"]["diagnostics"][0]["code"],
+            "predecessor-currentness-unproven",
+        )
+        with self.assertRaises(ValidationFailure) as malformed_currentness:
+            admit_candidate(
+                candidate,
+                decision="accepted",
+                decision_ref="decision://synthetic/malformed-currentness",
+                current_source_revisions=[],
+                supported_result_schema_ids={"artifact-memory/knowledge-record/v3"},
+                source_records=[source],
+            )
+        self.assertEqual(malformed_currentness.exception.code, "candidate-source-invalid")
+
+    def test_v2_exact_source_result_is_receipted_duplicate_without_transitions(self):
+        from artifact_memory.record_evolution import _record_digest
+
+        source = source_record()
+        source["schema_id"] = "artifact-memory/knowledge-record/v3"
+        draft = copy.deepcopy(source)
+        draft["lifecycle"] = "draft"
+        candidate = build_candidate(
+            draft,
+            [{"record_id": source["record_id"], "revision_digest": _record_digest(source)}],
+            [{"kind": "agent", "source_ref": "actor://synthetic/agent-b"}],
+            candidate_namespace="synthetic-evolution",
+            bounded_input_refs=["fixture://synthetic/record-evolution/v2/duplicate-result"],
+        )
+        result = admit_candidate(
+            candidate,
+            decision="accepted",
+            decision_ref="decision://synthetic/duplicate-result",
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v3"},
+        )
+        self.assertIsNone(result["record"])
+        self.assertEqual(result["receipt"]["outcome"], "duplicate")
+        self.assertEqual(result["receipt"]["diagnostics"][0]["code"], "result-revision-duplicate")
+
+        fixture = ROOT / "fixtures/synthetic/record-evolution/v2"
+        forged = json.loads((fixture / "disputes-receipt.json").read_text(encoding="utf-8"))
+        forged["result_record_ref"]["revision_digest"] = forged["source_record_refs"][0]["revision_digest"]
+        from artifact_memory.canonical import expected_receipt_id
+
+        forged["receipt_id"] = expected_receipt_id(forged, "candidate-admission-receipt://")
+        with self.assertRaisesRegex(ValidationFailure, "must differ"):
+            validate_candidate_admission_receipt(forged)
 
 
 if __name__ == "__main__":
