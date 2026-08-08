@@ -1,0 +1,11 @@
+{
+  "artifact_refs": [],
+  "lifecycle": "accepted",
+  "meaning": {"labels": ["dispute", "synthetic"], "summary": "The synthetic canonical profile is disputed."},
+  "provenance": [{"kind": "author", "source_ref": "actor://synthetic/owner"}],
+  "record_id": "record://synthetic/dispute-0001",
+  "record_type": "claim",
+  "relationships": [{"target_ref": "record://synthetic/decision-0001", "target_revision_digest": "sha-256:5463997e6faa4945ed0fd8f1c8520ce91b861dd5bf2494e9d81f38952d3530c6", "type": "disputes"}],
+  "schema_id": "artifact-memory/knowledge-record/v3",
+  "sensitivity": "public"
+}

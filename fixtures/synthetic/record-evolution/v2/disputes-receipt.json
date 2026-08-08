@@ -1,0 +1,13 @@
+{
+  "authority_boundary": "candidate admission grants no execution, disclosure, routing, mutation, merge, deployment, spending, credential, declassification, or approval authority",
+  "candidate_id": "candidate://synthetic-evolution/d6c0f8e8a53d28a3e69eeb27e58493ec5d7eb24001487b54480038103eb86b21",
+  "candidate_revision_digest": "sha-256:d6c0f8e8a53d28a3e69eeb27e58493ec5d7eb24001487b54480038103eb86b21",
+  "decision_ref": "decision://synthetic/wits-owner-v2-dispute",
+  "diagnostics": [],
+  "outcome": "accepted",
+  "predecessor_transitions": [],
+  "receipt_id": "candidate-admission-receipt://dbfbbc3c4d41ac06db23e881b101a1d931ef527605424efcd1bfcf1a4133b31a",
+  "result_record_ref": {"record_id": "record://synthetic/dispute-0001", "revision_digest": "sha-256:8266576c67356d4a160ccfff4806e86098802069aa02fe10b70685225c236197"},
+  "schema_id": "artifact-memory/candidate-admission-receipt/v2",
+  "source_record_refs": [{"record_id": "record://synthetic/decision-0001", "revision_digest": "sha-256:5463997e6faa4945ed0fd8f1c8520ce91b861dd5bf2494e9d81f38952d3530c6"}]
+}

@@ -1,9 +1,10 @@
 # Synthetic record-evolution proof
 
 This fixture uses newly authored synthetic records. It proves one accepted
-correction that supersedes an exact source revision and one rejected candidate.
-The accepted record remains a new immutable revision and the rejected candidate
-has no resulting record. No fixture content grants authority.
+correction that binds a `supersedes` relationship to an exact source revision.
+The accepted record remains a new immutable revision. No rejected-path or
+predecessor-transition fixture exists in this v1 directory, and no fixture
+content grants authority.
 
 `source-record.json`, `candidate.json`, `accepted-record.json`, and
 `expected-receipt.json` are canonical replay inputs and expected output. The

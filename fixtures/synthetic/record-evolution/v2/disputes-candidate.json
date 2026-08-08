@@ -1,0 +1,22 @@
+{
+  "authority_boundary": "candidate admission grants no execution, disclosure, routing, mutation, merge, deployment, spending, credential, declassification, or approval authority",
+  "candidate_id": "candidate://synthetic-evolution/d6c0f8e8a53d28a3e69eeb27e58493ec5d7eb24001487b54480038103eb86b21",
+  "candidate_provenance": [{"kind": "agent", "source_ref": "actor://synthetic/reviewer"}],
+  "candidate_record": {
+    "artifact_refs": [],
+    "lifecycle": "draft",
+    "meaning": {"labels": ["dispute", "synthetic"], "summary": "The synthetic canonical profile is disputed."},
+    "provenance": [{"kind": "author", "source_ref": "actor://synthetic/owner"}],
+    "record_id": "record://synthetic/dispute-0001",
+    "record_type": "claim",
+    "relationships": [{"target_ref": "record://synthetic/decision-0001", "target_revision_digest": "sha-256:5463997e6faa4945ed0fd8f1c8520ce91b861dd5bf2494e9d81f38952d3530c6", "type": "disputes"}],
+    "schema_id": "artifact-memory/knowledge-record/v3",
+    "sensitivity": "public"
+  },
+  "candidate_revision_digest": "sha-256:d6c0f8e8a53d28a3e69eeb27e58493ec5d7eb24001487b54480038103eb86b21",
+  "candidate_scope": {"bounded_input_refs": ["fixture://synthetic/record-evolution/v2/dispute-input"], "namespace": "synthetic-evolution"},
+  "owner_review_state": "required",
+  "schema_id": "artifact-memory/knowledge-candidate/v2",
+  "sensitivity": "public",
+  "source_record_refs": [{"record_id": "record://synthetic/decision-0001", "revision_digest": "sha-256:5463997e6faa4945ed0fd8f1c8520ce91b861dd5bf2494e9d81f38952d3530c6"}]
+}

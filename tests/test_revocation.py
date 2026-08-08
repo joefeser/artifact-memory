@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from artifact_memory.context import export_context
+from artifact_memory.context import ContextFailure, export_context
 from artifact_memory.independent_context_reader import recall_context
 from artifact_memory.projection import project_records
 from artifact_memory.revocation import (
@@ -428,6 +428,39 @@ class RevocationTests(unittest.TestCase):
                 selected_at=NOW, revocation_receipts=[acknowledgement],
             )
         self.assertEqual(raised.exception.code, "external-evidence-unbound")
+
+    def test_context_ignores_valid_revocation_for_lifecycle_excluded_revision(self):
+        record = self._record()
+        record["lifecycle"] = "superseded"
+        envelope = build_revocation_envelope(
+            self._tombstone(), target_record=record, issuer_ref="actor://synthetic/owner",
+            audience_ref="audience://synthetic/agents", correlation_id="correlation://synthetic/lifecycle-excluded",
+            expires_at="2026-08-05T00:00:00Z",
+        )
+        acknowledgement = acknowledge_revocation(
+            envelope, recipient_ref="agent://synthetic/reader-a", replay_ledger=self._ledger(), outcome="acknowledged",
+            suppression_state="applied", now=NOW,
+        )
+        pack = export_context(
+            [record], authorized_record_ids=[record["record_id"]],
+            freshness_by_record={record["record_id"]: {"status": "current", "assessed_at": NOW, "basis": "synthetic"}},
+            selected_at=NOW, revocation_receipts=[acknowledgement],
+            supported_context_schema_ids={"artifact-memory/context-pack/v4"},
+        )
+        self.assertEqual(pack["records"], [])
+        self.assertEqual(pack["selection_receipt"]["exclusion_counts"]["lifecycle"], 1)
+        self.assertEqual(pack["selection_receipt"]["exclusion_counts"]["revocation"], 0)
+        self.assertNotIn("revocation_receipt_refs", pack["selection_receipt"])
+
+        malformed = copy.deepcopy(acknowledgement)
+        malformed["target_ref"] = []
+        with self.assertRaises(ContextFailure):
+            export_context(
+                [record], authorized_record_ids=[record["record_id"]],
+                freshness_by_record={record["record_id"]: {"status": "current", "assessed_at": NOW, "basis": "synthetic"}},
+                selected_at=NOW, revocation_receipts=[malformed],
+                supported_context_schema_ids={"artifact-memory/context-pack/v4"},
+            )
 
 
 if __name__ == "__main__":

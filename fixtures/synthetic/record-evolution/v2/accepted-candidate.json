@@ -1,0 +1,29 @@
+{
+  "authority_boundary": "candidate admission grants no execution, disclosure, routing, mutation, merge, deployment, spending, credential, declassification, or approval authority",
+  "candidate_id": "candidate://synthetic-evolution/53c15a94c566bac640f041c04b7d1eec8a738f48e173abbe4a7eb26dd8d79f40",
+  "candidate_provenance": [
+    {"kind": "agent", "source_ref": "actor://synthetic/agent-b"},
+    {"kind": "derivation", "source_ref": "fixture://synthetic/record-evolution/v2"}
+  ],
+  "candidate_record": {
+    "artifact_refs": [],
+    "lifecycle": "draft",
+    "meaning": {"labels": ["corrected", "synthetic"], "summary": "Use the corrected synthetic canonical profile."},
+    "provenance": [{"kind": "author", "source_ref": "actor://synthetic/owner"}],
+    "record_id": "record://synthetic/decision-0001",
+    "record_type": "decision",
+    "relationships": [{"target_ref": "record://synthetic/decision-0001", "target_revision_digest": "sha-256:5463997e6faa4945ed0fd8f1c8520ce91b861dd5bf2494e9d81f38952d3530c6", "type": "supersedes"}],
+    "schema_id": "artifact-memory/knowledge-record/v3",
+    "sensitivity": "public"
+  },
+  "candidate_revision_digest": "sha-256:53c15a94c566bac640f041c04b7d1eec8a738f48e173abbe4a7eb26dd8d79f40",
+  "candidate_scope": {
+    "bounded_input_refs": ["fixture://synthetic/record-evolution/v2/input-note", "record-revision://synthetic/decision-0001/source"],
+    "namespace": "synthetic-evolution"
+  },
+  "owner_review_state": "required",
+  "schema_id": "artifact-memory/knowledge-candidate/v2",
+  "sensitivity": "public",
+  "source_record_refs": [{"record_id": "record://synthetic/decision-0001", "revision_digest": "sha-256:5463997e6faa4945ed0fd8f1c8520ce91b861dd5bf2494e9d81f38952d3530c6"}],
+  "uncertainty": "Owner confirmation remains required."
+}

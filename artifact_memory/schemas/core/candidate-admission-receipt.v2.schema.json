@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/candidate-admission-receipt/v2",
+  "title": "Artifact Memory candidate admission receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "candidate_id", "candidate_revision_digest", "source_record_refs", "outcome", "decision_ref", "result_record_ref", "predecessor_transitions", "diagnostics", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/candidate-admission-receipt/v2"},
+    "receipt_id": {"type": "string", "pattern": "^candidate-admission-receipt://[0-9a-f]{64}$"},
+    "candidate_id": {"type": "string", "pattern": "^candidate://[A-Za-z0-9._~-]+/[0-9a-f]{64}$"},
+    "candidate_revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "source_record_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["record_id", "revision_digest"],
+        "properties": {
+          "record_id": {"type": "string", "pattern": "^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+          "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "outcome": {"enum": ["accepted", "rejected", "quarantined", "duplicate", "stale", "unsupported", "conflict"]},
+    "decision_ref": {"type": "string", "pattern": "^decision://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$"},
+    "result_record_ref": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["record_id", "revision_digest"],
+          "properties": {
+            "record_id": {"type": "string", "pattern": "^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+            "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+          }
+        }
+      ]
+    },
+    "predecessor_transitions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["record_id", "from_revision_digest", "from_lifecycle", "to_revision_digest", "to_lifecycle", "superseded_by"],
+        "properties": {
+          "record_id": {"type": "string", "pattern": "^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+          "from_revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+          "from_lifecycle": {"enum": ["accepted", "sealed"]},
+          "to_revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+          "to_lifecycle": {"const": "superseded"},
+          "superseded_by": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["record_id", "revision_digest"],
+            "properties": {
+              "record_id": {"type": "string", "pattern": "^record://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+              "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+            }
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1},
+          "message": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "authority_boundary": {"const": "candidate admission grants no execution, disclosure, routing, mutation, merge, deployment, spending, credential, declassification, or approval authority"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"outcome": {"const": "accepted"}}, "required": ["outcome"]},
+      "then": {"properties": {"result_record_ref": {"type": "object"}, "diagnostics": {"maxItems": 0}}}
+    },
+    {
+      "if": {"properties": {"outcome": {"enum": ["rejected", "quarantined", "duplicate", "stale", "unsupported", "conflict"]}}, "required": ["outcome"]},
+      "then": {"properties": {"result_record_ref": {"const": null}, "predecessor_transitions": {"maxItems": 0}, "diagnostics": {"minItems": 1}}}
+    }
+  ]
+}
