@@ -1153,6 +1153,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             )
             with (
                 patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.__version__", "0.1.0"),
                 patch("artifact_memory.release.subprocess.run", return_value=verification),
                 patch(
                     "artifact_memory.release.subprocess.check_output",
@@ -1194,6 +1195,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             )
             with (
                 patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.__version__", "0.1.0"),
                 patch("artifact_memory.release.subprocess.run", return_value=verification),
                 patch(
                     "artifact_memory.release.subprocess.check_output",

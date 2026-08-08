@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare exact v0.1.0 assets without invoking owner signing authority."""
+"""Prepare exact versioned release assets without invoking owner signing authority."""
 
 from __future__ import annotations
 
