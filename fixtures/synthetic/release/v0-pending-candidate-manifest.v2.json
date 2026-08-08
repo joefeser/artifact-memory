@@ -1,0 +1,50 @@
+{
+  "schema_id": "artifact-memory/release-manifest/v2",
+  "release_id": "artifact-memory/v0.1.0",
+  "status": "release-candidate",
+  "source": {
+    "commit": "45f60d38acaa1026f8428e753efd1c773df88bd3",
+    "tree_digest": "sha-256:d235f2d90f2194f2e1a3672d67fcd907349f64030a1122a255b4e4973889186b",
+    "tree_digest_profile": "sha256-of-git-ls-tree-r-full-tree-v1"
+  },
+  "surfaces": {
+    "protocol": {"version": "v0", "stability": "development-preview"},
+    "schemas": {"versioning": "independent-schema-id-vN", "inventory_count": 84, "inventory_digest": "sha-256:0bd85e513181481e31139cc96223e1056207127eeebbf55ee986bada621d3ad7", "inventory_digest_profile": "sha256-of-canonical-sorted-schema-id-array-v1"},
+    "reference_cli": {"package_version": "0.1.0", "stability": "development-preview"},
+    "adapters": {"versioning": "provider-contract-vN", "manifest_schema": "artifact-memory/adapter-manifest/v1"},
+    "fixtures": {"versioning": "fixture-and-receipt-vN", "aggregate_schema": "artifact-memory/conformance-fixture-receipt/v1"}
+  },
+  "compatibility_policy": {
+    "unknown_optional": "preserve-without-interpretation",
+    "unknown_required": "fail-closed",
+    "breaking_change": "new-version-and-explicit-migration-or-rejection-rule",
+    "deprecation_window": "at-least-one-minor-release-and-90-days-after-announcement",
+    "pre_1_0_api_stability": "implementation-APIs-unstable-contracts-remain-versioned"
+  },
+  "artifacts": [
+    {
+      "name": "artifact-memory-0.1.0-preview.tar",
+      "kind": "source-archive",
+      "format": "git-archive-tar",
+      "byte_size": 1484800,
+      "sha256": "sha-256:5779b7e5f15917a4d6963a09c51c4a98da8f5a364f1290fa9f1058823e60693a",
+      "provenance": "synthetic pending-candidate boundary fixture"
+    },
+    {
+      "name": "v0-preview-SHA256SUMS",
+      "kind": "checksum-file",
+      "format": "sha256sum-v1",
+      "byte_size": 100,
+      "sha256": "sha-256:de7d1d59196de954b823bb2b0c5e869191bb654699d17355b6cff8daa956e85a",
+      "provenance": "synthetic pending-candidate checksum boundary fixture"
+    }
+  ],
+  "checksum_manifest": {"artifact_name": "v0-preview-SHA256SUMS", "format": "sha256sum-v1", "scope": "all-release-assets-except-checksum-manifest-itself"},
+  "signature": {"state": "pending-owner-signature", "tag": "v0.1.0", "algorithm": "ssh-ed25519", "public_key_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "key_generation": "synthetic-generation-1", "owner_signed_annotated_tag": false},
+  "attestations": {"state": "deferred-public-workflow-review", "requirement": "keyless-build-artifact-attestations-after-public-workflow-review"},
+  "authority_boundary": "release preparation grants no signing, tag, publication, visibility, or deployment authority",
+  "limitations": [
+    "synthetic pending-candidate evidence is not signed release evidence",
+    "preview conformance must reject this lifecycle before Git or asset replay"
+  ]
+}

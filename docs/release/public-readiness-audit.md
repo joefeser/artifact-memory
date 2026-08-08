@@ -261,7 +261,7 @@ the `git-verify-tag-filtered-allowed-signers-v1` profile and is covered by a
 real ephemeral Git/SSH signing regression test. Git SHA-256 object-format
 repositories receive an explicit unsupported outcome in v0. Its pass evidence
 is a digest-bound
-`artifact-memory/release-candidate-verification-receipt/v1` containing that
+`artifact-memory/release-candidate-verification-receipt/v2` containing that
 fingerprint, signed tag object, exact manifest digest, staged-asset replay,
 checksum-manifest digest, key generation,
 authority boundary, caller-asserted isolation, endpoint-only concurrency scope,
@@ -276,7 +276,7 @@ installed-package smoke runs the console script and packaged-schema checks from
 a temporary directory outside the source checkout.
 
 The newly authored synthetic contract evidence at
-`fixtures/synthetic/release/v0-release-candidate-verification-receipt.json` and
+`fixtures/synthetic/release/v0-release-candidate-verification-receipt.v2.json` and
 its `.md` rendering demonstrates the receipt shape without claiming that a real
 key, tag, release, or visibility decision exists.
 

@@ -67,6 +67,12 @@ def run_release_conformance(
         manifest,
         supported_required_extensions=supported_required_extensions,
     )
+    if manifest["status"] != "preview":
+        raise ValidationFailure(
+            "release-preview-lifecycle-invalid",
+            "preview conformance accepts only unsigned preview manifests; use candidate verification for release candidates",
+            "$.status",
+        )
     commit = manifest["source"]["commit"]
 
     tree_listing = _git("ls-tree", "-r", "--full-tree", commit)

@@ -25,7 +25,7 @@ SSH_VERIFICATION_OUTPUT_PROFILE = "git-verify-tag-filtered-allowed-signers-v1"
 SSH_FINGERPRINT_PATTERN = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
 ALLOWED_SIGNER_OPTIONS = ("namespaces=", "valid-after=", "valid-before=")
 SIGNED_MANIFEST_TRAILER = "Artifact-Memory-Manifest-SHA256:"
-RELEASE_VERIFICATION_SCHEMA_ID = "artifact-memory/release-candidate-verification-receipt/v1"
+RELEASE_VERIFICATION_SCHEMA_ID = "artifact-memory/release-candidate-verification-receipt/v2"
 RELEASE_VERIFICATION_RECEIPT_PREFIX = "release-candidate-verification-receipt://"
 
 
@@ -90,12 +90,6 @@ def validate_release_manifest(
                 "declared release tag must match the release identifier",
                 "$.signature.tag",
             )
-    if manifest["status"] == "release":
-        raise ValidationFailure(
-            "release-signature-verification-required",
-            "standalone release status is not accepted; verify an immutable pending candidate with signed-tag evidence",
-            "$.status",
-        )
 
 
 def validate_release_candidate_identity(
@@ -147,6 +141,23 @@ def _validate_v2_release_candidate_manifest(manifest: Any) -> None:
             "release-candidate-schema-unsupported",
             "release candidate identity verification requires a v2 release manifest",
         )
+    if manifest.get("status") != "release-candidate":
+        raise ValidationFailure(
+            "release-candidate-status-invalid",
+            "candidate manifest must have pending release-candidate status",
+        )
+    signature = manifest.get("signature")
+    fingerprint = (
+        signature.get("public_key_fingerprint") if isinstance(signature, dict) else None
+    )
+    try:
+        _require_canonical_owner_fingerprint(fingerprint)
+    except ValidationFailure as exc:
+        raise ValidationFailure(
+            "release-candidate-owner-fingerprint-invalid",
+            "candidate manifest fingerprint must use canonical unpadded SHA-256 form",
+            "$.signature.public_key_fingerprint",
+        ) from exc
     try:
         validate_release_manifest(manifest)
     except ValidationFailure as exc:
@@ -157,11 +168,6 @@ def _validate_v2_release_candidate_manifest(manifest: Any) -> None:
                 "$.signature.public_key_fingerprint",
             ) from exc
         raise
-    if manifest["status"] != "release-candidate":
-        raise ValidationFailure(
-            "release-candidate-status-invalid",
-            "candidate manifest must have pending release-candidate status",
-        )
 
 
 def _read_regular_release_asset(asset_directory: Path, name: str) -> bytes:
@@ -178,14 +184,29 @@ def _read_regular_release_asset(asset_directory: Path, name: str) -> bytes:
         ) from exc
 
 
+def _require_asset_directory(value: Any) -> Path:
+    if value is None:
+        raise ValidationFailure(
+            "release-candidate-asset-directory-required",
+            "asset-aware release verification requires an explicit staged-asset Path",
+        )
+    if not isinstance(value, Path):
+        raise ValidationFailure(
+            "release-candidate-asset-directory-invalid",
+            "release candidate asset directory must be supplied as a Path",
+        )
+    return value
+
+
 def _verify_release_assets(
     manifest: dict[str, Any],
-    asset_directory: Path,
+    asset_directory: Path | None,
     repository_root: Path,
     tag_commit: str,
 ) -> dict[str, Any]:
     """Replay staged assets against the manifest, checksum file, and tagged source."""
 
+    asset_directory = _require_asset_directory(asset_directory)
     try:
         resolved_assets = asset_directory.resolve(strict=True)
         if not resolved_assets.is_dir() or asset_directory.is_symlink():
@@ -439,9 +460,24 @@ def _signed_manifest_digest(tag_object: bytes) -> str:
 
 
 def validate_release_candidate_verification_receipt(receipt: dict[str, Any]) -> None:
+    schema_id = receipt.get("schema_id") if isinstance(receipt, dict) else None
+    schema_files = {
+        "artifact-memory/release-candidate-verification-receipt/v1": (
+            "release-candidate-verification-receipt.v1.schema.json"
+        ),
+        "artifact-memory/release-candidate-verification-receipt/v2": (
+            "release-candidate-verification-receipt.v2.schema.json"
+        ),
+    }
+    schema_file = schema_files.get(schema_id)
+    if schema_file is None:
+        raise ValidationFailure(
+            "release-candidate-receipt-schema-unsupported",
+            "release verification receipt requires a supported versioned schema",
+        )
     validate(
         receipt,
-        load_schema("core", "release-candidate-verification-receipt.v1.schema.json"),
+        load_schema("core", schema_file),
     )
     if len(
         {
@@ -480,6 +516,12 @@ def validate_release_candidate_verification_receipt(receipt: dict[str, Any]) -> 
 
 def render_release_candidate_verification_receipt(receipt: dict[str, Any]) -> str:
     validate_release_candidate_verification_receipt(receipt)
+    asset_lines = ""
+    if receipt["schema_id"] == "artifact-memory/release-candidate-verification-receipt/v2":
+        asset_lines = (
+            f"- Asset replay: `{receipt['asset_replay']}` ({receipt['verified_asset_count']} assets)\n"
+            f"- SHA256SUMS digest: `{receipt['checksum_manifest_sha256']}`\n"
+        )
     return (
         "# Release candidate verification receipt\n\n"
         f"- Outcome: `{receipt['outcome']}`\n"
@@ -498,9 +540,8 @@ def render_release_candidate_verification_receipt(receipt: dict[str, Any]) -> st
         f"- Signing key generation: `{receipt['signing_key_generation']}`\n"
         f"- Annotated tag verified: `{str(receipt['annotated_tag_verified']).lower()}`\n"
         f"- Verification output profile: `{receipt['verification_output_profile']}`\n"
-        f"- Asset replay: `{receipt['asset_replay']}` ({receipt['verified_asset_count']} assets)\n"
-        f"- SHA256SUMS digest: `{receipt['checksum_manifest_sha256']}`\n"
-        f"- Repository scope: `{receipt['repository_scope']}`\n"
+        + asset_lines
+        + f"- Repository scope: `{receipt['repository_scope']}`\n"
         f"- Checkout isolation: `{receipt['checkout_isolation']}`\n"
         f"- Concurrent mutation detection: `{receipt['concurrent_mutation_detection']}`\n"
         f"- Owner publication authorization evaluated: `{str(receipt['owner_publication_authorization_evaluated']).lower()}`\n"
@@ -516,7 +557,7 @@ def verify_checked_out_release_candidate(
     tag: str,
     repository: Path,
     *,
-    asset_directory: Path,
+    asset_directory: Path | None = None,
     owner_fingerprint: str,
     isolated_checkout: bool,
 ) -> dict[str, Any]:
@@ -528,6 +569,7 @@ def verify_checked_out_release_candidate(
     manifest = load_json_bytes(manifest_bytes)
     if not isinstance(manifest, dict):
         raise ValidationFailure("release-candidate-manifest-invalid", "release manifest must be an object")
+    asset_directory = _require_asset_directory(asset_directory)
     repository_root = _repository_root(repository)
     tag_ref = f"refs/tags/{tag}"
     try:

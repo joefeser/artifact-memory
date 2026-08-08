@@ -220,7 +220,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
     def test_checked_synthetic_verification_receipt_and_rendering(self):
         fixture_root = Path(__file__).resolve().parents[1] / "fixtures/synthetic/release"
         expected_receipt = json.loads(
-            (fixture_root / "v0-release-candidate-verification-receipt.json").read_text(
+            (fixture_root / "v0-release-candidate-verification-receipt.v2.json").read_text(
                 encoding="utf-8"
             )
         )
@@ -259,7 +259,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
         validate_release_candidate_verification_receipt(receipt)
         self.assertEqual(
             render_release_candidate_verification_receipt(receipt),
-            (fixture_root / "v0-release-candidate-verification-receipt.md").read_text(encoding="utf-8"),
+            (fixture_root / "v0-release-candidate-verification-receipt.v2.md").read_text(encoding="utf-8"),
         )
 
     def test_receipt_cli_reports_integrity_without_replaying_live_evidence(self):
@@ -275,6 +275,22 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
         receipt = json.loads(output.getvalue())
         self.assertEqual(receipt["outcome"], "integrity-verified")
         self.assertFalse(receipt["live_release_evidence_verified"])
+
+    def test_historical_v1_receipt_remains_valid_and_renderable(self):
+        fixture_root = Path(__file__).resolve().parents[1] / "fixtures/synthetic/release"
+        receipt = json.loads(
+            (fixture_root / "v0-release-candidate-verification-receipt.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        validate_release_candidate_verification_receipt(receipt)
+        self.assertEqual(
+            render_release_candidate_verification_receipt(receipt),
+            (fixture_root / "v0-release-candidate-verification-receipt.md").read_text(
+                encoding="utf-8"
+            ),
+        )
+        self.assertNotIn("asset_replay", receipt)
 
     def test_receipt_rejects_rehashed_incoherent_release_identity(self):
         fixture = (
@@ -293,7 +309,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             }
             body[field] = value
             tampered = receipt_with_digest(
-                RELEASE_VERIFICATION_SCHEMA_ID,
+                original["schema_id"],
                 RELEASE_VERIFICATION_RECEIPT_PREFIX,
                 body,
             )
@@ -396,6 +412,58 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             self.assertEqual(failure.exception.code, "duplicate-key")
             git_verify.assert_not_called()
 
+    def test_verifier_missing_or_invalid_asset_directory_is_typed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_path = root / "release.json"
+            manifest_path.write_text(json.dumps(release_manifest()), encoding="utf-8")
+            for asset_directory, code in (
+                (None, "release-candidate-asset-directory-required"),
+                ("assets", "release-candidate-asset-directory-invalid"),
+            ):
+                with self.subTest(asset_directory=asset_directory):
+                    with patch("artifact_memory.release._repository_root") as repository_root:
+                        with self.assertRaises(ValidationFailure) as failure:
+                            verify_checked_out_release_candidate(
+                                manifest_path,
+                                "v0.1.0",
+                                root,
+                                asset_directory=asset_directory,  # type: ignore[arg-type]
+                                owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                                isolated_checkout=True,
+                            )
+                    self.assertEqual(failure.exception.code, code)
+                    repository_root.assert_not_called()
+
+    def test_verifier_cli_missing_asset_directory_returns_json_migration_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_path = root / "release.json"
+            manifest_path.write_text(json.dumps(release_manifest()), encoding="utf-8")
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = main(
+                    [
+                        "verify-release-candidate",
+                        str(manifest_path),
+                        "--tag",
+                        "v0.1.0",
+                        "--repo",
+                        str(root),
+                        "--owner-fingerprint",
+                        SYNTHETIC_FINGERPRINT,
+                        "--isolated-checkout",
+                        "--json",
+                    ]
+                )
+        self.assertEqual(result, EXIT_INVALID)
+        rejection = json.loads(output.getvalue())
+        self.assertEqual(rejection["outcome"], "rejected")
+        self.assertEqual(
+            rejection["diagnostics"][0]["code"],
+            "release-candidate-asset-directory-required",
+        )
+
     def test_verifier_scopes_git_and_reports_signing_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -441,7 +509,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             self.assertTrue(result["annotated_tag_verified"])
             self.assertEqual(
                 result["schema_id"],
-                "artifact-memory/release-candidate-verification-receipt/v1",
+                "artifact-memory/release-candidate-verification-receipt/v2",
             )
             validate_release_candidate_verification_receipt(result)
             self.assertEqual(verify_tag.call_args.kwargs["cwd"], root)

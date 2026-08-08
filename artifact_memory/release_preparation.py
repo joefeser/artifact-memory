@@ -505,7 +505,10 @@ def prepare_release_candidate(
     root = _repository_root(repository)
     commit = _exact_commit(root, candidate)
     output = _prepare_output(root, output)
-    if SSH_FINGERPRINT_PATTERN.fullmatch(owner_fingerprint) is None:
+    if (
+        not isinstance(owner_fingerprint, str)
+        or SSH_FINGERPRINT_PATTERN.fullmatch(owner_fingerprint) is None
+    ):
         raise ValidationFailure(
             "release-candidate-owner-fingerprint-invalid",
             "owner-published fingerprint must use canonical unpadded SHA-256 form",

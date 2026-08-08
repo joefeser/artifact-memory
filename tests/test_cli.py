@@ -102,6 +102,22 @@ class CliTests(unittest.TestCase):
         self.assertIn("semantic rules", result.stdout)
         self.assertIn("release-manifest releasability", result.stdout)
 
+    def test_pending_candidate_validation_is_explicitly_non_authenticating(self):
+        fixture = RELEASE_FIXTURES / "v0-pending-candidate-manifest.v2.json"
+        result = self.run_cli("validate", str(fixture), "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(result.stdout)
+        self.assertTrue(receipt["valid"])
+        self.assertEqual(receipt["outcome"], "accepted")
+        self.assertEqual(receipt["lifecycle_status"], "release-candidate")
+        self.assertEqual(receipt["signature_state"], "pending-owner-signature")
+        self.assertEqual(
+            receipt["validation_scope"],
+            "schema-and-semantic-rules-only",
+        )
+        self.assertFalse(receipt["owner_signature_verified"])
+        self.assertFalse(receipt["release_evidence_accepted"])
+
     def test_validate_rejects_v1_release_claim_that_requires_migration(self):
         fixture = RELEASE_FIXTURES / "v0-preview-manifest.json"
         manifest = json.loads(fixture.read_text(encoding="utf-8"))

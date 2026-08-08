@@ -46,11 +46,14 @@ manifests to be `unsigned-preview` with no tag, fingerprint, or key generation.
 Preparation emits `status: release-candidate` and
 `signature.state: pending-owner-signature`, even though it records the dedicated
 SSH Ed25519 public fingerprint, key generation, and intended matching tag. A
-standalone manifest cannot authenticate itself: semantic validation always
-rejects a standalone `status: release` claim. The signed-candidate verifier
-accepts the immutable pending candidate and emits a digest-bound verification
-receipt; those two records establish the release evidence without rewriting
-bytes after signing.
+standalone manifest cannot authenticate itself. Existing v2 `status: release`
+records remain structurally and semantically readable for compatibility, while
+generic validation explicitly reports that no owner signature was verified and
+no release evidence was accepted. The signed-candidate verifier accepts the
+immutable pending candidate and emits a digest-bound v2 verification receipt;
+those two records establish the release evidence without rewriting bytes after
+signing. Historical v1 verification receipts remain integrity-readable but do
+not contain the mandatory staged-asset replay evidence added in v2.
 
 The published v2 schema remains able to read its earlier permissive fingerprint
 shape, but such a value is not releasable evidence. Semantic validation returns

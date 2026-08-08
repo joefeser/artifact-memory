@@ -379,6 +379,8 @@ class ReleasePreparationTests(unittest.TestCase):
             repository, commit = self.release_repository(root / "candidate")
             for fingerprint, generation, code in (
                 ("SHA256:short", "generation-1", "release-candidate-owner-fingerprint-invalid"),
+                (None, "generation-1", "release-candidate-owner-fingerprint-invalid"),
+                (b"not-text", "generation-1", "release-candidate-owner-fingerprint-invalid"),
                 (SYNTHETIC_FINGERPRINT, "", "release-candidate-key-generation-invalid"),
                 (SYNTHETIC_FINGERPRINT, "generation 1", "release-candidate-key-generation-invalid"),
             ):
@@ -388,7 +390,7 @@ class ReleasePreparationTests(unittest.TestCase):
                             repository,
                             commit,
                             root / code,
-                            owner_fingerprint=fingerprint,
+                            owner_fingerprint=fingerprint,  # type: ignore[arg-type]
                             key_generation=generation,
                         )
                     self.assertEqual(failure.exception.code, code)

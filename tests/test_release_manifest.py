@@ -235,7 +235,7 @@ class ReleaseManifestTests(unittest.TestCase):
             validate_release_manifest(released)
         self.assertEqual(failure.exception.code, "release-tag-mismatch")
 
-    def test_standalone_release_status_requires_external_signature_evidence(self):
+    def test_existing_v2_release_status_remains_structurally_valid(self):
         manifest = json.loads(
             (FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8")
         )
@@ -249,12 +249,32 @@ class ReleaseManifestTests(unittest.TestCase):
             "key_generation": "generation-1",
             "owner_signed_annotated_tag": True,
         }
-        with self.assertRaises(ValidationFailure) as failure:
-            validate_release_manifest(manifest)
-        self.assertEqual(
-            failure.exception.code,
-            "release-signature-verification-required",
+        validate_release_manifest(manifest)
+
+    def test_pending_candidate_is_rejected_before_preview_conformance_git_work(self):
+        candidate = FIXTURE / "v0-pending-candidate-manifest.v2.json"
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            (fixture / "v0-preview-manifest.v2.json").write_bytes(candidate.read_bytes())
+            with mock.patch("artifact_memory.release_conformance._git") as git_read:
+                with self.assertRaises(ValidationFailure) as failure:
+                    run_release_conformance(fixture)
+        self.assertEqual(failure.exception.code, "release-preview-lifecycle-invalid")
+        git_read.assert_not_called()
+
+    def test_pending_candidate_schema_requires_canonical_fingerprint(self):
+        manifest = json.loads(
+            (FIXTURE / "v0-pending-candidate-manifest.v2.json").read_text(
+                encoding="utf-8"
+            )
         )
+        validate_release_manifest(manifest)
+        for fingerprint in ("SHA256:" + "A" * 20 + "==", "SHA256:short"):
+            with self.subTest(fingerprint=fingerprint):
+                invalid = copy.deepcopy(manifest)
+                invalid["signature"]["public_key_fingerprint"] = fingerprint
+                with self.assertRaises(ValidationFailure):
+                    validate_release_manifest(invalid)
 
     def test_legacy_v2_fingerprint_is_schema_readable_but_requires_migration(self):
         manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))

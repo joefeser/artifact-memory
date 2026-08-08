@@ -117,7 +117,11 @@ def main(argv: list[str] | None = None) -> int:
     release_candidate.add_argument("manifest", type=Path)
     release_candidate.add_argument("--tag", required=True)
     release_candidate.add_argument("--repo", required=True, type=Path)
-    release_candidate.add_argument("--asset-dir", required=True, type=Path)
+    release_candidate.add_argument(
+        "--asset-dir",
+        type=Path,
+        help="explicit staged-asset directory required by asset-aware v2 verification",
+    )
     release_candidate.add_argument("--owner-fingerprint", required=True)
     release_candidate.add_argument(
         "--isolated-checkout",
@@ -408,6 +412,22 @@ def main(argv: list[str] | None = None) -> int:
         result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}
     else:
         result = {"valid": True, "outcome": "accepted", "diagnostics": []}
+        if schema_id in {
+            "artifact-memory/release-manifest/v1",
+            "artifact-memory/release-manifest/v2",
+        }:
+            signature = record.get("signature", {})
+            result.update(
+                {
+                    "validation_scope": "schema-and-semantic-rules-only",
+                    "lifecycle_status": record.get("status"),
+                    "signature_state": (
+                        signature.get("state") if isinstance(signature, dict) else None
+                    ),
+                    "owner_signature_verified": False,
+                    "release_evidence_accepted": False,
+                }
+            )
     result["schema_id"] = schema_id
     _receipt(result, args.as_json)
     return EXIT_OK if result["valid"] else EXIT_INVALID
