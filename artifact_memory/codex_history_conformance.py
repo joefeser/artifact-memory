@@ -118,12 +118,12 @@ def run_codex_history_conformance(fixture_root: Path) -> dict[str, Any]:
         ],
     }
     conformance = receipt_with_digest(
-        "artifact-memory/codex-history-conformance-receipt/v1",
+        "artifact-memory/codex-history-conformance-receipt/v2",
         "codex-history-conformance-receipt://synthetic/",
         body,
     )
     validate(
         conformance,
-        load_schema("core", "codex-history-conformance-receipt.v1.schema.json"),
+        load_schema("core", "codex-history-conformance-receipt.v2.schema.json"),
     )
     return conformance

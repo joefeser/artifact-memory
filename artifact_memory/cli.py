@@ -102,6 +102,18 @@ def main(argv: list[str] | None = None) -> int:
     context.add_argument("--freshness-basis", required=True, help="operator assertion or receipt reference")
     context.add_argument("--authorize-evidence", action="append", nargs=2, metavar=("PROVIDER_ID", "PROVIDER_RECORD_ID"), default=[], dest="authorized_evidence")
     context.add_argument("--support-required-extension", action="append", nargs=2, metavar=("IDENTIFIER", "VERSION"), default=[], dest="supported_required_extensions")
+    context.add_argument(
+        "--support-context-schema",
+        action="append",
+        choices=[
+            "artifact-memory/context-pack/v2",
+            "artifact-memory/context-pack/v3",
+            "artifact-memory/context-pack/v4",
+        ],
+        default=[],
+        dest="supported_context_schema_ids",
+        help="negotiated context-pack schema; repeat for multiple supported versions",
+    )
     context.add_argument("--json", action="store_true", dest="as_json")
     codex_history = subparsers.add_parser("import-codex-history")
     codex_history.add_argument("task_export", type=Path)
@@ -292,6 +304,10 @@ def main(argv: list[str] | None = None) -> int:
                 args.allow_sensitivity,
                 args.max_bytes,
                 supported_required_extensions=[tuple(item) for item in args.supported_required_extensions],
+                supported_context_schema_ids=(
+                    args.supported_context_schema_ids
+                    or ["artifact-memory/context-pack/v2", "artifact-memory/context-pack/v3"]
+                ),
                 **build_selection_policy(
                     record_ids,
                     selected_at=args.selected_at,

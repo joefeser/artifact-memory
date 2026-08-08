@@ -11,6 +11,7 @@ from artifact_memory.record_evolution import (
     build_candidate,
     current_records,
     render_candidate_admission_receipt,
+    validate_candidate_admission_receipt,
 )
 from artifact_memory.independent_reader import ReaderFailure, _validate_record
 from artifact_memory.independent_reader import admit_bundle_v2
@@ -406,7 +407,13 @@ class RecordEvolutionTests(unittest.TestCase):
                 decision="rejected",
                 decision_ref="decision://synthetic/unsorted",
             )
-        for malformed in ("plain text", "https://contains space", "//missing-scheme"):
+        for malformed in (
+            "plain text",
+            "https://contains-space.example/private",
+            "file:///Users/synthetic/private-vault",
+            "ssh://synthetic.example/repository",
+            "//missing-scheme",
+        ):
             with self.subTest(malformed=malformed):
                 provenance = copy.deepcopy(expected["candidate_provenance"])
                 provenance[0]["source_ref"] = malformed
@@ -418,6 +425,36 @@ class RecordEvolutionTests(unittest.TestCase):
                         candidate_namespace="synthetic-evolution",
                         bounded_input_refs=expected["candidate_scope"]["bounded_input_refs"],
                     )
+
+        duplicate_sources = copy.deepcopy(expected)
+        duplicate_sources["source_record_refs"].append({
+            "record_id": duplicate_sources["source_record_refs"][0]["record_id"],
+            "revision_digest": "sha-256:" + "f" * 64,
+        })
+        with self.assertRaisesRegex(ValidationFailure, "unique logical identities"):
+            admit_candidate(
+                duplicate_sources,
+                decision="rejected",
+                decision_ref="decision://synthetic/duplicate-source",
+            )
+
+    def test_v2_receipt_identity_and_transition_cross_bindings_are_verified(self):
+        fixture = ROOT / "fixtures/synthetic/record-evolution/v2"
+        receipt = json.loads((fixture / "accepted-receipt.json").read_text(encoding="utf-8"))
+        validate_candidate_admission_receipt(receipt)
+
+        retained_identity = copy.deepcopy(receipt)
+        retained_identity["predecessor_transitions"][0]["to_revision_digest"] = "sha-256:" + "f" * 64
+        with self.assertRaisesRegex(ValidationFailure, "identity does not match"):
+            validate_candidate_admission_receipt(retained_identity)
+
+        rebound = copy.deepcopy(receipt)
+        rebound["predecessor_transitions"][0]["from_revision_digest"] = "sha-256:" + "f" * 64
+        from artifact_memory.canonical import expected_receipt_id
+
+        rebound["receipt_id"] = expected_receipt_id(rebound, "candidate-admission-receipt://")
+        with self.assertRaisesRegex(ValidationFailure, "does not bind"):
+            validate_candidate_admission_receipt(rebound)
 
     def test_v2_supersession_requires_exact_current_predecessor(self):
         fixture = ROOT / "fixtures/synthetic/record-evolution/v2"

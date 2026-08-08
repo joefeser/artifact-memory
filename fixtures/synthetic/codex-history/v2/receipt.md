@@ -8,7 +8,7 @@
 - Excluded source material admitted: no
 - Raw source canonical: no
 - Projection rebuilt from canonical records: yes
-- Bounded informational context records: four
+- Bounded informational context records: zero; all four derivatives remain draft
 - Correction route: Artifact Memory record supersession v2
 - Deletion route: Artifact Memory retention/deletion v2
 - Deletion execution: none; the request outcome is `not-authorized`

@@ -13,7 +13,7 @@ from artifact_memory.codex_history_conformance import run_codex_history_conforma
 from artifact_memory.conformance_cli import run_conformance_cli
 
 
-DEFAULT_FIXTURE = ROOT / "fixtures" / "synthetic" / "codex-history" / "v1"
+DEFAULT_FIXTURE = ROOT / "fixtures" / "synthetic" / "codex-history" / "v2"
 
 
 def main(argv: list[str] | None = None) -> int:

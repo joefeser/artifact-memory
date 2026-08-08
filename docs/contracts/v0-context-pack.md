@@ -68,6 +68,11 @@ V4 always includes lifecycle, freshness, sensitivity, revocation, and
 receipt bindings. If only v4 is negotiated, ordinary and revocation-aware packs
 may also use v4. No v2 or v3 field was added, renamed, or relaxed.
 
+The CLI preserves its v2/v3 default and exposes repeatable
+`--support-context-schema` negotiation. A lifecycle-aware command invocation
+must include `--support-context-schema artifact-memory/context-pack/v4`; it is
+never selected silently for an old caller.
+
 The pack is not a WITS memory card, WITS fresh-context packet, HACP Task
 Packet, Route Task, Codex continuation payload, or authority-bearing envelope.
 It cannot authorize execution, routing, disclosure, repository mutation,

@@ -11,9 +11,7 @@ The import policy authorizes exactly one synthetic task, prohibits bulk and
 network intake, gives raw source evidence an explicit expiry, and routes later
 correction or deletion through the #36 lifecycle contract. The resulting
 decision, research, workstream, and question records remain draft derivatives
-that require owner review. Lifecycle-aware context export therefore suppresses
-all four and receipts a zero-record informational pack rather than presenting
-draft meaning as current. The lifecycle exercise creates a non-authorizing
+that require owner review. The lifecycle exercise creates a non-authorizing
 deletion request receipt and performs no destructive action.
 
 `expected-receipt.json` is the machine-readable evidence. `receipt.md` is the

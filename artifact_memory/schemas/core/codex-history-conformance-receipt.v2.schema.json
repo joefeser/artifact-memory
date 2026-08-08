@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://artifact-memory.dev/schemas/core/codex-history-conformance-receipt/v1",
-  "title": "Artifact Memory Codex history synthetic conformance receipt v1",
+  "$id": "https://artifact-memory.dev/schemas/core/codex-history-conformance-receipt/v2",
+  "title": "Artifact Memory lifecycle-aware Codex history synthetic conformance receipt v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -14,7 +14,7 @@
     "authority_boundary", "limitations"
   ],
   "properties": {
-    "schema_id": {"const": "artifact-memory/codex-history-conformance-receipt/v1"},
+    "schema_id": {"const": "artifact-memory/codex-history-conformance-receipt/v2"},
     "receipt_id": {"type": "string", "pattern": "^codex-history-conformance-receipt://synthetic/[0-9a-f]{64}$"},
     "outcome": {"const": "complete"},
     "import_policy_id": {"type": "string", "pattern": "^codex-history-import-policy://synthetic/[A-Za-z0-9._~-]+$"},
@@ -35,7 +35,7 @@
     "records_validated": {"type": "integer", "minimum": 3},
     "projection_source_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
     "context_pack_id": {"type": "string", "pattern": "^context-pack://[0-9a-f]{64}$"},
-    "context_record_count": {"type": "integer", "minimum": 3},
+    "context_record_count": {"const": 0},
     "excluded_source_field_count": {"type": "integer", "minimum": 6},
     "excluded_source_material_admitted": {"const": false},
     "raw_source_canonical": {"const": false},

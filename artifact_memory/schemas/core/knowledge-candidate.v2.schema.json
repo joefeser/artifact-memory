@@ -34,7 +34,13 @@
         "required": ["kind", "source_ref"],
         "properties": {
           "kind": {"enum": ["agent", "adapter", "derivation"]},
-          "source_ref": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$"}
+          "source_ref": {
+            "type": "string",
+            "allOf": [
+              {"pattern": "^[a-z][a-z0-9+.-]*://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$"},
+              {"not": {"pattern": "^(?:file|ftp|ftps|http|https|nfs|sftp|smb|ssh)://"}}
+            ]
+          }
         }
       }
     },
@@ -48,7 +54,13 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*://[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$"}
+          "items": {
+            "type": "string",
+            "allOf": [
+              {"pattern": "^[a-z][a-z0-9+.-]*://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$"},
+              {"not": {"pattern": "^(?:file|ftp|ftps|http|https|nfs|sftp|smb|ssh)://"}}
+            ]
+          }
         }
       }
     },

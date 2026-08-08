@@ -1,0 +1,28 @@
+{
+  "schema_id": "artifact-memory/codex-history-import-policy/v1",
+  "policy_id": "codex-history-import-policy://synthetic/single-task-0001",
+  "selected_task_id": "synthetic-task-0001",
+  "source_scope": "synthetic",
+  "authority_ref": "authority://synthetic/owner-selection-0001",
+  "authorization_state": "granted",
+  "authorized_at": "2026-08-01T00:00:00Z",
+  "allowed_fields": [
+    "task_id",
+    "title",
+    "summary",
+    "decisions",
+    "research",
+    "workstreams",
+    "open_questions"
+  ],
+  "record_sensitivity": "public",
+  "raw_retention_policy_ref": "retention-policy://synthetic/codex-source-expiry-0001",
+  "raw_retention_mode": "source-system-managed-until-expiry",
+  "raw_source_expires_at": "2026-11-01T00:00:00Z",
+  "raw_source_canonical": false,
+  "bulk_ingestion": false,
+  "network_access": false,
+  "owner_review_required": true,
+  "correction_route": "artifact-memory/record-supersession/v2",
+  "deletion_route": "artifact-memory/retention-deletion/v2"
+}

@@ -12,8 +12,12 @@ provenance, sensitivity, required owner review, and an explicit
 sorted, unique set of bounded input references. Bounded inputs describe what
 the producer considered; `source_record_refs` separately bind canonical record
 revisions used by evolution relationships. Provenance and scope references use
-the portable `scheme://value` reference form. They are provenance claims, not
-authenticated grants.
+the portable logical `scheme://segment[/segment]` reference form. Location and
+transport schemes (`file`, `ftp`, `ftps`, `http`, `https`, `nfs`, `sftp`, `smb`,
+and `ssh`) are forbidden, as are authority/userinfo, query, fragment, and bearer
+URL forms. They are provenance claims, not authenticated grants. Source record
+references must also have unique logical record identities; two revisions of
+the same source cannot make candidate identity or admission order-dependent.
 
 Candidate v2 can carry first-class `uncertainty` without asserting a
 `knowledge-record/v3.derivative`. Existing derivative uncertainty remains
@@ -72,10 +76,22 @@ closed because their identity rules are unknown. A known candidate whose result
 schema was not negotiated continues to receive the typed `unsupported` outcome;
 there is no silent schema downgrade.
 
+Admission receipt validation is semantic as well as structural. A reader
+recomputes the digest-derived receipt ID and verifies that predecessor
+transitions bind unique declared source revisions to the receipted result
+revision. A shape-valid receipt with a retained ID and altered transition is
+rejected.
+
 The checked v2 synthetic fixtures replay accepted supersession, rejection,
 dispute, independent uncertainty, immutable predecessor transition, and direct
 lifecycle-aware context suppression. The v1 accepted fixture is replayed
 unchanged as the compatibility proof.
+
+The lifecycle repair also exposed a released Codex-history v1 fixture that had
+presented draft derivatives as context. That v1 schema and fixture remain
+byte-for-byte frozen. The corrected zero-record proof uses
+`codex-history-conformance-receipt/v2` and the v2 fixture directory, so an old v1
+reader is never sent a newly incompatible v1 payload.
 
 This v0 slice does not capture raw transcripts or model reasoning, infer trust
 from ranking, resolve conflicts, perform bulk capture, or provide semantic

@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from typing import Any
 
-from .canonical import canonical_bytes, receipt_with_digest, sha256_bytes
+from .canonical import canonical_bytes, expected_receipt_id, receipt_with_digest, sha256_bytes
 from .knowledge import knowledge_schema
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
@@ -23,7 +23,8 @@ CANDIDATE_SCHEMAS = {
     "artifact-memory/knowledge-candidate/v1": "knowledge-candidate.v1.schema.json",
     "artifact-memory/knowledge-candidate/v2": "knowledge-candidate.v2.schema.json",
 }
-PORTABLE_REFERENCE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$")
+PORTABLE_REFERENCE = re.compile(r"^[a-z][a-z0-9+.-]*://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$")
+LOCATION_REFERENCE_SCHEMES = {"file", "ftp", "ftps", "http", "https", "nfs", "sftp", "smb", "ssh"}
 CANDIDATE_NAMESPACE = re.compile(r"^[A-Za-z0-9._~-]+$")
 
 
@@ -71,7 +72,12 @@ def _portable_references(values: Iterable[str]) -> list[str]:
         raise ValidationFailure("candidate-scope-invalid", "bounded input references must be an iterable of portable references") from exc
     if (
         not materialized
-        or any(not isinstance(value, str) or PORTABLE_REFERENCE.fullmatch(value) is None for value in materialized)
+        or any(
+            not isinstance(value, str)
+            or PORTABLE_REFERENCE.fullmatch(value) is None
+            or value.partition("://")[0] in LOCATION_REFERENCE_SCHEMES
+            for value in materialized
+        )
         or len(set(materialized)) != len(materialized)
     ):
         raise ValidationFailure("candidate-scope-invalid", "candidate scope requires unique portable input references")
@@ -82,6 +88,9 @@ def _validate_v2_canonical_order(candidate: dict[str, Any]) -> None:
     provenance = candidate["candidate_provenance"]
     sources = candidate["source_record_refs"]
     bounded_inputs = candidate["candidate_scope"]["bounded_input_refs"]
+    source_ids = [item["record_id"] for item in sources]
+    if len(source_ids) != len(set(source_ids)):
+        raise ValidationFailure("candidate-source-invalid", "candidate source references must have unique logical identities")
     if provenance != sorted(provenance, key=lambda item: (item["kind"], item["source_ref"])):
         raise ValidationFailure("candidate-order-invalid", "candidate provenance must use canonical order")
     if sources != sorted(sources, key=lambda item: item["record_id"]):
@@ -132,7 +141,10 @@ def build_candidate(
             raise ValidationFailure("candidate-provenance-invalid", "candidate provenance fields are invalid")
         if item["kind"] not in {"agent", "adapter", "derivation"} or not isinstance(item["source_ref"], str) or not item["source_ref"]:
             raise ValidationFailure("candidate-provenance-invalid", "candidate provenance values are invalid")
-        if use_v2 and PORTABLE_REFERENCE.fullmatch(item["source_ref"]) is None:
+        if use_v2 and (
+            PORTABLE_REFERENCE.fullmatch(item["source_ref"]) is None
+            or item["source_ref"].partition("://")[0] in LOCATION_REFERENCE_SCHEMES
+        ):
             raise ValidationFailure("candidate-provenance-invalid", "candidate provenance references must use the portable reference form")
         provenance.append({"kind": item["kind"], "source_ref": item["source_ref"]})
     if not provenance:
@@ -201,8 +213,40 @@ def _receipt(
         "candidate-admission-receipt://",
         body,
     )
-    validate(receipt, load_schema("core", f"candidate-admission-receipt.{candidate_version}.schema.json"))
+    validate_candidate_admission_receipt(receipt)
     return receipt
+
+
+def validate_candidate_admission_receipt(receipt: dict[str, Any]) -> None:
+    """Validate receipt shape, digest identity, and predecessor cross-bindings."""
+    schema_id = receipt.get("schema_id") if isinstance(receipt, dict) else None
+    if schema_id not in {
+        "artifact-memory/candidate-admission-receipt/v1",
+        "artifact-memory/candidate-admission-receipt/v2",
+    }:
+        raise ValidationFailure("candidate-receipt-unsupported", "candidate admission receipt schema is unsupported")
+    version = schema_id.rsplit("/", 1)[-1]
+    validate(receipt, load_schema("core", f"candidate-admission-receipt.{version}.schema.json"))
+    if receipt["receipt_id"] != expected_receipt_id(receipt, "candidate-admission-receipt://"):
+        raise ValidationFailure("candidate-receipt-identity-mismatch", "candidate admission receipt identity does not match its canonical body")
+    source_revisions: dict[str, str] = {}
+    for source in receipt["source_record_refs"]:
+        if source["record_id"] in source_revisions:
+            raise ValidationFailure("candidate-source-invalid", "receipt source references must have unique logical identities")
+        source_revisions[source["record_id"]] = source["revision_digest"]
+    transitions = receipt.get("predecessor_transitions", [])
+    if transitions != sorted(transitions, key=lambda item: item["record_id"]):
+        raise ValidationFailure("candidate-transition-order-invalid", "predecessor transitions must use canonical order")
+    transition_ids = [transition["record_id"] for transition in transitions]
+    if len(transition_ids) != len(set(transition_ids)):
+        raise ValidationFailure("candidate-transition-duplicate", "predecessor transitions must have unique logical identities")
+    for transition in transitions:
+        if (
+            source_revisions.get(transition["record_id"]) != transition["from_revision_digest"]
+            or transition["superseded_by"] != receipt["result_record_ref"]
+            or transition["from_revision_digest"] == transition["to_revision_digest"]
+        ):
+            raise ValidationFailure("candidate-transition-binding-mismatch", "predecessor transition does not bind the source and result revisions")
 
 
 def _admission_result(
@@ -371,14 +415,8 @@ def admit_candidate(
 
 def render_candidate_admission_receipt(receipt: dict[str, Any]) -> str:
     """Render a stable human-readable projection of a checked admission receipt."""
-    schema_id = receipt.get("schema_id") if isinstance(receipt, dict) else None
-    if schema_id not in {
-        "artifact-memory/candidate-admission-receipt/v1",
-        "artifact-memory/candidate-admission-receipt/v2",
-    }:
-        raise ValidationFailure("candidate-receipt-unsupported", "candidate admission receipt schema is unsupported")
-    version = schema_id.rsplit("/", 1)[-1]
-    validate(receipt, load_schema("core", f"candidate-admission-receipt.{version}.schema.json"))
+    validate_candidate_admission_receipt(receipt)
+    schema_id = receipt["schema_id"]
     result_ref = receipt["result_record_ref"]
     result = "none" if result_ref is None else f'{result_ref["record_id"]} @ {result_ref["revision_digest"]}'
     diagnostics = receipt["diagnostics"]
