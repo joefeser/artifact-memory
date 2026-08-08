@@ -155,6 +155,29 @@ def git_output_for(manifest_bytes: bytes):
     return output
 
 
+def synthetic_git_replay(
+    git_args: list[str],
+    repository_root: Path,
+    asset_directory: Path,
+    asset_name: str,
+) -> None:
+    del repository_root
+    reproduced = {
+        (
+            "archive",
+            "--format=tar",
+            "--prefix=artifact-memory-0.1.0/",
+            "a" * 40,
+        ): SYNTHETIC_ARCHIVE,
+        ("show", f"{'a' * 40}:{SYNTHETIC_NOTES_SOURCE}"): SYNTHETIC_NOTES,
+    }[tuple(git_args)]
+    if (asset_directory / asset_name).read_bytes() != reproduced:
+        raise ValidationFailure(
+            "release-candidate-asset-replay-mismatch",
+            "staged release asset bytes do not match the verified tag commit",
+        )
+
+
 def write_allowed_signers(root: Path, *, public_key: str = SYNTHETIC_PUBLIC_KEY) -> Path:
     path = root / "allowed_signers"
     path.write_text(
@@ -181,6 +204,20 @@ def write_release_assets(root: Path, manifest: dict | None = None) -> None:
 
 
 class ReleaseCandidateIdentityTests(unittest.TestCase):
+    def setUp(self):
+        self._replay_patcher = patch(
+            "artifact_memory.release._replay_git_output_against_asset",
+            side_effect=synthetic_git_replay,
+        )
+        self._replay_patcher.start()
+        self._replay_patcher_active = True
+        self.addCleanup(self._stop_replay_patcher)
+
+    def _stop_replay_patcher(self):
+        if self._replay_patcher_active:
+            self._replay_patcher.stop()
+            self._replay_patcher_active = False
+
     def test_allowed_signer_parser_requires_ed25519_at_the_key_position(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "allowed_signers"
@@ -632,6 +669,84 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                 "release-candidate-asset-replay-mismatch",
             )
 
+    def test_verifier_rejects_assets_changed_during_streamed_replay(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = release_manifest()
+            manifest_bytes = json.dumps(manifest).encode("utf-8")
+            manifest_path = root / "release.json"
+            manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(root)
+            write_release_assets(root, manifest)
+
+            def replay_and_mutate(*args, **kwargs):
+                synthetic_git_replay(*args, **kwargs)
+                if args[3] == SYNTHETIC_ARCHIVE_NAME:
+                    (root / SYNTHETIC_ARCHIVE_NAME).write_bytes(b"changed after replay\n")
+
+            verification = subprocess.CompletedProcess(
+                args=["git", "verify-tag"], returncode=0, stdout="", stderr=""
+            )
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.__version__", "0.1.0"),
+                patch("artifact_memory.release.subprocess.run", return_value=verification),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    side_effect=git_output_for(manifest_bytes),
+                ),
+                patch(
+                    "artifact_memory.release._replay_git_output_against_asset",
+                    side_effect=replay_and_mutate,
+                ),
+            ):
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        asset_directory=root,
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=True,
+                    )
+            self.assertEqual(failure.exception.code, "release-candidate-assets-changed")
+
+    def test_historical_release_with_legacy_provenance_is_explicitly_unsupported(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = historical_release_manifest()
+            manifest["artifacts"][0]["provenance"] = "historical free-form provenance"
+            manifest_bytes = json.dumps(manifest).encode("utf-8")
+            manifest_path = root / "release.json"
+            manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(root)
+            write_release_assets(root, manifest)
+            verification = subprocess.CompletedProcess(
+                args=["git", "verify-tag"], returncode=0, stdout="", stderr=""
+            )
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.__version__", "0.1.0"),
+                patch("artifact_memory.release.subprocess.run", return_value=verification),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    side_effect=git_output_for(manifest_bytes),
+                ),
+            ):
+                with self.assertRaises(ValidationFailure) as failure:
+                    verify_checked_out_release_candidate(
+                        manifest_path,
+                        "v0.1.0",
+                        root,
+                        asset_directory=root,
+                        owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                        isolated_checkout=True,
+                    )
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-historical-asset-replay-unsupported",
+            )
+
     def test_verifier_rejects_allowed_signers_without_expected_key(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -678,6 +793,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             manifest_path = root / "release.json"
             manifest_path.write_bytes(manifest_bytes)
             allowed_signers = write_allowed_signers(root)
+            write_release_assets(root)
 
             def mutate_policy(*args, **kwargs):
                 allowed_signers.write_text(
@@ -979,6 +1095,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             manifest_path = root / "release.json"
             manifest_path.write_bytes(manifest_bytes)
             write_allowed_signers(root)
+            write_release_assets(root)
             base_output = git_output_for(manifest_bytes)
             tag_reads = 0
 
@@ -1019,6 +1136,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             manifest_path = root / "release.json"
             manifest_path.write_bytes(manifest_bytes)
             write_allowed_signers(root)
+            write_release_assets(root)
             base_output = git_output_for(manifest_bytes)
             symbolic_reads = 0
 
@@ -1054,6 +1172,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("git") and shutil.which("ssh-keygen"), "Git SSH tools required")
     def test_real_git_ssh_tag_verification_contract(self):
+        self._stop_replay_patcher()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             repository = root / "checkout"

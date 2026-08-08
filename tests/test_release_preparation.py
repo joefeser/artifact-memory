@@ -490,6 +490,10 @@ class ReleasePreparationTests(unittest.TestCase):
         self.assertEqual(summary["outcome"], "integrity-verified")
         self.assertFalse(summary["owner_signature_verified"])
         self.assertEqual(
+            summary["verification_scope"],
+            "receipt-schema-canonical-identity-and-trailer-coherence-only",
+        )
+        self.assertEqual(
             summary["tag_message_trailer"],
             json.loads(fixture.read_text(encoding="utf-8"))["tag_message_trailer"],
         )

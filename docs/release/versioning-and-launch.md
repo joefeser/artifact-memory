@@ -56,10 +56,13 @@ owner signature or accept release evidence. Its stable v0 result shape is not
 expanded with authenticity claims. The signed-candidate verifier accepts the
 immutable pending candidate and emits a digest-bound v2 verification receipt;
 those two records establish the release evidence without rewriting bytes after
-signing. For compatibility, the verifier also accepts an existing valid v2
-`status: release` record and applies the same tag, manifest, signer, asset, and
-source checks. Historical v1 verification receipts remain integrity-readable
-but do not contain the mandatory staged-asset replay evidence added in v2.
+signing. A valid v2 `status: release` record is live-verifiable only when its
+artifact provenance opts into the same strict replay profile. Older free-form
+provenance remains structurally readable but returns the explicit
+`release-candidate-historical-asset-replay-unsupported` outcome instead of a
+misleading verification receipt. Historical v1 verification receipts remain
+integrity-readable but do not contain the mandatory staged-asset replay evidence
+added in v2.
 
 The published v2 schema remains able to read its earlier permissive fingerprint
 shape, but such a value is not releasable evidence. Semantic validation returns

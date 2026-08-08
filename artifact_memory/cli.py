@@ -185,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
                     "outcome": "integrity-verified",
                     "receipt_id": receipt["receipt_id"],
                     "tag_message_trailer": receipt["tag_message_trailer"],
-                    "verification_scope": "receipt-schema-canonical-identity-and-manifest-binding-only",
+                    "verification_scope": "receipt-schema-canonical-identity-and-trailer-coherence-only",
                     "owner_signature_verified": False,
                 },
                 True,
