@@ -224,6 +224,35 @@ class ReleasePreparationTests(unittest.TestCase):
                 "release-preparation-receipt-identity-mismatch",
             )
 
+    def test_v1_preview_receipt_still_enforces_canonical_identity(self):
+        v1_schema = (
+            ROOT / "artifact_memory/schemas/adapters/adapter-manifest.v1.schema.json"
+        ).read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, commit = self.synthetic_repository(
+                root / "preview",
+                {"adapter-manifest.v1.schema.json": v1_schema},
+                package_version="0.1.0.dev0",
+            )
+            receipt = prepare_unsigned_release_preview(
+                repository,
+                commit,
+                root / "output",
+            )
+            self.assertEqual(
+                receipt["schema_id"],
+                "artifact-memory/release-preparation-receipt/v1",
+            )
+            tampered = dict(receipt)
+            tampered["source_commit"] = "f" * 40
+            with self.assertRaises(ValidationFailure) as failure:
+                validate_release_preparation_receipt(tampered)
+            self.assertEqual(
+                failure.exception.code,
+                "release-preparation-receipt-identity-mismatch",
+            )
+
     def test_exact_commit_prepares_pending_signature_release_candidate(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

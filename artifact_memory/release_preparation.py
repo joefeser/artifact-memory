@@ -339,21 +339,21 @@ def validate_release_preparation_receipt(receipt: dict[str, Any]) -> None:
                 "release-preparation-receipt-version-binding-invalid",
                 "preview release identity does not match its package version",
             )
-        try:
-            expected_id = expected_receipt_id(
-                receipt,
-                RELEASE_PREPARATION_RECEIPT_PREFIX,
-            )
-        except CanonicalizationFailure as exc:
-            raise ValidationFailure(
-                "release-preparation-receipt-noncanonical",
-                "release preparation receipt contains noncanonical content",
-            ) from exc
-        if receipt["receipt_id"] != expected_id:
-            raise ValidationFailure(
-                "release-preparation-receipt-identity-mismatch",
-                "release preparation receipt identity does not match its content",
-            )
+    try:
+        expected_id = expected_receipt_id(
+            receipt,
+            RELEASE_PREPARATION_RECEIPT_PREFIX,
+        )
+    except CanonicalizationFailure as exc:
+        raise ValidationFailure(
+            "release-preparation-receipt-noncanonical",
+            "release preparation receipt contains noncanonical content",
+        ) from exc
+    if receipt["receipt_id"] != expected_id:
+        raise ValidationFailure(
+            "release-preparation-receipt-identity-mismatch",
+            "release preparation receipt identity does not match its content",
+        )
 
 
 def render_release_preparation_receipt(receipt: dict[str, Any]) -> str:

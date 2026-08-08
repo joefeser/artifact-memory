@@ -509,6 +509,39 @@ class RecordEvolutionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValidationFailure, "must differ"):
             validate_candidate_admission_receipt(self_replacement)
 
+        noncanonical = json.loads((fixture / "rejected-receipt.json").read_text(encoding="utf-8"))
+        noncanonical["diagnostics"][0]["message"] = "\ud800"
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_candidate_admission_receipt(noncanonical)
+        self.assertEqual(failure.exception.code, "candidate-receipt-noncanonical")
+
+    def test_v2_candidate_requires_v3_result_even_when_v2_is_negotiated(self):
+        from artifact_memory.record_evolution import _record_digest
+
+        source = source_record()
+        draft = copy.deepcopy(source)
+        draft["lifecycle"] = "draft"
+        draft["meaning"] = {"summary": "Synthetic v2 result must not be admitted.", "labels": ["synthetic"]}
+        candidate = build_candidate(
+            draft,
+            [{"record_id": source["record_id"], "revision_digest": _record_digest(source)}],
+            [{"kind": "agent", "source_ref": "actor://synthetic/agent-b"}],
+            candidate_namespace="synthetic-evolution",
+            bounded_input_refs=["fixture://synthetic/record-evolution/v2/v2-result"],
+        )
+        result = admit_candidate(
+            candidate,
+            decision="accepted",
+            decision_ref="decision://synthetic/v2-result",
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v2"},
+        )
+        self.assertIsNone(result["record"])
+        self.assertEqual(result["receipt"]["outcome"], "unsupported")
+        self.assertEqual(
+            result["receipt"]["diagnostics"][0]["code"],
+            "result-schema-incompatible",
+        )
+
     def test_v2_supersession_requires_exact_current_predecessor(self):
         fixture = ROOT / "fixtures/synthetic/record-evolution/v2"
         candidate = json.loads((fixture / "accepted-candidate.json").read_text(encoding="utf-8"))
@@ -551,6 +584,7 @@ class RecordEvolutionTests(unittest.TestCase):
         from artifact_memory.record_evolution import _record_digest
 
         source = source_record()
+        source["schema_id"] = "artifact-memory/knowledge-record/v3"
         draft = copy.deepcopy(source)
         draft["lifecycle"] = "draft"
         candidate = build_candidate(
@@ -564,7 +598,7 @@ class RecordEvolutionTests(unittest.TestCase):
             candidate,
             decision="accepted",
             decision_ref="decision://synthetic/duplicate-result",
-            supported_result_schema_ids={"artifact-memory/knowledge-record/v2"},
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v3"},
         )
         self.assertIsNone(result["record"])
         self.assertEqual(result["receipt"]["outcome"], "duplicate")

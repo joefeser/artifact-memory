@@ -7,7 +7,13 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from typing import Any
 
-from .canonical import canonical_bytes, expected_receipt_id, receipt_with_digest, sha256_bytes
+from .canonical import (
+    CanonicalizationFailure,
+    canonical_bytes,
+    expected_receipt_id,
+    receipt_with_digest,
+    sha256_bytes,
+)
 from .knowledge import knowledge_schema
 from .schema_resources import load_schema
 from .validator import ValidationFailure, validate
@@ -245,7 +251,14 @@ def validate_candidate_admission_receipt(receipt: dict[str, Any]) -> None:
         raise ValidationFailure("candidate-receipt-unsupported", "candidate admission receipt schema is unsupported")
     version = schema_id.rsplit("/", 1)[-1]
     validate(receipt, load_schema("core", f"candidate-admission-receipt.{version}.schema.json"))
-    if receipt["receipt_id"] != expected_receipt_id(receipt, "candidate-admission-receipt://"):
+    try:
+        expected_id = expected_receipt_id(receipt, "candidate-admission-receipt://")
+    except CanonicalizationFailure as exc:
+        raise ValidationFailure(
+            "candidate-receipt-noncanonical",
+            "candidate admission receipt contains noncanonical content",
+        ) from exc
+    if receipt["receipt_id"] != expected_id:
         raise ValidationFailure("candidate-receipt-identity-mismatch", "candidate admission receipt identity does not match its canonical body")
     if receipt["candidate_id"].rsplit("/", 1)[-1] != receipt["candidate_revision_digest"].removeprefix("sha-256:"):
         raise ValidationFailure("candidate-receipt-binding-mismatch", "candidate identity does not bind the candidate revision digest")
@@ -363,6 +376,12 @@ def admit_candidate(
     candidate_schema = candidate_record.get("schema_id") if isinstance(candidate_record, dict) else None
     if not isinstance(candidate_schema, str) or not candidate_schema:
         receipt = _receipt(candidate, outcome="rejected", decision_ref=decision_ref, diagnostics=[{"code": "candidate-record-invalid", "message": "embedded candidate record is not a valid knowledge record"}])
+        return _admission_result(candidate, record=None, receipt=receipt)
+    if (
+        candidate_schema_id == "artifact-memory/knowledge-candidate/v2"
+        and candidate_schema != "artifact-memory/knowledge-record/v3"
+    ):
+        receipt = _receipt(candidate, outcome="unsupported", decision_ref=decision_ref, diagnostics=[{"code": "result-schema-incompatible", "message": "candidate v2 requires a knowledge-record/v3 result"}])
         return _admission_result(candidate, record=None, receipt=receipt)
     if candidate_schema not in supported_schemas:
         receipt = _receipt(candidate, outcome="unsupported", decision_ref=decision_ref, diagnostics=[{"code": "result-schema-unnegotiated", "message": "the target consumer did not negotiate the candidate record schema"}])
