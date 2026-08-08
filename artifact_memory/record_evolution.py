@@ -24,7 +24,24 @@ CANDIDATE_SCHEMAS = {
     "artifact-memory/knowledge-candidate/v2": "knowledge-candidate.v2.schema.json",
 }
 PORTABLE_REFERENCE = re.compile(r"^[a-z][a-z0-9+.-]*://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$")
-LOCATION_REFERENCE_SCHEMES = {"file", "ftp", "ftps", "http", "https", "nfs", "sftp", "smb", "ssh"}
+LOGICAL_REFERENCE_SCHEMES = {
+    "actor",
+    "adapter",
+    "artifact",
+    "artifact-version",
+    "authority",
+    "candidate",
+    "content",
+    "decision",
+    "external-evidence-binding",
+    "fixture",
+    "record",
+    "record-revision",
+    "release",
+    "task",
+    "tombstone",
+    "transformation",
+}
 CANDIDATE_NAMESPACE = re.compile(r"^[A-Za-z0-9._~-]+$")
 
 
@@ -75,7 +92,7 @@ def _portable_references(values: Iterable[str]) -> list[str]:
         or any(
             not isinstance(value, str)
             or PORTABLE_REFERENCE.fullmatch(value) is None
-            or value.partition("://")[0] in LOCATION_REFERENCE_SCHEMES
+            or value.partition("://")[0] not in LOGICAL_REFERENCE_SCHEMES
             for value in materialized
         )
         or len(set(materialized)) != len(materialized)
@@ -143,7 +160,7 @@ def build_candidate(
             raise ValidationFailure("candidate-provenance-invalid", "candidate provenance values are invalid")
         if use_v2 and (
             PORTABLE_REFERENCE.fullmatch(item["source_ref"]) is None
-            or item["source_ref"].partition("://")[0] in LOCATION_REFERENCE_SCHEMES
+            or item["source_ref"].partition("://")[0] not in LOGICAL_REFERENCE_SCHEMES
         ):
             raise ValidationFailure("candidate-provenance-invalid", "candidate provenance references must use the portable reference form")
         provenance.append({"kind": item["kind"], "source_ref": item["source_ref"]})
@@ -229,11 +246,17 @@ def validate_candidate_admission_receipt(receipt: dict[str, Any]) -> None:
     validate(receipt, load_schema("core", f"candidate-admission-receipt.{version}.schema.json"))
     if receipt["receipt_id"] != expected_receipt_id(receipt, "candidate-admission-receipt://"):
         raise ValidationFailure("candidate-receipt-identity-mismatch", "candidate admission receipt identity does not match its canonical body")
+    if receipt["candidate_id"].rsplit("/", 1)[-1] != receipt["candidate_revision_digest"].removeprefix("sha-256:"):
+        raise ValidationFailure("candidate-receipt-binding-mismatch", "candidate identity does not bind the candidate revision digest")
     source_revisions: dict[str, str] = {}
     for source in receipt["source_record_refs"]:
         if source["record_id"] in source_revisions:
             raise ValidationFailure("candidate-source-invalid", "receipt source references must have unique logical identities")
         source_revisions[source["record_id"]] = source["revision_digest"]
+    if version == "v2" and receipt["source_record_refs"] != sorted(
+        receipt["source_record_refs"], key=lambda item: item["record_id"]
+    ):
+        raise ValidationFailure("candidate-order-invalid", "receipt source references must use canonical order")
     transitions = receipt.get("predecessor_transitions", [])
     if transitions != sorted(transitions, key=lambda item: item["record_id"]):
         raise ValidationFailure("candidate-transition-order-invalid", "predecessor transitions must use canonical order")
@@ -245,6 +268,7 @@ def validate_candidate_admission_receipt(receipt: dict[str, Any]) -> None:
             source_revisions.get(transition["record_id"]) != transition["from_revision_digest"]
             or transition["superseded_by"] != receipt["result_record_ref"]
             or transition["from_revision_digest"] == transition["to_revision_digest"]
+            or transition["to_revision_digest"] == receipt["result_record_ref"]["revision_digest"]
         ):
             raise ValidationFailure("candidate-transition-binding-mismatch", "predecessor transition does not bind the source and result revisions")
 

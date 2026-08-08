@@ -412,6 +412,10 @@ class RecordEvolutionTests(unittest.TestCase):
             "https://contains-space.example/private",
             "file:///Users/synthetic/private-vault",
             "ssh://synthetic.example/repository",
+            "git://synthetic.example/repository",
+            "git+ssh://synthetic.example/repository",
+            "s3://synthetic-bucket/private-key",
+            "webdav://synthetic.example/private",
             "//missing-scheme",
         ):
             with self.subTest(malformed=malformed):
@@ -455,6 +459,27 @@ class RecordEvolutionTests(unittest.TestCase):
         rebound["receipt_id"] = expected_receipt_id(rebound, "candidate-admission-receipt://")
         with self.assertRaisesRegex(ValidationFailure, "does not bind"):
             validate_candidate_admission_receipt(rebound)
+
+        candidate_mismatch = copy.deepcopy(receipt)
+        candidate_mismatch["candidate_revision_digest"] = "sha-256:" + "f" * 64
+        candidate_mismatch["receipt_id"] = expected_receipt_id(candidate_mismatch, "candidate-admission-receipt://")
+        with self.assertRaisesRegex(ValidationFailure, "candidate identity does not bind"):
+            validate_candidate_admission_receipt(candidate_mismatch)
+
+        unsorted_sources = copy.deepcopy(receipt)
+        unsorted_sources["source_record_refs"].append({
+            "record_id": "record://synthetic/aaa-source",
+            "revision_digest": "sha-256:" + "a" * 64,
+        })
+        unsorted_sources["receipt_id"] = expected_receipt_id(unsorted_sources, "candidate-admission-receipt://")
+        with self.assertRaisesRegex(ValidationFailure, "canonical order"):
+            validate_candidate_admission_receipt(unsorted_sources)
+
+        impossible_transition = copy.deepcopy(receipt)
+        impossible_transition["predecessor_transitions"][0]["to_revision_digest"] = receipt["result_record_ref"]["revision_digest"]
+        impossible_transition["receipt_id"] = expected_receipt_id(impossible_transition, "candidate-admission-receipt://")
+        with self.assertRaisesRegex(ValidationFailure, "does not bind"):
+            validate_candidate_admission_receipt(impossible_transition)
 
     def test_v2_supersession_requires_exact_current_predecessor(self):
         fixture = ROOT / "fixtures/synthetic/record-evolution/v2"

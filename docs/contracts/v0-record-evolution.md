@@ -12,10 +12,14 @@ provenance, sensitivity, required owner review, and an explicit
 sorted, unique set of bounded input references. Bounded inputs describe what
 the producer considered; `source_record_refs` separately bind canonical record
 revisions used by evolution relationships. Provenance and scope references use
-the portable logical `scheme://segment[/segment]` reference form. Location and
-transport schemes (`file`, `ftp`, `ftps`, `http`, `https`, `nfs`, `sftp`, `smb`,
-and `ssh`) are forbidden, as are authority/userinfo, query, fragment, and bearer
-URL forms. They are provenance claims, not authenticated grants. Source record
+the portable logical `scheme://segment[/segment]` reference form. V2 fails
+closed to the registered logical schemes `actor`, `adapter`, `artifact`,
+`artifact-version`, `authority`, `candidate`, `content`, `decision`,
+`external-evidence-binding`, `fixture`, `record`, `record-revision`, `release`,
+`task`, `tombstone`, and `transformation`. Location, transport, provider,
+authority/userinfo, query, fragment, and bearer URL forms are forbidden. A new
+logical scheme requires a later contract revision; producers cannot improvise
+one. References are provenance claims, not authenticated grants. Source record
 references must also have unique logical record identities; two revisions of
 the same source cannot make candidate identity or admission order-dependent.
 
@@ -77,10 +81,13 @@ schema was not negotiated continues to receive the typed `unsupported` outcome;
 there is no silent schema downgrade.
 
 Admission receipt validation is semantic as well as structural. A reader
-recomputes the digest-derived receipt ID and verifies that predecessor
-transitions bind unique declared source revisions to the receipted result
-revision. A shape-valid receipt with a retained ID and altered transition is
-rejected.
+recomputes the digest-derived receipt ID, checks the candidate ID/digest pair,
+enforces canonical source ordering, and verifies that predecessor transitions
+bind unique declared source revisions to the receipted result revision. A
+shape-valid receipt with a retained ID and altered transition is rejected.
+Receipt-only validation proves internal integrity, not authenticity or the
+truth of a predecessor lifecycle claim. Verifying the superseded revision body
+still requires the corresponding canonical record evidence.
 
 The checked v2 synthetic fixtures replay accepted supersession, rejection,
 dispute, independent uncertainty, immutable predecessor transition, and direct

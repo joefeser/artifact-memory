@@ -25,7 +25,7 @@ allowed draft or superseded records to reach context export.
 
 - Freeze candidate and admission-receipt v1 for exact replay.
 - Add candidate v2 with explicit canonical namespace, bounded input references,
-  validated non-location provenance references, unique source identities, and
+  allowlisted logical provenance references, unique source identities, and
   optional first-class uncertainty.
 - Add admission-receipt v2 with exact immutable predecessor transitions for
   accepted `supersedes` relationships.
