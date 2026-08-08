@@ -234,13 +234,22 @@ def _verify_release_assets(
                     "release-candidate-asset-provenance-invalid",
                     "source archive provenance must bind the exact replay command and tag commit",
                 )
-            command = [
-                "git",
-                "archive",
-                "--format=tar",
-                f"--prefix={prefix}",
-                tag_commit,
-            ]
+            try:
+                reproduced = subprocess.check_output(
+                    [
+                        "git",
+                        "archive",
+                        "--format=tar",
+                        f"--prefix={prefix}",
+                        tag_commit,
+                    ],
+                    cwd=repository_root,
+                )
+            except (OSError, subprocess.CalledProcessError) as exc:
+                raise ValidationFailure(
+                    "release-candidate-asset-replay-failed",
+                    "release asset bytes could not be reproduced from the verified tag commit",
+                ) from exc
         elif artifact["kind"] == "documentation":
             match = re.fullmatch(
                 r"exact bytes from ([0-9a-f]{40}):([A-Za-z0-9][A-Za-z0-9._/-]*)",
@@ -261,19 +270,21 @@ def _verify_release_assets(
                     "release-candidate-asset-provenance-invalid",
                     "documentation provenance must bind one safe path at the tagged commit",
                 )
-            command = ["git", "show", f"{tag_commit}:{source_path.as_posix()}"]
+            try:
+                reproduced = subprocess.check_output(
+                    ["git", "show", f"{tag_commit}:{source_path.as_posix()}"],
+                    cwd=repository_root,
+                )
+            except (OSError, subprocess.CalledProcessError) as exc:
+                raise ValidationFailure(
+                    "release-candidate-asset-replay-failed",
+                    "release asset bytes could not be reproduced from the verified tag commit",
+                ) from exc
         else:
             raise ValidationFailure(
                 "release-candidate-asset-kind-unsupported",
                 "release asset replay does not support this manifest artifact kind",
             )
-        try:
-            reproduced = subprocess.check_output(command, cwd=repository_root)
-        except (OSError, subprocess.CalledProcessError) as exc:
-            raise ValidationFailure(
-                "release-candidate-asset-replay-failed",
-                "release asset bytes could not be reproduced from the verified tag commit",
-            ) from exc
         if reproduced != initial[artifact["name"]]:
             raise ValidationFailure(
                 "release-candidate-asset-replay-mismatch",
