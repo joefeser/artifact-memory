@@ -105,8 +105,11 @@ def _validate_selection(selection: Any, schema_id: str) -> datetime:
         raise ContextReaderFailure("revocation selection fields must appear together")
     if schema_id == "artifact-memory/context-pack/v4" and (
         ("revocation_policy" in selection) != ("revocation_receipt_refs" in selection)
+        or (exclusions["revocation"] > 0 and not all(revocation_fields_present))
     ):
-        raise ContextReaderFailure("revocation selection fields must appear together")
+        raise ContextReaderFailure(
+            "positive revocation exclusions require policy and receipt evidence"
+        )
     if "revocation_policy" in selection and selection["revocation_policy"] != "validated-tombstone-suppression":
         raise ContextReaderFailure("revocation selection policy is invalid")
     if "revocation_receipt_refs" in selection and (

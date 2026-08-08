@@ -6,7 +6,7 @@ Artifact Memory versions five surfaces independently:
 | --- | --- | --- |
 | Protocol | Product protocol generation such as `v0`. | Describes the supported product contract set; it is not an implementation API promise. |
 | Schemas | Every schema identifier ends in its own `/vN`. | Breaking field, identity, authority, or required-behavior changes require a new schema version. |
-| Reference CLI/package | Python package semantic version, currently `0.1.0`. | Before 1.0, implementation APIs may change; versioned record and receipt contracts are not silently reinterpreted. |
+| Reference CLI/package | Python package semantic version, currently `0.1.1`. | Before 1.0, implementation APIs may change; versioned record and receipt contracts are not silently reinterpreted. |
 | Adapters/providers | Provider-owned contract `/vN` plus the Artifact Memory adapter-manifest version. | Provider schemas remain provider contracts and never become core schemas implicitly. |
 | Fixtures/receipts | Each vector and receipt schema has its own `/vN`. | Checked receipts bind exact fixture bytes and cannot be carried forward after vectors change. |
 
@@ -74,7 +74,8 @@ binding. Candidate verification reports a noncanonical claim as
 
 A public release requires one reviewed exact-head set containing:
 
-1. an owner-signed annotated `v0.1.0` tag made with the dedicated release key;
+1. an owner-signed annotated `vX.Y.Z` tag matching the exact package version
+   and made with the dedicated release key;
 2. a v2 release manifest naming the source commit and reproducible source-tree
    digest, all five versioned surfaces, artifacts, byte sizes, SHA-256 digests,
    checksum manifest, provenance, signature generation, and limitations;
@@ -137,10 +138,10 @@ preview checksums and receipts cannot be relabeled as release evidence.
 
 ## Exact release-candidate preparation
 
-After the reviewed source commit carries package version `0.1.0` and final
-release notes, prepare the exact candidate in a new external directory using
-only the owner's independently published public fingerprint and key-generation
-label:
+After the reviewed source commit carries a final `X.Y.Z` package version and
+matching `docs/release/vX.Y.Z-release-notes.md`, prepare the exact candidate in
+a new external directory using only the owner's independently published public
+fingerprint and key-generation label:
 
 ```sh
 python3 scripts/prepare_release_candidate.py \
@@ -151,12 +152,20 @@ python3 scripts/prepare_release_candidate.py \
   --key-generation 'generation-1'
 ```
 
-The command deterministically writes the source tar, exact release-note bytes,
+The command derives the release ID, tag, archive name, and notes path from the
+exact committed package version. It deterministically writes the source tar,
+exact release-note bytes,
 `SHA256SUMS`, the v2 pending release-candidate manifest, and machine/human candidate
 preparation receipts. The checksum file covers the source tar and release
 notes. The preparation receipt separately binds the release manifest and
 prints the exact `Artifact-Memory-Manifest-SHA256` trailer required in the
 annotated tag message.
+
+The released `release-preparation-receipt/v1` and
+`release-candidate-preparation-receipt/v1` remain frozen to the v0.1.0
+identity. Subsequent semantic versions use their v2 contracts, which retain the
+same authority boundary while binding release ID and tag to the exact package
+version. No v1 payload is reinterpreted.
 
 Use `--plain-text` to print the exact persisted human receipt. Independent
 readers can run
