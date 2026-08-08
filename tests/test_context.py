@@ -361,6 +361,12 @@ class ContextTests(unittest.TestCase):
             render_context_selection_receipt(cross_wired)
         self.assertEqual(raised.exception.code, "context-pack-invalid")
 
+        noncanonical = copy.deepcopy(pack)
+        noncanonical["selection_receipt"]["policy_id"] = "\ud800"
+        with self.assertRaises(ContextFailure) as raised:
+            render_context_selection_receipt(noncanonical)
+        self.assertEqual(raised.exception.code, "context-pack-invalid")
+
 
 if __name__ == "__main__":
     unittest.main()

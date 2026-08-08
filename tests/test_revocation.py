@@ -474,6 +474,21 @@ class RevocationTests(unittest.TestCase):
         self.assertEqual(pack["selection_receipt"]["exclusion_counts"]["revocation"], 0)
         self.assertNotIn("revocation_receipt_refs", pack["selection_receipt"])
 
+        duplicate_acknowledgement = self._acknowledged(
+            envelope,
+            recipient_ref="agent://synthetic/reader-b",
+        )
+        with self.assertRaises(ContextFailure) as duplicate_failure:
+            export_context(
+                [record],
+                authorized_record_ids=[record["record_id"]],
+                freshness_by_record={record["record_id"]: {"status": "current", "assessed_at": NOW, "basis": "synthetic"}},
+                selected_at=NOW,
+                revocation_receipts=[acknowledgement, duplicate_acknowledgement],
+                supported_context_schema_ids={"artifact-memory/context-pack/v4"},
+            )
+        self.assertEqual(duplicate_failure.exception.code, "suppression-duplicate")
+
         malformed = copy.deepcopy(acknowledgement)
         malformed["target_ref"] = []
         with self.assertRaises(ContextFailure):

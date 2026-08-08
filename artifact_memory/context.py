@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 from typing import Any, Iterable, Mapping
 
+from .canonical import CanonicalizationFailure
 from .extensions import (
     ExtensionFailure,
     is_required_declaration,
@@ -271,6 +272,7 @@ def export_context(
         if record["lifecycle"] not in {"accepted", "sealed"}
     }
     applicable_revocation_receipts = []
+    ineligible_revocation_receipts: dict[tuple[str, str], list[dict[str, Any]]] = {}
     try:
         for receipt in revocation_receipts:
             target_ref = receipt.get("target_ref") if isinstance(receipt, dict) else None
@@ -282,11 +284,16 @@ def export_context(
             )
             ineligible_record = ineligible_records_by_revision.get(revision_key)
             if ineligible_record is not None and revision_key not in eligible_revision_keys:
-                # Validate exact acknowledgements for supplied historical revisions,
-                # but do not apply them to the already lifecycle-ineligible record.
-                validated_suppressions([ineligible_record], [receipt])
+                ineligible_revocation_receipts.setdefault(revision_key, []).append(receipt)
                 continue
             applicable_revocation_receipts.append(receipt)
+        for revision_key in sorted(ineligible_revocation_receipts):
+            # Validate each exact historical revision as one acknowledgement set so
+            # duplicate suppression evidence cannot be hidden by lifecycle exclusion.
+            validated_suppressions(
+                [ineligible_records_by_revision[revision_key]],
+                ineligible_revocation_receipts[revision_key],
+            )
         suppression_bindings = validated_suppressions(
             lifecycle_eligible,
             applicable_revocation_receipts,
@@ -436,7 +443,7 @@ def render_context_selection_receipt(pack: dict[str, Any]) -> str:
 
     try:
         recall_context(_canonical(pack))
-    except ContextReaderFailure as exc:
+    except (CanonicalizationFailure, ContextReaderFailure) as exc:
         raise ContextFailure("context-pack-invalid", "context pack semantic bindings are invalid") from exc
     receipt = pack["selection_receipt"]
     lines = [
