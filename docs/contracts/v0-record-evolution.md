@@ -1,12 +1,23 @@
 # v0 portable candidate admission and record evolution
 
-Issue #66 adds `knowledge-candidate/v1` and
-`candidate-admission-receipt/v1`. A candidate is a digest-bound draft proposal,
-not canonical current knowledge and not authority.
+Issue #66 introduced `knowledge-candidate/v1` and
+`candidate-admission-receipt/v1`. Issue #83 adds the negotiated
+`knowledge-candidate/v2` and `candidate-admission-receipt/v2` repair. A
+candidate is a digest-bound draft proposal, not canonical current knowledge and
+not authority.
 
-The candidate records its exact source record revisions, agent or adapter
-provenance, sensitivity, uncertainty through the draft record, and required
-owner review. Admission records one caller-supplied decision as `accepted`,
+Candidate v2 records its exact source record revisions, agent or adapter
+provenance, sensitivity, required owner review, and an explicit
+`candidate_scope`. Scope has a producer-selected portable namespace and a
+sorted, unique set of bounded input references. Bounded inputs describe what
+the producer considered; `source_record_refs` separately bind canonical record
+revisions used by evolution relationships. Provenance and scope references use
+the portable `scheme://value` reference form. They are provenance claims, not
+authenticated grants.
+
+Candidate v2 can carry first-class `uncertainty` without asserting a
+`knowledge-record/v3.derivative`. Existing derivative uncertainty remains
+unchanged. Admission records one caller-supplied decision as `accepted`,
 `rejected`, `quarantined`, `duplicate`, `stale`, `unsupported`, or `conflict`.
 An accepted candidate produces a new `knowledge-record/v3` revision; it never
 overwrites the candidate or a predecessor.
@@ -22,6 +33,14 @@ one of the exact source revisions considered by the candidate. Artifact Memory
 stores the relationship and revision binding; WITS owns meaning, owner
 approval, readiness, reconciliation, and conflict resolution.
 
+For a v2 accepted `supersedes` relationship, admission also requires the exact
+current predecessor record. The result contains a new immutable predecessor
+revision whose lifecycle is `superseded`; the caller persists it according to
+local policy. Receipt v2 binds the old digest, old lifecycle, superseded
+revision digest, and accepted replacement revision. Admission never mutates the
+input predecessor. `disputes` and `contradicts` preserve exact relationships but
+do not imply a predecessor lifecycle transition.
+
 Knowledge-record v2 remains unchanged for existing consumers. Producers must
 negotiate v3 before emitting the new relationship values; there is no silent
 remapping because that would discard evolution meaning.
@@ -30,6 +49,33 @@ The admission receipt binds the candidate identity and candidate revision to
 the exact source references, external decision reference, and resulting record
 revision. It grants no execution, routing, disclosure, mutation, merge,
 deployment, spending, credential, declassification, or approval authority.
+
+## Compatibility and negotiation
+
+Candidate and receipt v1 are frozen. Their strict schemas, canonical bodies,
+candidate IDs, revision digests, receipt IDs, return shape, and released v0.1.0
+accepted fixture remain valid and replayable. The v1 namespace algorithm is
+retained only for v1 replay.
+
+Explicit scope and uncertainty require candidate v2 because v1 rejects unknown
+properties and a required scope field would re-key every existing candidate.
+For v2, namespace, sorted scope, validated provenance, and optional uncertainty
+are part of the canonical body, so changing any populated value intentionally
+changes both `candidate_id` and `candidate_revision_digest`. V2 namespace is
+read directly from `candidate_scope.namespace`; provenance ordering cannot
+change it. Builders emit v1 when no v2 fields are requested and v2 only when
+both namespace and bounded inputs are supplied.
+
+Consumers must support the candidate version they validate and must separately
+negotiate the embedded result-record schema. Unknown candidate contracts fail
+closed because their identity rules are unknown. A known candidate whose result
+schema was not negotiated continues to receive the typed `unsupported` outcome;
+there is no silent schema downgrade.
+
+The checked v2 synthetic fixtures replay accepted supersession, rejection,
+dispute, independent uncertainty, immutable predecessor transition, and direct
+lifecycle-aware context suppression. The v1 accepted fixture is replayed
+unchanged as the compatibility proof.
 
 This v0 slice does not capture raw transcripts or model reasoning, infer trust
 from ranking, resolve conflicts, perform bulk capture, or provide semantic

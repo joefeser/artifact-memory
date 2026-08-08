@@ -54,7 +54,14 @@ def _validate_selection(selection: Any, schema_id: str) -> datetime:
         "artifact_policy", "disclosure",
     }
     revocation_fields = {"revocation_policy", "revocation_receipt_refs"}
-    optional_fields = revocation_fields if schema_id == "artifact-memory/context-pack/v3" else set()
+    lifecycle_fields = {"selection_input_trust", "lifecycle_policy"}
+    if schema_id == "artifact-memory/context-pack/v3":
+        optional_fields = revocation_fields
+    elif schema_id == "artifact-memory/context-pack/v4":
+        required_fields |= lifecycle_fields
+        optional_fields = revocation_fields
+    else:
+        optional_fields = set()
     if (
         not isinstance(selection, dict)
         or not required_fields.issubset(selection)
@@ -68,13 +75,23 @@ def _validate_selection(selection: Any, schema_id: str) -> datetime:
         or selection.get("disclosure") != "informational-only"
     ):
         raise ContextReaderFailure("selection receipt is invalid")
+    if schema_id == "artifact-memory/context-pack/v4" and (
+        selection.get("selection_input_trust") != "caller-supplied/not-authenticated"
+        or selection.get("lifecycle_policy") != "accepted-or-sealed"
+    ):
+        raise ContextReaderFailure("lifecycle selection fields are invalid")
     exclusions = selection.get("exclusion_counts")
-    exclusion_fields = {"not-authorized", "sensitivity", "freshness"}
+    if schema_id == "artifact-memory/context-pack/v4":
+        required_exclusion_fields = {"not-caller-selected", "lifecycle", "sensitivity", "freshness", "revocation"}
+        exclusion_fields = required_exclusion_fields
+    else:
+        required_exclusion_fields = {"not-authorized", "sensitivity", "freshness"}
+        exclusion_fields = set(required_exclusion_fields)
     if schema_id == "artifact-memory/context-pack/v3":
         exclusion_fields.add("revocation")
     if (
         not isinstance(exclusions, dict)
-        or not {"not-authorized", "sensitivity", "freshness"}.issubset(exclusions)
+        or not required_exclusion_fields.issubset(exclusions)
         or set(exclusions) - exclusion_fields
         or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in exclusions.values())
     ):
@@ -85,6 +102,10 @@ def _validate_selection(selection: Any, schema_id: str) -> datetime:
         "revocation_receipt_refs" in selection,
     ]
     if schema_id == "artifact-memory/context-pack/v3" and not all(revocation_fields_present):
+        raise ContextReaderFailure("revocation selection fields must appear together")
+    if schema_id == "artifact-memory/context-pack/v4" and (
+        ("revocation_policy" in selection) != ("revocation_receipt_refs" in selection)
+    ):
         raise ContextReaderFailure("revocation selection fields must appear together")
     if "revocation_policy" in selection and selection["revocation_policy"] != "validated-tombstone-suppression":
         raise ContextReaderFailure("revocation selection policy is invalid")
@@ -145,7 +166,11 @@ def recall_context(pack_json: bytes) -> dict[str, Any]:
     if (
         not isinstance(pack, dict)
         or set(pack) != required
-        or pack.get("schema_id") not in {"artifact-memory/context-pack/v2", "artifact-memory/context-pack/v3"}
+        or pack.get("schema_id") not in {
+            "artifact-memory/context-pack/v2",
+            "artifact-memory/context-pack/v3",
+            "artifact-memory/context-pack/v4",
+        }
         or pack.get("authority_boundary") != AUTHORITY_BOUNDARY
     ):
         raise ContextReaderFailure("unsupported context contract")

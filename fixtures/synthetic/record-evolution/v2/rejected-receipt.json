@@ -1,0 +1,13 @@
+{
+  "authority_boundary": "candidate admission grants no execution, disclosure, routing, mutation, merge, deployment, spending, credential, declassification, or approval authority",
+  "candidate_id": "candidate://synthetic-evolution/691d550bf49c90fe8ffb81f89fffde1aa826086c40035ab5fc4251cdddab8180",
+  "candidate_revision_digest": "sha-256:691d550bf49c90fe8ffb81f89fffde1aa826086c40035ab5fc4251cdddab8180",
+  "decision_ref": "decision://synthetic/wits-owner-v2-rejected",
+  "diagnostics": [{"code": "candidate-not-admitted", "message": "candidate was not admitted as current knowledge"}],
+  "outcome": "rejected",
+  "predecessor_transitions": [],
+  "receipt_id": "candidate-admission-receipt://5e9034a3456a9f5ac8f0171177983db276ec25d6f2244113cb13ac64a69c251a",
+  "result_record_ref": null,
+  "schema_id": "artifact-memory/candidate-admission-receipt/v2",
+  "source_record_refs": [{"record_id": "record://synthetic/decision-0001", "revision_digest": "sha-256:5463997e6faa4945ed0fd8f1c8520ce91b861dd5bf2494e9d81f38952d3530c6"}]
+}

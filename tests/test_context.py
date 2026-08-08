@@ -1,3 +1,4 @@
+import copy
 import json
 import unittest
 from pathlib import Path
@@ -292,6 +293,59 @@ class ContextTests(unittest.TestCase):
         malformed_adapter_digest["external_evidence"][0]["adapter_receipt_digest"] = 1
         with self.assertRaises(ContextReaderFailure):
             recall_context(json.dumps(repack(malformed_adapter_digest)).encode())
+
+    def test_export_enforces_lifecycle_before_freshness_and_requires_v4_receipt(self):
+        accepted = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        accepted["schema_id"] = "artifact-memory/knowledge-record/v2"
+        accepted["record_id"] = "record://synthetic/eligible"
+        ineligible = []
+        for lifecycle in ("draft", "superseded", "rejected"):
+            record = copy.deepcopy(accepted)
+            record["record_id"] = f"record://synthetic/{lifecycle}"
+            record["lifecycle"] = lifecycle
+            ineligible.append(record)
+        all_records = [accepted, *ineligible]
+        selected_ids = [record["record_id"] for record in all_records]
+        with self.assertRaises(ContextFailure) as raised:
+            export_context(
+                all_records,
+                authorized_record_ids=selected_ids,
+                freshness_by_record=current(*selected_ids),
+                selected_at=SELECTED_AT,
+            )
+        self.assertEqual(raised.exception.code, "context-schema-unnegotiated")
+
+        pack = export_context(
+            all_records,
+            authorized_record_ids=selected_ids,
+            freshness_by_record=current(*selected_ids),
+            selected_at=SELECTED_AT,
+            supported_context_schema_ids={"artifact-memory/context-pack/v4"},
+        )
+        self.assertEqual(pack["schema_id"], "artifact-memory/context-pack/v4")
+        self.assertEqual(pack["selection_receipt"]["exclusion_counts"]["lifecycle"], 3)
+        self.assertEqual(pack["selection_receipt"]["exclusion_counts"]["freshness"], 0)
+        self.assertEqual(pack["selection_receipt"]["selection_input_trust"], "caller-supplied/not-authenticated")
+        serialized = json.dumps(pack)
+        self.assertNotIn("record://synthetic/draft", serialized)
+        self.assertNotIn("record://synthetic/superseded", serialized)
+        self.assertNotIn("record://synthetic/rejected", serialized)
+        recall_context(json.dumps(pack, sort_keys=True, separators=(",", ":")).encode())
+
+    def test_export_rejects_duplicate_lifecycle_eligible_revisions(self):
+        first = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        first["schema_id"] = "artifact-memory/knowledge-record/v2"
+        second = copy.deepcopy(first)
+        second["meaning"]["summary"] = "A second accepted revision."
+        with self.assertRaises(ContextFailure) as raised:
+            export_context(
+                [first, second],
+                authorized_record_ids=[first["record_id"]],
+                freshness_by_record=current(first["record_id"]),
+                selected_at=SELECTED_AT,
+                supported_context_schema_ids={"artifact-memory/context-pack/v4"},
+            )
+        self.assertEqual(raised.exception.code, "duplicate-record")
 
 
 if __name__ == "__main__":

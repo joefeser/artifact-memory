@@ -1,7 +1,7 @@
 {
   "authority_boundary": "derivative knowledge only; no execution, mutation, spending, deployment, credential use, declassification, disclosure, routing, merge, or approval authority",
-  "context_pack_id": "context-pack://0c6c0a6f921339ab44caf3bddd3c6a2f8c71f6beb031af99f68c68a4e6dd032b",
-  "context_record_count": 4,
+  "context_pack_id": "context-pack://add176820ba03a2f41289a2a5a19f03f1ca5ca6f6ae331c1f35c6077c500d2d8",
+  "context_record_count": 0,
   "correction_route": "artifact-memory/record-supersession/v2",
   "declassification_receipt_id": "declassification-receipt://78f4eacd62075cd8df7c9914dad53efa8738d5d32f8769c9a3728657d8b52e6a",
   "deletion_request_outcome": "not-authorized",
@@ -18,7 +18,7 @@
   "outcome": "complete",
   "projection_source_digest": "sha-256:9c03698cd62f65006ed0965713b210ada085a6e4d59c66983a89a8b788c083d1",
   "raw_source_canonical": false,
-  "receipt_id": "codex-history-conformance-receipt://synthetic/4a2c915da086483e9ed1f4889e66091906cb4489bdea8f3e6e089008761d6bef",
+  "receipt_id": "codex-history-conformance-receipt://synthetic/09fa03cc1c8d3b794e6031ef3df4d5a7efec8591aff517fbf7218a933a56c1e5",
   "record_set_digest": "sha-256:9c03698cd62f65006ed0965713b210ada085a6e4d59c66983a89a8b788c083d1",
   "record_type_counts": {
     "decision": 1,

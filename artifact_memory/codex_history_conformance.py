@@ -71,6 +71,7 @@ def run_codex_history_conformance(fixture_root: Path) -> dict[str, Any]:
             records,
             allowed_sensitivity="public",
             max_bytes=32_768,
+            supported_context_schema_ids={"artifact-memory/context-pack/v4"},
             **selection,
         )
 
