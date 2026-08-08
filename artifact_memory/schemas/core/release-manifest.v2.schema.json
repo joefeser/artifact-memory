@@ -15,6 +15,15 @@
       }
     },
     {
+      "if": {"properties": {"status": {"const": "release-candidate"}}},
+      "then": {
+        "properties": {
+          "release_id": {"pattern": "^artifact-memory/v[0-9]+\\.[0-9]+\\.[0-9]+$"},
+          "signature": {"properties": {"state": {"const": "pending-owner-signature"}, "tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"}, "public_key_fingerprint": {"type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$"}, "key_generation": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}, "owner_signed_annotated_tag": {"const": false}}}
+        }
+      }
+    },
+    {
       "if": {"properties": {"status": {"const": "release"}}},
       "then": {
         "properties": {
@@ -28,7 +37,7 @@
   "properties": {
     "schema_id": {"const": "artifact-memory/release-manifest/v2"},
     "release_id": {"type": "string", "pattern": "^artifact-memory/v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9.-]+)?$"},
-    "status": {"enum": ["preview", "release"]},
+    "status": {"enum": ["preview", "release-candidate", "release"]},
     "source": {
       "type": "object",
       "additionalProperties": false,
@@ -86,7 +95,7 @@
       "additionalProperties": false,
       "required": ["state", "tag", "algorithm", "public_key_fingerprint", "key_generation", "owner_signed_annotated_tag"],
       "properties": {
-        "state": {"enum": ["unsigned-preview", "owner-signed"]},
+        "state": {"enum": ["unsigned-preview", "pending-owner-signature", "owner-signed"]},
         "tag": {"anyOf": [{"type": "string"}, {"type": "null"}]},
         "algorithm": {"const": "ssh-ed25519"},
         "public_key_fingerprint": {"anyOf": [{"type": "string"}, {"type": "null"}]},
@@ -94,7 +103,7 @@
         "owner_signed_annotated_tag": {"type": "boolean"}
       }
     },
-    "attestations": {"type": "object", "additionalProperties": false, "required": ["state", "requirement"], "properties": {"state": {"enum": ["deferred-private-incubation", "published"]}, "requirement": {"const": "keyless-build-artifact-attestations-after-public-workflow-review"}}},
+    "attestations": {"type": "object", "additionalProperties": false, "required": ["state", "requirement"], "properties": {"state": {"enum": ["deferred-private-incubation", "deferred-public-workflow-review", "published"]}, "requirement": {"const": "keyless-build-artifact-attestations-after-public-workflow-review"}}},
     "authority_boundary": {"const": "release preparation grants no signing, tag, publication, visibility, or deployment authority"},
     "limitations": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}},
     "extensions": {"type": "object", "propertyNames": {"pattern": "^https://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~/-]+)?$"}, "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["version", "required", "value"], "properties": {"version": {"type": "string", "pattern": "^v[0-9]+$"}, "required": {"type": "boolean"}, "value": {"type": "object", "additionalProperties": true}}}}

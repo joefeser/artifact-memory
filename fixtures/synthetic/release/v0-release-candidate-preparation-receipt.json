@@ -1,0 +1,35 @@
+{
+  "authority_boundary": "release preparation grants no signing, tag, publication, visibility, or deployment authority",
+  "checksum_manifest_digest": "sha-256:6666666666666666666666666666666666666666666666666666666666666666",
+  "claims": [
+    "source tree, source archive, release notes, checksum manifest, release manifest, schema inventory, and package version reproduce from the named commit",
+    "the required annotated-tag trailer binds the exact prepared release manifest bytes",
+    "owner signature verification and publication remain explicitly absent"
+  ],
+  "key_generation": "synthetic-generation-1",
+  "limitations": [
+    "the release manifest remains explicitly pending until the owner-signed annotated tag is independently verified",
+    "the owner must independently verify the public fingerprint and sign the exact tag message trailer",
+    "publication requires separate owner authorization after signed-candidate verification"
+  ],
+  "outcome": "pass",
+  "package_version": "0.1.0",
+  "public_key_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "publication_state": "not-authorized",
+  "receipt_id": "release-candidate-preparation-receipt://94b93382752cf6bf46337e39644a1ec35e4cc9fba840544abfbe9dc82c53cfef",
+  "release_id": "artifact-memory/v0.1.0",
+  "release_manifest_digest": "sha-256:4444444444444444444444444444444444444444444444444444444444444444",
+  "release_notes_byte_size": 512,
+  "release_notes_digest": "sha-256:5555555555555555555555555555555555555555555555555555555555555555",
+  "schema_id": "artifact-memory/release-candidate-preparation-receipt/v1",
+  "schema_inventory_count": 72,
+  "schema_inventory_digest": "sha-256:7777777777777777777777777777777777777777777777777777777777777777",
+  "signature_verification_state": "pending-owner-signature",
+  "source_archive_byte_size": 4096,
+  "source_archive_digest": "sha-256:3333333333333333333333333333333333333333333333333333333333333333",
+  "source_commit": "1111111111111111111111111111111111111111",
+  "status": "release-candidate",
+  "tag": "v0.1.0",
+  "tag_message_trailer": "Artifact-Memory-Manifest-SHA256: sha-256:4444444444444444444444444444444444444444444444444444444444444444",
+  "tree_digest": "sha-256:2222222222222222222222222222222222222222222222222222222222222222"
+}
