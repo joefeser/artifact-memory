@@ -100,7 +100,21 @@
         "disclosure": {"const": "informational-only"},
         "revocation_policy": {"const": "validated-tombstone-suppression"},
         "revocation_receipt_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^revocation-receipt://[0-9a-f]{64}$"}}
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "exclusion_counts": {
+                "properties": {"revocation": {"minimum": 1}},
+                "required": ["revocation"]
+              }
+            },
+            "required": ["exclusion_counts"]
+          },
+          "then": {"required": ["revocation_policy", "revocation_receipt_refs"]}
+        }
+      ]
     }
   }
 }

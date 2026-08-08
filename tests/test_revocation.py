@@ -321,6 +321,28 @@ class RevocationTests(unittest.TestCase):
             with self.assertRaises(ContextReaderFailure):
                 recall_context(json.dumps(opaque, sort_keys=True, separators=(",", ":")).encode())
 
+            unsupported_claim = json.loads(
+                (
+                    ROOT
+                    / "fixtures/synthetic/record-evolution/v2/current-context-pack.json"
+                ).read_text(encoding="utf-8")
+            )
+            unsupported_claim["selection_receipt"]["exclusion_counts"]["revocation"] = 1
+            body = {key: value for key, value in unsupported_claim.items() if key != "pack_id"}
+            unsupported_claim["pack_id"] = "context-pack://" + sha256_bytes(
+                canonical_bytes(body)
+            ).removeprefix("sha-256:")
+            with self.assertRaises(ValidationFailure):
+                validate(unsupported_claim, load_schema("core", "context-pack.v4.schema.json"))
+            with self.assertRaises(ContextReaderFailure):
+                recall_context(
+                    json.dumps(
+                        unsupported_claim,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode()
+                )
+
     def test_filter_requires_supported_tombstones_and_preserves_history(self):
         record = self._record()
         retained = copy.deepcopy(record)
