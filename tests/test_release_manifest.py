@@ -276,6 +276,40 @@ class ReleaseManifestTests(unittest.TestCase):
                 with self.assertRaises(ValidationFailure):
                     validate_release_manifest(invalid)
 
+    def test_pending_candidate_schema_requires_bounded_key_generation(self):
+        manifest = json.loads(
+            (FIXTURE / "v0-pending-candidate-manifest.v2.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        for key_generation in ("A", "generation-1", "a" * 64):
+            with self.subTest(key_generation=key_generation):
+                valid = copy.deepcopy(manifest)
+                valid["signature"]["key_generation"] = key_generation
+                validate_release_manifest(valid)
+        for key_generation in ("", "generation 1", "génération-1", "a" * 65):
+            with self.subTest(key_generation=key_generation):
+                invalid = copy.deepcopy(manifest)
+                invalid["signature"]["key_generation"] = key_generation
+                with self.assertRaises(ValidationFailure):
+                    validate_release_manifest(invalid)
+
+    def test_historical_release_keeps_nonempty_key_generation_compatibility(self):
+        manifest = json.loads(
+            (FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8")
+        )
+        manifest["status"] = "release"
+        manifest["release_id"] = "artifact-memory/v0.1.0"
+        manifest["signature"] = {
+            "state": "owner-signed",
+            "tag": "v0.1.0",
+            "algorithm": "ssh-ed25519",
+            "public_key_fingerprint": "SHA256:" + "A" * 43,
+            "key_generation": "legacy generation 1",
+            "owner_signed_annotated_tag": True,
+        }
+        validate_release_manifest(manifest)
+
     def test_legacy_v2_fingerprint_is_schema_readable_but_requires_migration(self):
         manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
         manifest["status"] = "release"

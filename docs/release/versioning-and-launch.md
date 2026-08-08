@@ -45,8 +45,11 @@ A development preview is not a release. `release-manifest/v2` requires preview
 manifests to be `unsigned-preview` with no tag, fingerprint, or key generation.
 Preparation emits `status: release-candidate` and
 `signature.state: pending-owner-signature`, even though it records the dedicated
-SSH Ed25519 public fingerprint, key generation, and intended matching tag. A
-standalone manifest cannot authenticate itself. Existing v2 `status: release`
+SSH Ed25519 public fingerprint, key generation, and intended matching tag. New
+candidate key-generation labels use 1–64 ASCII letters, digits, dots,
+underscores, or hyphens and begin with a letter or digit. Historical
+`status: release` records retain their published non-empty-string compatibility.
+A standalone manifest cannot authenticate itself. Existing v2 `status: release`
 records remain structurally and semantically readable for compatibility, while
 the generic validation command explicitly documents that it does not verify an
 owner signature or accept release evidence. Its stable v0 result shape is not

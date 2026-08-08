@@ -383,6 +383,8 @@ class ReleasePreparationTests(unittest.TestCase):
                 (b"not-text", "generation-1", "release-candidate-owner-fingerprint-invalid"),
                 (SYNTHETIC_FINGERPRINT, "", "release-candidate-key-generation-invalid"),
                 (SYNTHETIC_FINGERPRINT, "generation 1", "release-candidate-key-generation-invalid"),
+                (SYNTHETIC_FINGERPRINT, "génération-1", "release-candidate-key-generation-invalid"),
+                (SYNTHETIC_FINGERPRINT, "a" * 65, "release-candidate-key-generation-invalid"),
             ):
                 with self.subTest(code=code):
                     with self.assertRaises(ValidationFailure) as failure:
