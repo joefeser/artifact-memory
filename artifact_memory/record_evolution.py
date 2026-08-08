@@ -429,6 +429,13 @@ def admit_candidate(
             ):
                 receipt = _receipt(candidate, outcome="conflict", decision_ref=decision_ref, diagnostics=[{"code": "predecessor-transition-unproven", "message": "supersession requires the exact current predecessor record"}])
                 return _admission_result(candidate, record=None, receipt=receipt)
+            if (
+                current_source_revisions is None
+                or current_source_revisions.get(predecessor["record_id"])
+                != relationship["target_revision_digest"]
+            ):
+                receipt = _receipt(candidate, outcome="stale", decision_ref=decision_ref, diagnostics=[{"code": "predecessor-currentness-unproven", "message": "supersession requires current-revision evidence for the exact predecessor"}])
+                return _admission_result(candidate, record=None, receipt=receipt)
             superseded = deepcopy(predecessor)
             superseded["lifecycle"] = "superseded"
             validate(superseded, knowledge_schema(superseded))

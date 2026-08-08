@@ -261,7 +261,35 @@ def export_context(
 
     from .revocation import validated_suppressions
 
-    suppression_bindings = validated_suppressions(lifecycle_eligible, revocation_receipts)
+    eligible_revision_keys = {
+        (record["record_id"], _digest(_canonical(record)))
+        for record in lifecycle_eligible
+    }
+    ineligible_records_by_revision = {
+        (record["record_id"], _digest(_canonical(record))): record
+        for record in ordered
+        if record["lifecycle"] not in {"accepted", "sealed"}
+    }
+    applicable_revocation_receipts = []
+    try:
+        for receipt in revocation_receipts:
+            revision_key = (
+                receipt.get("target_ref"),
+                receipt.get("target_revision_digest"),
+            ) if isinstance(receipt, dict) else (None, None)
+            ineligible_record = ineligible_records_by_revision.get(revision_key)
+            if ineligible_record is not None and revision_key not in eligible_revision_keys:
+                # Validate exact acknowledgements for supplied historical revisions,
+                # but do not apply them to the already lifecycle-ineligible record.
+                validated_suppressions([ineligible_record], [receipt])
+                continue
+            applicable_revocation_receipts.append(receipt)
+        suppression_bindings = validated_suppressions(
+            lifecycle_eligible,
+            applicable_revocation_receipts,
+        )
+    except ValidationFailure as exc:
+        raise ContextFailure(exc.code, exc.message) from exc
     revoked = set(suppression_bindings)
     revocation_receipt_refs = sorted(suppression_bindings.values())
 

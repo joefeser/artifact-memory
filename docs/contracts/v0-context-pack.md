@@ -54,6 +54,13 @@ contains no suppressed record. This remains
 endpoint- and pack-generation-scoped; it does not revoke an already-issued
 immutable pack or prove deletion from an unknown copy.
 
+A valid acknowledgement bound to an exact supplied revision that is already
+lifecycle-ineligible is checked but does not participate in revocation
+selection or appear in the pack's revocation receipt references. Lifecycle is
+the exclusion reason and its aggregate counter remains separate. Malformed,
+unapplied, or revision-mismatched acknowledgements still fail context export
+with a typed context error.
+
 ## Version negotiation
 
 The exporter defaults to the frozen v2/v3 capability set, preserving existing

@@ -512,6 +512,7 @@ class RecordEvolutionTests(unittest.TestCase):
     def test_v2_supersession_requires_exact_current_predecessor(self):
         fixture = ROOT / "fixtures/synthetic/record-evolution/v2"
         candidate = json.loads((fixture / "accepted-candidate.json").read_text(encoding="utf-8"))
+        source = json.loads((fixture / "source-record.json").read_text(encoding="utf-8"))
         result = admit_candidate(
             candidate,
             decision="accepted",
@@ -521,6 +522,20 @@ class RecordEvolutionTests(unittest.TestCase):
         self.assertIsNone(result["record"])
         self.assertEqual(result["receipt"]["outcome"], "conflict")
         self.assertEqual(result["receipt"]["diagnostics"][0]["code"], "predecessor-transition-unproven")
+
+        unproven_currentness = admit_candidate(
+            candidate,
+            decision="accepted",
+            decision_ref="decision://synthetic/unproven-current-predecessor",
+            supported_result_schema_ids={"artifact-memory/knowledge-record/v3"},
+            source_records=[source],
+        )
+        self.assertIsNone(unproven_currentness["record"])
+        self.assertEqual(unproven_currentness["receipt"]["outcome"], "stale")
+        self.assertEqual(
+            unproven_currentness["receipt"]["diagnostics"][0]["code"],
+            "predecessor-currentness-unproven",
+        )
 
     def test_v2_exact_source_result_is_receipted_duplicate_without_transitions(self):
         from artifact_memory.record_evolution import _record_digest

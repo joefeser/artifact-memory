@@ -42,12 +42,16 @@ stores the relationship and revision binding; WITS owns meaning, owner
 approval, readiness, reconciliation, and conflict resolution.
 
 For a v2 accepted `supersedes` relationship, admission also requires the exact
-current predecessor record. The result contains a new immutable predecessor
-revision whose lifecycle is `superseded`; the caller persists it according to
-local policy. Receipt v2 binds the old digest, old lifecycle, superseded
-revision digest, and accepted replacement revision. Admission never mutates the
-input predecessor. `disputes` and `contradicts` preserve exact relationships but
-do not imply a predecessor lifecycle transition.
+current predecessor record and a caller-supplied current-revision assertion
+that matches that predecessor's exact digest. A retained historical record body
+alone is not currentness evidence. The assertion is a checked admission input,
+not proof of an authenticated or atomic store read; the integrating store owns
+that boundary. The result contains a new immutable predecessor revision whose
+lifecycle is `superseded`; the caller persists it according to local policy.
+Receipt v2 binds the old digest, old lifecycle, superseded revision digest, and
+accepted replacement revision. Admission never mutates the input predecessor.
+`disputes` and `contradicts` preserve exact relationships but do not imply a
+predecessor lifecycle transition.
 
 Knowledge-record v2 remains unchanged for existing consumers. Producers must
 negotiate v3 before emitting the new relationship values; there is no silent
