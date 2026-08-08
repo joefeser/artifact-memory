@@ -335,6 +335,8 @@ def admit_candidate(
         return _admission_result(candidate, record=None, receipt=receipt)
 
     if current_source_revisions is not None:
+        if not isinstance(current_source_revisions, Mapping):
+            raise ValidationFailure("candidate-source-invalid", "current source revisions must be a mapping")
         stale = [
             item["record_id"]
             for item in candidate["source_record_refs"]

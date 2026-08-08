@@ -273,10 +273,13 @@ def export_context(
     applicable_revocation_receipts = []
     try:
         for receipt in revocation_receipts:
+            target_ref = receipt.get("target_ref") if isinstance(receipt, dict) else None
+            target_revision_digest = receipt.get("target_revision_digest") if isinstance(receipt, dict) else None
             revision_key = (
-                receipt.get("target_ref"),
-                receipt.get("target_revision_digest"),
-            ) if isinstance(receipt, dict) else (None, None)
+                (target_ref, target_revision_digest)
+                if isinstance(target_ref, str) and isinstance(target_revision_digest, str)
+                else (None, None)
+            )
             ineligible_record = ineligible_records_by_revision.get(revision_key)
             if ineligible_record is not None and revision_key not in eligible_revision_keys:
                 # Validate exact acknowledgements for supplied historical revisions,

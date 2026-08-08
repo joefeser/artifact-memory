@@ -536,6 +536,16 @@ class RecordEvolutionTests(unittest.TestCase):
             unproven_currentness["receipt"]["diagnostics"][0]["code"],
             "predecessor-currentness-unproven",
         )
+        with self.assertRaises(ValidationFailure) as malformed_currentness:
+            admit_candidate(
+                candidate,
+                decision="accepted",
+                decision_ref="decision://synthetic/malformed-currentness",
+                current_source_revisions=[],
+                supported_result_schema_ids={"artifact-memory/knowledge-record/v3"},
+                source_records=[source],
+            )
+        self.assertEqual(malformed_currentness.exception.code, "candidate-source-invalid")
 
     def test_v2_exact_source_result_is_receipted_duplicate_without_transitions(self):
         from artifact_memory.record_evolution import _record_digest

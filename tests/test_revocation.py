@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from artifact_memory.context import export_context
+from artifact_memory.context import ContextFailure, export_context
 from artifact_memory.independent_context_reader import recall_context
 from artifact_memory.projection import project_records
 from artifact_memory.revocation import (
@@ -451,6 +451,16 @@ class RevocationTests(unittest.TestCase):
         self.assertEqual(pack["selection_receipt"]["exclusion_counts"]["lifecycle"], 1)
         self.assertEqual(pack["selection_receipt"]["exclusion_counts"]["revocation"], 0)
         self.assertNotIn("revocation_receipt_refs", pack["selection_receipt"])
+
+        malformed = copy.deepcopy(acknowledgement)
+        malformed["target_ref"] = []
+        with self.assertRaises(ContextFailure):
+            export_context(
+                [record], authorized_record_ids=[record["record_id"]],
+                freshness_by_record={record["record_id"]: {"status": "current", "assessed_at": NOW, "basis": "synthetic"}},
+                selected_at=NOW, revocation_receipts=[malformed],
+                supported_context_schema_ids={"artifact-memory/context-pack/v4"},
+            )
 
 
 if __name__ == "__main__":
