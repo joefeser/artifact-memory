@@ -399,6 +399,14 @@ class RecordEvolutionTests(unittest.TestCase):
         self.assertEqual(rebuilt, expected)
         self.assertNotIn("derivative", rebuilt["candidate_record"])
         self.assertEqual(rebuilt["uncertainty"], "Owner confirmation remains required.")
+        codex_scoped = build_candidate(
+            expected["candidate_record"],
+            expected["source_record_refs"],
+            expected["candidate_provenance"],
+            candidate_namespace="synthetic-evolution",
+            bounded_input_refs=["codex-task://synthetic/task-0001"],
+        )
+        self.assertEqual(codex_scoped["candidate_scope"]["bounded_input_refs"], ["codex-task://synthetic/task-0001"])
         unsorted = copy.deepcopy(expected)
         unsorted["candidate_scope"]["bounded_input_refs"].reverse()
         with self.assertRaisesRegex(ValidationFailure, "canonical order"):
@@ -442,6 +450,18 @@ class RecordEvolutionTests(unittest.TestCase):
                 decision_ref="decision://synthetic/duplicate-source",
             )
 
+        for decision_ref in (
+            "file:///Users/synthetic/private-vault",
+            "https://token@synthetic.example/private",
+        ):
+            with self.subTest(decision_ref=decision_ref):
+                with self.assertRaisesRegex(ValidationFailure, "logical decision reference"):
+                    admit_candidate(
+                        expected,
+                        decision="rejected",
+                        decision_ref=decision_ref,
+                    )
+
     def test_v2_receipt_identity_and_transition_cross_bindings_are_verified(self):
         fixture = ROOT / "fixtures/synthetic/record-evolution/v2"
         receipt = json.loads((fixture / "accepted-receipt.json").read_text(encoding="utf-8"))
@@ -480,6 +500,14 @@ class RecordEvolutionTests(unittest.TestCase):
         impossible_transition["receipt_id"] = expected_receipt_id(impossible_transition, "candidate-admission-receipt://")
         with self.assertRaisesRegex(ValidationFailure, "does not bind"):
             validate_candidate_admission_receipt(impossible_transition)
+
+        self_replacement = copy.deepcopy(receipt)
+        source_digest = self_replacement["predecessor_transitions"][0]["from_revision_digest"]
+        self_replacement["result_record_ref"]["revision_digest"] = source_digest
+        self_replacement["predecessor_transitions"][0]["superseded_by"]["revision_digest"] = source_digest
+        self_replacement["receipt_id"] = expected_receipt_id(self_replacement, "candidate-admission-receipt://")
+        with self.assertRaisesRegex(ValidationFailure, "does not bind"):
+            validate_candidate_admission_receipt(self_replacement)
 
     def test_v2_supersession_requires_exact_current_predecessor(self):
         fixture = ROOT / "fixtures/synthetic/record-evolution/v2"

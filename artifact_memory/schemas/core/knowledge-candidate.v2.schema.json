@@ -37,7 +37,7 @@
           "source_ref": {
             "type": "string",
             "allOf": [
-              {"pattern": "^(?:actor|adapter|artifact|artifact-version|authority|candidate|content|decision|external-evidence-binding|fixture|record|record-revision|release|task|tombstone|transformation)://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$"}
+              {"pattern": "^(?:actor|adapter|artifact|artifact-version|authority|candidate|codex-task|content|decision|external-evidence-binding|fixture|record|record-revision|release|task|tombstone|transformation)://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$"}
             ]
           }
         }
@@ -56,7 +56,7 @@
           "items": {
             "type": "string",
             "allOf": [
-              {"pattern": "^(?:actor|adapter|artifact|artifact-version|authority|candidate|content|decision|external-evidence-binding|fixture|record|record-revision|release|task|tombstone|transformation)://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$"}
+              {"pattern": "^(?:actor|adapter|artifact|artifact-version|authority|candidate|codex-task|content|decision|external-evidence-binding|fixture|record|record-revision|release|task|tombstone|transformation)://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$"}
             ]
           }
         }

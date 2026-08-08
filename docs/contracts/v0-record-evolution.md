@@ -14,7 +14,7 @@ the producer considered; `source_record_refs` separately bind canonical record
 revisions used by evolution relationships. Provenance and scope references use
 the portable logical `scheme://segment[/segment]` reference form. V2 fails
 closed to the registered logical schemes `actor`, `adapter`, `artifact`,
-`artifact-version`, `authority`, `candidate`, `content`, `decision`,
+`artifact-version`, `authority`, `candidate`, `codex-task`, `content`, `decision`,
 `external-evidence-binding`, `fixture`, `record`, `record-revision`, `release`,
 `task`, `tombstone`, and `transformation`. Location, transport, provider,
 authority/userinfo, query, fragment, and bearer URL forms are forbidden. A new
@@ -88,6 +88,10 @@ shape-valid receipt with a retained ID and altered transition is rejected.
 Receipt-only validation proves internal integrity, not authenticity or the
 truth of a predecessor lifecycle claim. Verifying the superseded revision body
 still requires the corresponding canonical record evidence.
+
+For v2, `decision_ref` is likewise restricted to the logical
+`decision://segment[/segment]` form before it enters a machine or human receipt.
+V1 retains its released non-empty-string behavior.
 
 The checked v2 synthetic fixtures replay accepted supersession, rejection,
 dispute, independent uncertainty, immutable predecessor transition, and direct

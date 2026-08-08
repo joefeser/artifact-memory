@@ -28,7 +28,7 @@ allowed draft or superseded records to reach context export.
   allowlisted logical provenance references, unique source identities, and
   optional first-class uncertainty.
 - Add admission-receipt v2 with exact immutable predecessor transitions for
-  accepted `supersedes` relationships.
+  accepted `supersedes` relationships and a logical `decision://` reference.
 - Make `export_context` enforce accepted-or-sealed lifecycle eligibility before
   freshness, regardless of caller selection.
 - Freeze context-pack v2/v3. Require explicit negotiation of context-pack v4

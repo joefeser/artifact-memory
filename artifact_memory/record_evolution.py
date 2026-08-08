@@ -31,6 +31,7 @@ LOGICAL_REFERENCE_SCHEMES = {
     "artifact-version",
     "authority",
     "candidate",
+    "codex-task",
     "content",
     "decision",
     "external-evidence-binding",
@@ -268,6 +269,7 @@ def validate_candidate_admission_receipt(receipt: dict[str, Any]) -> None:
             source_revisions.get(transition["record_id"]) != transition["from_revision_digest"]
             or transition["superseded_by"] != receipt["result_record_ref"]
             or transition["from_revision_digest"] == transition["to_revision_digest"]
+            or transition["from_revision_digest"] == receipt["result_record_ref"]["revision_digest"]
             or transition["to_revision_digest"] == receipt["result_record_ref"]["revision_digest"]
         ):
             raise ValidationFailure("candidate-transition-binding-mismatch", "predecessor transition does not bind the source and result revisions")
@@ -315,6 +317,11 @@ def admit_candidate(
         raise ValidationFailure("candidate-digest-mismatch", "candidate revision digest does not match its canonical body")
     if not isinstance(decision_ref, str) or not decision_ref:
         raise ValidationFailure("candidate-decision-invalid", "candidate decision reference is required")
+    if candidate_schema_id == "artifact-memory/knowledge-candidate/v2" and (
+        PORTABLE_REFERENCE.fullmatch(decision_ref) is None
+        or decision_ref.partition("://")[0] != "decision"
+    ):
+        raise ValidationFailure("candidate-decision-invalid", "candidate v2 decision reference must be a logical decision reference")
     if decision not in OUTCOMES:
         raise ValidationFailure("candidate-decision-invalid", "candidate decision outcome is unsupported")
     if candidate["candidate_id"] in set(seen_candidate_ids):
