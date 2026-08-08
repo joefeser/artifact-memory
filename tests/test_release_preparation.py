@@ -271,6 +271,20 @@ class ReleasePreparationTests(unittest.TestCase):
                 "release-preparation-receipt-version-mismatch",
             )
 
+            later_body = dict(body)
+            later_body["package_version"] = "0.1.1"
+            later_version = receipt_with_digest(
+                "artifact-memory/release-preparation-receipt/v1",
+                RELEASE_PREPARATION_RECEIPT_PREFIX,
+                later_body,
+            )
+            with self.assertRaises(ValidationFailure) as failure:
+                validate_release_preparation_receipt(later_version)
+            self.assertEqual(
+                failure.exception.code,
+                "release-preparation-receipt-version-mismatch",
+            )
+
     def test_exact_commit_prepares_pending_signature_release_candidate(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

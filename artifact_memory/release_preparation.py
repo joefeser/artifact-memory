@@ -329,11 +329,19 @@ def validate_release_preparation_receipt(receipt: dict[str, Any]) -> None:
             "release preparation receipt schema is unsupported",
         )
     validate(receipt, load_schema("core", schema_name))
-    if schema_id == "artifact-memory/release-preparation-receipt/v2":
-        release_version = _release_version(
-            receipt["package_version"],
-            allow_development=True,
+    release_version = _release_version(
+        receipt["package_version"],
+        allow_development=True,
+    )
+    if (
+        schema_id == "artifact-memory/release-preparation-receipt/v1"
+        and release_version != "0.1.0"
+    ):
+        raise ValidationFailure(
+            "release-preparation-receipt-version-mismatch",
+            "the frozen v1 preview contract requires the 0.1.0 release identity",
         )
+    if schema_id == "artifact-memory/release-preparation-receipt/v2":
         if release_version == "0.1.0":
             raise ValidationFailure(
                 "release-preparation-receipt-version-mismatch",
