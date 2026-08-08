@@ -237,6 +237,7 @@ def _replay_git_output_against_asset(
 
     process: subprocess.Popen[bytes] | None = None
     mismatch = False
+    killed_due_to_mismatch = False
     try:
         with _open_regular_release_asset(asset_directory, asset_name) as asset:
             process = subprocess.Popen(
@@ -250,11 +251,12 @@ def _replay_git_output_against_asset(
             while chunk := process.stdout.read(RELEASE_ASSET_CHUNK_BYTES):
                 if chunk != asset.read(len(chunk)):
                     mismatch = True
+                    if process.poll() is None:
+                        process.kill()
+                        killed_due_to_mismatch = True
                     break
             if not mismatch and asset.read(1):
                 mismatch = True
-            if mismatch and process.poll() is None:
-                process.kill()
             return_code = process.wait()
     except OSError as exc:
         if process is not None and process.poll() is None:
@@ -267,15 +269,15 @@ def _replay_git_output_against_asset(
     finally:
         if process is not None and process.stdout is not None:
             process.stdout.close()
+    if return_code != 0 and not killed_due_to_mismatch:
+        raise ValidationFailure(
+            "release-candidate-asset-replay-failed",
+            "release asset bytes could not be reproduced from the verified tag commit",
+        )
     if mismatch:
         raise ValidationFailure(
             "release-candidate-asset-replay-mismatch",
             "staged release asset bytes do not match the verified tag commit",
-        )
-    if return_code != 0:
-        raise ValidationFailure(
-            "release-candidate-asset-replay-failed",
-            "release asset bytes could not be reproduced from the verified tag commit",
         )
 
 

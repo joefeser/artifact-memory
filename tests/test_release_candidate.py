@@ -16,6 +16,7 @@ from artifact_memory.cli import EXIT_INVALID, main
 from artifact_memory.release import (
     RELEASE_VERIFICATION_RECEIPT_PREFIX,
     RELEASE_VERIFICATION_SCHEMA_ID,
+    _replay_git_output_against_asset,
     _signed_manifest_digest,
     _ssh_ed25519_fingerprint,
     _matching_allowed_signer_lines,
@@ -249,6 +250,46 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
                     failure.exception.code,
                     "release-candidate-allowed-signers-invalid",
                 )
+
+    def test_streamed_replay_prioritizes_git_failure_after_empty_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "asset.bin").write_bytes(b"expected bytes")
+
+            class FailedProcess:
+                stdout = io.BytesIO(b"")
+
+                @staticmethod
+                def poll():
+                    return 1
+
+                @staticmethod
+                def wait():
+                    return 1
+
+                @staticmethod
+                def kill():
+                    raise AssertionError("completed Git process must not be killed")
+
+            with patch(
+                "artifact_memory.release.subprocess.Popen",
+                return_value=FailedProcess(),
+            ) as git_replay:
+                with self.assertRaises(ValidationFailure) as failure:
+                    _replay_git_output_against_asset(
+                        ["show", "missing"],
+                        root,
+                        root,
+                        "asset.bin",
+                    )
+            self.assertEqual(
+                failure.exception.code,
+                "release-candidate-asset-replay-failed",
+            )
+            self.assertIs(
+                git_replay.call_args.kwargs["stderr"],
+                subprocess.DEVNULL,
+            )
 
     def test_rejects_ambiguous_signed_manifest_trailers(self):
         trailer = "Artifact-Memory-Manifest-SHA256: sha-256:" + "0" * 64 + "\n"
