@@ -21,3 +21,8 @@ The v0 support boundary is documented in the contract files and receipts.
 Unsupported filesystem semantics, unverified authenticity, unknown required
 extensions, and authority-bearing adapter requests fail closed or remain
 explicit outcomes.
+
+To evaluate Artifact Memory from another repository, start with the read-only
+fit audit in the [repository adoption prompts](onboarding/repository-adoption.md).
+The prompts pin implementation claims to the owner-signed v0.1.1 release and
+keep product meaning and operational authority with their owning systems.

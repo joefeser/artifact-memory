@@ -24,6 +24,7 @@ from .release import (
 )
 from .release_preparation import (
     render_release_candidate_preparation_receipt,
+    validate_release_preparation_receipt,
     validate_release_candidate_preparation_receipt,
 )
 from .scan import diff_manifests, scan_path, verify_path
@@ -420,6 +421,11 @@ def main(argv: list[str] | None = None) -> int:
             "artifact-memory/release-manifest/v2",
         }:
             validate_release_manifest(record)
+        if schema_id in {
+            "artifact-memory/release-preparation-receipt/v1",
+            "artifact-memory/release-preparation-receipt/v2",
+        }:
+            validate_release_preparation_receipt(record)
         if schema_id in {
             "artifact-memory/archive-receipt/v1",
             "artifact-memory/archive-receipt/v2",
