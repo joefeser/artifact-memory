@@ -80,8 +80,10 @@ Pinned inputs:
 - Use wholly synthetic records and artifact bytes created for this fixture.
 
 Required seam:
-1. Create or load one canonical record with distinct logical record, artifact,
-   immutable version, content-digest, and location identities.
+1. Create or load a linked canonical record set containing a knowledge record,
+   artifact, immutable artifact version, content object, and location
+   observation. Keep each identity in its owning record and connect the records
+   only through their typed references.
 2. Validate supported structural and semantic contracts.
 3. Register the record, generate a replaceable index/projection, and export one
    bounded context pack.
