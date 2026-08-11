@@ -1,7 +1,10 @@
 # WITS boundary conformance fixture
 
 This synthetic fixture extends the pinned `SyntheticOrders` TraceMap vertical
-slice with one opaque WITS owner-meaning projection reference. Artifact Memory
+slice with one opaque WITS `owner-meaning` projection reference. This frozen
+legacy identifier means an opaque projection of human-originated meaning
+admitted by WITS; it does not assign origination or ownership of meaning to
+WITS. Artifact Memory
 binds exact source revisions, sensitivity/freshness selection, TraceMap evidence,
 the WITS contract commit, and BSL provenance without copying WITS implementation
 code or product-owned schema text.
@@ -22,3 +25,8 @@ interoperability or authority-safe coordinated use.
 `expected-receipt.json` and `receipt.md` are machine-checked and human-readable evidence.
 Replay both with `python3 scripts/run_wits_conformance.py --check`; the standard
 conformance command invokes the same check.
+
+The historical receipt limitation uses the older phrase “WITS owner meaning.”
+Decision 0020 supersedes that wording without changing the released fixture or
+its digest. Neither wording grants task, decision, disclosure, routing, or
+execution authority.

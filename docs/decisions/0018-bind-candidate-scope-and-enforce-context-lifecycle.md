@@ -45,7 +45,9 @@ replayable. New v2 candidate identities intentionally bind scope and
 uncertainty. A caller that supplies lifecycle-ineligible records without
 negotiating v4 receives a typed failure instead of a misleading old-version
 receipt. Candidate admission and context export still create no authority;
-WITS continues to own meaning, approval, and conflict resolution.
+The authorized human continues to originate meaning and approve decisions;
+WITS authenticates authority, admits those decisions, and governs conflict-
+resolution workflow.
 
 Security improves because lifecycle-ineligible records cannot be exported even
 when caller-selected and marked fresh. Compatibility is explicit: released

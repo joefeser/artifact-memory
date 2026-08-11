@@ -50,8 +50,9 @@ are metadata and are not substituted for revision identity.
 Knowledge-record v3 evolution may additionally bind explicit `supersedes`,
 `disputes`, or `contradicts` relationships to the canonical identity and exact
 SHA-256 revision digest of source records used by a candidate. These
-relationships preserve history; WITS remains responsible for meaning, owner
-approval, and conflict resolution.
+relationships preserve history. The authorized human originates meaning and
+approves decisions; WITS authenticates authority, admits those decisions, and
+governs conflict-resolution workflow.
 
 Knowledge-record v2 remains stable for existing consumers and does not admit
 the v3 evolution relationships. A producer must negotiate v3 rather than emit
