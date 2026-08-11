@@ -49,11 +49,20 @@ versioned contract update.
 Release consumers verify the annotated tag signature, compare the public-key
 fingerprint, verify every SHA-256 manifest entry, and confirm the source commit
 matches the release manifest. On rotation, the owner creates and records a
-successor generation before retiring the old key. On compromise, the owner
-revokes the key, records the affected tag range, and rejects it for future
-releases. Recovery material remains under the owner's separate recovery policy,
-not in the repository, workstation backup, or custody VM.
+successor generation before retiring the old key. The attestation workflow
+currently fails closed to generation 1; a later generation requires a reviewed
+workflow and public-key update that retains old-generation verification for
+authorized backfills. On compromise, the owner revokes the key, records the
+affected tag range, and rejects it for future releases. Recovery material
+remains under the owner's separate recovery policy, not in the repository,
+workstation backup, or custody VM.
 
-Keyless build/artifact attestations are intentionally deferred until a reviewed
-public workflow supports them. No final key, signed tag, or release publication
-is performed by release preparation.
+The generation-1 public key is published at
+`artifact-memory-release-signing-generation-1.pub`; its canonical fingerprint
+is `SHA256:h9q2smRb0EzPURXH1LW6IkQcudQIRC3hlGux8ugyBU4`. This repository copy is
+public verification material, not private or recovery key material.
+
+The reviewed public workflow can add supplemental keyless attestations only
+after exact release replay succeeds. It does not replace the owner signature
+or authorize publication. No final key, signed tag, or release publication is
+performed by release preparation or attestation verification.

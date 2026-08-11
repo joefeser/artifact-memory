@@ -1,0 +1,141 @@
+name: Verify and attest release assets
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact existing owner-signed release tag (manual use requires owner authorization)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-attestation-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  verify-and-attest:
+    if: github.event_name == 'release' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      OWNER_FINGERPRINT: SHA256:h9q2smRb0EzPURXH1LW6IkQcudQIRC3hlGux8ugyBU4
+    steps:
+      - name: Validate public release trigger
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "release tag is not canonical" >&2
+            exit 1
+          fi
+          test "$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility)" = public
+          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false
+          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = false
+
+      - name: Check out reviewed attestation control
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          path: control
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check out exact release tag
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          path: release
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+
+      - name: Configure pinned public release signer
+        shell: bash
+        run: |
+          set -euo pipefail
+          public_key="$GITHUB_WORKSPACE/control/docs/release/artifact-memory-release-signing-generation-1.pub"
+          test "$(ssh-keygen -lf "$public_key" | awk '{print $2}')" = "$OWNER_FINGERPRINT"
+          awk '{print "artifact-memory-release " $1 " " $2}' "$public_key" > "$RUNNER_TEMP/allowed_signers"
+          chmod 600 "$RUNNER_TEMP/allowed_signers"
+          git -C "$GITHUB_WORKSPACE/release" config gpg.ssh.allowedSignersFile "$RUNNER_TEMP/allowed_signers"
+
+      - name: Reproduce exact release candidate assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate_sha=$(git -C "$GITHUB_WORKSPACE/release" rev-parse HEAD)
+          tag_sha=$(git -C "$GITHUB_WORKSPACE/release" rev-parse "refs/tags/$RELEASE_TAG^{commit}")
+          test "$candidate_sha" = "$tag_sha"
+          test "$(git -C "$GITHUB_WORKSPACE/release" rev-parse --symbolic-full-name HEAD)" = HEAD
+          python3 "$GITHUB_WORKSPACE/release/scripts/prepare_release_candidate.py" \
+            --candidate "$candidate_sha" \
+            --repo "$GITHUB_WORKSPACE/release" \
+            --out "$RUNNER_TEMP/reproduced" \
+            --owner-fingerprint "$OWNER_FINGERPRINT" \
+            --key-generation generation-1
+
+      - name: Download published release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/published"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/published"
+
+      - name: Verify owner signature and exact release replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/release" python3 -m artifact_memory.cli \
+            verify-release-candidate \
+            "$RUNNER_TEMP/published/release-manifest.json" \
+            --tag "$RELEASE_TAG" \
+            --repo "$GITHUB_WORKSPACE/release" \
+            --asset-dir "$RUNNER_TEMP/published" \
+            --owner-fingerprint "$OWNER_FINGERPRINT" \
+            --isolated-checkout \
+            --json > "$RUNNER_TEMP/generated-verification.json"
+          PYTHONPATH="$GITHUB_WORKSPACE/control" python3 \
+            "$GITHUB_WORKSPACE/control/scripts/verify_release_attestation_subjects.py" \
+            --reproduced "$RUNNER_TEMP/reproduced" \
+            --published "$RUNNER_TEMP/published" \
+            --verification-receipt "$RUNNER_TEMP/generated-verification.json" \
+            --tag "$RELEASE_TAG" \
+            --out "$RUNNER_TEMP/release-subjects.sha256"
+
+      - name: Attest verified release subjects
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: ${{ runner.temp }}/release-subjects.sha256
+
+      - name: Record verification command
+        shell: bash
+        run: |
+          {
+            echo '### Release attestation verification'
+            echo
+            echo 'Each downloaded asset can be verified with:'
+            echo '```shell'
+            echo "gh attestation verify <asset> --repo $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/release-attestations.yml --deny-self-hosted-runners"
+            echo '```'
+            echo
+            echo "Attestation: ${{ steps.attest.outputs.attestation-url }}"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -90,10 +90,10 @@ A public release requires one reviewed exact-head set containing:
 6. release notes, support scope, roadmap, known gaps, and explicit historical
    WhereAreMyFiles lineage and attribution.
 
-No unsigned tag, generated index, CI success, digest, preview receipt, or agent
-action substitutes for owner signing or publication authority. Keyless build
-and artifact attestations are added only after public workflow review supports
-them.
+No unsigned tag, generated index, CI success, digest, preview receipt, keyless
+attestation, or agent action substitutes for owner signing or publication
+authority. The reviewed post-publication workflow reproduces and verifies the
+owner-signed release before adding supplemental Sigstore attestations.
 
 ## Reproducible unsigned preview
 
@@ -190,6 +190,33 @@ isolated-checkout boundary before publication. Pass the external candidate
 directory with `--asset-dir`; missing, substituted, or concurrently changed assets
 fail closed.
 
-Keyless build and artifact attestations remain explicitly
-`deferred-public-workflow-review`; they are not implied by the source release
-or owner signature.
+The immutable v2 candidate manifest retains the compatibility value
+`deferred-public-workflow-review`; it does not claim a later workflow run
+occurred. A passing post-publication attestation is separate evidence and is
+not implied by the source release, owner signature, or candidate manifest.
+
+## Keyless release-asset attestations
+
+After an explicitly authorized release is published, the reviewed
+`release-attestations.yml` workflow reproduces the deterministic candidate
+assets from the exact owner-signed tag, verifies the public signing key,
+manifest trailer, checksums, release receipts, and exact published asset set,
+then attests all published subject digests through GitHub's public Sigstore
+service. Merging the workflow does not backfill existing releases. Manual
+dispatch requires separate exact-tag owner authorization.
+
+Download an attested asset and verify both its repository and signer-workflow
+identity:
+
+```shell
+gh attestation verify <asset> \
+  --repo joefeser/artifact-memory \
+  --signer-workflow joefeser/artifact-memory/.github/workflows/release-attestations.yml \
+  --deny-self-hosted-runners
+```
+
+Online verification depends on GitHub's attestation API and current Sigstore
+trust roots. For offline use, preserve the downloaded attestation bundle and a
+trusted-root snapshot, then follow GitHub's offline verification procedure.
+The bundle proves workflow identity and subject digest, not owner approval,
+claim truth, or authority.
