@@ -20,6 +20,9 @@ WITS_CONTRACT_COMMIT = "d675ba6d632dc03826f27940014d4cd672f7d910"
 WITS_LICENSE = "BSL-1.1"
 WITS_CHANGE_DATE = "2030-01-01"
 WITS_CHANGE_LICENSE = "Apache-2.0"
+# ``owner-meaning`` is a frozen v1/v2 wire identifier. Decision 0020 defines it
+# as human-originated meaning admitted by WITS; it does not assign ownership of
+# meaning to WITS. A successor requires a separately negotiated contract.
 SUPPORTED_PROJECTION_KINDS = {"owner-meaning", "decision", "readiness", "ambiguity"}
 FORBIDDEN_AUTHORITY_KEYS = {
     "approval", "authority", "continuation_payload", "create_task", "destination",

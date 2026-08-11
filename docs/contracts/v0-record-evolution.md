@@ -38,8 +38,10 @@ Knowledge-record v3 permits explicit `supersedes`, `disputes`, and
 `contradicts` relationships. Each relationship carries both the canonical
 record target and its exact SHA-256 revision digest, and that pair must match
 one of the exact source revisions considered by the candidate. Artifact Memory
-stores the relationship and revision binding; WITS owns meaning, owner
-approval, readiness, reconciliation, and conflict resolution.
+stores the relationship and revision binding. The authorized human originates
+meaning and approves decisions; WITS authenticates authority, admits those
+decisions, and governs readiness, reconciliation, and conflict-resolution
+workflow.
 
 For a v2 accepted `supersedes` relationship, admission also requires the exact
 current predecessor record and a caller-supplied current-revision assertion

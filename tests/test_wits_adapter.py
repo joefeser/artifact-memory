@@ -64,6 +64,31 @@ class WitsAdapterTests(unittest.TestCase):
         self.assertEqual(projection["provider_contract"]["license"], "BSL-1.1")
         self.assertNotIn("task_packet", json.dumps(projection))
 
+    def test_owner_meaning_remains_legacy_only_until_versioned_successor(self):
+        for version in ("v1", "v2"):
+            schema = json.loads(
+                (ROOT / f"artifact_memory/schemas/adapters/wits-projection.{version}.schema.json").read_text()
+            )
+            kinds = schema["properties"]["projection_kind"]["enum"]
+            self.assertIn("owner-meaning", kinds)
+            self.assertNotIn("admitted-owner-decision", kinds)
+
+        projection, receipt = bind_projection_v2(
+            [self.record], "owner-meaning", self._strict_response(), True,
+        )
+        self.assertIsNotNone(projection)
+        self.assertEqual(receipt["outcome"], "admitted")
+
+        projection, receipt = bind_projection_v2(
+            [self.record],
+            "admitted-owner-decision",
+            self._strict_response(kind="admitted-owner-decision"),
+            True,
+        )
+        self.assertIsNone(projection)
+        self.assertEqual(receipt["outcome"], "unsupported")
+        self.assertEqual(receipt["diagnostics"][0]["code"], "projection-unsupported")
+
     def test_v2_declared_failures_are_explicit(self):
         response = self._strict_response()
         cases = [
