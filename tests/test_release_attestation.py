@@ -120,6 +120,49 @@ class ReleaseAttestationTests(unittest.TestCase):
                     reproduced, published, generated, tag="v0.1.0"
                 )
 
+    def test_large_asset_replay_is_streamed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            reproduced, published, generated = self._fixture(root)
+            target = next(
+                path for path in reproduced.iterdir() if path.name.endswith(".tar")
+            )
+            payload = b"synthetic streaming block\n" * 100_000
+            target.write_bytes(payload)
+            (published / target.name).write_bytes(payload)
+            report = verify_release_attestation_subjects(
+                reproduced, published, generated, tag="v0.1.0"
+            )
+            subject = next(
+                item for item in report["subjects"] if item["name"] == target.name
+            )
+            self.assertEqual(subject["byte_size"], len(payload))
+            self.assertEqual(
+                subject["sha256"],
+                "sha256:" + hashlib.sha256(payload).hexdigest(),
+            )
+
+    def test_reserved_asset_name_collision_is_case_insensitive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            reproduced, published, generated = self._fixture(root)
+            manifest_path = reproduced / "release-manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["artifacts"][1]["name"] = "Release-Manifest.json"
+            manifest["checksum_manifest"]["artifact_name"] = "Release-Manifest.json"
+            manifest_bytes = (
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+            ).encode()
+            manifest_path.write_bytes(manifest_bytes)
+            (published / "release-manifest.json").write_bytes(manifest_bytes)
+            with self.assertRaisesRegex(
+                ReleaseAttestationFailure,
+                "collide with workflow evidence names case-insensitively",
+            ):
+                verify_release_attestation_subjects(
+                    reproduced, published, generated, tag="v0.1.0"
+                )
+
     def test_missing_or_extra_published_asset_fails_closed(self):
         for mutation in ("missing", "extra"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
@@ -181,6 +224,13 @@ class ReleaseAttestationTests(unittest.TestCase):
         self.assertIn("id-token: write", workflow)
         self.assertIn("attestations: write", workflow)
         self.assertNotIn("contents: write", workflow)
+        self.assertIn("ref: ${{ github.workflow_sha }}", workflow)
+        verify_tag = workflow.index(
+            "- name: Verify owner-signed annotated release tag before executing release code"
+        )
+        reproduce = workflow.index("- name: Reproduce exact release candidate assets")
+        self.assertLess(verify_tag, reproduce)
+        self.assertIn('verify-tag --raw "$tag_object"', workflow[verify_tag:reproduce])
         uses = re.findall(r"^\s*uses:\s*([^\s#]+)", workflow, re.MULTILINE)
         self.assertGreaterEqual(len(uses), 4)
         for reference in uses:

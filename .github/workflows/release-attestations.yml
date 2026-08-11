@@ -46,6 +46,7 @@ jobs:
       - name: Check out reviewed attestation control
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
+          ref: ${{ github.workflow_sha }}
           path: control
           persist-credentials: false
           fetch-depth: 1
@@ -72,6 +73,18 @@ jobs:
           awk '{print "artifact-memory-release " $1 " " $2}' "$public_key" > "$RUNNER_TEMP/allowed_signers"
           chmod 600 "$RUNNER_TEMP/allowed_signers"
           git -C "$GITHUB_WORKSPACE/release" config gpg.ssh.allowedSignersFile "$RUNNER_TEMP/allowed_signers"
+
+      - name: Verify owner-signed annotated release tag before executing release code
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_object=$(git -C "$GITHUB_WORKSPACE/release" rev-parse "refs/tags/$RELEASE_TAG")
+          test "$(git -C "$GITHUB_WORKSPACE/release" cat-file -t "$tag_object")" = tag
+          git -C "$GITHUB_WORKSPACE/release" verify-tag --raw "$tag_object"
+          candidate_sha=$(git -C "$GITHUB_WORKSPACE/release" rev-parse HEAD)
+          tag_sha=$(git -C "$GITHUB_WORKSPACE/release" rev-parse "$tag_object^{commit}")
+          test "$candidate_sha" = "$tag_sha"
+          test "$(git -C "$GITHUB_WORKSPACE/release" rev-parse --symbolic-full-name HEAD)" = HEAD
 
       - name: Reproduce exact release candidate assets
         shell: bash

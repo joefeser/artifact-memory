@@ -23,10 +23,12 @@ release's claims.
 - Run the attestation workflow automatically only after a future release is
   published. Manual exact-tag dispatch exists for separately authorized
   recovery or historical backfill.
-- Use a reviewed control checkout and a separate exact-tag checkout. Reproduce
-  candidate assets with the tagged release code, verify the owner signature and
-  release contracts, download published assets, and require byte-for-byte
-  equality and an exact file set before attestation.
+- Pin the control checkout to `github.workflow_sha` and use a separate exact-tag
+  checkout. Verify the annotated tag with the control checkout's pinned public
+  key before executing tagged release code. Then reproduce candidate assets,
+  repeat the full owner-signature and release-contract verification, download
+  published assets, and require byte-for-byte equality and an exact file set
+  before attestation.
 - Attest all published assets, including the manifest and preparation and
   verification receipts, rather than only the files listed by `SHA256SUMS`.
 - Commit only the generation-1 public key. The workflow receives no private

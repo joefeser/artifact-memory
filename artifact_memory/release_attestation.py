@@ -28,6 +28,7 @@ AUTHORITY_BOUNDARY = (
     "keyless attestation records workflow identity and subject digests; it grants no "
     "signing, publication, deployment, execution, or other authority"
 )
+STREAM_CHUNK_SIZE = 1024 * 1024
 
 
 class ReleaseAttestationFailure(ValueError):
@@ -118,6 +119,78 @@ def _read_stable(path: Path, label: str) -> bytes:
     return data
 
 
+def _stream_equal_subject(
+    reproduced_path: Path,
+    published_path: Path,
+    *,
+    label: str,
+    mismatch_code: str = "release-attestation-replay-mismatch",
+    mismatch_message: str = (
+        "a published release asset differs from deterministic reproduction"
+    ),
+) -> dict[str, Any]:
+    """Compare two stable regular files while retaining only subject metadata."""
+    try:
+        reproduced_before = reproduced_path.stat(follow_symlinks=False)
+        published_before = published_path.stat(follow_symlinks=False)
+        if not stat.S_ISREG(reproduced_before.st_mode) or not stat.S_ISREG(
+            published_before.st_mode
+        ):
+            raise ReleaseAttestationFailure(
+                "release-attestation-entry-unsafe",
+                f"{label} must use regular files",
+            )
+        digest = hashlib.sha256()
+        byte_size = 0
+        with reproduced_path.open("rb") as reproduced_stream, published_path.open(
+            "rb"
+        ) as published_stream:
+            while True:
+                reproduced_chunk = reproduced_stream.read(STREAM_CHUNK_SIZE)
+                published_chunk = published_stream.read(STREAM_CHUNK_SIZE)
+                if reproduced_chunk != published_chunk:
+                    raise ReleaseAttestationFailure(
+                        mismatch_code,
+                        mismatch_message,
+                    )
+                if not published_chunk:
+                    break
+                digest.update(published_chunk)
+                byte_size += len(published_chunk)
+        reproduced_after = reproduced_path.stat(follow_symlinks=False)
+        published_after = published_path.stat(follow_symlinks=False)
+    except ReleaseAttestationFailure:
+        raise
+    except OSError as error:
+        raise ReleaseAttestationFailure(
+            "release-attestation-entry-unavailable",
+            f"{label} could not be read",
+        ) from error
+
+    def identity(metadata: os.stat_result) -> tuple[int, int, int, int]:
+        return (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+        )
+
+    if (
+        identity(reproduced_before) != identity(reproduced_after)
+        or identity(published_before) != identity(published_after)
+        or byte_size != reproduced_after.st_size
+        or byte_size != published_after.st_size
+    ):
+        raise ReleaseAttestationFailure(
+            "release-attestation-entry-changed",
+            f"{label} changed while it was being read",
+        )
+    return {
+        "sha256": "sha256:" + digest.hexdigest(),
+        "byte_size": byte_size,
+    }
+
+
 def _load_object(data: bytes, label: str) -> dict[str, Any]:
     try:
         value = load_json_bytes(data)
@@ -192,10 +265,14 @@ def verify_release_attestation_subjects(
             "release-attestation-manifest-invalid",
             "release manifest artifact names must be unique",
         )
-    if manifest_artifacts & (PREPARATION_ASSETS | {VERIFICATION_ASSET}):
+    reserved_names = PREPARATION_ASSETS | {VERIFICATION_ASSET}
+    reserved_casefolds = {name.casefold() for name in reserved_names}
+    if len(reserved_casefolds) != len(reserved_names) or any(
+        name.casefold() in reserved_casefolds for name in manifest_artifacts
+    ):
         raise ReleaseAttestationFailure(
             "release-attestation-manifest-invalid",
-            "release manifest artifact names collide with workflow evidence names",
+            "release manifest artifact names collide with workflow evidence names case-insensitively",
         )
     expected_reproduced = PREPARATION_ASSETS | manifest_artifacts
     expected_published = expected_reproduced | {VERIFICATION_ASSET}
@@ -210,33 +287,39 @@ def verify_release_attestation_subjects(
             "published release asset set is incomplete or contains unexpected files",
         )
 
-    published_bytes: dict[str, bytes] = {}
+    subjects_by_name: dict[str, dict[str, Any]] = {}
     for name in sorted(expected_reproduced):
-        reproduced_bytes = (
-            manifest_bytes
-            if name == "release-manifest.json"
-            else _read_stable(reproduced / name, "reproduced release asset")
+        subject = _stream_equal_subject(
+            reproduced / name,
+            published / name,
+            label="release replay asset",
         )
-        candidate_bytes = _read_stable(published / name, "published release asset")
-        if reproduced_bytes != candidate_bytes:
+        if name == "release-manifest.json" and subject["sha256"] != _sha256(
+            manifest_bytes
+        ):
             raise ReleaseAttestationFailure(
-                "release-attestation-replay-mismatch",
-                "a published release asset differs from deterministic reproduction",
+                "release-attestation-entry-changed",
+                "reproduced manifest changed after validation",
             )
-        published_bytes[name] = candidate_bytes
+        subjects_by_name[name] = {"name": name, **subject}
 
     generated_bytes = _read_stable(
         generated_receipt_path,
         "generated release verification receipt",
     )
-    published_verification = _read_stable(
+    verification_subject = _stream_equal_subject(
+        generated_receipt_path,
         published / VERIFICATION_ASSET,
-        "published release verification receipt",
+        label="release verification receipt",
+        mismatch_code="release-attestation-verification-receipt-mismatch",
+        mismatch_message=(
+            "published release verification receipt differs from exact replay"
+        ),
     )
-    if generated_bytes != published_verification:
+    if verification_subject["sha256"] != _sha256(generated_bytes):
         raise ReleaseAttestationFailure(
-            "release-attestation-verification-receipt-mismatch",
-            "published release verification receipt differs from exact replay",
+            "release-attestation-entry-changed",
+            "generated verification receipt changed after validation",
         )
     verification = _load_object(generated_bytes, "generated release verification receipt")
     try:
@@ -255,13 +338,16 @@ def verify_release_attestation_subjects(
         or verification.get("manifest_sha256") != manifest_digest
         or verification.get("verified_asset_count") != len(manifest["artifacts"])
         or verification.get("checksum_manifest_sha256")
-        != _protocol_sha256(published_bytes[checksum_name])
+        != subjects_by_name[checksum_name]["sha256"].replace("sha256:", "sha-256:", 1)
     ):
         raise ReleaseAttestationFailure(
             "release-attestation-verification-binding-mismatch",
             "verification receipt is not bound to the reproduced release asset set",
         )
-    published_bytes[VERIFICATION_ASSET] = published_verification
+    subjects_by_name[VERIFICATION_ASSET] = {
+        "name": VERIFICATION_ASSET,
+        **verification_subject,
+    }
     if (
         _file_names(reproduced, "reproduced") != expected_reproduced
         or _file_names(published, "published") != expected_published
@@ -271,14 +357,7 @@ def verify_release_attestation_subjects(
             "release asset set changed during verification",
         )
 
-    subjects = [
-        {
-            "name": name,
-            "sha256": _sha256(published_bytes[name]),
-            "byte_size": len(published_bytes[name]),
-        }
-        for name in sorted(published_bytes)
-    ]
+    subjects = [subjects_by_name[name] for name in sorted(subjects_by_name)]
     return {
         "outcome": "pass",
         "tag": tag,

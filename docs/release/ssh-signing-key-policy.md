@@ -15,6 +15,8 @@ the public fingerprint in the policy manifest and release documentation. The
 local Git `gpg.ssh.allowedSignersFile` must contain the direct Ed25519 release
 public key; the candidate verifier derives its fingerprint, filters verification
 to that public key, and does not parse human-readable signer diagnostics.
+The stable `artifact-memory-release` principal is a policy label selected by
+Git from the matching key; it is not an issuer identity or an email binding.
 
 ## Owner signing workflow
 
