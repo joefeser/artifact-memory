@@ -93,7 +93,15 @@ def main() -> None:
                 "assert load_schema('core', 'vault-intake-vector.v1.schema.json')"
                 "['properties']['schema_id']['const'] == 'artifact-memory/vault-intake-vector/v1'; "
                 "assert load_schema('core', 'vault-intake-conformance-receipt.v1.schema.json')"
-                "['properties']['schema_id']['const'] == 'artifact-memory/vault-intake-conformance-receipt/v1'",
+                "['properties']['schema_id']['const'] == 'artifact-memory/vault-intake-conformance-receipt/v1'; "
+                "assert load_schema('core', 'release-manifest.v3.schema.json')"
+                "['properties']['schema_id']['const'] == 'artifact-memory/release-manifest/v3'; "
+                "assert load_schema('core', 'release-candidate-preparation-receipt.v3.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/release-candidate-preparation-receipt/v3'; "
+                "assert load_schema('core', 'release-candidate-verification-receipt.v3.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/release-candidate-verification-receipt/v3'",
             ],
             cwd=root,
             text=True,

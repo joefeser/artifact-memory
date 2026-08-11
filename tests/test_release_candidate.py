@@ -348,6 +348,59 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             (fixture_root / "v0-release-candidate-verification-receipt.v2.md").read_text(encoding="utf-8"),
         )
 
+    def test_v3_candidate_verification_receipts_pending_attestation_separately(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = release_manifest()
+            manifest["schema_id"] = "artifact-memory/release-manifest/v3"
+            manifest["attestations"] = {
+                "state": "pending-post-publication",
+                "requirement": "keyless-build-artifact-attestations-after-publication",
+                "evidence_boundary": "external-subject-bound-bundle",
+            }
+            manifest_bytes = json.dumps(manifest).encode("utf-8")
+            manifest_path = root / "release.json"
+            manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(root)
+            write_release_assets(root, manifest)
+            fingerprint = manifest["signature"]["public_key_fingerprint"]
+            verification = subprocess.CompletedProcess(
+                args=["git", "verify-tag"],
+                returncode=0,
+                stdout="",
+                stderr=(
+                    'Good "git" signature for release-owner@example.invalid '
+                    f"with ED25519 key {fingerprint}\n"
+                ),
+            )
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.__version__", "0.1.0"),
+                patch("artifact_memory.release.subprocess.run", return_value=verification),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    side_effect=git_output_for(manifest_bytes),
+                ),
+            ):
+                receipt = verify_checked_out_release_candidate(
+                    manifest_path,
+                    "v0.1.0",
+                    root,
+                    asset_directory=root,
+                    owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    isolated_checkout=True,
+                )
+        self.assertEqual(
+            receipt["schema_id"],
+            "artifact-memory/release-candidate-verification-receipt/v3",
+        )
+        self.assertEqual(receipt["attestation_state"], "pending-post-publication")
+        self.assertFalse(receipt["attestation_evidence_evaluated"])
+        validate_release_candidate_verification_receipt(receipt)
+        rendered = render_release_candidate_verification_receipt(receipt)
+        self.assertIn("Attestation state: `pending-post-publication`", rendered)
+        self.assertIn("Attestation evidence evaluated: `false`", rendered)
+
     def test_receipt_cli_reports_integrity_without_replaying_live_evidence(self):
         fixture = Path(__file__).resolve().parents[1] / (
             "fixtures/synthetic/release/v0-release-candidate-verification-receipt.json"

@@ -1,0 +1,50 @@
+{
+  "schema_id": "artifact-memory/release-manifest/v3",
+  "release_id": "artifact-memory/v0.1.2",
+  "status": "release-candidate",
+  "source": {
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "tree_digest": "sha-256:1111111111111111111111111111111111111111111111111111111111111111",
+    "tree_digest_profile": "sha256-of-git-ls-tree-r-full-tree-v1"
+  },
+  "surfaces": {
+    "protocol": {"version": "v0", "stability": "development-preview"},
+    "schemas": {"versioning": "independent-schema-id-vN", "inventory_count": 87, "inventory_digest": "sha-256:2222222222222222222222222222222222222222222222222222222222222222", "inventory_digest_profile": "sha256-of-canonical-sorted-schema-id-array-v1"},
+    "reference_cli": {"package_version": "0.1.2", "stability": "stable"},
+    "adapters": {"versioning": "provider-contract-vN", "manifest_schema": "artifact-memory/adapter-manifest/v1"},
+    "fixtures": {"versioning": "fixture-and-receipt-vN", "aggregate_schema": "artifact-memory/conformance-fixture-receipt/v1"}
+  },
+  "compatibility_policy": {
+    "unknown_optional": "preserve-without-interpretation",
+    "unknown_required": "fail-closed",
+    "breaking_change": "new-version-and-explicit-migration-or-rejection-rule",
+    "deprecation_window": "at-least-one-minor-release-and-90-days-after-announcement",
+    "pre_1_0_api_stability": "implementation-APIs-unstable-contracts-remain-versioned"
+  },
+  "artifacts": [
+    {
+      "name": "artifact-memory-0.1.2.tar",
+      "kind": "source-archive",
+      "format": "git-archive-tar",
+      "byte_size": 4242,
+      "sha256": "sha-256:3333333333333333333333333333333333333333333333333333333333333333",
+      "provenance": "synthetic pending-candidate boundary fixture"
+    },
+    {
+      "name": "SHA256SUMS",
+      "kind": "checksum-file",
+      "format": "sha256sum-v1",
+      "byte_size": 99,
+      "sha256": "sha-256:4444444444444444444444444444444444444444444444444444444444444444",
+      "provenance": "synthetic pending-candidate checksum boundary fixture"
+    }
+  ],
+  "checksum_manifest": {"artifact_name": "SHA256SUMS", "format": "sha256sum-v1", "scope": "all-manifest-listed-artifacts-except-checksum-manifest-itself"},
+  "signature": {"state": "pending-owner-signature", "tag": "v0.1.2", "algorithm": "ssh-ed25519", "public_key_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "key_generation": "synthetic-generation-1", "owner_signed_annotated_tag": false},
+  "attestations": {"state": "pending-post-publication", "requirement": "keyless-build-artifact-attestations-after-publication", "evidence_boundary": "external-subject-bound-bundle"},
+  "authority_boundary": "release preparation grants no signing, tag, publication, visibility, or deployment authority",
+  "limitations": [
+    "synthetic future-candidate evidence is not signed release evidence",
+    "no post-publication attestation exists and none is implied"
+  ]
+}

@@ -46,18 +46,21 @@ def main() -> int:
     if args.plain_text:
         print(render_release_candidate_preparation_receipt(receipt), end="")
     else:
-        print(json.dumps(
-            {
-                "outcome": "pass",
-                "receipt_id": receipt["receipt_id"],
-                "source_commit": receipt["source_commit"],
-                "release_manifest_digest": receipt["release_manifest_digest"],
-                "tag_message_trailer": receipt["tag_message_trailer"],
-                "signature_verification_state": receipt["signature_verification_state"],
-                "publication_state": receipt["publication_state"],
-            },
-            sort_keys=True,
-        ))
+        summary = {
+            "outcome": "pass",
+            "receipt_id": receipt["receipt_id"],
+            "source_commit": receipt["source_commit"],
+            "release_manifest_digest": receipt["release_manifest_digest"],
+            "tag_message_trailer": receipt["tag_message_trailer"],
+            "signature_verification_state": receipt["signature_verification_state"],
+            "publication_state": receipt["publication_state"],
+        }
+        if "attestation_state" in receipt:
+            summary["attestation_state"] = receipt["attestation_state"]
+            summary["attestation_evidence_present"] = receipt[
+                "attestation_evidence_present"
+            ]
+        print(json.dumps(summary, sort_keys=True))
     return 0
 
 
