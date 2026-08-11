@@ -7,6 +7,8 @@ import unittest
 import zipfile
 from pathlib import Path
 
+from artifact_memory.canonical import receipt_with_digest
+from artifact_memory.release_preparation import RELEASE_PREPARATION_RECEIPT_PREFIX
 from artifact_memory.scan import ScanLimits, make_scan_policy, scan_path
 
 
@@ -118,6 +120,36 @@ class CliTests(unittest.TestCase):
                 )
                 self.assertTrue(receipt["valid"])
                 self.assertEqual(receipt["outcome"], "accepted")
+
+    def test_validate_applies_release_preparation_version_binding(self):
+        fixture = json.loads(
+            (RELEASE_FIXTURES / "v0-preparation-expected-receipt.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        body = {
+            key: value
+            for key, value in fixture.items()
+            if key not in {"schema_id", "receipt_id"}
+        }
+        body["package_version"] = "0.1.1"
+        invalid = receipt_with_digest(
+            "artifact-memory/release-preparation-receipt/v1",
+            RELEASE_PREPARATION_RECEIPT_PREFIX,
+            body,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            receipt_path = Path(temporary) / "release-preparation-receipt.json"
+            receipt_path.write_text(json.dumps(invalid), encoding="utf-8")
+            result = self.run_cli("validate", str(receipt_path), "--json")
+
+        self.assertEqual(result.returncode, 2)
+        validation = json.loads(result.stdout)
+        self.assertFalse(validation["valid"])
+        self.assertEqual(
+            validation["diagnostics"][0]["code"],
+            "release-preparation-receipt-version-mismatch",
+        )
 
     def test_validate_rejects_v1_release_claim_that_requires_migration(self):
         fixture = RELEASE_FIXTURES / "v0-preview-manifest.json"
