@@ -70,7 +70,8 @@ This repository must not contain:
 - real vault records or artifact bytes;
 - customer data;
 - private commercial or product strategy;
-- credentials, cookies, tokens, keys, or browser sessions;
+- credentials, cookies, tokens, private keys, or browser sessions (published
+  release-verification public keys are allowed);
 - physical resolver paths or storage credentials;
 - raw AI conversations or private attachments.
 

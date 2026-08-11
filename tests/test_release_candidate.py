@@ -1254,7 +1254,7 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             fingerprint = _ssh_ed25519_fingerprint(public_key)
             allowed_signers = root / "allowed_signers"
             allowed_signers.write_text(
-                f"release-owner@example.invalid ssh-ed25519 {public_key} synthetic-release-key\n",
+                f"artifact-memory-release ssh-ed25519 {public_key} synthetic-release-key\n",
                 encoding="utf-8",
             )
             subprocess.run(["git", "config", "gpg.format", "ssh"], cwd=repository, check=True)
