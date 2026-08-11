@@ -44,46 +44,64 @@ SYNTHETIC_NOTES_NAME = "artifact-memory-0.1.0-release-notes.md"
 SYNTHETIC_NOTES_SOURCE = "docs/release/v0.1.0-release-notes.md"
 
 
-def release_manifest() -> dict:
+def release_manifest(
+    version: str = "0.1.0",
+    schema_id: str = "artifact-memory/release-manifest/v2",
+) -> dict:
     manifest = copy.deepcopy(MANIFEST)
     commit = "a" * 40
-    manifest["release_id"] = "artifact-memory/v0.1.0"
+    tag = f"v{version}"
+    archive_name = f"artifact-memory-{version}.tar"
+    notes_name = f"artifact-memory-{version}-release-notes.md"
+    notes_source = f"docs/release/v{version}-release-notes.md"
+    manifest["schema_id"] = schema_id
+    manifest["release_id"] = f"artifact-memory/{tag}"
     manifest["status"] = "release-candidate"
     manifest["source"]["commit"] = commit
     manifest["source"]["tree_digest"] = f"sha-256:{hashlib.sha256(TREE_LISTING).hexdigest()}"
-    manifest["surfaces"]["reference_cli"] = {"package_version": "0.1.0", "stability": "stable"}
+    manifest["surfaces"]["reference_cli"] = {
+        "package_version": version,
+        "stability": "stable",
+    }
     manifest["signature"] = {
         "state": "pending-owner-signature",
-        "tag": "v0.1.0",
+        "tag": tag,
         "algorithm": "ssh-ed25519",
         "public_key_fingerprint": SYNTHETIC_FINGERPRINT,
         "key_generation": "generation-1",
         "owner_signed_annotated_tag": False,
     }
+    if schema_id == "artifact-memory/release-manifest/v3":
+        manifest["attestations"] = {
+            "state": "pending-post-publication",
+            "requirement": "keyless-build-artifact-attestations-after-publication",
+            "evidence_boundary": "external-subject-bound-bundle",
+        }
     archive_digest = hashlib.sha256(SYNTHETIC_ARCHIVE).hexdigest()
     notes_digest = hashlib.sha256(SYNTHETIC_NOTES).hexdigest()
     checksum = (
-        f"{archive_digest}  {SYNTHETIC_ARCHIVE_NAME}\n"
-        f"{notes_digest}  {SYNTHETIC_NOTES_NAME}\n"
+        f"{archive_digest}  {archive_name}\n"
+        f"{notes_digest}  {notes_name}\n"
     ).encode("ascii")
     manifest["artifacts"] = [
         {
-            "name": SYNTHETIC_ARCHIVE_NAME,
+            "name": archive_name,
             "kind": "source-archive",
             "format": "git-archive-tar",
             "byte_size": len(SYNTHETIC_ARCHIVE),
             "sha256": "sha-256:" + archive_digest,
             "provenance": (
-                "git archive --format=tar --prefix=artifact-memory-0.1.0/ " + commit
+                f"git archive --format=tar --prefix=artifact-memory-{version}/ "
+                + commit
             ),
         },
         {
-            "name": SYNTHETIC_NOTES_NAME,
+            "name": notes_name,
             "kind": "documentation",
             "format": "markdown",
             "byte_size": len(SYNTHETIC_NOTES),
             "sha256": "sha-256:" + notes_digest,
-            "provenance": f"exact bytes from {commit}:{SYNTHETIC_NOTES_SOURCE}",
+            "provenance": f"exact bytes from {commit}:{notes_source}",
         },
         {
             "name": "SHA256SUMS",
@@ -115,13 +133,28 @@ def historical_release_manifest() -> dict:
 
 
 def git_output_for(manifest_bytes: bytes):
+    manifest = json.loads(manifest_bytes)
     manifest_digest = f"sha-256:{hashlib.sha256(manifest_bytes).hexdigest()}"
+    commit = manifest["source"]["commit"]
+    tag = manifest["signature"]["tag"]
+    archive_name = next(
+        artifact["name"]
+        for artifact in manifest["artifacts"]
+        if artifact["kind"] == "source-archive"
+    )
+    notes = next(
+        artifact
+        for artifact in manifest["artifacts"]
+        if artifact["kind"] == "documentation"
+    )
+    notes_source = notes["provenance"].split(":", 1)[1]
+    tag_object_id = "b" * 40
     tag_object = (
-        "object " + "a" * 40 + "\n"
+        f"object {commit}\n"
         "type commit\n"
-        "tag v0.1.0\n"
+        f"tag {tag}\n"
         "tagger Release Owner <owner@example.invalid> 0 +0000\n\n"
-        "Artifact Memory v0.1.0\n\n"
+        f"Artifact Memory {tag}\n\n"
         f"Artifact-Memory-Manifest-SHA256: {manifest_digest}\n"
         "-----BEGIN SSH SIGNATURE-----\nsynthetic\n-----END SSH SIGNATURE-----\n"
     ).encode("utf-8")
@@ -131,20 +164,20 @@ def git_output_for(manifest_bytes: bytes):
         values = {
             ("rev-parse", "--show-object-format"): "sha1\n",
             ("config", "--path", "--get", "gpg.ssh.allowedSignersFile"): "allowed_signers\n",
-            ("rev-parse", "HEAD"): "a" * 40 + "\n",
+            ("rev-parse", "HEAD"): commit + "\n",
             ("rev-parse", "--symbolic-full-name", "HEAD"): "HEAD\n",
-            ("rev-parse", "refs/tags/v0.1.0"): "b" * 40 + "\n",
-            ("rev-parse", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb^{commit}"): "a" * 40 + "\n",
-            ("cat-file", "-t", "b" * 40): "tag\n",
-            ("cat-file", "tag", "b" * 40): tag_object,
-            ("ls-tree", "-r", "--full-tree", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb^{commit}"): TREE_LISTING,
+            ("rev-parse", f"refs/tags/{tag}"): tag_object_id + "\n",
+            ("rev-parse", f"{tag_object_id}^{{commit}}"): commit + "\n",
+            ("cat-file", "-t", tag_object_id): "tag\n",
+            ("cat-file", "tag", tag_object_id): tag_object,
+            ("ls-tree", "-r", "--full-tree", f"{tag_object_id}^{{commit}}"): TREE_LISTING,
             (
                 "archive",
                 "--format=tar",
-                "--prefix=artifact-memory-0.1.0/",
-                "a" * 40,
+                f"--prefix={archive_name.removesuffix('.tar')}/",
+                commit,
             ): SYNTHETIC_ARCHIVE,
-            ("show", f"{'a' * 40}:{SYNTHETIC_NOTES_SOURCE}"): SYNTHETIC_NOTES,
+            ("show", f"{commit}:{notes_source}"): SYNTHETIC_NOTES,
         }
         value = values[command]
         if kwargs.get("text") and isinstance(value, bytes):
@@ -163,15 +196,12 @@ def synthetic_git_replay(
     asset_name: str,
 ) -> None:
     del repository_root
-    reproduced = {
-        (
-            "archive",
-            "--format=tar",
-            "--prefix=artifact-memory-0.1.0/",
-            "a" * 40,
-        ): SYNTHETIC_ARCHIVE,
-        ("show", f"{'a' * 40}:{SYNTHETIC_NOTES_SOURCE}"): SYNTHETIC_NOTES,
-    }[tuple(git_args)]
+    if git_args[0] == "archive":
+        reproduced = SYNTHETIC_ARCHIVE
+    elif git_args[0] == "show":
+        reproduced = SYNTHETIC_NOTES
+    else:
+        raise AssertionError(f"unexpected synthetic Git replay command: {git_args}")
     if (asset_directory / asset_name).read_bytes() != reproduced:
         raise ValidationFailure(
             "release-candidate-asset-replay-mismatch",
@@ -191,8 +221,16 @@ def write_allowed_signers(root: Path, *, public_key: str = SYNTHETIC_PUBLIC_KEY)
 def write_release_assets(root: Path, manifest: dict | None = None) -> None:
     manifest = manifest or release_manifest()
     contents = {
-        SYNTHETIC_ARCHIVE_NAME: SYNTHETIC_ARCHIVE,
-        SYNTHETIC_NOTES_NAME: SYNTHETIC_NOTES,
+        next(
+            artifact["name"]
+            for artifact in manifest["artifacts"]
+            if artifact["kind"] == "source-archive"
+        ): SYNTHETIC_ARCHIVE,
+        next(
+            artifact["name"]
+            for artifact in manifest["artifacts"]
+            if artifact["kind"] == "documentation"
+        ): SYNTHETIC_NOTES,
     }
     checksum = "".join(
         f"{artifact['sha256'].removeprefix('sha-256:')}  {artifact['name']}\n"
@@ -348,6 +386,55 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
             (fixture_root / "v0-release-candidate-verification-receipt.v2.md").read_text(encoding="utf-8"),
         )
 
+    def test_v3_candidate_verification_receipts_pending_attestation_separately(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = release_manifest(
+                "0.1.2", "artifact-memory/release-manifest/v3"
+            )
+            manifest_bytes = json.dumps(manifest).encode("utf-8")
+            manifest_path = root / "release.json"
+            manifest_path.write_bytes(manifest_bytes)
+            write_allowed_signers(root)
+            write_release_assets(root, manifest)
+            fingerprint = manifest["signature"]["public_key_fingerprint"]
+            verification = subprocess.CompletedProcess(
+                args=["git", "verify-tag"],
+                returncode=0,
+                stdout="",
+                stderr=(
+                    'Good "git" signature for release-owner@example.invalid '
+                    f"with ED25519 key {fingerprint}\n"
+                ),
+            )
+            with (
+                patch("artifact_memory.release._repository_root", return_value=root),
+                patch("artifact_memory.release.__version__", "0.1.2"),
+                patch("artifact_memory.release.subprocess.run", return_value=verification),
+                patch(
+                    "artifact_memory.release.subprocess.check_output",
+                    side_effect=git_output_for(manifest_bytes),
+                ),
+            ):
+                receipt = verify_checked_out_release_candidate(
+                    manifest_path,
+                    "v0.1.2",
+                    root,
+                    asset_directory=root,
+                    owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                    isolated_checkout=True,
+                )
+        self.assertEqual(
+            receipt["schema_id"],
+            "artifact-memory/release-candidate-verification-receipt/v3",
+        )
+        self.assertEqual(receipt["attestation_state"], "pending-post-publication")
+        self.assertFalse(receipt["attestation_evidence_evaluated"])
+        validate_release_candidate_verification_receipt(receipt)
+        rendered = render_release_candidate_verification_receipt(receipt)
+        self.assertIn("Attestation state: `pending-post-publication`", rendered)
+        self.assertIn("Attestation evidence evaluated: `false`", rendered)
+
     def test_receipt_cli_reports_integrity_without_replaying_live_evidence(self):
         fixture = Path(__file__).resolve().parents[1] / (
             "fixtures/synthetic/release/v0-release-candidate-verification-receipt.json"
@@ -419,6 +506,21 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
         self.assertEqual(result["release_id"], "artifact-memory/v0.1.0")
         self.assertEqual(result["tag_commit"], "a" * 40)
         self.assertEqual(result["manifest_package_version"], "0.1.0")
+
+    def test_rejects_v2_manifest_for_future_release_identity(self):
+        manifest = release_manifest("0.1.2")
+        with self.assertRaises(ValidationFailure) as failure:
+            validate_release_candidate_identity(
+                manifest,
+                tag="v0.1.2",
+                head_commit="a" * 40,
+                tag_commit="a" * 40,
+                package_version="0.1.2",
+            )
+        self.assertEqual(
+            failure.exception.code,
+            "release-manifest-version-binding-invalid",
+        )
 
     def test_accepts_historical_release_identity(self):
         result = validate_release_candidate_identity(

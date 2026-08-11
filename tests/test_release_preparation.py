@@ -432,6 +432,42 @@ class ReleasePreparationTests(unittest.TestCase):
                 "release-candidate-preparation-version-binding-invalid",
             )
 
+    def test_future_release_candidate_uses_pending_attestation_v3_contracts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, commit = self.release_repository(
+                root / "candidate",
+                package_version="0.1.2",
+                release_notes=b"# Synthetic 0.1.2 release notes\n",
+            )
+            output = root / "output"
+            receipt = prepare_release_candidate(
+                repository,
+                commit,
+                output,
+                owner_fingerprint=SYNTHETIC_FINGERPRINT,
+                key_generation="synthetic-generation-1",
+            )
+            manifest = json.loads(
+                (output / "release-manifest.json").read_text(encoding="utf-8")
+            )
+            validate_release_manifest(manifest)
+            validate_release_candidate_preparation_receipt(receipt)
+            self.assertEqual(
+                manifest["schema_id"], "artifact-memory/release-manifest/v3"
+            )
+            self.assertEqual(
+                receipt["schema_id"],
+                "artifact-memory/release-candidate-preparation-receipt/v3",
+            )
+            self.assertEqual(receipt["attestation_state"], "pending-post-publication")
+            self.assertFalse(receipt["attestation_evidence_present"])
+            self.assertNotIn("url", manifest["attestations"])
+            self.assertNotIn("bundle", manifest["attestations"])
+            rendered = render_release_candidate_preparation_receipt(receipt)
+            self.assertIn("Attestation state: `pending-post-publication`", rendered)
+            self.assertIn("Attestation evidence present: `false`", rendered)
+
     def test_release_candidate_cli_reports_exact_manifest_binding(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

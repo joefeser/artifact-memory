@@ -17,6 +17,21 @@ FIXTURE = ROOT / "fixtures/synthetic/release"
 
 
 class ReleaseManifestTests(unittest.TestCase):
+    def test_released_v2_contract_and_fixture_bytes_remain_frozen(self):
+        expected = {
+            "artifact_memory/schemas/core/release-manifest.v2.schema.json": "61f383f256e4c677cd15993a92d2ac77cd50f8c4f8e2086160d9015341aa67b1",
+            "artifact_memory/schemas/core/release-candidate-preparation-receipt.v2.schema.json": "f525f631cd88484864cf9c50fffb1c8809a20dc6919fc68622cbc86236c69c05",
+            "artifact_memory/schemas/core/release-candidate-verification-receipt.v2.schema.json": "e2f2c03ad720fff2ef800a19f0a8b6f92942a17a87a1a2afb651db151790cd14",
+            "fixtures/synthetic/release/v0-pending-candidate-manifest.v2.json": "de7955c12e207b73d8a3d489e9b5a2cb6da57ea8a13e0d9b0f3a5255fcf5a606",
+            "fixtures/synthetic/release/v0-release-candidate-verification-receipt.v2.json": "2af4afdb1e43069d935542ed6b9394f798ade10a11d72b9358785f87ed94238d",
+        }
+        for relative_path, digest in expected.items():
+            with self.subTest(path=relative_path):
+                self.assertEqual(
+                    hashlib.sha256((ROOT / relative_path).read_bytes()).hexdigest(),
+                    digest,
+                )
+
     def test_legacy_preview_manifest_remains_schema_valid(self):
         schema = json.loads((ROOT / "artifact_memory/schemas/core/release-manifest.v1.schema.json").read_text(encoding="utf-8"))
         manifest = json.loads((FIXTURE / "v0-preview-manifest.json").read_text(encoding="utf-8"))
@@ -41,6 +56,82 @@ class ReleaseManifestTests(unittest.TestCase):
         self.assertEqual(render_release_conformance(receipt), (FIXTURE / "v0-preview-receipt.md").read_text(encoding="utf-8"))
         self.assertEqual(receipt["signature_state"], "unsigned-preview")
         self.assertEqual(receipt["publication_state"], "not-authorized")
+
+    def test_v3_candidate_records_pending_post_publication_attestation(self):
+        manifest = json.loads(
+            (FIXTURE / "v0-pending-candidate-manifest.v3.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        validate_release_manifest(manifest)
+        self.assertEqual(manifest["status"], "release-candidate")
+        self.assertEqual(
+            manifest["attestations"],
+            {
+                "state": "pending-post-publication",
+                "requirement": "keyless-build-artifact-attestations-after-publication",
+                "evidence_boundary": "external-subject-bound-bundle",
+            },
+        )
+
+    def test_v3_candidate_rejects_premature_or_embedded_attestation_claims(self):
+        original = json.loads(
+            (FIXTURE / "v0-pending-candidate-manifest.v3.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        mutations = (
+            ("published", lambda value: value["attestations"].update(state="published")),
+            ("verified", lambda value: value["attestations"].update(state="verified")),
+            (
+                "url",
+                lambda value: value["attestations"].update(
+                    url="https://synthetic.example/attestation"
+                ),
+            ),
+            (
+                "bundle",
+                lambda value: value["attestations"].update(bundle={"synthetic": True}),
+            ),
+        )
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                candidate = copy.deepcopy(original)
+                mutate(candidate)
+                with self.assertRaises(ValidationFailure):
+                    validate_release_manifest(candidate)
+
+    def test_candidate_manifest_schema_is_bound_to_release_version(self):
+        historical = json.loads(
+            (FIXTURE / "v0-pending-candidate-manifest.v2.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        future = json.loads(
+            (FIXTURE / "v0-pending-candidate-manifest.v3.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        mismatches = (
+            (historical, "0.1.2"),
+            (future, "0.1.1"),
+        )
+        for manifest, release_version in mismatches:
+            with self.subTest(
+                schema_id=manifest["schema_id"], release_version=release_version
+            ):
+                candidate = copy.deepcopy(manifest)
+                candidate["release_id"] = f"artifact-memory/v{release_version}"
+                candidate["signature"]["tag"] = f"v{release_version}"
+                candidate["surfaces"]["reference_cli"][
+                    "package_version"
+                ] = release_version
+                with self.assertRaises(ValidationFailure) as failure:
+                    validate_release_manifest(candidate)
+                self.assertEqual(
+                    failure.exception.code,
+                    "release-manifest-version-binding-invalid",
+                )
 
     def test_unsigned_manifest_cannot_claim_release_status(self):
         manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))

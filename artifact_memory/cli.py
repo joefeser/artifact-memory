@@ -419,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
         if schema_id in {
             "artifact-memory/release-manifest/v1",
             "artifact-memory/release-manifest/v2",
+            "artifact-memory/release-manifest/v3",
         }:
             validate_release_manifest(record)
         if schema_id in {
