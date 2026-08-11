@@ -101,6 +101,38 @@ class ReleaseManifestTests(unittest.TestCase):
                 with self.assertRaises(ValidationFailure):
                     validate_release_manifest(candidate)
 
+    def test_candidate_manifest_schema_is_bound_to_release_version(self):
+        historical = json.loads(
+            (FIXTURE / "v0-pending-candidate-manifest.v2.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        future = json.loads(
+            (FIXTURE / "v0-pending-candidate-manifest.v3.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        mismatches = (
+            (historical, "0.1.2"),
+            (future, "0.1.1"),
+        )
+        for manifest, release_version in mismatches:
+            with self.subTest(
+                schema_id=manifest["schema_id"], release_version=release_version
+            ):
+                candidate = copy.deepcopy(manifest)
+                candidate["release_id"] = f"artifact-memory/v{release_version}"
+                candidate["signature"]["tag"] = f"v{release_version}"
+                candidate["surfaces"]["reference_cli"][
+                    "package_version"
+                ] = release_version
+                with self.assertRaises(ValidationFailure) as failure:
+                    validate_release_manifest(candidate)
+                self.assertEqual(
+                    failure.exception.code,
+                    "release-manifest-version-binding-invalid",
+                )
+
     def test_unsigned_manifest_cannot_claim_release_status(self):
         manifest = json.loads((FIXTURE / "v0-preview-manifest.v2.json").read_text(encoding="utf-8"))
         manifest["status"] = "release"

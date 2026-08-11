@@ -30,6 +30,14 @@ RELEASE_VERIFICATION_SCHEMA_ID = "artifact-memory/release-candidate-verification
 LATEST_RELEASE_VERIFICATION_SCHEMA_ID = "artifact-memory/release-candidate-verification-receipt/v3"
 RELEASE_VERIFICATION_RECEIPT_PREFIX = "release-candidate-verification-receipt://"
 RELEASE_ASSET_CHUNK_BYTES = 1024 * 1024
+FROZEN_V2_RELEASE_VERSIONS = frozenset({"0.1.0", "0.1.1"})
+
+
+def _release_manifest_schema_for_version(release_version: str) -> str:
+    """Select the frozen historical or successor candidate manifest contract."""
+
+    contract = "v2" if release_version in FROZEN_V2_RELEASE_VERSIONS else "v3"
+    return f"artifact-memory/release-manifest/{contract}"
 
 
 def validate_release_manifest(
@@ -96,6 +104,14 @@ def validate_release_manifest(
     if manifest["status"] == "preview" and manifest["attestations"]["state"] != "deferred-private-incubation":
         raise ValidationFailure("release-preview-attestation-invalid", "private preview cannot claim published attestations", "$.attestations.state")
     if manifest["status"] in {"release-candidate", "release"}:
+        release_version = manifest["release_id"].removeprefix("artifact-memory/v")
+        expected_schema_id = _release_manifest_schema_for_version(release_version)
+        if schema_id != expected_schema_id:
+            raise ValidationFailure(
+                "release-manifest-version-binding-invalid",
+                "release candidate manifest schema does not match its release identity",
+                "$.schema_id",
+            )
         fingerprint = manifest["signature"]["public_key_fingerprint"]
         if not isinstance(fingerprint, str) or SSH_FINGERPRINT_PATTERN.fullmatch(fingerprint) is None:
             raise ValidationFailure(
