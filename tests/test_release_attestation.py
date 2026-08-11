@@ -231,6 +231,11 @@ class ReleaseAttestationTests(unittest.TestCase):
         reproduce = workflow.index("- name: Reproduce exact release candidate assets")
         self.assertLess(verify_tag, reproduce)
         self.assertIn('verify-tag --raw "$tag_object"', workflow[verify_tag:reproduce])
+        self.assertIn("--signer-digest ${{ github.workflow_sha }}", workflow)
+        release_documentation = (
+            ROOT / "docs/release/versioning-and-launch.md"
+        ).read_text()
+        self.assertIn("--signer-digest <trusted-workflow-commit-sha>", release_documentation)
         uses = re.findall(r"^\s*uses:\s*([^\s#]+)", workflow, re.MULTILINE)
         self.assertGreaterEqual(len(uses), 4)
         for reference in uses:

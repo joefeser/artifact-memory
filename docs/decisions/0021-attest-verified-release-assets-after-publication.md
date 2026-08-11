@@ -63,8 +63,9 @@ signing, publication, deployment, execution, mutation, merge, spending,
 credential, disclosure, or declassification authority.
 
 Offline verification requires preserved attestation bundles and current
-trusted-root evidence. Online verification should constrain both the
-repository and signer workflow and reject self-hosted runners.
+trusted-root evidence. Online verification should constrain the repository,
+signer-workflow path, and independently trusted workflow commit digest, and
+reject self-hosted runners.
 
 The initial workflow supports signing-key generation 1 only. Rotation is a
 fail-closed reviewed change: add the successor public key and policy while

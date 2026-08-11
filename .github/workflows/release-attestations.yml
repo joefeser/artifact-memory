@@ -147,7 +147,7 @@ jobs:
             echo
             echo 'Each downloaded asset can be verified with:'
             echo '```shell'
-            echo "gh attestation verify <asset> --repo $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/release-attestations.yml --deny-self-hosted-runners"
+            echo "gh attestation verify <asset> --repo $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/release-attestations.yml --signer-digest ${{ github.workflow_sha }} --deny-self-hosted-runners"
             echo '```'
             echo
             echo "Attestation: ${{ steps.attest.outputs.attestation-url }}"

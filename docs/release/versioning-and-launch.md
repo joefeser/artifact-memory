@@ -205,13 +205,16 @@ then attests all published subject digests through GitHub's public Sigstore
 service. Merging the workflow does not backfill existing releases. Manual
 dispatch requires separate exact-tag owner authorization.
 
-Download an attested asset and verify both its repository and signer-workflow
-identity:
+Download an attested asset and verify its repository, signer-workflow identity,
+and exact reviewed workflow revision. Replace `<trusted-workflow-commit-sha>`
+with the `github.workflow_sha` recorded by the trusted release workflow run;
+do not derive the expected value solely from the attestation being checked.
 
 ```shell
 gh attestation verify <asset> \
   --repo joefeser/artifact-memory \
   --signer-workflow joefeser/artifact-memory/.github/workflows/release-attestations.yml \
+  --signer-digest <trusted-workflow-commit-sha> \
   --deny-self-hosted-runners
 ```
 
