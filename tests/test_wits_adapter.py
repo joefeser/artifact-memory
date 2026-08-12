@@ -15,6 +15,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WitsAdapterTests(unittest.TestCase):
+    def test_release_notes_name_only_supported_wits_wire_vocabulary(self):
+        notes = (
+            Path(__file__).resolve().parents[1]
+            / "docs/release/v0.1.2-release-notes.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("`owner-meaning`", notes)
+        self.assertIn("`admitted-owner-decision` remains reserved", notes)
+        self.assertNotIn("`owner_approved`", notes)
+        self.assertNotIn("`human_originated`", notes)
+
     def setUp(self):
         self.record = json.loads((ROOT / "fixtures/synthetic/contracts/v0-valid-record.json").read_text(encoding="utf-8"))
         self.response = json.loads((ROOT / "fixtures/synthetic/wits/v1/projection-response.json").read_text(encoding="utf-8"))

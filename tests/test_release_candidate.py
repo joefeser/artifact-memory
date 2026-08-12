@@ -465,6 +465,59 @@ class ReleaseCandidateIdentityTests(unittest.TestCase):
         )
         self.assertNotIn("asset_replay", receipt)
 
+    def test_receipt_schema_is_bound_to_release_version(self):
+        fixture_root = Path(__file__).resolve().parents[1] / "fixtures/synthetic/release"
+        v1 = json.loads(
+            (fixture_root / "v0-release-candidate-verification-receipt.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        v2 = json.loads(
+            (
+                fixture_root
+                / "v0-release-candidate-verification-receipt.v2.json"
+            ).read_text(encoding="utf-8")
+        )
+        mismatches = (
+            (v1, "artifact-memory/release-candidate-verification-receipt/v1", "0.1.1"),
+            (v2, "artifact-memory/release-candidate-verification-receipt/v2", "0.1.2"),
+            (v2, "artifact-memory/release-candidate-verification-receipt/v3", "0.1.1"),
+        )
+        for original, schema_id, version in mismatches:
+            with self.subTest(schema_id=schema_id, version=version):
+                body = {
+                    key: value
+                    for key, value in original.items()
+                    if key not in {"schema_id", "receipt_id"}
+                }
+                body.update(
+                    {
+                        "tag": f"v{version}",
+                        "release_id": f"artifact-memory/v{version}",
+                        "manifest_package_version": version,
+                        "package_version": version,
+                    }
+                )
+                if schema_id.endswith("/v3"):
+                    body.update(
+                        {
+                            "attestation_state": "pending-post-publication",
+                            "attestation_requirement": "keyless-build-artifact-attestations-after-publication",
+                            "attestation_evidence_evaluated": False,
+                        }
+                    )
+                receipt = receipt_with_digest(
+                    schema_id,
+                    RELEASE_VERIFICATION_RECEIPT_PREFIX,
+                    body,
+                )
+                with self.assertRaises(ValidationFailure) as failure:
+                    validate_release_candidate_verification_receipt(receipt)
+                self.assertEqual(
+                    failure.exception.code,
+                    "release-candidate-receipt-version-binding-invalid",
+                )
+
     def test_receipt_rejects_rehashed_incoherent_release_identity(self):
         fixture = (
             Path(__file__).resolve().parents[1]
