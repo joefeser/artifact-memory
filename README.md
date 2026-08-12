@@ -70,7 +70,8 @@ This repository must not contain:
 - real vault records or artifact bytes;
 - customer data;
 - private commercial or product strategy;
-- credentials, cookies, tokens, keys, or browser sessions;
+- credentials, cookies, tokens, private keys, or browser sessions (published
+  release-verification public keys are allowed);
 - physical resolver paths or storage credentials;
 - raw AI conversations or private attachments.
 
@@ -84,7 +85,8 @@ Versioning and release requirements are in
 [the release policy](docs/release/versioning-and-launch.md) and
 [the readiness audit](docs/release/public-readiness-audit.md). The current
 [support boundary](SUPPORT.md),
-[v0.1.1 release notes](docs/release/v0.1.1-release-notes.md), historical
+[v0.1.2 candidate notes](docs/release/v0.1.2-release-notes.md),
+[published v0.1.1 release notes](docs/release/v0.1.1-release-notes.md), historical
 [v0.1.0 release notes](docs/release/v0.1.0-release-notes.md), and historical
 [preview notes](docs/release/v0.1.0-preview-notes.md) distinguish reviewed source
 candidates from owner-signed published releases.

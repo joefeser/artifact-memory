@@ -1,6 +1,8 @@
 # Decision 0007: keep WITS meaning and authority behind an opaque process boundary
 
-Status: accepted for the v0 synthetic conformance slice.
+Status: superseded in part by Decision 0020. The opaque process boundary and
+authority restrictions remain accepted; Decision 0020 corrects the ownership
+language and defines the compatibility interpretation of `owner-meaning`.
 
 Artifact Memory may bind an opaque WITS owner-meaning, decision, readiness, or
 ambiguity projection to exact canonical record revisions. It may preserve that

@@ -3,9 +3,30 @@
 The v2 adapter accepts exact Artifact Memory record revisions, sensitivity and
 disclosure constraints, freshness, and optional TraceMap evidence references.
 It emits an opaque WITS projection reference and a deterministic admission
-receipt. WITS owns owner meaning, decisions, readiness, task preparation,
-routing, authority, and reconciliation; Artifact Memory neither recreates nor
-interprets those schemas.
+receipt. The authorized human originates product meaning. WITS authenticates
+the applicable authority, admits the human decision, and governs its recorded
+decision lifecycle, readiness, task preparation, routing, and reconciliation.
+Artifact Memory neither recreates nor interprets those schemas and does not
+adjudicate the meaning.
+
+## Legacy projection vocabulary
+
+`owner-meaning` is a frozen v1/v2 compatibility identifier. It means only an
+opaque projection of human-originated meaning that WITS admitted; it does not
+mean that WITS originated, owns, or independently approved that meaning. The
+identifier remains accepted so released schemas, fixtures, projection IDs, and
+digests continue to replay exactly.
+
+The next material WITS adapter-contract revision should replace this legacy
+identifier with `admitted-owner-decision`. That successor is reserved design
+vocabulary, not a projection kind supported by v1 or v2. It must be introduced
+only by an explicitly negotiated versioned adapter contract; consumers must
+not silently translate between the two identifiers.
+
+Neither the legacy identifier nor its future successor establishes task,
+decision, disclosure, declassification, routing, or execution authority. The
+WITS process remains responsible for authenticating the human authority behind
+an admitted decision.
 
 The initial provider anchor is WITS commit
 `d675ba6d632dc03826f27940014d4cd672f7d910` in

@@ -35,6 +35,7 @@ RELEASE_PREPARATION_RECEIPT_PREFIX = "release-preparation-receipt://"
 RELEASE_CANDIDATE_PREPARATION_SCHEMAS = {
     "artifact-memory/release-candidate-preparation-receipt/v1": "release-candidate-preparation-receipt.v1.schema.json",
     "artifact-memory/release-candidate-preparation-receipt/v2": "release-candidate-preparation-receipt.v2.schema.json",
+    "artifact-memory/release-candidate-preparation-receipt/v3": "release-candidate-preparation-receipt.v3.schema.json",
 }
 RELEASE_CANDIDATE_PREPARATION_SCHEMA_ID = (
     "artifact-memory/release-candidate-preparation-receipt/v1"
@@ -57,10 +58,16 @@ def _release_version(package_version: str, *, allow_development: bool) -> str:
 
 
 def _preparation_schema_id(package_version: str, *, candidate: bool) -> str:
-    """Preserve the frozen 0.1.0 receipt contract and negotiate v2 thereafter."""
+    """Preserve released contracts and negotiate v3 for future candidates."""
 
     suffix = "release-candidate-preparation-receipt" if candidate else "release-preparation-receipt"
-    version = "v1" if _release_version(package_version, allow_development=True) == "0.1.0" else "v2"
+    release_version = _release_version(package_version, allow_development=True)
+    if release_version == "0.1.0":
+        version = "v1"
+    elif candidate and release_version != "0.1.1":
+        version = "v3"
+    else:
+        version = "v2"
     return f"artifact-memory/{suffix}/{version}"
 
 
@@ -401,24 +408,24 @@ def validate_release_candidate_preparation_receipt(receipt: dict[str, Any]) -> N
             "release candidate preparation receipt schema is unsupported",
         )
     validate(receipt, load_schema("core", schema_name))
-    if schema_id == "artifact-memory/release-candidate-preparation-receipt/v2":
-        release_version = _release_version(
-            receipt["package_version"],
-            allow_development=False,
+    release_version = _release_version(
+        receipt["package_version"],
+        allow_development=False,
+    )
+    expected_schema_id = _preparation_schema_id(release_version, candidate=True)
+    if schema_id != expected_schema_id:
+        raise ValidationFailure(
+            "release-candidate-preparation-receipt-version-mismatch",
+            "release candidate preparation receipt schema does not match its release identity",
         )
-        if release_version == "0.1.0":
-            raise ValidationFailure(
-                "release-candidate-preparation-receipt-version-mismatch",
-                "the frozen 0.1.0 release identity requires the v1 receipt contract",
-            )
-        if (
-            receipt["release_id"] != f"artifact-memory/v{release_version}"
-            or receipt["tag"] != f"v{release_version}"
-        ):
-            raise ValidationFailure(
-                "release-candidate-preparation-version-binding-invalid",
-                "release identity and tag must match the exact package version",
-            )
+    if (
+        receipt["release_id"] != f"artifact-memory/v{release_version}"
+        or receipt["tag"] != f"v{release_version}"
+    ):
+        raise ValidationFailure(
+            "release-candidate-preparation-version-binding-invalid",
+            "release identity and tag must match the exact package version",
+        )
     try:
         expected_id = expected_receipt_id(
             receipt,
@@ -446,6 +453,13 @@ def render_release_candidate_preparation_receipt(receipt: dict[str, Any]) -> str
     """Render pending owner-signature evidence without implying release authority."""
 
     validate_release_candidate_preparation_receipt(receipt)
+    attestation_lines = ""
+    if receipt["schema_id"] == "artifact-memory/release-candidate-preparation-receipt/v3":
+        attestation_lines = (
+            f"- Attestation state: `{receipt['attestation_state']}`\n"
+            f"- Attestation requirement: `{receipt['attestation_requirement']}`\n"
+            f"- Attestation evidence present: `{str(receipt['attestation_evidence_present']).lower()}`\n"
+        )
     return (
         "# Release candidate preparation receipt\n\n"
         f"- Outcome: `{receipt['outcome']}`\n"
@@ -463,7 +477,8 @@ def render_release_candidate_preparation_receipt(receipt: dict[str, Any]) -> str
         f"- Signing-key generation: `{receipt['key_generation']}`\n"
         f"- Signature verification: `{receipt['signature_verification_state']}`\n"
         f"- Publication: `{receipt['publication_state']}`\n"
-        f"- Authority boundary: {receipt['authority_boundary']}\n\n"
+        + attestation_lines
+        + f"- Authority boundary: {receipt['authority_boundary']}\n\n"
         "These bytes are an exact release candidate awaiting the owner's signature. "
         "No key was generated or invoked, no tag was created, and no release was published.\n"
     )
@@ -629,6 +644,7 @@ def prepare_release_candidate(
     package_version = _package_version(root, commit)
     release_version = _release_version(package_version, allow_development=False)
     receipt_schema_id = _preparation_schema_id(package_version, candidate=True)
+    release_contract_version = "v3" if receipt_schema_id.endswith("/v3") else "v2"
     release_name = f"artifact-memory-{release_version}"
     release_id = f"artifact-memory/v{release_version}"
     tag = f"v{release_version}"
@@ -673,7 +689,7 @@ def prepare_release_candidate(
         )
     adapter_manifest_schemas = _supported_adapter_manifest_schemas(root, commit)
     manifest = {
-        "schema_id": "artifact-memory/release-manifest/v2",
+        "schema_id": f"artifact-memory/release-manifest/{release_contract_version}",
         "release_id": release_id,
         "status": "release-candidate",
         "source": {
@@ -728,15 +744,27 @@ def prepare_release_candidate(
             "key_generation": key_generation,
             "owner_signed_annotated_tag": False,
         },
-        "attestations": {
-            "state": "deferred-public-workflow-review",
-            "requirement": "keyless-build-artifact-attestations-after-public-workflow-review",
-        },
+        "attestations": (
+            {
+                "state": "pending-post-publication",
+                "requirement": "keyless-build-artifact-attestations-after-publication",
+                "evidence_boundary": "external-subject-bound-bundle",
+            }
+            if release_contract_version == "v3"
+            else {
+                "state": "deferred-public-workflow-review",
+                "requirement": "keyless-build-artifact-attestations-after-public-workflow-review",
+            }
+        ),
         "authority_boundary": AUTHORITY_BOUNDARY,
         "limitations": [
             "the manifest is pending candidate evidence until its digest is bound by the owner-signed annotated tag",
             "preparation does not authorize tag creation, release publication, deployment, or any authority conveyed by Artifact Memory records",
-            "keyless build and artifact attestations remain deferred pending public workflow review",
+            (
+                "keyless build and artifact attestations remain pending until after publication"
+                if release_contract_version == "v3"
+                else "keyless build and artifact attestations remain deferred pending public workflow review"
+            ),
         ],
     }
     validate_release_manifest(manifest)
@@ -776,6 +804,22 @@ def prepare_release_candidate(
             "publication requires separate owner authorization after signed-candidate verification",
         ],
     }
+    if release_contract_version == "v3":
+        body.update(
+            {
+                "attestation_state": "pending-post-publication",
+                "attestation_requirement": "keyless-build-artifact-attestations-after-publication",
+                "attestation_evidence_present": False,
+                "claims": [
+                    *body["claims"],
+                    "post-publication keyless attestation remains required and pending",
+                ],
+                "limitations": [
+                    *body["limitations"],
+                    "attestation evidence is external and cannot exist before publication",
+                ],
+            }
+        )
     receipt = receipt_with_digest(
         receipt_schema_id,
         RELEASE_CANDIDATE_PREPARATION_RECEIPT_PREFIX,

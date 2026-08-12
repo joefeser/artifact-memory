@@ -27,8 +27,24 @@ SSH_FINGERPRINT_PATTERN = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
 ALLOWED_SIGNER_OPTIONS = ("namespaces=", "valid-after=", "valid-before=")
 SIGNED_MANIFEST_TRAILER = "Artifact-Memory-Manifest-SHA256:"
 RELEASE_VERIFICATION_SCHEMA_ID = "artifact-memory/release-candidate-verification-receipt/v2"
+LATEST_RELEASE_VERIFICATION_SCHEMA_ID = "artifact-memory/release-candidate-verification-receipt/v3"
 RELEASE_VERIFICATION_RECEIPT_PREFIX = "release-candidate-verification-receipt://"
 RELEASE_ASSET_CHUNK_BYTES = 1024 * 1024
+FROZEN_V2_RELEASE_VERSIONS = frozenset({"0.1.0", "0.1.1"})
+
+
+def _release_manifest_schema_for_version(release_version: str) -> str:
+    """Select the frozen historical or successor candidate manifest contract."""
+
+    contract = "v2" if release_version in FROZEN_V2_RELEASE_VERSIONS else "v3"
+    return f"artifact-memory/release-manifest/{contract}"
+
+
+def _release_verification_schema_for_version(release_version: str) -> str:
+    """Select the frozen historical or successor verification receipt contract."""
+
+    contract = "v2" if release_version in FROZEN_V2_RELEASE_VERSIONS else "v3"
+    return f"artifact-memory/release-candidate-verification-receipt/{contract}"
 
 
 def validate_release_manifest(
@@ -45,7 +61,19 @@ def validate_release_manifest(
                 "$.status",
             )
         return
-    validate(manifest, load_schema("core", "release-manifest.v2.schema.json"))
+    schema_id = manifest.get("schema_id") if isinstance(manifest, dict) else None
+    schema_files = {
+        "artifact-memory/release-manifest/v2": "release-manifest.v2.schema.json",
+        "artifact-memory/release-manifest/v3": "release-manifest.v3.schema.json",
+    }
+    schema_file = schema_files.get(schema_id)
+    if schema_file is None:
+        raise ValidationFailure(
+            "release-manifest-schema-unsupported",
+            "release manifest requires a supported versioned schema",
+            "$.schema_id",
+        )
+    validate(manifest, load_schema("core", schema_file))
     try:
         preserve_extensions(
             {},
@@ -74,10 +102,23 @@ def validate_release_manifest(
     if len(source_archives) != 1:
         raise ValidationFailure("release-source-archive-count", "release manifest requires exactly one source archive", "$.artifacts")
     if source_archives[0]["format"] != "git-archive-tar" or not source_archives[0]["name"].endswith(".tar"):
-        raise ValidationFailure("release-source-archive-format", "v2 source archive must use the reproducible Git tar profile", "$.artifacts")
+        contract = "v2" if schema_id == "artifact-memory/release-manifest/v2" else "v3"
+        raise ValidationFailure(
+            "release-source-archive-format",
+            f"{contract} source archive must use the reproducible Git tar profile",
+            "$.artifacts",
+        )
     if manifest["status"] == "preview" and manifest["attestations"]["state"] != "deferred-private-incubation":
         raise ValidationFailure("release-preview-attestation-invalid", "private preview cannot claim published attestations", "$.attestations.state")
     if manifest["status"] in {"release-candidate", "release"}:
+        release_version = manifest["release_id"].removeprefix("artifact-memory/v")
+        expected_schema_id = _release_manifest_schema_for_version(release_version)
+        if schema_id != expected_schema_id:
+            raise ValidationFailure(
+                "release-manifest-version-binding-invalid",
+                "release candidate manifest schema does not match its release identity",
+                "$.schema_id",
+            )
         fingerprint = manifest["signature"]["public_key_fingerprint"]
         if not isinstance(fingerprint, str) or SSH_FINGERPRINT_PATTERN.fullmatch(fingerprint) is None:
             raise ValidationFailure(
@@ -104,12 +145,16 @@ def validate_release_candidate_identity(
 ) -> dict[str, str]:
     """Fail closed unless tag, source, and installed package identify one release."""
 
-    _validate_v2_release_candidate_manifest(manifest)
+    _validate_release_candidate_manifest(manifest)
     expected_version = tag.removeprefix("v")
     if manifest["release_id"] != f"artifact-memory/{tag}":
         raise ValidationFailure("release-candidate-id-mismatch", "release identifier must match the verified tag")
     if manifest["signature"]["tag"] != tag:
-        raise ValidationFailure("release-candidate-tag-mismatch", "requested tag must match the v2 release manifest signature")
+        contract = manifest["schema_id"].rsplit("/", 1)[-1]
+        raise ValidationFailure(
+            "release-candidate-tag-mismatch",
+            f"requested tag must match the {contract} release manifest signature",
+        )
     if manifest["source"]["commit"] != head_commit or tag_commit != head_commit:
         raise ValidationFailure("release-candidate-commit-mismatch", "tag, HEAD, and manifest source commit must match")
     manifest_version = manifest["surfaces"]["reference_cli"]["package_version"]
@@ -130,7 +175,7 @@ def validate_release_candidate_identity(
     }
 
 
-def _validate_v2_release_candidate_manifest(manifest: Any) -> None:
+def _validate_release_candidate_manifest(manifest: Any) -> None:
     """Apply the shared non-Git release-candidate contract."""
 
     if not isinstance(manifest, dict):
@@ -138,10 +183,13 @@ def _validate_v2_release_candidate_manifest(manifest: Any) -> None:
             "release-candidate-manifest-not-object",
             "release candidate manifest must be a JSON object",
         )
-    if manifest.get("schema_id") != "artifact-memory/release-manifest/v2":
+    if manifest.get("schema_id") not in {
+        "artifact-memory/release-manifest/v2",
+        "artifact-memory/release-manifest/v3",
+    }:
         raise ValidationFailure(
             "release-candidate-schema-unsupported",
-            "release candidate identity verification requires a v2 release manifest",
+            "release candidate identity verification requires a v2 release manifest or negotiated v3 successor",
         )
     if manifest.get("status") not in {"release-candidate", "release"}:
         raise ValidationFailure(
@@ -560,6 +608,9 @@ def validate_release_candidate_verification_receipt(receipt: dict[str, Any]) -> 
         "artifact-memory/release-candidate-verification-receipt/v2": (
             "release-candidate-verification-receipt.v2.schema.json"
         ),
+        "artifact-memory/release-candidate-verification-receipt/v3": (
+            "release-candidate-verification-receipt.v3.schema.json"
+        ),
     }
     schema_file = schema_files.get(schema_id)
     if schema_file is None:
@@ -592,6 +643,18 @@ def validate_release_candidate_verification_receipt(receipt: dict[str, Any]) -> 
             "release-candidate-receipt-evidence-incoherent",
             "receipt tag, release identifier, and package versions must identify one release",
         )
+    if schema_id == "artifact-memory/release-candidate-verification-receipt/v1":
+        schema_matches_release = expected_version == "0.1.0"
+    else:
+        schema_matches_release = (
+            schema_id == _release_verification_schema_for_version(expected_version)
+        )
+    if not schema_matches_release:
+        raise ValidationFailure(
+            "release-candidate-receipt-version-binding-invalid",
+            "release verification receipt schema does not match its release identity",
+            "$.schema_id",
+        )
     try:
         expected_id = expected_receipt_id(receipt, RELEASE_VERIFICATION_RECEIPT_PREFIX)
     except CanonicalizationFailure as exc:
@@ -609,10 +672,20 @@ def validate_release_candidate_verification_receipt(receipt: dict[str, Any]) -> 
 def render_release_candidate_verification_receipt(receipt: dict[str, Any]) -> str:
     validate_release_candidate_verification_receipt(receipt)
     asset_lines = ""
-    if receipt["schema_id"] == "artifact-memory/release-candidate-verification-receipt/v2":
+    if receipt["schema_id"] in {
+        "artifact-memory/release-candidate-verification-receipt/v2",
+        "artifact-memory/release-candidate-verification-receipt/v3",
+    }:
         asset_lines = (
             f"- Asset replay: `{receipt['asset_replay']}` ({receipt['verified_asset_count']} assets)\n"
             f"- SHA256SUMS digest: `{receipt['checksum_manifest_sha256']}`\n"
+        )
+    attestation_lines = ""
+    if receipt["schema_id"] == "artifact-memory/release-candidate-verification-receipt/v3":
+        attestation_lines = (
+            f"- Attestation state: `{receipt['attestation_state']}`\n"
+            f"- Attestation requirement: `{receipt['attestation_requirement']}`\n"
+            f"- Attestation evidence evaluated: `{str(receipt['attestation_evidence_evaluated']).lower()}`\n"
         )
     return (
         "# Release candidate verification receipt\n\n"
@@ -633,6 +706,7 @@ def render_release_candidate_verification_receipt(receipt: dict[str, Any]) -> st
         f"- Annotated tag verified: `{str(receipt['annotated_tag_verified']).lower()}`\n"
         f"- Verification output profile: `{receipt['verification_output_profile']}`\n"
         + asset_lines
+        + attestation_lines
         + f"- Repository scope: `{receipt['repository_scope']}`\n"
         f"- Checkout isolation: `{receipt['checkout_isolation']}`\n"
         f"- Concurrent mutation detection: `{receipt['concurrent_mutation_detection']}`\n"
@@ -678,11 +752,11 @@ def verify_checked_out_release_candidate(
             "release-candidate-object-format-unsupported",
             "v0 release verification supports only SHA-1 Git object identifiers",
         )
-    _validate_v2_release_candidate_manifest(manifest)
+    _validate_release_candidate_manifest(manifest)
     if manifest["signature"]["tag"] != tag:
         raise ValidationFailure(
             "release-candidate-tag-mismatch",
-            "requested tag must match the v2 release manifest signature",
+            f"requested tag must match the {manifest['schema_id'].rsplit('/', 1)[-1]} release manifest signature",
         )
     owner_fingerprint = _require_canonical_owner_fingerprint(owner_fingerprint)
     manifest_fingerprint = _require_canonical_owner_fingerprint(
@@ -872,8 +946,25 @@ def verify_checked_out_release_candidate(
             "checkout isolation is caller-asserted and endpoint checks do not detect ABA mutations",
         ],
     }
+    verification_schema_id = (
+        LATEST_RELEASE_VERIFICATION_SCHEMA_ID
+        if manifest["schema_id"] == "artifact-memory/release-manifest/v3"
+        else RELEASE_VERIFICATION_SCHEMA_ID
+    )
+    if manifest["schema_id"] == "artifact-memory/release-manifest/v3":
+        body.update(
+            {
+                "attestation_state": manifest["attestations"]["state"],
+                "attestation_requirement": manifest["attestations"]["requirement"],
+                "attestation_evidence_evaluated": False,
+                "limitations": [
+                    *body["limitations"],
+                    "post-publication attestation evidence was not evaluated",
+                ],
+            }
+        )
     receipt = receipt_with_digest(
-        RELEASE_VERIFICATION_SCHEMA_ID,
+        verification_schema_id,
         RELEASE_VERIFICATION_RECEIPT_PREFIX,
         body,
     )

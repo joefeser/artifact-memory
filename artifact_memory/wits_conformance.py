@@ -203,6 +203,8 @@ def run_wits_conformance(
         "restore_outcome": restore["outcome"],
         "fixture_end": "before_hacp_task_creation_or_execution",
         "authority_boundary": AUTHORITY_BOUNDARY,
+        # This exact legacy wording is frozen by the released v1 fixture.
+        # Decision 0020 supplies its corrected normative interpretation.
         "limitations": [
             "synthetic WITS response is an independently supplied opaque fixture, not a live WITS interoperability claim",
             "Artifact Memory does not interpret WITS owner meaning or readiness",

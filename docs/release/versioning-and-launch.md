@@ -6,7 +6,7 @@ Artifact Memory versions five surfaces independently:
 | --- | --- | --- |
 | Protocol | Product protocol generation such as `v0`. | Describes the supported product contract set; it is not an implementation API promise. |
 | Schemas | Every schema identifier ends in its own `/vN`. | Breaking field, identity, authority, or required-behavior changes require a new schema version. |
-| Reference CLI/package | Python package semantic version, currently `0.1.1`. | Before 1.0, implementation APIs may change; versioned record and receipt contracts are not silently reinterpreted. |
+| Reference CLI/package | Python package semantic version, currently `0.1.2`. | Before 1.0, implementation APIs may change; versioned record and receipt contracts are not silently reinterpreted. |
 | Adapters/providers | Provider-owned contract `/vN` plus the Artifact Memory adapter-manifest version. | Provider schemas remain provider contracts and never become core schemas implicitly. |
 | Fixtures/receipts | Each vector and receipt schema has its own `/vN`. | Checked receipts bind exact fixture bytes and cannot be carried forward after vectors change. |
 
@@ -54,7 +54,8 @@ records remain structurally and semantically readable for compatibility, while
 the generic validation command explicitly documents that it does not verify an
 owner signature or accept release evidence. Its stable v0 result shape is not
 expanded with authenticity claims. The signed-candidate verifier accepts the
-immutable pending candidate and emits a digest-bound v2 verification receipt;
+immutable pending candidate and emits a digest-bound receipt matching its v2 or
+v3 manifest contract;
 those two records establish the release evidence without rewriting bytes after
 signing. A valid v2 `status: release` record is live-verifiable only when its
 artifact provenance opts into the same strict replay profile. Older free-form
@@ -76,9 +77,10 @@ A public release requires one reviewed exact-head set containing:
 
 1. an owner-signed annotated `vX.Y.Z` tag matching the exact package version
    and made with the dedicated release key;
-2. a v2 release manifest naming the source commit and reproducible source-tree
-   digest, all five versioned surfaces, artifacts, byte sizes, SHA-256 digests,
-   checksum manifest, provenance, signature generation, and limitations;
+2. a versioned release manifest naming the source commit and reproducible
+   source-tree digest, all five versioned surfaces, artifacts, byte sizes,
+   SHA-256 digests, checksum manifest, provenance, signature generation, and
+   limitations;
 3. a canonical `SHA256SUMS` asset covering every manifest-listed release asset
    except itself, followed by verifier replay of the exact staged archive and
    release notes against both their checksums and the tagged source;
@@ -90,10 +92,10 @@ A public release requires one reviewed exact-head set containing:
 6. release notes, support scope, roadmap, known gaps, and explicit historical
    WhereAreMyFiles lineage and attribution.
 
-No unsigned tag, generated index, CI success, digest, preview receipt, or agent
-action substitutes for owner signing or publication authority. Keyless build
-and artifact attestations are added only after public workflow review supports
-them.
+No unsigned tag, generated index, CI success, digest, preview receipt, keyless
+attestation, or agent action substitutes for owner signing or publication
+authority. The reviewed post-publication workflow reproduces and verifies the
+owner-signed release before adding supplemental Sigstore attestations.
 
 ## Reproducible unsigned preview
 
@@ -155,17 +157,19 @@ python3 scripts/prepare_release_candidate.py \
 The command derives the release ID, tag, archive name, and notes path from the
 exact committed package version. It deterministically writes the source tar,
 exact release-note bytes,
-`SHA256SUMS`, the v2 pending release-candidate manifest, and machine/human candidate
+`SHA256SUMS`, a versioned pending release-candidate manifest, and machine/human candidate
 preparation receipts. The checksum file covers the source tar and release
 notes. The preparation receipt separately binds the release manifest and
 prints the exact `Artifact-Memory-Manifest-SHA256` trailer required in the
 annotated tag message.
 
-The released `release-preparation-receipt/v1` and
-`release-candidate-preparation-receipt/v1` remain frozen to the v0.1.0
-identity. Subsequent semantic versions use their v2 contracts, which retain the
-same authority boundary while binding release ID and tag to the exact package
-version. No v1 payload is reinterpreted.
+The released v0.1.0 v1 receipts and v0.1.1 v2 candidate contracts remain frozen
+historical evidence. Future release candidates use the v3 manifest,
+preparation-receipt, and verification-receipt family. V3 retains the same
+authority boundary and exact release-ID, tag, source-tree, manifest-digest, and
+asset bindings while adding explicit pending-attestation evidence. Preview
+preparation remains on its compatible v1/v2 contracts. No v1 or v2 payload is
+reinterpreted.
 
 Use `--plain-text` to print the exact persisted human receipt. Independent
 readers can run
@@ -190,6 +194,45 @@ isolated-checkout boundary before publication. Pass the external candidate
 directory with `--asset-dir`; missing, substituted, or concurrently changed assets
 fail closed.
 
-Keyless build and artifact attestations remain explicitly
-`deferred-public-workflow-review`; they are not implied by the source release
-or owner signature.
+The immutable v2 candidate manifest retains the compatibility value
+`deferred-public-workflow-review`; it does not claim a later workflow run
+occurred. A passing post-publication attestation is separate evidence and is
+not implied by the source release, owner signature, or candidate manifest.
+
+A v3 candidate instead records `pending-post-publication`, the requirement
+`keyless-build-artifact-attestations-after-publication`, and the boundary
+`external-subject-bound-bundle`. Its preparation receipt records that no
+attestation evidence is present, and its signed-candidate verification receipt
+records that attestation evidence was not evaluated. The strict v3 contracts
+reject `published` or `verified` candidate states and reject embedded URLs,
+bundles, or other unrecognized attestation claims. Publication and the later
+workflow run therefore do not mutate the owner-signed candidate bytes.
+
+## Keyless release-asset attestations
+
+After an explicitly authorized release is published, the reviewed
+`release-attestations.yml` workflow reproduces the deterministic candidate
+assets from the exact owner-signed tag, verifies the public signing key,
+manifest trailer, checksums, release receipts, and exact published asset set,
+then attests all published subject digests through GitHub's public Sigstore
+service. Merging the workflow does not backfill existing releases. Manual
+dispatch requires separate exact-tag owner authorization.
+
+Download an attested asset and verify its repository, signer-workflow identity,
+and exact reviewed workflow revision. Replace `<trusted-workflow-commit-sha>`
+with the `github.workflow_sha` recorded by the trusted release workflow run;
+do not derive the expected value solely from the attestation being checked.
+
+```shell
+gh attestation verify <asset> \
+  --repo joefeser/artifact-memory \
+  --signer-workflow joefeser/artifact-memory/.github/workflows/release-attestations.yml \
+  --signer-digest <trusted-workflow-commit-sha> \
+  --deny-self-hosted-runners
+```
+
+Online verification depends on GitHub's attestation API and current Sigstore
+trust roots. For offline use, preserve the downloaded attestation bundle and a
+trusted-root snapshot, then follow GitHub's offline verification procedure.
+The bundle proves workflow identity and subject digest, not owner approval,
+claim truth, or authority.

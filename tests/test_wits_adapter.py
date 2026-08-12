@@ -15,6 +15,22 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WitsAdapterTests(unittest.TestCase):
+    def test_release_notes_name_only_supported_wits_wire_vocabulary(self):
+        notes = (
+            Path(__file__).resolve().parents[1]
+            / "docs/release/v0.1.2-release-notes.md"
+        ).read_text(encoding="utf-8")
+        normalized = " ".join(notes.split())
+        self.assertIn("`owner-meaning`", notes)
+        self.assertIn("`admitted-owner-decision` remains reserved", notes)
+        self.assertIn(
+            "The authorized human originates and approves product meaning", normalized
+        )
+        self.assertIn("WITS authenticates applicable authority", normalized)
+        self.assertNotIn("WITS continues to own meaning, approval", normalized)
+        self.assertNotIn("`owner_approved`", notes)
+        self.assertNotIn("`human_originated`", notes)
+
     def setUp(self):
         self.record = json.loads((ROOT / "fixtures/synthetic/contracts/v0-valid-record.json").read_text(encoding="utf-8"))
         self.response = json.loads((ROOT / "fixtures/synthetic/wits/v1/projection-response.json").read_text(encoding="utf-8"))
@@ -63,6 +79,31 @@ class WitsAdapterTests(unittest.TestCase):
         self.assertEqual(receipt["outcome"], "admitted")
         self.assertEqual(projection["provider_contract"]["license"], "BSL-1.1")
         self.assertNotIn("task_packet", json.dumps(projection))
+
+    def test_owner_meaning_remains_legacy_only_until_versioned_successor(self):
+        for version in ("v1", "v2"):
+            schema = json.loads(
+                (ROOT / f"artifact_memory/schemas/adapters/wits-projection.{version}.schema.json").read_text()
+            )
+            kinds = schema["properties"]["projection_kind"]["enum"]
+            self.assertIn("owner-meaning", kinds)
+            self.assertNotIn("admitted-owner-decision", kinds)
+
+        projection, receipt = bind_projection_v2(
+            [self.record], "owner-meaning", self._strict_response(), True,
+        )
+        self.assertIsNotNone(projection)
+        self.assertEqual(receipt["outcome"], "admitted")
+
+        projection, receipt = bind_projection_v2(
+            [self.record],
+            "admitted-owner-decision",
+            self._strict_response(kind="admitted-owner-decision"),
+            True,
+        )
+        self.assertIsNone(projection)
+        self.assertEqual(receipt["outcome"], "unsupported")
+        self.assertEqual(receipt["diagnostics"][0]["code"], "projection-unsupported")
 
     def test_v2_declared_failures_are_explicit(self):
         response = self._strict_response()
