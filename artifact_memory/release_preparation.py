@@ -408,27 +408,24 @@ def validate_release_candidate_preparation_receipt(receipt: dict[str, Any]) -> N
             "release candidate preparation receipt schema is unsupported",
         )
     validate(receipt, load_schema("core", schema_name))
-    if schema_id in {
-        "artifact-memory/release-candidate-preparation-receipt/v2",
-        "artifact-memory/release-candidate-preparation-receipt/v3",
-    }:
-        release_version = _release_version(
-            receipt["package_version"],
-            allow_development=False,
+    release_version = _release_version(
+        receipt["package_version"],
+        allow_development=False,
+    )
+    expected_schema_id = _preparation_schema_id(release_version, candidate=True)
+    if schema_id != expected_schema_id:
+        raise ValidationFailure(
+            "release-candidate-preparation-receipt-version-mismatch",
+            "release candidate preparation receipt schema does not match its release identity",
         )
-        if release_version == "0.1.0":
-            raise ValidationFailure(
-                "release-candidate-preparation-receipt-version-mismatch",
-                "the frozen 0.1.0 release identity requires the v1 receipt contract",
-            )
-        if (
-            receipt["release_id"] != f"artifact-memory/v{release_version}"
-            or receipt["tag"] != f"v{release_version}"
-        ):
-            raise ValidationFailure(
-                "release-candidate-preparation-version-binding-invalid",
-                "release identity and tag must match the exact package version",
-            )
+    if (
+        receipt["release_id"] != f"artifact-memory/v{release_version}"
+        or receipt["tag"] != f"v{release_version}"
+    ):
+        raise ValidationFailure(
+            "release-candidate-preparation-version-binding-invalid",
+            "release identity and tag must match the exact package version",
+        )
     try:
         expected_id = expected_receipt_id(
             receipt,

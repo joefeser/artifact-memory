@@ -20,8 +20,14 @@ class WitsAdapterTests(unittest.TestCase):
             Path(__file__).resolve().parents[1]
             / "docs/release/v0.1.2-release-notes.md"
         ).read_text(encoding="utf-8")
+        normalized = " ".join(notes.split())
         self.assertIn("`owner-meaning`", notes)
         self.assertIn("`admitted-owner-decision` remains reserved", notes)
+        self.assertIn(
+            "The authorized human originates and approves product meaning", normalized
+        )
+        self.assertIn("WITS authenticates applicable authority", normalized)
+        self.assertNotIn("WITS continues to own meaning, approval", normalized)
         self.assertNotIn("`owner_approved`", notes)
         self.assertNotIn("`human_originated`", notes)
 
