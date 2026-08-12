@@ -5,11 +5,14 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from artifact_memory.canonical import receipt_with_digest
 from artifact_memory.release_attestation import (
     ReleaseAttestationFailure,
+    render_receipt,
     verify_release_attestation_subjects,
+    write_receipt,
     write_subject_checksums,
 )
 
@@ -103,6 +106,60 @@ class ReleaseAttestationTests(unittest.TestCase):
                 "could not be created exclusively",
             ):
                 write_subject_checksums(report, output)
+
+            receipt = root / "release-attestation-verification-receipt.md"
+            write_receipt(report, receipt)
+            rendered = receipt.read_text(encoding="utf-8")
+            self.assertEqual(rendered, render_receipt(report))
+            self.assertEqual(
+                rendered,
+                (
+                    FIXTURE / "v0-release-attestation-verification-receipt.md"
+                ).read_text(encoding="utf-8"),
+            )
+            self.assertIn(f"- Tag: `{report['tag']}`", rendered)
+            self.assertIn(f"- Source commit: `{report['source_commit']}`", rendered)
+            self.assertIn("## Subject Set", rendered)
+            self.assertIn("## Limitations", rendered)
+            for subject in report["subjects"]:
+                self.assertIn(subject["name"], rendered)
+                self.assertIn(subject["sha256"], rendered)
+            with self.assertRaisesRegex(
+                ReleaseAttestationFailure,
+                "could not be created exclusively",
+            ):
+                write_receipt(report, receipt)
+
+    def test_attestation_reads_are_descriptor_bound(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            reproduced, published, generated = self._fixture(root)
+            original_read_bytes = Path.read_bytes
+            original_open = Path.open
+
+            def guarded_read_bytes(path):
+                if path == generated or root in path.parents:
+                    raise AssertionError("pathname read must not be used")
+                return original_read_bytes(path)
+
+            def guarded_open(path, *args, **kwargs):
+                if path == generated or root in path.parents:
+                    raise AssertionError("pathname open must not be used")
+                return original_open(path, *args, **kwargs)
+
+            with patch.object(
+                Path,
+                "read_bytes",
+                new=guarded_read_bytes,
+            ), patch.object(
+                Path,
+                "open",
+                new=guarded_open,
+            ):
+                report = verify_release_attestation_subjects(
+                    reproduced, published, generated, tag="v0.1.0"
+                )
+            self.assertEqual(report["outcome"], "pass")
 
     def test_changed_reproduced_asset_fails_closed(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -232,6 +289,14 @@ class ReleaseAttestationTests(unittest.TestCase):
         self.assertLess(verify_tag, reproduce)
         self.assertIn('verify-tag --raw "$tag_object"', workflow[verify_tag:reproduce])
         self.assertIn("--signer-digest ${{ github.workflow_sha }}", workflow)
+        self.assertIn(
+            '--receipt-out "$RUNNER_TEMP/release-attestation-verification-receipt.md"',
+            workflow,
+        )
+        self.assertIn(
+            'cat "$RUNNER_TEMP/release-attestation-verification-receipt.md"',
+            workflow,
+        )
         release_documentation = (
             ROOT / "docs/release/versioning-and-launch.md"
         ).read_text()

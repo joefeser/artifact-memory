@@ -131,7 +131,8 @@ jobs:
             --published "$RUNNER_TEMP/published" \
             --verification-receipt "$RUNNER_TEMP/generated-verification.json" \
             --tag "$RELEASE_TAG" \
-            --out "$RUNNER_TEMP/release-subjects.sha256"
+            --out "$RUNNER_TEMP/release-subjects.sha256" \
+            --receipt-out "$RUNNER_TEMP/release-attestation-verification-receipt.md"
 
       - name: Attest verified release subjects
         id: attest
@@ -143,6 +144,8 @@ jobs:
         shell: bash
         run: |
           {
+            cat "$RUNNER_TEMP/release-attestation-verification-receipt.md"
+            echo
             echo '### Release attestation verification'
             echo
             echo 'Each downloaded asset can be verified with:'

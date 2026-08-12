@@ -14,6 +14,7 @@ from artifact_memory.release_attestation import (
     ReleaseAttestationFailure,
     render_report,
     verify_release_attestation_subjects,
+    write_receipt,
     write_subject_checksums,
 )
 
@@ -25,6 +26,7 @@ def main() -> int:
     parser.add_argument("--verification-receipt", required=True, type=Path)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--receipt-out", required=True, type=Path)
     args = parser.parse_args()
     try:
         report = verify_release_attestation_subjects(
@@ -34,6 +36,7 @@ def main() -> int:
             tag=args.tag,
         )
         write_subject_checksums(report, args.out)
+        write_receipt(report, args.receipt_out)
     except ReleaseAttestationFailure as error:
         print(f"{error.code}: {error}", file=sys.stderr)
         return 2
