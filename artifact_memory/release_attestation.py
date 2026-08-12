@@ -8,7 +8,7 @@ import os
 import re
 import stat
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from .release import (
     validate_release_candidate_verification_receipt,
@@ -82,16 +82,76 @@ def _file_names(directory: Path, label: str) -> set[str]:
     return names
 
 
+def _open_regular_file(path: Path, label: str) -> tuple[BinaryIO, os.stat_result]:
+    """Open a regular file without a pathname-check/read race."""
+    descriptor = -1
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        opened = os.fstat(descriptor)
+        named = os.stat(path, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or not stat.S_ISREG(named.st_mode)
+            or (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino)
+        ):
+            raise OSError("not one stable regular file")
+        stream = os.fdopen(descriptor, "rb")
+        descriptor = -1
+        return stream, opened
+    except OSError as error:
+        raise ReleaseAttestationFailure(
+            "release-attestation-entry-unavailable",
+            f"{label} could not be opened as one stable regular file",
+        ) from error
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _identity(metadata: os.stat_result) -> tuple[int, int, int, int]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+    )
+
+
+def _ensure_unchanged(
+    path: Path,
+    stream: BinaryIO,
+    before: os.stat_result,
+    byte_size: int,
+    label: str,
+) -> None:
+    try:
+        after = os.fstat(stream.fileno())
+        named = os.stat(path, follow_symlinks=False)
+    except OSError as error:
+        raise ReleaseAttestationFailure(
+            "release-attestation-entry-unavailable",
+            f"{label} could not be rechecked",
+        ) from error
+    if (
+        _identity(before) != _identity(after)
+        or _identity(after) != _identity(named)
+        or byte_size != after.st_size
+    ):
+        raise ReleaseAttestationFailure(
+            "release-attestation-entry-changed",
+            f"{label} changed while it was being read",
+        )
+
+
 def _read_stable(path: Path, label: str) -> bytes:
     try:
-        before = path.stat(follow_symlinks=False)
-        if not stat.S_ISREG(before.st_mode):
-            raise ReleaseAttestationFailure(
-                "release-attestation-entry-unsafe",
-                f"{label} must be a regular file",
-            )
-        data = path.read_bytes()
-        after = path.stat(follow_symlinks=False)
+        stream, before = _open_regular_file(path, label)
+        with stream:
+            data = stream.read()
+            _ensure_unchanged(path, stream, before, len(data), label)
+        return data
     except ReleaseAttestationFailure:
         raise
     except OSError as error:
@@ -99,24 +159,6 @@ def _read_stable(path: Path, label: str) -> bytes:
             "release-attestation-entry-unavailable",
             f"{label} could not be read",
         ) from error
-    identity_before = (
-        before.st_dev,
-        before.st_ino,
-        before.st_size,
-        before.st_mtime_ns,
-    )
-    identity_after = (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        after.st_mtime_ns,
-    )
-    if identity_before != identity_after or len(data) != after.st_size:
-        raise ReleaseAttestationFailure(
-            "release-attestation-entry-changed",
-            f"{label} changed while it was being read",
-        )
-    return data
 
 
 def _stream_equal_subject(
@@ -131,20 +173,19 @@ def _stream_equal_subject(
 ) -> dict[str, Any]:
     """Compare two stable regular files while retaining only subject metadata."""
     try:
-        reproduced_before = reproduced_path.stat(follow_symlinks=False)
-        published_before = published_path.stat(follow_symlinks=False)
-        if not stat.S_ISREG(reproduced_before.st_mode) or not stat.S_ISREG(
-            published_before.st_mode
-        ):
-            raise ReleaseAttestationFailure(
-                "release-attestation-entry-unsafe",
-                f"{label} must use regular files",
+        reproduced_stream, reproduced_before = _open_regular_file(
+            reproduced_path, label
+        )
+        try:
+            published_stream, published_before = _open_regular_file(
+                published_path, label
             )
+        except Exception:
+            reproduced_stream.close()
+            raise
         digest = hashlib.sha256()
         byte_size = 0
-        with reproduced_path.open("rb") as reproduced_stream, published_path.open(
-            "rb"
-        ) as published_stream:
+        with reproduced_stream, published_stream:
             while True:
                 reproduced_chunk = reproduced_stream.read(STREAM_CHUNK_SIZE)
                 published_chunk = published_stream.read(STREAM_CHUNK_SIZE)
@@ -157,8 +198,20 @@ def _stream_equal_subject(
                     break
                 digest.update(published_chunk)
                 byte_size += len(published_chunk)
-        reproduced_after = reproduced_path.stat(follow_symlinks=False)
-        published_after = published_path.stat(follow_symlinks=False)
+            _ensure_unchanged(
+                reproduced_path,
+                reproduced_stream,
+                reproduced_before,
+                byte_size,
+                label,
+            )
+            _ensure_unchanged(
+                published_path,
+                published_stream,
+                published_before,
+                byte_size,
+                label,
+            )
     except ReleaseAttestationFailure:
         raise
     except OSError as error:
@@ -166,25 +219,6 @@ def _stream_equal_subject(
             "release-attestation-entry-unavailable",
             f"{label} could not be read",
         ) from error
-
-    def identity(metadata: os.stat_result) -> tuple[int, int, int, int]:
-        return (
-            metadata.st_dev,
-            metadata.st_ino,
-            metadata.st_size,
-            metadata.st_mtime_ns,
-        )
-
-    if (
-        identity(reproduced_before) != identity(reproduced_after)
-        or identity(published_before) != identity(published_after)
-        or byte_size != reproduced_after.st_size
-        or byte_size != published_after.st_size
-    ):
-        raise ReleaseAttestationFailure(
-            "release-attestation-entry-changed",
-            f"{label} changed while it was being read",
-        )
     return {
         "sha256": "sha256:" + digest.hexdigest(),
         "byte_size": byte_size,
@@ -405,3 +439,53 @@ def write_subject_checksums(report: dict[str, Any], output: Path) -> None:
 def render_report(report: dict[str, Any]) -> str:
     """Render the bounded verification report for workflow logs."""
     return json.dumps(report, sort_keys=True, separators=(",", ":")) + "\n"
+
+
+def render_receipt(report: dict[str, Any]) -> str:
+    """Render the deterministic human-readable attestation verification receipt."""
+    if report.get("outcome") != "pass" or not isinstance(report.get("subjects"), list):
+        raise ReleaseAttestationFailure(
+            "release-attestation-report-invalid",
+            "only a passing verified subject report can be rendered",
+        )
+    lines = [
+        "# Release Attestation Verification Receipt",
+        "",
+        f"- Outcome: {report['outcome']}",
+        f"- Release: `{report['release_id']}`",
+        f"- Tag: `{report['tag']}`",
+        f"- Source commit: `{report['source_commit']}`",
+        f"- Verified subjects: {report['subject_count']}",
+        "",
+        "## Subject Set",
+        "",
+    ]
+    for subject in report["subjects"]:
+        lines.append(
+            f"- `{subject['name']}` — `{subject['sha256']}` ({subject['byte_size']} bytes)"
+        )
+    lines.extend(
+        [
+            "",
+            "## Limitations",
+            "",
+            f"- {report['authority_boundary']}.",
+            "- This receipt records deterministic replay and exact subject digests; it does not by itself prove publication or that a keyless attestation was issued.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def write_receipt(report: dict[str, Any], output: Path) -> None:
+    """Write the human-readable receipt without overwriting evidence."""
+    receipt = render_receipt(report)
+    try:
+        descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(receipt)
+    except OSError as error:
+        raise ReleaseAttestationFailure(
+            "release-attestation-receipt-write-failed",
+            "attestation verification receipt could not be created exclusively",
+        ) from error

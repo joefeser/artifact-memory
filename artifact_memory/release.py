@@ -40,6 +40,13 @@ def _release_manifest_schema_for_version(release_version: str) -> str:
     return f"artifact-memory/release-manifest/{contract}"
 
 
+def _release_verification_schema_for_version(release_version: str) -> str:
+    """Select the frozen historical or successor verification receipt contract."""
+
+    contract = "v2" if release_version in FROZEN_V2_RELEASE_VERSIONS else "v3"
+    return f"artifact-memory/release-candidate-verification-receipt/{contract}"
+
+
 def validate_release_manifest(
     manifest: dict[str, Any],
     *,
@@ -635,6 +642,18 @@ def validate_release_candidate_verification_receipt(receipt: dict[str, Any]) -> 
         raise ValidationFailure(
             "release-candidate-receipt-evidence-incoherent",
             "receipt tag, release identifier, and package versions must identify one release",
+        )
+    if schema_id == "artifact-memory/release-candidate-verification-receipt/v1":
+        schema_matches_release = expected_version == "0.1.0"
+    else:
+        schema_matches_release = (
+            schema_id == _release_verification_schema_for_version(expected_version)
+        )
+    if not schema_matches_release:
+        raise ValidationFailure(
+            "release-candidate-receipt-version-binding-invalid",
+            "release verification receipt schema does not match its release identity",
+            "$.schema_id",
         )
     try:
         expected_id = expected_receipt_id(receipt, RELEASE_VERIFICATION_RECEIPT_PREFIX)
