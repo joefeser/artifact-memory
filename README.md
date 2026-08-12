@@ -85,7 +85,8 @@ Versioning and release requirements are in
 [the release policy](docs/release/versioning-and-launch.md) and
 [the readiness audit](docs/release/public-readiness-audit.md). The current
 [support boundary](SUPPORT.md),
-[v0.1.1 release notes](docs/release/v0.1.1-release-notes.md), historical
+[v0.1.2 candidate notes](docs/release/v0.1.2-release-notes.md),
+[published v0.1.1 release notes](docs/release/v0.1.1-release-notes.md), historical
 [v0.1.0 release notes](docs/release/v0.1.0-release-notes.md), and historical
 [preview notes](docs/release/v0.1.0-preview-notes.md) distinguish reviewed source
 candidates from owner-signed published releases.

@@ -6,7 +6,7 @@ Artifact Memory versions five surfaces independently:
 | --- | --- | --- |
 | Protocol | Product protocol generation such as `v0`. | Describes the supported product contract set; it is not an implementation API promise. |
 | Schemas | Every schema identifier ends in its own `/vN`. | Breaking field, identity, authority, or required-behavior changes require a new schema version. |
-| Reference CLI/package | Python package semantic version, currently `0.1.1`. | Before 1.0, implementation APIs may change; versioned record and receipt contracts are not silently reinterpreted. |
+| Reference CLI/package | Python package semantic version, currently `0.1.2`. | Before 1.0, implementation APIs may change; versioned record and receipt contracts are not silently reinterpreted. |
 | Adapters/providers | Provider-owned contract `/vN` plus the Artifact Memory adapter-manifest version. | Provider schemas remain provider contracts and never become core schemas implicitly. |
 | Fixtures/receipts | Each vector and receipt schema has its own `/vN`. | Checked receipts bind exact fixture bytes and cannot be carried forward after vectors change. |
 
