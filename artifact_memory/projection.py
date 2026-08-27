@@ -324,9 +324,10 @@ def _match_expression(query: str, *, literal: bool) -> str:
 
 
 def search_records(index_path: Path, query: str, *, literal: bool = False) -> list[str]:
+    expression = _match_expression(query, literal=literal)
     try:
         with _read_index(index_path) as connection:
-            return [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (_match_expression(query, literal=literal),))]
+            return [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (expression,))]
     except sqlite3.Error as exc:
         raise _classify_search_failure(exc) from exc
 
@@ -341,9 +342,10 @@ def search_receipt(index_path: Path, query: str, *, literal: bool = False) -> di
     The query_digest pins the query exactly as the caller typed it, in either
     mode.
     """
+    expression = _match_expression(query, literal=literal)
     try:
         with _read_index(index_path) as connection:
-            record_ids = [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (_match_expression(query, literal=literal),))]
+            record_ids = [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (expression,))]
             source_digest = connection.execute(
                 "SELECT source_record_set_digest FROM projection_metadata WHERE singleton_id = 1"
             ).fetchone()[0]

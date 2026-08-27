@@ -435,7 +435,8 @@ class ProjectionTests(unittest.TestCase):
         """Literal mode treats the query as a single term: a hyphenated query
         is a phrase match instead of raw column-filter syntax, an embedded
         double quote is doubled instead of parsed as FTS5 string syntax, and
-        an empty literal query fails typed without reaching SQLite."""
+        an empty literal query fails typed before the index is opened, so a
+        missing index cannot outrank the caller-input failure."""
         with tempfile.TemporaryDirectory() as temporary:
             root = self._literal_fixture(Path(temporary))
             output = root / "generated"
@@ -457,6 +458,12 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "query-invalid")
             with self.assertRaises(ValidationFailure) as raised:
                 search_records(index, "", literal=True)
+            self.assertEqual(raised.exception.code, "query-invalid")
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(root / "missing.sqlite", "", literal=True)
+            self.assertEqual(raised.exception.code, "query-invalid")
+            with self.assertRaises(ValidationFailure) as raised:
+                search_receipt(root / "missing.sqlite", "", literal=True)
             self.assertEqual(raised.exception.code, "query-invalid")
 
     def test_search_failure_classification_uses_sqlite_error_code(self):
