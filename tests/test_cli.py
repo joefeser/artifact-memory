@@ -8,6 +8,7 @@ import zipfile
 from pathlib import Path
 
 from artifact_memory.canonical import receipt_with_digest
+from artifact_memory.canonical import sha256_bytes
 from artifact_memory.release_preparation import RELEASE_PREPARATION_RECEIPT_PREFIX
 from artifact_memory.scan import ScanLimits, make_scan_policy, scan_path
 
@@ -31,6 +32,33 @@ class CliTests(unittest.TestCase):
         result = self.run_cli("validate", str(FIXTURES / "v0-valid-record.json"), "--json")
         self.assertEqual(result.returncode, 0)
         self.assertTrue(json.loads(result.stdout)["valid"])
+
+    def test_search_receipt_pins_digest_through_cli(self):
+        from artifact_memory.projection import project_records
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            projection_receipt = project_records([FIXTURES / "v0-valid-record.json"], output)
+            index = output / "records.sqlite"
+
+            sensitive_query = "synthetic NOT bearer_canary_42"
+            result = self.run_cli("search-receipt", str(index), sensitive_query, "--json")
+            human_result = self.run_cli("search-receipt", str(index), sensitive_query)
+            rejected = self.run_cli("search-receipt", str(index), '"', "--json")
+
+        self.assertEqual(result.returncode, 0)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["schema_id"], "artifact-memory/search-receipt/v1")
+        self.assertNotIn("query", payload)
+        self.assertEqual(payload["query_digest"], sha256_bytes(sensitive_query.encode("utf-8")))
+        self.assertNotIn(sensitive_query, result.stdout)
+        self.assertNotIn(sensitive_query, human_result.stdout)
+        self.assertEqual(payload["source_record_set_digest"], projection_receipt["source_record_set_digest"])
+        self.assertEqual(payload["record_ids"], ["record://synthetic/record-0001"])
+        self.assertEqual(payload["integrity_gate"], "verified")
+        self.assertIn("source_record_set_digest: " + projection_receipt["source_record_set_digest"], human_result.stdout)
+        self.assertEqual(rejected.returncode, 2)
+        self.assertEqual(json.loads(rejected.stdout)["diagnostics"][0]["code"], "query-invalid")
 
     def test_archive_receipt_requires_semantic_validation(self):
         from artifact_memory.archive import inspect_zip
