@@ -15,7 +15,7 @@ from .codex_history import (
     write_import_bundle,
 )
 from .context import ContextFailure, build_selection_policy, export_context
-from .projection import project_records, records_with_provenance, related_records, search_records
+from .projection import project_records, records_with_provenance, related_records, search_records, search_receipt
 from .release import (
     render_release_candidate_verification_receipt,
     validate_release_manifest,
@@ -85,6 +85,10 @@ def main(argv: list[str] | None = None) -> int:
     search.add_argument("index", type=Path)
     search.add_argument("query")
     search.add_argument("--json", action="store_true", dest="as_json")
+    search_receipt_parser = subparsers.add_parser("search-receipt")
+    search_receipt_parser.add_argument("index", type=Path)
+    search_receipt_parser.add_argument("query")
+    search_receipt_parser.add_argument("--json", action="store_true", dest="as_json")
     related = subparsers.add_parser("related")
     related.add_argument("index", type=Path)
     related.add_argument("record_id")
@@ -277,6 +281,14 @@ def main(argv: list[str] | None = None) -> int:
             _receipt({"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]}, args.as_json)
             return EXIT_INVALID
         _receipt({"outcome": "complete", "record_ids": record_ids}, args.as_json)
+        return EXIT_OK
+    if args.command == "search-receipt":
+        try:
+            receipt = search_receipt(args.index, args.query)
+        except ValidationFailure as exc:
+            _receipt({"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]}, args.as_json)
+            return EXIT_INVALID
+        _receipt(receipt, args.as_json)
         return EXIT_OK
     if args.command == "related":
         try:

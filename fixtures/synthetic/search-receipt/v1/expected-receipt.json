@@ -1,0 +1,48 @@
+{
+  "authority_boundary": "informational-only/no-execution-authority",
+  "limitations": [
+    "the receipt pins results to the exact canonical record set that produced the index; it does not certify record truth",
+    "the raw search_records surface is deliberately unchanged; the receipt is additive only",
+    "relevance ordering remains record_id-only until conditional bm25 lands"
+  ],
+  "operations": [
+    {
+      "name": "project-synthetic-records",
+      "outcome": "complete"
+    },
+    {
+      "name": "issue-digest-bearing-search-receipt",
+      "outcome": "complete"
+    },
+    {
+      "name": "pin-receipt-through-cli",
+      "outcome": "complete"
+    },
+    {
+      "name": "reject-invalid-query-typed",
+      "outcome": "verified"
+    },
+    {
+      "name": "refuse-tampered-index",
+      "outcome": "verified"
+    }
+  ],
+  "outcome": "complete",
+  "projection": {
+    "record_count": 2,
+    "source_record_set_digest": "sha-256:03be2c22b0ea1dc48a19393c5ae2985cc166b0d305719ebaea66e75e7c0686ce"
+  },
+  "receipt_id": "search-receipt-slice-receipt://synthetic/4f0df84e58d107aff1fcf1552e1c7e5af6e075521019ab1f49735181d2ba02b0",
+  "schema_id": "artifact-memory/search-receipt-slice-receipt/v1",
+  "search_receipt": {
+    "cli_human_receipt_names_digest": true,
+    "cli_json_receipt_equals_library_receipt": true,
+    "digest_matches_projection": true,
+    "integrity_gate": "verified",
+    "matches_raw_search": true,
+    "query": "pinned",
+    "record_ids": [
+      "record://synthetic/search-receipt-0001"
+    ]
+  }
+}

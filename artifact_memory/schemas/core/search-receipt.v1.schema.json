@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/search-receipt/v1",
+  "title": "Artifact Memory digest-bearing search receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "outcome", "query", "record_ids", "source_record_set_digest", "integrity_gate"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/search-receipt/v1"},
+    "outcome": {"const": "complete"},
+    "query": {"type": "string", "minLength": 1},
+    "record_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "integrity_gate": {"const": "verified"}
+  }
+}

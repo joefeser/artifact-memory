@@ -32,6 +32,28 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertTrue(json.loads(result.stdout)["valid"])
 
+    def test_search_receipt_pins_digest_through_cli(self):
+        from artifact_memory.projection import project_records
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            projection_receipt = project_records([FIXTURES / "v0-valid-record.json"], output)
+            index = output / "records.sqlite"
+
+            result = self.run_cli("search-receipt", str(index), "synthetic", "--json")
+            human_result = self.run_cli("search-receipt", str(index), "synthetic")
+            rejected = self.run_cli("search-receipt", str(index), '"', "--json")
+
+        self.assertEqual(result.returncode, 0)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["schema_id"], "artifact-memory/search-receipt/v1")
+        self.assertEqual(payload["source_record_set_digest"], projection_receipt["source_record_set_digest"])
+        self.assertEqual(payload["record_ids"], ["record://synthetic/record-0001"])
+        self.assertEqual(payload["integrity_gate"], "verified")
+        self.assertIn("source_record_set_digest: " + projection_receipt["source_record_set_digest"], human_result.stdout)
+        self.assertEqual(rejected.returncode, 2)
+        self.assertEqual(json.loads(rejected.stdout)["diagnostics"][0]["code"], "query-invalid")
+
     def test_archive_receipt_requires_semantic_validation(self):
         from artifact_memory.archive import inspect_zip
 

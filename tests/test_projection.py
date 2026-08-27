@@ -14,6 +14,7 @@ from artifact_memory.projection import (
     projection_metadata,
     records_with_provenance,
     related_records,
+    search_receipt,
     search_records,
 )
 from artifact_memory.validator import ValidationFailure
@@ -364,6 +365,47 @@ class ProjectionTests(unittest.TestCase):
             writer.close()
             with self.assertRaises(ValidationFailure) as raised:
                 search_records(index, "syntheticforged")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_search_receipt_pins_results_to_source_record_set(self):
+        """The digest-bearing receipt is additive: same matches as the raw
+        search surface, plus the source digest and gate state, while
+        search_records keeps its shape."""
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            projection_receipt = project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            receipt = search_receipt(index, "synthetic")
+            self.assertEqual(receipt["schema_id"], "artifact-memory/search-receipt/v1")
+            self.assertEqual(receipt["outcome"], "complete")
+            self.assertEqual(receipt["record_ids"], search_records(index, "synthetic"))
+            self.assertEqual(receipt["source_record_set_digest"], projection_receipt["source_record_set_digest"])
+            self.assertEqual(receipt["integrity_gate"], "verified")
+            with self.assertRaises(ValidationFailure) as raised:
+                search_receipt(index, '"')
+            self.assertEqual(raised.exception.code, "query-invalid")
+
+    def test_search_receipt_refuses_tampered_index(self):
+        """A receipt must not vouch for an index whose inverted index failed
+        the read gate, even though its content rows still validate."""
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            original_id, original_summary = connection.execute("SELECT c0, c1 FROM records_fts_content").fetchone()
+            connection.execute(
+                "UPDATE records_fts SET summary = ? WHERE record_id = ?",
+                ("forged summary containing syntheticforged", original_id),
+            )
+            connection.execute(
+                "UPDATE records_fts_content SET c1 = ? WHERE c0 = ?",
+                (original_summary, original_id),
+            )
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_receipt(index, "syntheticforged")
             self.assertEqual(raised.exception.code, "projection-unavailable")
 
 
