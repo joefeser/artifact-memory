@@ -1,0 +1,18 @@
+{
+  "schema_id": "artifact-memory/knowledge-record/v1",
+  "record_id": "record://synthetic/search-literal-0003",
+  "record_type": "note",
+  "lifecycle": "accepted",
+  "meaning": {
+    "summary": "Synthetic five \"inches recorded without escapes.",
+    "labels": ["synthetic", "quoting"]
+  },
+  "artifact_refs": [],
+  "provenance": [
+    {
+      "kind": "author",
+      "source_ref": "fixture://synthetic/search-literal/v1"
+    }
+  ],
+  "sensitivity": "public"
+}

@@ -1,0 +1,24 @@
+{
+  "schema_id": "artifact-memory/knowledge-record/v1",
+  "record_id": "record://synthetic/search-literal-0001",
+  "record_type": "note",
+  "lifecycle": "accepted",
+  "meaning": {
+    "summary": "Synthetic alpha-beta adjacency proves literal quoting.",
+    "labels": ["synthetic", "literal"]
+  },
+  "artifact_refs": [],
+  "provenance": [
+    {
+      "kind": "observation",
+      "source_ref": "fixture://synthetic/search-literal/v1"
+    }
+  ],
+  "relationships": [
+    {
+      "type": "related-to",
+      "target_ref": "record://synthetic/search-literal-0002"
+    }
+  ],
+  "sensitivity": "public"
+}

@@ -79,6 +79,29 @@ issued inside the gated read, a tampered index yields a typed failure instead
 of a vouched receipt. The raw `search` output and every existing receipt keep
 their shapes.
 
+Both `search` and `search-receipt` accept `--literal`, which treats the query
+as one literal term: the term is quoted as a single FTS5 string with any
+embedded double quote doubled, and a matched record must also contain the
+query's own case-folded bytes in its indexed summary or labels, so
+punctuation and spelling are significant (`alpha-beta` does not match
+adjacent `alpha beta` text) while matching stays case-insensitive and
+single-term. Without the flag, the raw query is passed to FTS5 unmodified
+and full MATCH syntax remains caller-controlled; a raw hyphenated query can
+otherwise surface as column-filter syntax. `records_fts` must be an FTS5
+virtual table: a non-FTS5 table with the expected columns is
+`projection-unavailable`, because MATCH support is part of the projection
+contract rather than a property of the caller's query. Query failures
+classify on the SQLite result code, not message text:
+`sqlite_errorcode & 0xff` of 1 is `query-invalid`; any other code is
+`projection-unavailable`. Search receipts record `query_mode`
+(`raw` or `literal`) beside the query digest, so a receipt identifies which
+grammar produced its results. Search is lexically restricted to
+`meaning.summary` and record labels; no other record field is indexed or
+reachable from search. Search is a confirmation oracle over that restricted
+meaning — an ungated term, adjacency, and prefix match — and applies no
+context-pack exclusion policy; context export remains the surface that counts
+and reports exclusions.
+
 Projections do not copy credentials, resolver configuration, protected bytes,
 TraceMap provider schemas, WITS memory cards, HACP Task Packets, Route Tasks,
 Codex continuation payloads, or authority. A context pack will consume these
@@ -105,4 +128,11 @@ CLI receipt. Replay it with:
 
 ```sh
 python3 scripts/run_search_receipt_slice.py --check
+```
+
+The checked-in `fixtures/synthetic/search-literal/v1` receipt proves literal
+mode and error-code classification end to end. Replay it with:
+
+```sh
+python3 scripts/run_search_literal_slice.py --check
 ```

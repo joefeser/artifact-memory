@@ -48,6 +48,10 @@ _REQUIRED_INDEXES = {
 _knowledge_schema = knowledge_schema
 _FTS5_INTEGRITY_MINIMUM_VERSION = (3, 44, 0)
 _RUNTIME_VERIFIES_FTS5_INTEGRITY = sqlite3.sqlite_version_info >= _FTS5_INTEGRITY_MINIMUM_VERSION
+_VIRTUAL_MODULE_PATTERN = re.compile(
+    r'^create\s+virtual\s+table\s+(?:"[^"]*"|\[[^\]]*\]|`[^`]*`|\S+)\s+using\s+([A-Za-z_][A-Za-z0-9_]*)',
+    re.IGNORECASE,
+)
 
 
 def _validate_projection_contract(connection: sqlite3.Connection) -> None:
@@ -58,6 +62,13 @@ def _validate_projection_contract(connection: sqlite3.Connection) -> None:
         actual_columns = [row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')]
         if actual_columns != expected_columns:
             raise ValidationFailure("projection-unavailable", "generated SQLite projection schema is incomplete or invalid")
+    fts_declaration = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'records_fts'"
+    ).fetchone()
+    declaration = (fts_declaration[0] if fts_declaration is not None and fts_declaration[0] else "") or ""
+    module_match = _VIRTUAL_MODULE_PATTERN.match(declaration.lstrip())
+    if module_match is None or module_match.group(1).lower() != "fts5":
+        raise ValidationFailure("projection-unavailable", "generated SQLite projection schema is incomplete or invalid")
     actual_indexes = {
         row[0]
         for row in connection.execute(
@@ -301,34 +312,62 @@ def project_records(record_paths: Iterable[Path], output_dir: Path, *, revocatio
 
 
 _SEARCH_MATCH_QUERY = "SELECT record_id FROM records_fts WHERE records_fts MATCH ? ORDER BY record_id"
+_LITERAL_MATCH_QUERY = "SELECT record_id, summary, labels FROM records_fts WHERE records_fts MATCH ? ORDER BY record_id"
 
 
 def _classify_search_failure(exc: sqlite3.Error) -> ValidationFailure:
-    message = str(exc).lower()
-    if "fts5: syntax error" in message or "unterminated string" in message or "malformed match expression" in message:
+    if getattr(exc, "sqlite_errorcode", 0) & 0xFF == 1:
         return ValidationFailure("query-invalid", "full-text query is invalid or unsupported")
     return ValidationFailure("projection-unavailable", "generated SQLite projection is unavailable or invalid")
 
 
-def search_records(index_path: Path, query: str) -> list[str]:
+def _matched_record_ids(connection: sqlite3.Connection, query: str, *, literal: bool) -> list[str]:
+    """Run one match in the caller's grammar.
+
+    Raw mode passes the query to FTS5 unmodified. Literal mode quotes the
+    query as one FTS5 string — doubling embedded double quotes, FTS5's only
+    string escape — so tokens must appear as an adjacent phrase, then keeps
+    only rows whose indexed summary or labels contain the query's case-folded
+    bytes, which the tokenizer would otherwise discard (the hyphen in
+    alpha-beta, the quote in five "inches).
+    """
+    if not literal:
+        return [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (query,))]
+    expression = '"' + query.replace('"', '""') + '"'
+    folded = query.casefold()
+    return [
+        row[0]
+        for row in connection.execute(_LITERAL_MATCH_QUERY, (expression,))
+        if folded in row[1].casefold() or folded in row[2].casefold()
+    ]
+
+
+def search_records(index_path: Path, query: str, *, literal: bool = False) -> list[str]:
+    if literal and not query:
+        raise ValidationFailure("query-invalid", "full-text query is invalid or unsupported")
     try:
         with _read_index(index_path) as connection:
-            return [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (query,))]
+            return _matched_record_ids(connection, query, literal=literal)
     except sqlite3.Error as exc:
         raise _classify_search_failure(exc) from exc
 
 
-def search_receipt(index_path: Path, query: str) -> dict[str, Any]:
+def search_receipt(index_path: Path, query: str, *, literal: bool = False) -> dict[str, Any]:
     """Return search results pinned to the exact source record set and gate state.
 
     Additive beside search_records: the raw record-ID surface and every existing
     receipt keep their shapes. This receipt carries the source_record_set_digest
     and the integrity-gate outcome so query evidence is pinnable (WITS 1151);
     a tampered index cannot be vouched for because the read gate raises first.
+    The query_digest pins the query exactly as the caller typed it, and
+    query_mode records which grammar produced the results, so the receipt is
+    replayable in either mode.
     """
+    if literal and not query:
+        raise ValidationFailure("query-invalid", "full-text query is invalid or unsupported")
     try:
         with _read_index(index_path) as connection:
-            record_ids = [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (query,))]
+            record_ids = _matched_record_ids(connection, query, literal=literal)
             source_digest = connection.execute(
                 "SELECT source_record_set_digest FROM projection_metadata WHERE singleton_id = 1"
             ).fetchone()[0]
@@ -337,6 +376,7 @@ def search_receipt(index_path: Path, query: str) -> dict[str, Any]:
     receipt = {
         "schema_id": "artifact-memory/search-receipt/v1",
         "outcome": "complete",
+        "query_mode": "literal" if literal else "raw",
         "query_digest": sha256_bytes(query.encode("utf-8")),
         "record_ids": record_ids,
         "source_record_set_digest": source_digest,

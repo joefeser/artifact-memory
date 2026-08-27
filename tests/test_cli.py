@@ -60,6 +60,38 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rejected.returncode, 2)
         self.assertEqual(json.loads(rejected.stdout)["diagnostics"][0]["code"], "query-invalid")
 
+    def test_search_literal_mode_through_cli(self):
+        from artifact_memory.projection import project_records
+
+        record = {
+            "schema_id": "artifact-memory/knowledge-record/v1",
+            "record_id": "record://synthetic/literal-cli-0001",
+            "record_type": "note",
+            "lifecycle": "accepted",
+            "meaning": {"summary": "Synthetic alpha-beta adjacency proves literal quoting."},
+            "artifact_refs": [],
+            "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/literal/v1"}],
+            "sensitivity": "public",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            record_path = root / "record.json"
+            record_path.write_text(json.dumps(record), encoding="utf-8")
+            output = root / "generated"
+            project_records([record_path], output)
+            index = output / "records.sqlite"
+
+            literal = self.run_cli("search", str(index), "alpha-beta", "--literal", "--json")
+            raw = self.run_cli("search", str(index), "alpha-beta", "--json")
+            receipt = self.run_cli("search-receipt", str(index), "alpha-beta", "--literal", "--json")
+
+        self.assertEqual(literal.returncode, 0)
+        self.assertEqual(json.loads(literal.stdout)["record_ids"], ["record://synthetic/literal-cli-0001"])
+        self.assertEqual(raw.returncode, 2)
+        self.assertEqual(json.loads(raw.stdout)["diagnostics"][0]["code"], "query-invalid")
+        self.assertEqual(receipt.returncode, 0)
+        self.assertEqual(json.loads(receipt.stdout)["record_ids"], ["record://synthetic/literal-cli-0001"])
+
     def test_archive_receipt_requires_semantic_validation(self):
         from artifact_memory.archive import inspect_zip
 
