@@ -304,31 +304,46 @@ _SEARCH_MATCH_QUERY = "SELECT record_id FROM records_fts WHERE records_fts MATCH
 
 
 def _classify_search_failure(exc: sqlite3.Error) -> ValidationFailure:
-    message = str(exc).lower()
-    if "fts5: syntax error" in message or "unterminated string" in message or "malformed match expression" in message:
+    if getattr(exc, "sqlite_errorcode", 0) & 0xFF == 1:
         return ValidationFailure("query-invalid", "full-text query is invalid or unsupported")
     return ValidationFailure("projection-unavailable", "generated SQLite projection is unavailable or invalid")
 
 
-def search_records(index_path: Path, query: str) -> list[str]:
+def _match_expression(query: str, *, literal: bool) -> str:
+    """Return the FTS5 MATCH expression for a query.
+
+    Literal mode quotes the caller's term as one FTS5 string so hyphens,
+    colons, and bare operators cannot be reinterpreted as query syntax; any
+    embedded double quote is doubled, which is FTS5's only string escape.
+    """
+    if not literal:
+        return query
+    if not query:
+        raise ValidationFailure("query-invalid", "full-text query is invalid or unsupported")
+    return '"' + query.replace('"', '""') + '"'
+
+
+def search_records(index_path: Path, query: str, *, literal: bool = False) -> list[str]:
     try:
         with _read_index(index_path) as connection:
-            return [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (query,))]
+            return [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (_match_expression(query, literal=literal),))]
     except sqlite3.Error as exc:
         raise _classify_search_failure(exc) from exc
 
 
-def search_receipt(index_path: Path, query: str) -> dict[str, Any]:
+def search_receipt(index_path: Path, query: str, *, literal: bool = False) -> dict[str, Any]:
     """Return search results pinned to the exact source record set and gate state.
 
     Additive beside search_records: the raw record-ID surface and every existing
     receipt keep their shapes. This receipt carries the source_record_set_digest
     and the integrity-gate outcome so query evidence is pinnable (WITS 1151);
     a tampered index cannot be vouched for because the read gate raises first.
+    The query_digest pins the query exactly as the caller typed it, in either
+    mode.
     """
     try:
         with _read_index(index_path) as connection:
-            record_ids = [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (query,))]
+            record_ids = [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (_match_expression(query, literal=literal),))]
             source_digest = connection.execute(
                 "SELECT source_record_set_digest FROM projection_metadata WHERE singleton_id = 1"
             ).fetchone()[0]

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/search-literal-slice-receipt/v1",
+  "title": "Artifact Memory literal search synthetic slice receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "operations", "projection", "literal_search", "authority_boundary", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/search-literal-slice-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^search-literal-slice-receipt://synthetic/[0-9a-f]{64}$"},
+    "outcome": {"type": "string", "enum": ["complete", "failed"]},
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "outcome"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "outcome": {"type": "string", "enum": ["complete", "verified", "failed"]}
+        }
+      }
+    },
+    "projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_record_set_digest", "record_count"],
+      "properties": {
+        "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+        "record_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "literal_search": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hyphenated_query", "adjacent_record_ids", "raw_hyphenated_outcome", "quoted_query_outcome", "raw_quoted_outcome", "empty_literal_outcome", "receipt_query_digest_pins_typed_query"],
+      "properties": {
+        "hyphenated_query": {"type": "string", "minLength": 1},
+        "adjacent_record_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "raw_hyphenated_outcome": {"const": "query-invalid"},
+        "quoted_query_outcome": {"const": "matched-with-doubled-quotes"},
+        "raw_quoted_outcome": {"const": "query-invalid"},
+        "empty_literal_outcome": {"const": "query-invalid"},
+        "receipt_query_digest_pins_typed_query": {"const": true}
+      }
+    },
+    "authority_boundary": {"const": "informational-only/no-execution-authority"},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  }
+}

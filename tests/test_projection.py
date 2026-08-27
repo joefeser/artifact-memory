@@ -411,6 +411,85 @@ class ProjectionTests(unittest.TestCase):
                 search_receipt(index, "syntheticforged")
             self.assertEqual(raised.exception.code, "projection-unavailable")
 
+    def _literal_fixture(self, root: Path) -> Path:
+        summaries = (
+            "Synthetic alpha-beta adjacency proves literal quoting.",
+            "Scattered alpha and beta words never form the phrase.",
+            'Synthetic five "inches recorded without escapes.',
+        )
+        for ordinal, summary in enumerate(summaries, start=1):
+            record = {
+                "schema_id": "artifact-memory/knowledge-record/v1",
+                "record_id": f"record://synthetic/literal-000{ordinal}",
+                "record_type": "note",
+                "lifecycle": "accepted",
+                "meaning": {"summary": summary},
+                "artifact_refs": [],
+                "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/literal/v1"}],
+                "sensitivity": "public",
+            }
+            (root / f"literal-000{ordinal}.json").write_text(json.dumps(record), encoding="utf-8")
+        return root
+
+    def test_literal_search_matches_one_term_without_syntax_reinterpretation(self):
+        """Literal mode treats the query as a single term: a hyphenated query
+        is a phrase match instead of raw column-filter syntax, an embedded
+        double quote is doubled instead of parsed as FTS5 string syntax, and
+        an empty literal query fails typed without reaching SQLite."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self._literal_fixture(Path(temporary))
+            output = root / "generated"
+            project_records(sorted(root.glob("literal-*.json")), output)
+            index = output / "records.sqlite"
+            self.assertEqual(
+                search_records(index, "alpha-beta", literal=True),
+                ["record://synthetic/literal-0001"],
+            )
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "alpha-beta")
+            self.assertEqual(raised.exception.code, "query-invalid")
+            self.assertEqual(
+                search_records(index, 'five "inches', literal=True),
+                ["record://synthetic/literal-0003"],
+            )
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, 'five "inches')
+            self.assertEqual(raised.exception.code, "query-invalid")
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "", literal=True)
+            self.assertEqual(raised.exception.code, "query-invalid")
+
+    def test_search_failure_classification_uses_sqlite_error_code(self):
+        """Query failures classify on sqlite_errorcode & 0xff, not message
+        text: 1 (SQLITE_ERROR) is query-invalid, anything else is
+        projection-unavailable."""
+        connection = sqlite3.connect(":memory:")
+        connection.execute("CREATE VIRTUAL TABLE t USING fts5(body)")
+        connection.commit()
+        try:
+            connection.execute('SELECT rowid FROM t WHERE t MATCH ?', ("'",)).fetchall()
+            self.fail("malformed match expression did not raise")
+        except sqlite3.Error as exc:
+            syntax_error = exc
+        finally:
+            connection.close()
+        self.assertEqual(syntax_error.sqlite_errorcode & 0xFF, 1)
+        self.assertEqual(projection._classify_search_failure(syntax_error).code, "query-invalid")
+        io_error = sqlite3.OperationalError("disk I/O error during match execution")
+        io_error.sqlite_errorcode = 10
+        self.assertEqual(projection._classify_search_failure(io_error).code, "projection-unavailable")
+
+    def test_search_receipt_literal_mode_pins_typed_query(self):
+        """The receipt works in literal mode and digests the query exactly as
+        the caller typed it, not the quoted match expression."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self._literal_fixture(Path(temporary))
+            output = root / "generated"
+            project_records(sorted(root.glob("literal-*.json")), output)
+            receipt = search_receipt(output / "records.sqlite", "alpha-beta", literal=True)
+            self.assertEqual(receipt["record_ids"], ["record://synthetic/literal-0001"])
+            self.assertEqual(receipt["query_digest"], sha256_bytes(b"alpha-beta"))
+
 
 if __name__ == "__main__":
     unittest.main()
