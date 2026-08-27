@@ -55,7 +55,16 @@ Query commands open SQLite projections read-only. A missing or malformed index
 returns `projection-unavailable` and must not create a replacement database.
 Every query first verifies the SQLite user version, projection schema identity,
 required columns and indexes, metadata cardinality and types, source-set
-digest consistency, record count, and provenance ordinals. An incompatible
+digest consistency, record count, and provenance ordinals. Every query then
+requires `PRAGMA integrity_check` to return `ok`, so an index whose FTS5
+inverted index disagrees with its content rows — for example a summary
+reindexed through `records_fts` and then restored in `records_fts_content` —
+returns `projection-unavailable` instead of serving forged terms that pass
+content-row validation. A runtime whose integrity check cannot reach the FTS5
+inverted index (SQLite older than 3.44) also returns `projection-unavailable`
+rather than trusting an unverifiable `ok`, and validation plus the query run
+inside one read transaction so the caller sees exactly the verified snapshot.
+An incompatible
 version or schema identity returns `projection-schema-mismatch`; malformed FTS
 syntax remains a distinct `query-invalid` caller outcome.
 
@@ -69,4 +78,12 @@ end to end. Replay it with:
 
 ```sh
 python3 scripts/run_scan_projection_slice.py --check
+```
+
+The checked-in `fixtures/synthetic/projection-integrity/v1` receipt proves the
+read integrity gate end to end, including the two-step inverted-index forgery.
+Replay it with:
+
+```sh
+python3 scripts/run_projection_integrity_slice.py --check
 ```

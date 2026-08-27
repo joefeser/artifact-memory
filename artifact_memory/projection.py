@@ -46,6 +46,8 @@ _REQUIRED_INDEXES = {
 
 
 _knowledge_schema = knowledge_schema
+_FTS5_INTEGRITY_MINIMUM_VERSION = (3, 44, 0)
+_RUNTIME_VERIFIES_FTS5_INTEGRITY = sqlite3.sqlite_version_info >= _FTS5_INTEGRITY_MINIMUM_VERSION
 
 
 def _validate_projection_contract(connection: sqlite3.Connection) -> None:
@@ -143,6 +145,18 @@ def _validate_projection_contract(connection: sqlite3.Connection) -> None:
 
 @contextmanager
 def _read_index(index_path: Path) -> Iterator[sqlite3.Connection]:
+    """Yield a read-only connection only after contract and physical-integrity checks pass.
+
+    Physical integrity is checked last because canonical-row validation cannot
+    see the FTS5 inverted index: restoring records_fts_content after reindexing
+    through records_fts leaves forged terms searchable while every content row
+    still matches its canonical record. All checks and the caller's query run
+    in one read transaction, so the caller only ever sees the snapshot that was
+    verified. Runtimes whose integrity_check cannot reach the inverted index
+    are rejected outright: their `ok` is absence of evidence.
+    """
+    if not _RUNTIME_VERIFIES_FTS5_INTEGRITY:
+        raise ValidationFailure("projection-unavailable", "generated SQLite projection requires SQLite 3.44 or newer for FTS5 integrity verification")
     if Path(str(index_path) + "-wal").exists() or Path(str(index_path) + "-shm").exists():
         raise ValidationFailure("projection-unavailable", "generated SQLite projection has uncheckpointed sidecars")
     try:
@@ -150,10 +164,17 @@ def _read_index(index_path: Path) -> Iterator[sqlite3.Connection]:
     except (OSError, ValueError, sqlite3.Error) as exc:
         raise ValidationFailure("projection-unavailable", "generated SQLite projection is unavailable or invalid") from exc
     try:
+        connection.execute("BEGIN")
         try:
             _validate_projection_contract(connection)
         except sqlite3.Error as exc:
             raise ValidationFailure("projection-unavailable", "generated SQLite projection is unavailable or invalid") from exc
+        try:
+            integrity_rows = [row[0] for row in connection.execute("PRAGMA integrity_check")]
+        except sqlite3.Error as exc:
+            raise ValidationFailure("projection-unavailable", "generated SQLite projection is unavailable or invalid") from exc
+        if integrity_rows != ["ok"]:
+            raise ValidationFailure("projection-unavailable", "generated SQLite projection failed integrity verification")
         yield connection
     finally:
         connection.close()

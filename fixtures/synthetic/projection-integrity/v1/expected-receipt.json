@@ -1,0 +1,75 @@
+{
+  "authority_boundary": "informational-only/no-execution-authority",
+  "integrity_gate": {
+    "clean_control_record_ids": [
+      "record://synthetic/projection-integrity-0001"
+    ],
+    "forged_term": "syntheticforged",
+    "gated_surface_outcomes": {
+      "logical-snapshot": "projection-unavailable",
+      "metadata": "projection-unavailable",
+      "provenance": "projection-unavailable",
+      "related": "projection-unavailable",
+      "search": "projection-unavailable"
+    },
+    "tamper_sequence": [
+      "reindex-forged-summary-through-records_fts",
+      "restore-records_fts_content-row"
+    ]
+  },
+  "limitations": [
+    "runtimes whose PRAGMA integrity_check cannot reach the FTS5 inverted index (SQLite < 3.44) fail closed as projection-unavailable instead of serving unverifiable projections (capable runtime verified on 3.52.0)",
+    "the cross-SQLite determinism matrix remains unverified",
+    "canonical records are unaffected; the gate protects a generated, replaceable projection"
+  ],
+  "operations": [
+    {
+      "name": "project-synthetic-records",
+      "outcome": "complete"
+    },
+    {
+      "name": "query-clean-index",
+      "outcome": "complete"
+    },
+    {
+      "name": "forge-inverted-index-two-step",
+      "outcome": "complete"
+    },
+    {
+      "name": "gate-search",
+      "outcome": "verified"
+    },
+    {
+      "name": "gate-related",
+      "outcome": "verified"
+    },
+    {
+      "name": "gate-provenance",
+      "outcome": "verified"
+    },
+    {
+      "name": "gate-metadata",
+      "outcome": "verified"
+    },
+    {
+      "name": "gate-logical-snapshot",
+      "outcome": "verified"
+    },
+    {
+      "name": "query-clean-control-after-forgery",
+      "outcome": "complete"
+    }
+  ],
+  "outcome": "complete",
+  "projection": {
+    "clean_metadata_digest_matches": true,
+    "clean_term_record_ids": [
+      "record://synthetic/projection-integrity-0001"
+    ],
+    "forged_term_clean_record_ids": [],
+    "record_count": 2,
+    "source_record_set_digest": "sha-256:62d8a5479647cbba71f2bc961f337116b9020b8a34ff8d18c5e8a4bf579b601d"
+  },
+  "receipt_id": "projection-integrity-receipt://synthetic/ee60e232e67f6859dcdf367405028893618bf122b85b54bf03f84db3a4776594",
+  "schema_id": "artifact-memory/projection-integrity-slice-receipt/v1"
+}
