@@ -357,18 +357,14 @@ def _matched_record_ids(
         if folded in row[1].casefold() or folded in row[2].casefold()
     ]
     if exclude_superseded and record_ids:
-        superseded = set()
-        for start in range(0, len(record_ids), 500):
-            chunk = record_ids[start : start + 500]
-            placeholders = ",".join("?" for _ in chunk)
-            superseded.update(
-                row[0]
-                for row in connection.execute(
-                    f"SELECT record_id FROM records WHERE lifecycle = 'superseded' AND record_id IN ({placeholders})",
-                    chunk,
-                )
-            )
-        record_ids = [record_id for record_id in record_ids if record_id not in superseded]
+        kept = []
+        for record_id in record_ids:
+            row = connection.execute(
+                "SELECT lifecycle FROM records WHERE record_id = ?", (record_id,)
+            ).fetchone()
+            if row is None or row[0] != "superseded":
+                kept.append(record_id)
+        record_ids = kept
     return record_ids
 
 
