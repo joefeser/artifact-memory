@@ -20,14 +20,28 @@ caller-side errors on this path surface SQLite result code 1 (SQLITE_ERROR).
 ## Decision
 
 - Both `search` and `search-receipt` accept `--literal`. Literal mode treats
-  the query as one literal term: it is quoted as a single FTS5 string and any
-  embedded double quote is doubled, FTS5's only string escape. An empty
-  literal query returns `query-invalid` without reaching SQLite.
+  the query as one literal term with significant bytes: the term is quoted
+  as a single FTS5 string (embedded double quotes doubled, FTS5's only
+  string escape) so its tokens must appear as an adjacent phrase, and the
+  matched record's indexed summary or labels must also contain the query's
+  case-folded bytes. Punctuation and spelling are therefore significant —
+  literal `alpha-beta` does not match adjacent `alpha beta` text — while
+  matching stays case-insensitive and single-term. An empty literal query
+  returns `query-invalid` before the index is opened, so a missing or
+  invalid index cannot outrank the caller-input failure.
 - Raw mode remains the default and passes the query to FTS5 unmodified.
 - Query failures classify on `sqlite_errorcode & 0xff`, not message text:
   code 1 is `query-invalid`; every other code is `projection-unavailable`.
-- The search-receipt `query_digest` continues to pin the query exactly as the
-  caller typed it in either mode, so receipt verification is mode-stable.
+- The projection contract requires `records_fts` to be an FTS5 virtual
+  table. A regular table with the expected columns passes column and
+  integrity checks but cannot serve MATCH, and its code-1 failure would
+  otherwise misclassify a valid query as `query-invalid`; the contract
+  rejects it as `projection-unavailable` first.
+- Search receipts record `query_mode` (`raw` or `literal`) beside the query
+  digest, added to the v1 receipt schema as an optional field so existing
+  receipts remain valid while every newly issued receipt identifies which
+  grammar produced its results. The digest still pins the query exactly as
+  the caller typed it in either mode.
 - Document the query-surface boundary in the projection contract: search is
   lexically restricted to `meaning.summary` and labels, is an ungated
   term/adjacency/prefix confirmation oracle over that restricted meaning, and

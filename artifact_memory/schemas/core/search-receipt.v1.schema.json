@@ -8,6 +8,7 @@
   "properties": {
     "schema_id": {"const": "artifact-memory/search-receipt/v1"},
     "outcome": {"const": "complete"},
+    "query_mode": {"enum": ["raw", "literal"]},
     "query_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
     "record_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
     "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},

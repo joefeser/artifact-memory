@@ -416,6 +416,7 @@ class ProjectionTests(unittest.TestCase):
             "Synthetic alpha-beta adjacency proves literal quoting.",
             "Scattered alpha and beta words never form the phrase.",
             'Synthetic five "inches recorded without escapes.',
+            "Adjacent alpha beta spacing without punctuation.",
         )
         for ordinal, summary in enumerate(summaries, start=1):
             record = {
@@ -432,11 +433,12 @@ class ProjectionTests(unittest.TestCase):
         return root
 
     def test_literal_search_matches_one_term_without_syntax_reinterpretation(self):
-        """Literal mode treats the query as a single term: a hyphenated query
-        is a phrase match instead of raw column-filter syntax, an embedded
-        double quote is doubled instead of parsed as FTS5 string syntax, and
-        an empty literal query fails typed before the index is opened, so a
-        missing index cannot outrank the caller-input failure."""
+        """Literal mode treats the query as a single term whose own bytes must
+        appear: a hyphenated query is a phrase match whose punctuation is
+        significant (adjacent 'alpha beta' text does not match 'alpha-beta'),
+        an embedded double quote is doubled instead of parsed as FTS5 string
+        syntax, and an empty literal query fails typed before the index is
+        opened, so a missing index cannot outrank the caller-input failure."""
         with tempfile.TemporaryDirectory() as temporary:
             root = self._literal_fixture(Path(temporary))
             output = root / "generated"
@@ -445,6 +447,10 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual(
                 search_records(index, "alpha-beta", literal=True),
                 ["record://synthetic/literal-0001"],
+            )
+            self.assertEqual(
+                search_records(index, "alpha beta", literal=True),
+                ["record://synthetic/literal-0004"],
             )
             with self.assertRaises(ValidationFailure) as raised:
                 search_records(index, "alpha-beta")
@@ -465,6 +471,30 @@ class ProjectionTests(unittest.TestCase):
             with self.assertRaises(ValidationFailure) as raised:
                 search_receipt(root / "missing.sqlite", "", literal=True)
             self.assertEqual(raised.exception.code, "query-invalid")
+
+    def test_search_rejects_non_fts5_records_table_before_match_execution(self):
+        """A regular table named records_fts with the expected columns passes
+        column and integrity checks but cannot serve MATCH; the contract must
+        reject it as projection-unavailable instead of letting the resulting
+        SQLITE_ERROR classify a valid query as query-invalid."""
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            rows = connection.execute("SELECT record_id, summary, labels FROM records_fts ORDER BY record_id").fetchall()
+            connection.execute("DROP TABLE records_fts")
+            connection.execute("CREATE TABLE records_fts (record_id TEXT, summary TEXT, labels TEXT)")
+            connection.executemany("INSERT INTO records_fts VALUES (?, ?, ?)", rows)
+            connection.commit()
+            connection.close()
+            for probe in (
+                lambda: search_records(index, "synthetic"),
+                lambda: search_receipt(index, "synthetic"),
+            ):
+                with self.assertRaises(ValidationFailure) as raised:
+                    probe()
+                self.assertEqual(raised.exception.code, "projection-unavailable")
 
     def test_search_failure_classification_uses_sqlite_error_code(self):
         """Query failures classify on sqlite_errorcode & 0xff, not message
@@ -495,7 +525,11 @@ class ProjectionTests(unittest.TestCase):
             project_records(sorted(root.glob("literal-*.json")), output)
             receipt = search_receipt(output / "records.sqlite", "alpha-beta", literal=True)
             self.assertEqual(receipt["record_ids"], ["record://synthetic/literal-0001"])
+            self.assertEqual(receipt["query_mode"], "literal")
             self.assertEqual(receipt["query_digest"], sha256_bytes(b"alpha-beta"))
+            raw_receipt = search_receipt(output / "records.sqlite", "adjacent")
+            self.assertEqual(raw_receipt["query_mode"], "raw")
+            self.assertEqual(raw_receipt["query_digest"], sha256_bytes(b"adjacent"))
 
 
 if __name__ == "__main__":

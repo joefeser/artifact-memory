@@ -34,15 +34,16 @@
     "literal_search": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["hyphenated_query", "adjacent_record_ids", "raw_hyphenated_outcome", "quoted_query_outcome", "raw_quoted_outcome", "empty_literal_outcome", "receipt_query_digest_pins_typed_query"],
+      "required": ["hyphenated_query", "adjacent_record_ids", "spaced_query_record_ids", "raw_hyphenated_outcome", "quoted_query_outcome", "raw_quoted_outcome", "empty_literal_outcome", "receipt_binds_mode_and_typed_query"],
       "properties": {
         "hyphenated_query": {"type": "string", "minLength": 1},
         "adjacent_record_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "spaced_query_record_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "raw_hyphenated_outcome": {"const": "query-invalid"},
         "quoted_query_outcome": {"const": "matched-with-doubled-quotes"},
         "raw_quoted_outcome": {"const": "query-invalid"},
         "empty_literal_outcome": {"const": "query-invalid"},
-        "receipt_query_digest_pins_typed_query": {"const": true}
+        "receipt_binds_mode_and_typed_query": {"const": true}
       }
     },
     "authority_boundary": {"const": "informational-only/no-execution-authority"},

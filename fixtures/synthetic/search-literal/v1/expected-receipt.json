@@ -1,7 +1,7 @@
 {
   "authority_boundary": "informational-only/no-execution-authority",
   "limitations": [
-    "literal mode prevents FTS5 syntax reinterpretation of one term; it is not phrase search over multiple caller terms",
+    "literal mode requires the query's own case-folded bytes in the indexed summary or labels, so punctuation is significant, but matching remains case-insensitive and single-term",
     "raw mode remains the default and still exposes full FTS5 query syntax",
     "only meaning.summary and labels are lexically indexed; other record fields are unreachable from search"
   ],
@@ -14,7 +14,10 @@
     "quoted_query_outcome": "matched-with-doubled-quotes",
     "raw_hyphenated_outcome": "query-invalid",
     "raw_quoted_outcome": "query-invalid",
-    "receipt_query_digest_pins_typed_query": true
+    "receipt_binds_mode_and_typed_query": true,
+    "spaced_query_record_ids": [
+      "record://synthetic/search-literal-0004"
+    ]
   },
   "operations": [
     {
@@ -24,6 +27,10 @@
     {
       "name": "literal-hyphenated-phrase-matches-adjacent-only",
       "outcome": "complete"
+    },
+    {
+      "name": "literal-punctuation-is-significant",
+      "outcome": "verified"
     },
     {
       "name": "raw-hyphenated-query-typed-invalid",
@@ -42,15 +49,15 @@
       "outcome": "verified"
     },
     {
-      "name": "receipt-literal-mode-pins-typed-query",
+      "name": "receipt-binds-mode-and-typed-query",
       "outcome": "complete"
     }
   ],
   "outcome": "complete",
   "projection": {
-    "record_count": 3,
-    "source_record_set_digest": "sha-256:401bd97b909f40d685c176b1b923834ede1389a5cfd06642407a30a8a58c383b"
+    "record_count": 4,
+    "source_record_set_digest": "sha-256:1f15eaf65a1976ed4e87b90cc5575fb4bd77134469cc8d84cbffbb2da9d351c1"
   },
-  "receipt_id": "search-literal-slice-receipt://synthetic/5c6b36f76611830c45ad9c373cf23aa5c67007129331c58758e8f5861faafbeb",
+  "receipt_id": "search-literal-slice-receipt://synthetic/37c9783211e94c2fa263791ccd15c2e3ea9f676066f5bc3d4847430d7238f86c",
   "schema_id": "artifact-memory/search-literal-slice-receipt/v1"
 }
