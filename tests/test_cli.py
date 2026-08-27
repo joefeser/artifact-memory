@@ -8,6 +8,7 @@ import zipfile
 from pathlib import Path
 
 from artifact_memory.canonical import receipt_with_digest
+from artifact_memory.canonical import sha256_bytes
 from artifact_memory.release_preparation import RELEASE_PREPARATION_RECEIPT_PREFIX
 from artifact_memory.scan import ScanLimits, make_scan_policy, scan_path
 
@@ -40,13 +41,18 @@ class CliTests(unittest.TestCase):
             projection_receipt = project_records([FIXTURES / "v0-valid-record.json"], output)
             index = output / "records.sqlite"
 
-            result = self.run_cli("search-receipt", str(index), "synthetic", "--json")
-            human_result = self.run_cli("search-receipt", str(index), "synthetic")
+            sensitive_query = "synthetic NOT bearer_canary_42"
+            result = self.run_cli("search-receipt", str(index), sensitive_query, "--json")
+            human_result = self.run_cli("search-receipt", str(index), sensitive_query)
             rejected = self.run_cli("search-receipt", str(index), '"', "--json")
 
         self.assertEqual(result.returncode, 0)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["schema_id"], "artifact-memory/search-receipt/v1")
+        self.assertNotIn("query", payload)
+        self.assertEqual(payload["query_digest"], sha256_bytes(sensitive_query.encode("utf-8")))
+        self.assertNotIn(sensitive_query, result.stdout)
+        self.assertNotIn(sensitive_query, human_result.stdout)
         self.assertEqual(payload["source_record_set_digest"], projection_receipt["source_record_set_digest"])
         self.assertEqual(payload["record_ids"], ["record://synthetic/record-0001"])
         self.assertEqual(payload["integrity_gate"], "verified")

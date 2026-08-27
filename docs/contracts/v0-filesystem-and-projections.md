@@ -68,13 +68,16 @@ An incompatible
 version or schema identity returns `projection-schema-mismatch`; malformed FTS
 syntax remains a distinct `query-invalid` caller outcome.
 
-A `search-receipt` command beside raw `search` returns the matched record IDs
-together with the projection's `source_record_set_digest` and the
-integrity-gate outcome (`artifact-memory/search-receipt/v1`), pinning query
-evidence to the exact canonical record set that produced the index. Because
-the receipt is issued inside the gated read, a tampered index yields a typed
-failure instead of a vouched receipt. The raw `search` output and every
-existing receipt keep their shapes.
+A `search-receipt` command beside raw `search` returns the SHA-256 digest of
+the exact UTF-8 query bytes, matched record IDs, the projection's
+`source_record_set_digest`, and the integrity-gate outcome
+(`artifact-memory/search-receipt/v1`), pinning query evidence to the exact
+canonical record set that produced the index. The receipt never echoes the raw
+query. Its unkeyed digest prevents direct logging but does not conceal a
+guessable low-entropy query from dictionary inference. Because the receipt is
+issued inside the gated read, a tampered index yields a typed failure instead
+of a vouched receipt. The raw `search` output and every existing receipt keep
+their shapes.
 
 Projections do not copy credentials, resolver configuration, protected bytes,
 TraceMap provider schemas, WITS memory cards, HACP Task Packets, Route Tasks,

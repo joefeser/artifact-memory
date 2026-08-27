@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .canonical import receipt_with_digest
+from .canonical import receipt_with_digest, sha256_bytes
 from .cli import main as cli_main
 from .projection import (
     project_records,
@@ -77,6 +77,12 @@ def run_search_receipt_slice(fixture_root: Path, workspace: Path) -> dict[str, A
     cli_human_receipt_names_digest = (
         human_exit_code == 0 and f"source_record_set_digest: {receipt['source_record_set_digest']}" in cli_human_out
     )
+    query_digest_matches_input = receipt["query_digest"] == sha256_bytes(PINNED_TERM.encode("utf-8"))
+    raw_query_omitted = (
+        "query" not in receipt
+        and PINNED_TERM not in cli_json_out
+        and PINNED_TERM not in cli_human_out
+    )
 
     rejected_exit_code, rejected_json_out = _cli_capture("search-receipt", str(index), '"', "--json")
     invalid_query_typed = (
@@ -95,7 +101,15 @@ def run_search_receipt_slice(fixture_root: Path, workspace: Path) -> dict[str, A
 
     operations = [
         _operation("project-synthetic-records", projection_receipt["outcome"]),
-        _operation("issue-digest-bearing-search-receipt", "complete" if digest_matches_projection and matches_raw_search else "failed"),
+        _operation(
+            "issue-digest-bearing-search-receipt",
+            "complete"
+            if digest_matches_projection
+            and matches_raw_search
+            and query_digest_matches_input
+            and raw_query_omitted
+            else "failed",
+        ),
         _operation("pin-receipt-through-cli", "complete" if cli_json_receipt_equals_library and cli_human_receipt_names_digest else "failed"),
         _operation("reject-invalid-query-typed", "verified" if invalid_query_typed else "failed"),
         _operation("refuse-tampered-index", "verified" if tampered_outcome == "projection-unavailable" else "failed"),
@@ -109,17 +123,20 @@ def run_search_receipt_slice(fixture_root: Path, workspace: Path) -> dict[str, A
             "record_count": projection_receipt["record_count"],
         },
         "search_receipt": {
-            "query": PINNED_TERM,
+            "query_digest": receipt["query_digest"],
             "record_ids": receipt["record_ids"],
             "integrity_gate": receipt["integrity_gate"],
             "digest_matches_projection": digest_matches_projection,
             "matches_raw_search": matches_raw_search,
+            "query_digest_matches_input": query_digest_matches_input,
+            "raw_query_omitted": raw_query_omitted,
             "cli_json_receipt_equals_library_receipt": cli_json_receipt_equals_library,
             "cli_human_receipt_names_digest": cli_human_receipt_names_digest,
         },
         "authority_boundary": AUTHORITY_BOUNDARY,
         "limitations": [
             "the receipt pins results to the exact canonical record set that produced the index; it does not certify record truth",
+            "the receipt omits the raw query and binds its exact UTF-8 bytes by SHA-256; an unkeyed digest does not conceal a guessable low-entropy query",
             "the raw search_records surface is deliberately unchanged; the receipt is additive only",
             "relevance ordering remains record_id-only until conditional bm25 lands",
         ],

@@ -22,9 +22,10 @@ conformance tests; an additive implementation passed them all.
 
 - Add a `search_receipt` library surface and a `search-receipt` CLI command
   beside the unchanged `search_records`/`search` surfaces. The receipt
-  (`artifact-memory/search-receipt/v1`) reports the raw query, matched record
-  IDs, the projection's `source_record_set_digest`, and the integrity-gate
-  outcome.
+  (`artifact-memory/search-receipt/v1`) reports the SHA-256 digest of the exact
+  UTF-8 query bytes, matched record IDs, the projection's
+  `source_record_set_digest`, and the integrity-gate outcome. It never copies
+  the raw query into JSON or human-readable receipt output.
 - Issue the receipt inside the same gated read transaction that serves the
   query, so the digest and the matches come from one verified snapshot; a
   tampered index produces a typed `projection-unavailable` failure instead of
@@ -48,7 +49,9 @@ A search receipt is informational evidence pinning results to the exact
 canonical record set that produced the index. It does not certify record
 truth, semantic relevance, freshness of the source records, or grant any
 execution, mutation, disclosure, or approval authority. Ordering remains
-`record_id`-only until conditional bm25 lands (issue #109).
+`record_id`-only until conditional bm25 lands (issue #109). The unkeyed query
+digest prevents direct receipt logging but does not conceal a guessable
+low-entropy query from dictionary inference.
 
 ## Evidence
 

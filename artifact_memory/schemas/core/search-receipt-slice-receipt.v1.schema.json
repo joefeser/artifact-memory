@@ -34,13 +34,15 @@
     "search_receipt": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["query", "record_ids", "integrity_gate", "digest_matches_projection", "matches_raw_search", "cli_json_receipt_equals_library_receipt", "cli_human_receipt_names_digest"],
+      "required": ["query_digest", "record_ids", "integrity_gate", "digest_matches_projection", "matches_raw_search", "query_digest_matches_input", "raw_query_omitted", "cli_json_receipt_equals_library_receipt", "cli_human_receipt_names_digest"],
       "properties": {
-        "query": {"type": "string", "minLength": 1},
+        "query_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
         "record_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "integrity_gate": {"const": "verified"},
         "digest_matches_projection": {"const": true},
         "matches_raw_search": {"const": true},
+        "query_digest_matches_input": {"const": true},
+        "raw_query_omitted": {"const": true},
         "cli_json_receipt_equals_library_receipt": {"const": true},
         "cli_human_receipt_names_digest": {"const": true}
       }

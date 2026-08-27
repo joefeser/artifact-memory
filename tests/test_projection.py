@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 from artifact_memory import projection
+from artifact_memory.canonical import sha256_bytes
 from artifact_memory.projection import (
     _read_index,
     canonical_records,
@@ -378,6 +379,8 @@ class ProjectionTests(unittest.TestCase):
             receipt = search_receipt(index, "synthetic")
             self.assertEqual(receipt["schema_id"], "artifact-memory/search-receipt/v1")
             self.assertEqual(receipt["outcome"], "complete")
+            self.assertNotIn("query", receipt)
+            self.assertEqual(receipt["query_digest"], sha256_bytes(b"synthetic"))
             self.assertEqual(receipt["record_ids"], search_records(index, "synthetic"))
             self.assertEqual(receipt["source_record_set_digest"], projection_receipt["source_record_set_digest"])
             self.assertEqual(receipt["integrity_gate"], "verified")

@@ -337,7 +337,7 @@ def search_receipt(index_path: Path, query: str) -> dict[str, Any]:
     receipt = {
         "schema_id": "artifact-memory/search-receipt/v1",
         "outcome": "complete",
-        "query": query,
+        "query_digest": sha256_bytes(query.encode("utf-8")),
         "record_ids": record_ids,
         "source_record_set_digest": source_digest,
         "integrity_gate": "verified",
