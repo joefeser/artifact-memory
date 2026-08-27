@@ -1,5 +1,5 @@
 agentControl:
-  requiredVersion: ">=0.4.1 <0.5.0"
+  requiredVersion: ">=0.4.1 <0.6.0"
   channel: stable
   allowPrerelease: false
   requiredCapabilities:
