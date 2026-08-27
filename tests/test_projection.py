@@ -283,6 +283,41 @@ class ProjectionTests(unittest.TestCase):
                 search_records(search_output / "records.sqlite", "forged")
             self.assertEqual(raised.exception.code, "projection-unavailable")
 
+    def test_projection_queries_reject_fts_inverted_index_tampering(self):
+        """A two-step forgery reindexes through records_fts and then restores
+        records_fts_content, so every content row still matches its canonical
+        record while the inverted index serves forged terms; reads must fail
+        closed on physical integrity instead of trusting the content rows."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            original_id, original_summary = connection.execute("SELECT c0, c1 FROM records_fts_content").fetchone()
+            connection.execute(
+                "UPDATE records_fts SET summary = ? WHERE record_id = ?",
+                ("forged summary containing syntheticforged", original_id),
+            )
+            connection.execute(
+                "UPDATE records_fts_content SET c1 = ? WHERE c0 = ?",
+                (original_summary, original_id),
+            )
+            connection.commit()
+            connection.close()
+            probes = {
+                "search": lambda: search_records(index, "syntheticforged"),
+                "related": lambda: related_records(index, original_id),
+                "provenance": lambda: records_with_provenance(index, "fixture://synthetic/contracts/v0"),
+                "metadata": lambda: projection_metadata(index),
+                "logical-snapshot": lambda: logical_projection_snapshot(index),
+            }
+            for surface, probe in probes.items():
+                with self.subTest(surface=surface):
+                    with self.assertRaises(ValidationFailure) as raised:
+                        probe()
+                    self.assertEqual(raised.exception.code, "projection-unavailable")
+
 
 if __name__ == "__main__":
     unittest.main()

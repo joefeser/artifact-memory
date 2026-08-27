@@ -143,6 +143,13 @@ def _validate_projection_contract(connection: sqlite3.Connection) -> None:
 
 @contextmanager
 def _read_index(index_path: Path) -> Iterator[sqlite3.Connection]:
+    """Yield a read-only connection only after contract and physical-integrity checks pass.
+
+    Physical integrity is checked last because canonical-row validation cannot
+    see the FTS5 inverted index: restoring records_fts_content after reindexing
+    through records_fts leaves forged terms searchable while every content row
+    still matches its canonical record.
+    """
     if Path(str(index_path) + "-wal").exists() or Path(str(index_path) + "-shm").exists():
         raise ValidationFailure("projection-unavailable", "generated SQLite projection has uncheckpointed sidecars")
     try:
@@ -154,6 +161,12 @@ def _read_index(index_path: Path) -> Iterator[sqlite3.Connection]:
             _validate_projection_contract(connection)
         except sqlite3.Error as exc:
             raise ValidationFailure("projection-unavailable", "generated SQLite projection is unavailable or invalid") from exc
+        try:
+            integrity_rows = [row[0] for row in connection.execute("PRAGMA integrity_check")]
+        except sqlite3.Error as exc:
+            raise ValidationFailure("projection-unavailable", "generated SQLite projection is unavailable or invalid") from exc
+        if integrity_rows != ["ok"]:
+            raise ValidationFailure("projection-unavailable", "generated SQLite projection failed integrity verification")
         yield connection
     finally:
         connection.close()
