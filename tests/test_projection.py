@@ -584,7 +584,7 @@ class ProjectionTests(unittest.TestCase):
             default_receipt = search_receipt(index, "ledger")
             filtered_receipt = search_receipt(index, "ledger", exclude_superseded=True)
             self.assertEqual(default_receipt["record_ids"], both)
-            self.assertFalse(default_receipt["exclude_superseded"])
+            self.assertNotIn("exclude_superseded", default_receipt)
             self.assertEqual(filtered_receipt["record_ids"], survivor)
             self.assertTrue(filtered_receipt["exclude_superseded"])
             self.assertEqual(filtered_receipt["query_digest"], default_receipt["query_digest"])

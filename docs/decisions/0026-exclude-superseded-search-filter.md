@@ -21,11 +21,16 @@ additive.
   drops matches whose `lifecycle` column is `superseded`. The default keeps
   superseded records as first-class hits; the flag is the caller's opt-in.
 - The filter runs inside the same gated read transaction as the match, on the
-  same verified snapshot, and composes with both query grammars.
-- Search receipts record `exclude_superseded` (boolean, optional in the v1
-  schema, always set on newly issued receipts) beside `query_mode` and the
-  query digest, so every result-affecting parameter is bound and filtered
-  results are replayable.
+  same verified snapshot, and composes with both query grammars. Raw mode
+  applies the lifecycle predicate in SQL alongside the match, and literal
+  mode bounds its exclusion lookups by the post-filtered candidates, so no
+  filtered search does work proportional to every superseded record in the
+  projection.
+- Search receipts record `exclude_superseded` (optional boolean in the v1
+  schema) only when the filter is active. Default receipts omit the field
+  entirely, keeping the exact pre-filter v1 shape for consumers pinned to the
+  earlier schema, while filtered receipts bind every result-affecting
+  parameter beside `query_mode` and the query digest.
 - This is a read-time lifecycle filter, not revocation: revocation
   suppression remains a projection-build input, and making it reachable from
   the CLI is separate work.

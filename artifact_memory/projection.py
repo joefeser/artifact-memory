@@ -312,6 +312,12 @@ def project_records(record_paths: Iterable[Path], output_dir: Path, *, revocatio
 
 
 _SEARCH_MATCH_QUERY = "SELECT record_id FROM records_fts WHERE records_fts MATCH ? ORDER BY record_id"
+_SEARCH_MATCH_EXCLUDING_SUPERSEDED_QUERY = (
+    "SELECT records_fts.record_id FROM records_fts "
+    "JOIN records ON records.record_id = records_fts.record_id "
+    "WHERE records_fts MATCH ? AND records.lifecycle != 'superseded' "
+    "ORDER BY records_fts.record_id"
+)
 _LITERAL_MATCH_QUERY = "SELECT record_id, summary, labels FROM records_fts WHERE records_fts MATCH ? ORDER BY record_id"
 
 
@@ -340,20 +346,28 @@ def _matched_record_ids(
     keeps them.
     """
     if not literal:
-        record_ids = [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (query,))]
-    else:
-        expression = '"' + query.replace('"', '""') + '"'
-        folded = query.casefold()
-        record_ids = [
-            row[0]
-            for row in connection.execute(_LITERAL_MATCH_QUERY, (expression,))
-            if folded in row[1].casefold() or folded in row[2].casefold()
-        ]
+        if exclude_superseded:
+            return [row[0] for row in connection.execute(_SEARCH_MATCH_EXCLUDING_SUPERSEDED_QUERY, (query,))]
+        return [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (query,))]
+    expression = '"' + query.replace('"', '""') + '"'
+    folded = query.casefold()
+    record_ids = [
+        row[0]
+        for row in connection.execute(_LITERAL_MATCH_QUERY, (expression,))
+        if folded in row[1].casefold() or folded in row[2].casefold()
+    ]
     if exclude_superseded and record_ids:
-        superseded = {
-            row[0]
-            for row in connection.execute("SELECT record_id FROM records WHERE lifecycle = 'superseded'")
-        }
+        superseded = set()
+        for start in range(0, len(record_ids), 500):
+            chunk = record_ids[start : start + 500]
+            placeholders = ",".join("?" for _ in chunk)
+            superseded.update(
+                row[0]
+                for row in connection.execute(
+                    f"SELECT record_id FROM records WHERE lifecycle = 'superseded' AND record_id IN ({placeholders})",
+                    chunk,
+                )
+            )
         record_ids = [record_id for record_id in record_ids if record_id not in superseded]
     return record_ids
 
@@ -393,9 +407,11 @@ def search_receipt(
     and the integrity-gate outcome so query evidence is pinnable (WITS 1151);
     a tampered index cannot be vouched for because the read gate raises first.
     The query_digest pins the query exactly as the caller typed it, and
-    query_mode and exclude_superseded record every result-affecting parameter,
-    so the receipt is replayable in either mode with or without supersession
-    filtering.
+    query_mode and — when the filter is active — exclude_superseded record
+    every result-affecting parameter, so the receipt is replayable in either
+    mode with or without supersession filtering. Default receipts omit
+    exclude_superseded entirely to keep the pre-filter v1 shape for consumers
+    pinned to the earlier schema.
     """
     if literal and not query:
         raise ValidationFailure("query-invalid", "full-text query is invalid or unsupported")
@@ -417,11 +433,12 @@ def search_receipt(
         "outcome": "complete",
         "query_mode": "literal" if literal else "raw",
         "query_digest": sha256_bytes(query.encode("utf-8")),
-        "exclude_superseded": exclude_superseded,
         "record_ids": record_ids,
         "source_record_set_digest": source_digest,
         "integrity_gate": "verified",
     }
+    if exclude_superseded:
+        receipt["exclude_superseded"] = True
     validate(receipt, load_schema("core", "search-receipt.v1.schema.json"))
     return receipt
 

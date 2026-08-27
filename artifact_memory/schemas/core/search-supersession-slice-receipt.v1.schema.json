@@ -34,13 +34,13 @@
     "supersession_filter": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["query", "default_record_ids", "filtered_record_ids", "literal_filtered_record_ids", "receipt_default_exclude_superseded", "receipt_filtered_exclude_superseded"],
+      "required": ["query", "default_record_ids", "filtered_record_ids", "literal_filtered_record_ids", "receipt_default_omits_exclude_superseded", "receipt_filtered_exclude_superseded"],
       "properties": {
         "query": {"type": "string", "minLength": 1},
         "default_record_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "filtered_record_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "literal_filtered_record_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "receipt_default_exclude_superseded": {"const": false},
+        "receipt_default_omits_exclude_superseded": {"const": true},
         "receipt_filtered_exclude_superseded": {"const": true}
       }
     },

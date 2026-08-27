@@ -37,7 +37,7 @@ def run_search_supersession_slice(fixture_root: Path, workspace: Path) -> dict[s
     default_receipt = search_receipt(index, LEDGER_QUERY)
     filtered_receipt = search_receipt(index, LEDGER_QUERY, exclude_superseded=True)
     receipts_bind_exclusion = (
-        default_receipt["exclude_superseded"] is False
+        "exclude_superseded" not in default_receipt
         and default_receipt["record_ids"] == default_ids
         and filtered_receipt["exclude_superseded"] is True
         and filtered_receipt["record_ids"] == filtered_ids
@@ -65,7 +65,7 @@ def run_search_supersession_slice(fixture_root: Path, workspace: Path) -> dict[s
             "default_record_ids": default_ids,
             "filtered_record_ids": filtered_ids,
             "literal_filtered_record_ids": literal_filtered_ids,
-            "receipt_default_exclude_superseded": default_receipt["exclude_superseded"],
+            "receipt_default_omits_exclude_superseded": "exclude_superseded" not in default_receipt,
             "receipt_filtered_exclude_superseded": filtered_receipt["exclude_superseded"],
         },
         "authority_boundary": AUTHORITY_BOUNDARY,
