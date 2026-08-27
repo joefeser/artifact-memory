@@ -48,6 +48,10 @@ _REQUIRED_INDEXES = {
 _knowledge_schema = knowledge_schema
 _FTS5_INTEGRITY_MINIMUM_VERSION = (3, 44, 0)
 _RUNTIME_VERIFIES_FTS5_INTEGRITY = sqlite3.sqlite_version_info >= _FTS5_INTEGRITY_MINIMUM_VERSION
+_VIRTUAL_MODULE_PATTERN = re.compile(
+    r'^create\s+virtual\s+table\s+(?:"[^"]*"|\[[^\]]*\]|`[^`]*`|\S+)\s+using\s+([A-Za-z_][A-Za-z0-9_]*)',
+    re.IGNORECASE,
+)
 
 
 def _validate_projection_contract(connection: sqlite3.Connection) -> None:
@@ -61,8 +65,9 @@ def _validate_projection_contract(connection: sqlite3.Connection) -> None:
     fts_declaration = connection.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'records_fts'"
     ).fetchone()
-    declaration = fts_declaration[0].lower().lstrip() if fts_declaration is not None and fts_declaration[0] else ""
-    if not declaration.startswith("create virtual table") or "using fts5" not in declaration:
+    declaration = (fts_declaration[0] if fts_declaration is not None and fts_declaration[0] else "") or ""
+    module_match = _VIRTUAL_MODULE_PATTERN.match(declaration.lstrip())
+    if module_match is None or module_match.group(1).lower() != "fts5":
         raise ValidationFailure("projection-unavailable", "generated SQLite projection schema is incomplete or invalid")
     actual_indexes = {
         row[0]

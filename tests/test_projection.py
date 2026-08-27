@@ -473,28 +473,45 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "query-invalid")
 
     def test_search_rejects_non_fts5_records_table_before_match_execution(self):
-        """A regular table named records_fts with the expected columns passes
-        column and integrity checks but cannot serve MATCH; the contract must
+        """A non-FTS5 records_fts with the expected columns passes column and
+        integrity checks but cannot serve FTS5 semantics; the contract must
         reject it as projection-unavailable instead of letting the resulting
-        SQLITE_ERROR classify a valid query as query-invalid."""
+        SQLITE_ERROR classify a valid query as query-invalid — including a
+        non-FTS5 virtual table whose declaration mentions fts5 in a comment."""
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "generated"
             project_records([FIXTURE], output)
             index = output / "records.sqlite"
-            connection = sqlite3.connect(index)
-            rows = connection.execute("SELECT record_id, summary, labels FROM records_fts ORDER BY record_id").fetchall()
-            connection.execute("DROP TABLE records_fts")
-            connection.execute("CREATE TABLE records_fts (record_id TEXT, summary TEXT, labels TEXT)")
-            connection.executemany("INSERT INTO records_fts VALUES (?, ?, ?)", rows)
-            connection.commit()
-            connection.close()
-            for probe in (
-                lambda: search_records(index, "synthetic"),
-                lambda: search_receipt(index, "synthetic"),
-            ):
-                with self.assertRaises(ValidationFailure) as raised:
-                    probe()
-                self.assertEqual(raised.exception.code, "projection-unavailable")
+            replacements = (
+                "CREATE TABLE records_fts (record_id TEXT, summary TEXT, labels TEXT)",
+                "CREATE VIRTUAL TABLE records_fts USING fts4(record_id, summary, labels /* using fts5 */)",
+            )
+            for replacement_sql in replacements:
+                connection = sqlite3.connect(index)
+                rows = connection.execute("SELECT record_id, summary, labels FROM records_fts ORDER BY record_id").fetchall()
+                connection.execute("DROP TABLE records_fts")
+                connection.execute(replacement_sql)
+                connection.executemany("INSERT INTO records_fts VALUES (?, ?, ?)", rows)
+                connection.commit()
+                connection.close()
+                for probe in (
+                    lambda: search_records(index, "synthetic"),
+                    lambda: search_receipt(index, "synthetic"),
+                ):
+                    with self.subTest(declaration=replacement_sql):
+                        with self.assertRaises(ValidationFailure) as raised:
+                            probe()
+                        self.assertEqual(raised.exception.code, "projection-unavailable")
+                connection = sqlite3.connect(index)
+                rows = connection.execute("SELECT record_id, summary, labels FROM records_fts ORDER BY record_id").fetchall()
+                connection.execute("DROP TABLE records_fts")
+                connection.execute(
+                    "CREATE VIRTUAL TABLE records_fts USING fts5(record_id UNINDEXED, summary, labels)"
+                )
+                connection.executemany("INSERT INTO records_fts VALUES (?, ?, ?)", rows)
+                connection.commit()
+                connection.close()
+                self.assertEqual(search_records(index, "synthetic"), ["record://synthetic/record-0001"])
 
     def test_search_failure_classification_uses_sqlite_error_code(self):
         """Query failures classify on sqlite_errorcode & 0xff, not message
