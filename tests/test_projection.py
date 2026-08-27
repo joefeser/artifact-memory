@@ -548,6 +548,48 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual(raw_receipt["query_mode"], "raw")
             self.assertEqual(raw_receipt["query_digest"], sha256_bytes(b"adjacent"))
 
+    def _supersession_fixture(self, root: Path) -> Path:
+        records = (
+            ("accepted", "Accepted synthetic ledger note survives supersession filtering."),
+            ("superseded", "Superseded synthetic ledger note is excluded on request."),
+        )
+        for ordinal, (lifecycle, summary) in enumerate(records, start=1):
+            record = {
+                "schema_id": "artifact-memory/knowledge-record/v1",
+                "record_id": f"record://synthetic/supersession-000{ordinal}",
+                "record_type": "note",
+                "lifecycle": lifecycle,
+                "meaning": {"summary": summary},
+                "artifact_refs": [],
+                "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/supersession/v1"}],
+                "sensitivity": "public",
+            }
+            (root / f"supersession-000{ordinal}.json").write_text(json.dumps(record), encoding="utf-8")
+        return root
+
+    def test_search_exclude_superseded_filters_lifecycle_at_read_time(self):
+        """Superseded records stay first-class search hits by default; the
+        explicit filter drops them, both grammars compose with it, and the
+        receipt binds the exclusion so results are replayable."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self._supersession_fixture(Path(temporary))
+            output = root / "generated"
+            project_records(sorted(root.glob("supersession-*.json")), output)
+            index = output / "records.sqlite"
+            both = ["record://synthetic/supersession-0001", "record://synthetic/supersession-0002"]
+            survivor = ["record://synthetic/supersession-0001"]
+            self.assertEqual(search_records(index, "ledger"), both)
+            self.assertEqual(search_records(index, "ledger", exclude_superseded=True), survivor)
+            self.assertEqual(search_records(index, "ledger", literal=True, exclude_superseded=True), survivor)
+            default_receipt = search_receipt(index, "ledger")
+            filtered_receipt = search_receipt(index, "ledger", exclude_superseded=True)
+            self.assertEqual(default_receipt["record_ids"], both)
+            self.assertFalse(default_receipt["exclude_superseded"])
+            self.assertEqual(filtered_receipt["record_ids"], survivor)
+            self.assertTrue(filtered_receipt["exclude_superseded"])
+            self.assertEqual(filtered_receipt["query_digest"], default_receipt["query_digest"])
+            self.assertEqual(filtered_receipt["source_record_set_digest"], default_receipt["source_record_set_digest"])
+
 
 if __name__ == "__main__":
     unittest.main()

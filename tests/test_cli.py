@@ -92,6 +92,47 @@ class CliTests(unittest.TestCase):
         self.assertEqual(receipt.returncode, 0)
         self.assertEqual(json.loads(receipt.stdout)["record_ids"], ["record://synthetic/literal-cli-0001"])
 
+    def test_search_exclude_superseded_through_cli(self):
+        from artifact_memory.projection import project_records
+
+        records = []
+        for ordinal, lifecycle in enumerate(("accepted", "superseded"), start=1):
+            records.append(
+                {
+                    "schema_id": "artifact-memory/knowledge-record/v1",
+                    "record_id": f"record://synthetic/supersession-cli-000{ordinal}",
+                    "record_type": "note",
+                    "lifecycle": lifecycle,
+                    "meaning": {"summary": f"{lifecycle} synthetic ledger note for the CLI filter"},
+                    "artifact_refs": [],
+                    "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/supersession/v1"}],
+                    "sensitivity": "public",
+                }
+            )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = []
+            for ordinal, record in enumerate(records, start=1):
+                path = root / f"record-000{ordinal}.json"
+                path.write_text(json.dumps(record), encoding="utf-8")
+                paths.append(path)
+            output = root / "generated"
+            project_records(paths, output)
+            index = output / "records.sqlite"
+
+            default = self.run_cli("search", str(index), "ledger", "--json")
+            filtered = self.run_cli("search", str(index), "ledger", "--exclude-superseded", "--json")
+            receipt = self.run_cli("search-receipt", str(index), "ledger", "--exclude-superseded", "--json")
+
+        self.assertEqual(default.returncode, 0)
+        self.assertEqual(len(json.loads(default.stdout)["record_ids"]), 2)
+        self.assertEqual(filtered.returncode, 0)
+        self.assertEqual(json.loads(filtered.stdout)["record_ids"], ["record://synthetic/supersession-cli-0001"])
+        self.assertEqual(receipt.returncode, 0)
+        payload = json.loads(receipt.stdout)
+        self.assertTrue(payload["exclude_superseded"])
+        self.assertEqual(payload["record_ids"], ["record://synthetic/supersession-cli-0001"])
+
     def test_archive_receipt_requires_semantic_validation(self):
         from artifact_memory.archive import inspect_zip
 

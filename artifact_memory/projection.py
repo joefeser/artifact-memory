@@ -321,7 +321,13 @@ def _classify_search_failure(exc: sqlite3.Error) -> ValidationFailure:
     return ValidationFailure("projection-unavailable", "generated SQLite projection is unavailable or invalid")
 
 
-def _matched_record_ids(connection: sqlite3.Connection, query: str, *, literal: bool) -> list[str]:
+def _matched_record_ids(
+    connection: sqlite3.Connection,
+    query: str,
+    *,
+    literal: bool,
+    exclude_superseded: bool = False,
+) -> list[str]:
     """Run one match in the caller's grammar.
 
     Raw mode passes the query to FTS5 unmodified. Literal mode quotes the
@@ -329,30 +335,57 @@ def _matched_record_ids(connection: sqlite3.Connection, query: str, *, literal: 
     string escape — so tokens must appear as an adjacent phrase, then keeps
     only rows whose indexed summary or labels contain the query's case-folded
     bytes, which the tokenizer would otherwise discard (the hyphen in
-    alpha-beta, the quote in five "inches).
+    alpha-beta, the quote in five "inches). With exclude_superseded, matched
+    records whose lifecycle column is superseded are dropped; the default
+    keeps them.
     """
     if not literal:
-        return [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (query,))]
-    expression = '"' + query.replace('"', '""') + '"'
-    folded = query.casefold()
-    return [
-        row[0]
-        for row in connection.execute(_LITERAL_MATCH_QUERY, (expression,))
-        if folded in row[1].casefold() or folded in row[2].casefold()
-    ]
+        record_ids = [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (query,))]
+    else:
+        expression = '"' + query.replace('"', '""') + '"'
+        folded = query.casefold()
+        record_ids = [
+            row[0]
+            for row in connection.execute(_LITERAL_MATCH_QUERY, (expression,))
+            if folded in row[1].casefold() or folded in row[2].casefold()
+        ]
+    if exclude_superseded and record_ids:
+        superseded = {
+            row[0]
+            for row in connection.execute("SELECT record_id FROM records WHERE lifecycle = 'superseded'")
+        }
+        record_ids = [record_id for record_id in record_ids if record_id not in superseded]
+    return record_ids
 
 
-def search_records(index_path: Path, query: str, *, literal: bool = False) -> list[str]:
+def search_records(
+    index_path: Path,
+    query: str,
+    *,
+    literal: bool = False,
+    exclude_superseded: bool = False,
+) -> list[str]:
     if literal and not query:
         raise ValidationFailure("query-invalid", "full-text query is invalid or unsupported")
     try:
         with _read_index(index_path) as connection:
-            return _matched_record_ids(connection, query, literal=literal)
+            return _matched_record_ids(
+                connection,
+                query,
+                literal=literal,
+                exclude_superseded=exclude_superseded,
+            )
     except sqlite3.Error as exc:
         raise _classify_search_failure(exc) from exc
 
 
-def search_receipt(index_path: Path, query: str, *, literal: bool = False) -> dict[str, Any]:
+def search_receipt(
+    index_path: Path,
+    query: str,
+    *,
+    literal: bool = False,
+    exclude_superseded: bool = False,
+) -> dict[str, Any]:
     """Return search results pinned to the exact source record set and gate state.
 
     Additive beside search_records: the raw record-ID surface and every existing
@@ -360,14 +393,20 @@ def search_receipt(index_path: Path, query: str, *, literal: bool = False) -> di
     and the integrity-gate outcome so query evidence is pinnable (WITS 1151);
     a tampered index cannot be vouched for because the read gate raises first.
     The query_digest pins the query exactly as the caller typed it, and
-    query_mode records which grammar produced the results, so the receipt is
-    replayable in either mode.
+    query_mode and exclude_superseded record every result-affecting parameter,
+    so the receipt is replayable in either mode with or without supersession
+    filtering.
     """
     if literal and not query:
         raise ValidationFailure("query-invalid", "full-text query is invalid or unsupported")
     try:
         with _read_index(index_path) as connection:
-            record_ids = _matched_record_ids(connection, query, literal=literal)
+            record_ids = _matched_record_ids(
+                connection,
+                query,
+                literal=literal,
+                exclude_superseded=exclude_superseded,
+            )
             source_digest = connection.execute(
                 "SELECT source_record_set_digest FROM projection_metadata WHERE singleton_id = 1"
             ).fetchone()[0]
@@ -378,6 +417,7 @@ def search_receipt(index_path: Path, query: str, *, literal: bool = False) -> di
         "outcome": "complete",
         "query_mode": "literal" if literal else "raw",
         "query_digest": sha256_bytes(query.encode("utf-8")),
+        "exclude_superseded": exclude_superseded,
         "record_ids": record_ids,
         "source_record_set_digest": source_digest,
         "integrity_gate": "verified",
