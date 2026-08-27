@@ -18,7 +18,7 @@
     ]
   },
   "limitations": [
-    "the gate detects FTS5 inverted-index tamper only when the runtime SQLite participates in PRAGMA integrity_check via xIntegrity (SQLite >= 3.44; verified on 3.52.0)",
+    "runtimes whose PRAGMA integrity_check cannot reach the FTS5 inverted index (SQLite < 3.44) fail closed as projection-unavailable instead of serving unverifiable projections (capable runtime verified on 3.52.0)",
     "the cross-SQLite determinism matrix remains unverified",
     "canonical records are unaffected; the gate protects a generated, replaceable projection"
   ],
@@ -70,6 +70,6 @@
     "record_count": 2,
     "source_record_set_digest": "sha-256:62d8a5479647cbba71f2bc961f337116b9020b8a34ff8d18c5e8a4bf579b601d"
   },
-  "receipt_id": "projection-integrity-receipt://synthetic/d28dbf8e6f52f501ec2e79ec666ee62bdadf1acc28552ef2a55b144a6f3de607",
+  "receipt_id": "projection-integrity-receipt://synthetic/ee60e232e67f6859dcdf367405028893618bf122b85b54bf03f84db3a4776594",
   "schema_id": "artifact-memory/projection-integrity-slice-receipt/v1"
 }

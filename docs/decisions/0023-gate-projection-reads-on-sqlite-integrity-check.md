@@ -31,6 +31,13 @@ tamper evidence for a generated, replaceable projection.
   because the command form is unusable on a read-only connection.
 - Run the check last: content-row validation cannot observe the inverted
   index, so it must not be the final authority on search-row integrity.
+- Reject runtimes whose `PRAGMA integrity_check` cannot verify FTS5
+  (SQLite < 3.44) with `projection-unavailable`: on an incapable runtime an
+  `ok` result is absence of evidence, not verification.
+- Hold one read transaction across contract validation, integrity
+  verification, and the caller's query, so a concurrent writer cannot commit
+  tampering between check and use and the caller only ever sees the verified
+  snapshot.
 - The synthetic acceptance fixture is the two-step forgery itself: reindex
   through `records_fts`, restore `records_fts_content`, and require a typed
   failure from every query surface (search, related, provenance, metadata,
@@ -45,8 +52,10 @@ tamper evidence for a generated, replaceable projection.
   existing per-query revalidation.
 - Detection of inverted-index tamper depends on the runtime SQLite
   participating in `PRAGMA integrity_check` through FTS5 `xIntegrity`
-  (SQLite >= 3.44; verified on 3.52.0). The cross-SQLite determinism matrix
-  remains unverified and is recorded as an open epic limitation.
+  (SQLite >= 3.44; verified on 3.52.0). Runtimes below that floor fail
+  closed rather than serving an unverifiable projection; the cross-SQLite
+  determinism matrix above the floor remains unverified and is recorded as
+  an open epic limitation.
 - Digest-bearing search receipts (issue #106) remain gated on this decision.
 
 ## Authority and limitations

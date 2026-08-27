@@ -3,8 +3,11 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from artifact_memory import projection
 from artifact_memory.projection import (
+    _read_index,
     canonical_records,
     logical_projection_snapshot,
     project_records,
@@ -317,6 +320,51 @@ class ProjectionTests(unittest.TestCase):
                     with self.assertRaises(ValidationFailure) as raised:
                         probe()
                     self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_projection_reads_fail_closed_without_fts5_integrity_runtime(self):
+        """A runtime whose PRAGMA integrity_check cannot reach the FTS5
+        inverted index returns ok without evidence, so reads must fail closed
+        instead of treating that ok as verification."""
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            with mock.patch.object(projection, "_RUNTIME_VERIFIES_FTS5_INTEGRITY", False):
+                with self.assertRaises(ValidationFailure) as raised:
+                    search_records(index, "synthetic")
+                self.assertEqual(raised.exception.code, "projection-unavailable")
+            self.assertEqual(search_records(index, "synthetic"), ["record://synthetic/record-0001"])
+
+    def test_projection_read_holds_one_snapshot_against_concurrent_writers(self):
+        """Verification and the caller query must observe one read snapshot: a
+        writer cannot commit the two-step forgery after the integrity check but
+        before the query while the read transaction is open."""
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            with _read_index(index) as reader:
+                snapshot = reader.execute("SELECT record_id FROM records ORDER BY record_id").fetchall()
+                writer = sqlite3.connect(index, timeout=0.05)
+                try:
+                    with self.assertRaises(sqlite3.OperationalError):
+                        writer.execute(
+                            "UPDATE records_fts SET summary = 'forged summary containing syntheticforged'"
+                        )
+                        writer.commit()
+                finally:
+                    writer.close()
+                self.assertEqual(
+                    reader.execute("SELECT record_id FROM records ORDER BY record_id").fetchall(),
+                    snapshot,
+                )
+            writer = sqlite3.connect(index)
+            writer.execute("UPDATE records_fts SET summary = 'forged summary containing syntheticforged'")
+            writer.commit()
+            writer.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "syntheticforged")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
 
 
 if __name__ == "__main__":
