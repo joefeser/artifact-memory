@@ -103,7 +103,14 @@ default receipts keep the pre-filter shape for consumers pinned to the
 earlier schema — beside the mode and query digest so filtered results are
 replayable. Exclusion is a read-time lifecycle filter,
 not revocation: revocation suppression remains a projection-build input.
-Search is lexically restricted to
+Both search commands also accept `--rank`, which orders results by FTS5 bm25
+relevance with a deterministic record_id tiebreak instead of record_id alone.
+Ranked order is corpus-dependent — adding unrelated records to the vault can
+change any result's rank — and is a findability aid only, never an authority
+or relevance claim about record truth; ranked receipts therefore carry a
+`result_order` label naming the ranking, tiebreak, and its explicit
+non-authoritative, corpus-dependent status, while default receipts omit the
+field entirely and keep record_id order. Search is lexically restricted to
 `meaning.summary` and record labels; no other record field is indexed or
 reachable from search. Search is a confirmation oracle over that restricted
 meaning — an ungated term, adjacency, and prefix match — and applies no
@@ -150,4 +157,12 @@ supersession filter and its receipt binding end to end. Replay it with:
 
 ```sh
 python3 scripts/run_search_supersession_slice.py --check
+```
+
+The checked-in `fixtures/synthetic/search-ranking/v1` receipt proves
+conditional bm25 end to end, including the corpus-growth order flip. Replay it
+with:
+
+```sh
+python3 scripts/run_search_ranking_slice.py --check
 ```

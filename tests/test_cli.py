@@ -133,6 +133,61 @@ class CliTests(unittest.TestCase):
         self.assertTrue(payload["exclude_superseded"])
         self.assertEqual(payload["record_ids"], ["record://synthetic/supersession-cli-0001"])
 
+    def test_search_ranking_through_cli(self):
+        from artifact_memory.projection import project_records
+
+        records = []
+        summaries = (
+            "beta beta beta beta beta gamma alpha",
+            "beta gamma gamma gamma gamma alpha",
+        )
+        for ordinal, summary in enumerate(summaries, start=1):
+            records.append(
+                {
+                    "schema_id": "artifact-memory/knowledge-record/v1",
+                    "record_id": f"record://synthetic/ranking-cli-000{ordinal}",
+                    "record_type": "note",
+                    "lifecycle": "accepted",
+                    "meaning": {"summary": summary},
+                    "artifact_refs": [],
+                    "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/ranking/v1"}],
+                    "sensitivity": "public",
+                }
+            )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = []
+            for ordinal, record in enumerate(records, start=1):
+                path = root / f"record-000{ordinal}.json"
+                path.write_text(json.dumps(record), encoding="utf-8")
+                paths.append(path)
+            output = root / "generated"
+            project_records(paths, output)
+            index = output / "records.sqlite"
+
+            unranked = self.run_cli("search", str(index), "beta gamma", "--json")
+            ranked = self.run_cli("search", str(index), "beta gamma", "--rank", "--json")
+            receipt = self.run_cli("search-receipt", str(index), "beta gamma", "--rank", "--json")
+            human = self.run_cli("search-receipt", str(index), "beta gamma", "--rank")
+
+        self.assertEqual(unranked.returncode, 0)
+        self.assertEqual(
+            json.loads(unranked.stdout)["record_ids"],
+            ["record://synthetic/ranking-cli-0001", "record://synthetic/ranking-cli-0002"],
+        )
+        self.assertEqual(ranked.returncode, 0)
+        self.assertEqual(
+            json.loads(ranked.stdout)["record_ids"],
+            ["record://synthetic/ranking-cli-0002", "record://synthetic/ranking-cli-0001"],
+        )
+        payload = json.loads(receipt.stdout)
+        self.assertEqual(
+            payload["result_order"],
+            {"ranking": "bm25", "tiebreak": "record-id", "authoritative": False, "corpus_dependent": True},
+        )
+        self.assertIn("result_order", human.stdout)
+        self.assertIn("'authoritative': False", human.stdout)
+
     def test_archive_receipt_requires_semantic_validation(self):
         from artifact_memory.archive import inspect_zip
 

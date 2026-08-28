@@ -48,10 +48,21 @@ _REQUIRED_INDEXES = {
 _knowledge_schema = knowledge_schema
 _FTS5_INTEGRITY_MINIMUM_VERSION = (3, 44, 0)
 _RUNTIME_VERIFIES_FTS5_INTEGRITY = sqlite3.sqlite_version_info >= _FTS5_INTEGRITY_MINIMUM_VERSION
-_VIRTUAL_MODULE_PATTERN = re.compile(
-    r'^create\s+virtual\s+table\s+(?:"[^"]*"|\[[^\]]*\]|`[^`]*`|\S+)\s+using\s+([A-Za-z_][A-Za-z0-9_]*)',
-    re.IGNORECASE,
+_FTS_DECLARATION_PATTERN = re.compile(
+    r"CREATE\s+VIRTUAL\s+TABLE\s+records_fts\s+USING\s+fts5\s*\([^;]*\)",
+    re.IGNORECASE | re.DOTALL,
 )
+
+
+def _normalized_declaration(statement: str) -> str:
+    return re.sub(r"\s+", "", statement).lower()
+
+
+_CONTRACT_FTS_DECLARATION_MATCH = _FTS_DECLARATION_PATTERN.search(
+    load_contract_text("core", "index-sqlite.v1.sql")
+)
+assert _CONTRACT_FTS_DECLARATION_MATCH is not None, "packaged projection contract lacks the records_fts declaration"
+_CANONICAL_FTS_DECLARATION = _normalized_declaration(_CONTRACT_FTS_DECLARATION_MATCH.group(0))
 
 
 def _validate_projection_contract(connection: sqlite3.Connection) -> None:
@@ -66,8 +77,12 @@ def _validate_projection_contract(connection: sqlite3.Connection) -> None:
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'records_fts'"
     ).fetchone()
     declaration = (fts_declaration[0] if fts_declaration is not None and fts_declaration[0] else "") or ""
-    module_match = _VIRTUAL_MODULE_PATTERN.match(declaration.lstrip())
-    if module_match is None or module_match.group(1).lower() != "fts5":
+    # The exact FTS declaration is part of the projection contract: a recreated
+    # table with the same columns but altered indexing options (labels
+    # UNINDEXED, a different tokenizer, prefix or detail options) passes
+    # table_info, module, and integrity checks while silently steering bm25
+    # and match semantics, so only the canonical declaration is certifiable.
+    if _normalized_declaration(declaration) != _CANONICAL_FTS_DECLARATION:
         raise ValidationFailure("projection-unavailable", "generated SQLite projection schema is incomplete or invalid")
     actual_indexes = {
         row[0]
@@ -318,7 +333,29 @@ _SEARCH_MATCH_EXCLUDING_SUPERSEDED_QUERY = (
     "WHERE records_fts MATCH ? AND records.lifecycle != 'superseded' "
     "ORDER BY records_fts.record_id"
 )
+_RANKED_MATCH_QUERY = "SELECT record_id FROM records_fts WHERE records_fts MATCH ? ORDER BY bm25(records_fts), record_id"
+_RANKED_MATCH_EXCLUDING_SUPERSEDED_QUERY = (
+    "SELECT records_fts.record_id FROM records_fts "
+    "JOIN records ON records.record_id = records_fts.record_id "
+    "WHERE records_fts MATCH ? AND records.lifecycle != 'superseded' "
+    "ORDER BY bm25(records_fts), records_fts.record_id"
+)
 _LITERAL_MATCH_QUERY = "SELECT record_id, summary, labels FROM records_fts WHERE records_fts MATCH ? ORDER BY record_id"
+_LITERAL_RANKED_MATCH_QUERY = (
+    "SELECT record_id, summary, labels FROM records_fts WHERE records_fts MATCH ? ORDER BY bm25(records_fts), record_id"
+)
+_LITERAL_MATCH_EXCLUDING_SUPERSEDED_QUERY = (
+    "SELECT records_fts.record_id, records_fts.summary, records_fts.labels FROM records_fts "
+    "JOIN records ON records.record_id = records_fts.record_id "
+    "WHERE records_fts MATCH ? AND records.lifecycle != 'superseded' "
+    "ORDER BY records_fts.record_id"
+)
+_LITERAL_RANKED_MATCH_EXCLUDING_SUPERSEDED_QUERY = (
+    "SELECT records_fts.record_id, records_fts.summary, records_fts.labels FROM records_fts "
+    "JOIN records ON records.record_id = records_fts.record_id "
+    "WHERE records_fts MATCH ? AND records.lifecycle != 'superseded' "
+    "ORDER BY bm25(records_fts), records_fts.record_id"
+)
 
 
 def _classify_search_failure(exc: sqlite3.Error) -> ValidationFailure:
@@ -333,6 +370,7 @@ def _matched_record_ids(
     *,
     literal: bool,
     exclude_superseded: bool = False,
+    rank: bool = False,
 ) -> list[str]:
     """Run one match in the caller's grammar.
 
@@ -342,30 +380,35 @@ def _matched_record_ids(
     only rows whose indexed summary or labels contain the query's case-folded
     bytes, which the tokenizer would otherwise discard (the hyphen in
     alpha-beta, the quote in five "inches). With exclude_superseded, matched
-    records whose lifecycle column is superseded are dropped; the default
-    keeps them.
+    records whose lifecycle column is superseded are dropped in the same SQL
+    statement; the default keeps them. With rank, results are ordered by the
+    explicit bm25(records_fts) relevance with a record_id tiebreak instead of
+    record_id alone — the explicit function, not the mutable `rank` alias,
+    because a persisted FTS5 rank configuration can otherwise steer the order
+    of an index that still passes contract validation and integrity_check.
+    That ranked order is corpus-dependent and never authoritative.
     """
-    if not literal:
+    if literal:
+        expression = '"' + query.replace('"', '""') + '"'
+        folded = query.casefold()
         if exclude_superseded:
-            return [row[0] for row in connection.execute(_SEARCH_MATCH_EXCLUDING_SUPERSEDED_QUERY, (query,))]
-        return [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (query,))]
-    expression = '"' + query.replace('"', '""') + '"'
-    folded = query.casefold()
-    record_ids = [
-        row[0]
-        for row in connection.execute(_LITERAL_MATCH_QUERY, (expression,))
-        if folded in row[1].casefold() or folded in row[2].casefold()
-    ]
-    if exclude_superseded and record_ids:
-        kept = []
-        for record_id in record_ids:
-            row = connection.execute(
-                "SELECT lifecycle FROM records WHERE record_id = ?", (record_id,)
-            ).fetchone()
-            if row is None or row[0] != "superseded":
-                kept.append(record_id)
-        record_ids = kept
-    return record_ids
+            match_query = (
+                _LITERAL_RANKED_MATCH_EXCLUDING_SUPERSEDED_QUERY
+                if rank
+                else _LITERAL_MATCH_EXCLUDING_SUPERSEDED_QUERY
+            )
+        else:
+            match_query = _LITERAL_RANKED_MATCH_QUERY if rank else _LITERAL_MATCH_QUERY
+        return [
+            row[0]
+            for row in connection.execute(match_query, (expression,))
+            if folded in row[1].casefold() or folded in row[2].casefold()
+        ]
+    if exclude_superseded:
+        match_query = _RANKED_MATCH_EXCLUDING_SUPERSEDED_QUERY if rank else _SEARCH_MATCH_EXCLUDING_SUPERSEDED_QUERY
+    else:
+        match_query = _RANKED_MATCH_QUERY if rank else _SEARCH_MATCH_QUERY
+    return [row[0] for row in connection.execute(match_query, (query,))]
 
 
 def search_records(
@@ -374,6 +417,7 @@ def search_records(
     *,
     literal: bool = False,
     exclude_superseded: bool = False,
+    rank: bool = False,
 ) -> list[str]:
     if literal and not query:
         raise ValidationFailure("query-invalid", "full-text query is invalid or unsupported")
@@ -384,6 +428,7 @@ def search_records(
                 query,
                 literal=literal,
                 exclude_superseded=exclude_superseded,
+                rank=rank,
             )
     except sqlite3.Error as exc:
         raise _classify_search_failure(exc) from exc
@@ -395,6 +440,7 @@ def search_receipt(
     *,
     literal: bool = False,
     exclude_superseded: bool = False,
+    rank: bool = False,
 ) -> dict[str, Any]:
     """Return search results pinned to the exact source record set and gate state.
 
@@ -403,10 +449,12 @@ def search_receipt(
     and the integrity-gate outcome so query evidence is pinnable (WITS 1151);
     a tampered index cannot be vouched for because the read gate raises first.
     The query_digest pins the query exactly as the caller typed it, and
-    query_mode and — when the filter is active — exclude_superseded record
-    every result-affecting parameter, so the receipt is replayable in either
-    mode with or without supersession filtering. Default receipts omit
-    exclude_superseded entirely to keep the pre-filter v1 shape for consumers
+    query_mode and — when a parameter is active — exclude_superseded and
+    result_order record every result-affecting parameter, so the receipt is
+    replayable in either mode with or without supersession filtering or bm25
+    ranking. Ranked receipts label their order as bm25 with a record_id
+    tiebreak, explicitly non-authoritative and corpus-dependent; default
+    receipts omit both fields to keep the pre-filter v1 shape for consumers
     pinned to the earlier schema.
     """
     if literal and not query:
@@ -418,6 +466,7 @@ def search_receipt(
                 query,
                 literal=literal,
                 exclude_superseded=exclude_superseded,
+                rank=rank,
             )
             source_digest = connection.execute(
                 "SELECT source_record_set_digest FROM projection_metadata WHERE singleton_id = 1"
@@ -435,6 +484,13 @@ def search_receipt(
     }
     if exclude_superseded:
         receipt["exclude_superseded"] = True
+    if rank:
+        receipt["result_order"] = {
+            "ranking": "bm25",
+            "tiebreak": "record-id",
+            "authoritative": False,
+            "corpus_dependent": True,
+        }
     validate(receipt, load_schema("core", "search-receipt.v1.schema.json"))
     return receipt
 
