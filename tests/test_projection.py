@@ -694,6 +694,31 @@ class ProjectionTests(unittest.TestCase):
                 {"ranking": "bm25", "tiebreak": "record-id", "authoritative": False, "corpus_dependent": True},
             )
 
+    def test_ranked_search_ignores_persisted_fts5_rank_configuration(self):
+        """A tampered index can reconfigure the FTS5 `rank` alias through
+        legitimate means while passing contract validation and
+        integrity_check; ranked search must use the explicit bm25() function
+        so the persisted configuration cannot steer the vouched order."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self._ranking_fixture(Path(temporary))
+            output = root / "generated"
+            project_records(sorted(root.glob("ranking-000[12].json")), output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            connection.execute("INSERT INTO records_fts(records_fts, rank) VALUES('rank', 'bm25(0.0, 0.0)')")
+            connection.commit()
+            connection.close()
+            self.assertEqual(
+                search_records(index, "beta gamma", rank=True),
+                ["record://synthetic/ranking-0002", "record://synthetic/ranking-0001"],
+            )
+            tampered_receipt = search_receipt(index, "beta gamma", rank=True)
+            self.assertEqual(
+                tampered_receipt["record_ids"],
+                ["record://synthetic/ranking-0002", "record://synthetic/ranking-0001"],
+            )
+            self.assertEqual(tampered_receipt["integrity_gate"], "verified")
+
 
 if __name__ == "__main__":
     unittest.main()

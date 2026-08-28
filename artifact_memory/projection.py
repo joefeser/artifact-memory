@@ -318,10 +318,28 @@ _SEARCH_MATCH_EXCLUDING_SUPERSEDED_QUERY = (
     "WHERE records_fts MATCH ? AND records.lifecycle != 'superseded' "
     "ORDER BY records_fts.record_id"
 )
-_RANKED_MATCH_QUERY = "SELECT record_id FROM records_fts WHERE records_fts MATCH ? ORDER BY rank, record_id"
+_RANKED_MATCH_QUERY = "SELECT record_id FROM records_fts WHERE records_fts MATCH ? ORDER BY bm25(records_fts), record_id"
+_RANKED_MATCH_EXCLUDING_SUPERSEDED_QUERY = (
+    "SELECT records_fts.record_id FROM records_fts "
+    "JOIN records ON records.record_id = records_fts.record_id "
+    "WHERE records_fts MATCH ? AND records.lifecycle != 'superseded' "
+    "ORDER BY bm25(records_fts), records_fts.record_id"
+)
 _LITERAL_MATCH_QUERY = "SELECT record_id, summary, labels FROM records_fts WHERE records_fts MATCH ? ORDER BY record_id"
 _LITERAL_RANKED_MATCH_QUERY = (
-    "SELECT record_id, summary, labels FROM records_fts WHERE records_fts MATCH ? ORDER BY rank, record_id"
+    "SELECT record_id, summary, labels FROM records_fts WHERE records_fts MATCH ? ORDER BY bm25(records_fts), record_id"
+)
+_LITERAL_MATCH_EXCLUDING_SUPERSEDED_QUERY = (
+    "SELECT records_fts.record_id, records_fts.summary, records_fts.labels FROM records_fts "
+    "JOIN records ON records.record_id = records_fts.record_id "
+    "WHERE records_fts MATCH ? AND records.lifecycle != 'superseded' "
+    "ORDER BY records_fts.record_id"
+)
+_LITERAL_RANKED_MATCH_EXCLUDING_SUPERSEDED_QUERY = (
+    "SELECT records_fts.record_id, records_fts.summary, records_fts.labels FROM records_fts "
+    "JOIN records ON records.record_id = records_fts.record_id "
+    "WHERE records_fts MATCH ? AND records.lifecycle != 'superseded' "
+    "ORDER BY bm25(records_fts), records_fts.record_id"
 )
 
 
@@ -347,36 +365,35 @@ def _matched_record_ids(
     only rows whose indexed summary or labels contain the query's case-folded
     bytes, which the tokenizer would otherwise discard (the hyphen in
     alpha-beta, the quote in five "inches). With exclude_superseded, matched
-    records whose lifecycle column is superseded are dropped; the default
-    keeps them. With rank, results are ordered by FTS5 bm25 relevance with a
-    record_id tiebreak instead of record_id alone; that order is
-    corpus-dependent and never authoritative.
+    records whose lifecycle column is superseded are dropped in the same SQL
+    statement; the default keeps them. With rank, results are ordered by the
+    explicit bm25(records_fts) relevance with a record_id tiebreak instead of
+    record_id alone — the explicit function, not the mutable `rank` alias,
+    because a persisted FTS5 rank configuration can otherwise steer the order
+    of an index that still passes contract validation and integrity_check.
+    That ranked order is corpus-dependent and never authoritative.
     """
     if literal:
         expression = '"' + query.replace('"', '""') + '"'
         folded = query.casefold()
-        match_query = _LITERAL_RANKED_MATCH_QUERY if rank else _LITERAL_MATCH_QUERY
-        record_ids = [
+        if exclude_superseded:
+            match_query = (
+                _LITERAL_RANKED_MATCH_EXCLUDING_SUPERSEDED_QUERY
+                if rank
+                else _LITERAL_MATCH_EXCLUDING_SUPERSEDED_QUERY
+            )
+        else:
+            match_query = _LITERAL_RANKED_MATCH_QUERY if rank else _LITERAL_MATCH_QUERY
+        return [
             row[0]
             for row in connection.execute(match_query, (expression,))
             if folded in row[1].casefold() or folded in row[2].casefold()
         ]
-    elif rank:
-        record_ids = [row[0] for row in connection.execute(_RANKED_MATCH_QUERY, (query,))]
-    elif exclude_superseded:
-        return [row[0] for row in connection.execute(_SEARCH_MATCH_EXCLUDING_SUPERSEDED_QUERY, (query,))]
+    if exclude_superseded:
+        match_query = _RANKED_MATCH_EXCLUDING_SUPERSEDED_QUERY if rank else _SEARCH_MATCH_EXCLUDING_SUPERSEDED_QUERY
     else:
-        return [row[0] for row in connection.execute(_SEARCH_MATCH_QUERY, (query,))]
-    if exclude_superseded and record_ids:
-        kept = []
-        for record_id in record_ids:
-            row = connection.execute(
-                "SELECT lifecycle FROM records WHERE record_id = ?", (record_id,)
-            ).fetchone()
-            if row is None or row[0] != "superseded":
-                kept.append(record_id)
-        record_ids = kept
-    return record_ids
+        match_query = _RANKED_MATCH_QUERY if rank else _SEARCH_MATCH_QUERY
+    return [row[0] for row in connection.execute(match_query, (query,))]
 
 
 def search_records(

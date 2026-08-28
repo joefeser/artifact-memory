@@ -18,9 +18,14 @@ dependence.
 ## Decision
 
 - Both `search` and `search-receipt` accept `--rank`, ordering results by
-  FTS5 bm25 (`ORDER BY rank`) with a deterministic record_id tiebreak for
-  equal scores. Default order remains record_id alone; the flag is the
-  caller's opt-in.
+  FTS5 bm25 with a deterministic record_id tiebreak for equal scores.
+  Default order remains record_id alone; the flag is the caller's opt-in.
+- Ranking uses the explicit `bm25(records_fts)` function, not the mutable
+  `rank` alias: a persisted FTS5 rank configuration
+  (`INSERT INTO records_fts(records_fts, rank) …`) can steer `ORDER BY rank`
+  on an index that still passes contract validation and `integrity_check`,
+  while the explicit function ignores it. Supersession exclusion composes in
+  the same SQL statement, so no path issues per-result lifecycle queries.
 - Ranked receipts carry an optional `result_order` object —
   `ranking: bm25`, `tiebreak: record-id`, `authoritative: false`,
   `corpus_dependent: true` — so the order claim is machine-checkable and
@@ -29,8 +34,9 @@ dependence.
 - Ranking composes with both query grammars and with supersession exclusion,
   preserving relevance order among survivors inside the same gated read.
 - The checked-in slice demonstrates, deterministically, that bm25 inverts
-  record_id order on a paired corpus and that corpus growth flips the ranked
-  order, so the corpus-dependence disclosure is proven, not asserted.
+  record_id order on a paired corpus and that adding three lexically
+  unrelated records (sharing no query term) flips the ranked order, so the
+  corpus-dependence disclosure is proven, not asserted.
 
 ## Compatibility
 

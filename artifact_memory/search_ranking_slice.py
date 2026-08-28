@@ -31,7 +31,7 @@ def run_search_ranking_slice(fixture_root: Path, workspace: Path) -> dict[str, A
     """Run the checked-in fixture without emitting machine-local paths."""
     record_paths = sorted((fixture_root / "records").glob("*.json"))
     paired_output = workspace / "paired-projection"
-    paired_receipt = project_records(record_paths[:2], paired_output)
+    paired_receipt = project_records(record_paths[:3], paired_output)
     paired_index = paired_output / "records.sqlite"
     full_output = workspace / "full-projection"
     full_receipt = project_records(record_paths, full_output)
@@ -86,7 +86,7 @@ def run_search_ranking_slice(fixture_root: Path, workspace: Path) -> dict[str, A
         },
         "authority_boundary": AUTHORITY_BOUNDARY,
         "limitations": [
-            "ranked order is corpus-dependent: adding unrelated records changed the order in this proof, and any result's rank can shift when the vault changes",
+            "ranked order is corpus-dependent: adding three lexically unrelated records (no query terms) changed the order in this proof, and any result's rank can shift when the vault changes",
             "ranked order is a findability aid, never an authority or relevance claim about record truth",
             "bm25 cost and flip reachability at vault scale remain unmeasured; ties break deterministically by record_id",
         ],
