@@ -18,7 +18,8 @@ from artifact_memory.projection import (
     search_receipt,
     search_records,
 )
-from artifact_memory.validator import ValidationFailure
+from artifact_memory.schema_resources import load_schema
+from artifact_memory.validator import ValidationFailure, validate
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -587,6 +588,10 @@ class ProjectionTests(unittest.TestCase):
             self.assertNotIn("exclude_superseded", default_receipt)
             self.assertEqual(filtered_receipt["record_ids"], survivor)
             self.assertTrue(filtered_receipt["exclude_superseded"])
+            inactive = dict(filtered_receipt)
+            inactive["exclude_superseded"] = False
+            with self.assertRaises(ValidationFailure):
+                validate(inactive, load_schema("core", "search-receipt.v1.schema.json"))
             self.assertEqual(filtered_receipt["query_digest"], default_receipt["query_digest"])
             self.assertEqual(filtered_receipt["source_record_set_digest"], default_receipt["source_record_set_digest"])
 
