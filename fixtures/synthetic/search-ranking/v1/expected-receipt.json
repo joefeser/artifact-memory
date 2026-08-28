@@ -1,0 +1,57 @@
+{
+  "authority_boundary": "informational-only/no-execution-authority",
+  "limitations": [
+    "ranked order is corpus-dependent: adding unrelated records changed the order in this proof, and any result's rank can shift when the vault changes",
+    "ranked order is a findability aid, never an authority or relevance claim about record truth",
+    "bm25 cost and flip reachability at vault scale remain unmeasured; ties break deterministically by record_id"
+  ],
+  "operations": [
+    {
+      "name": "project-paired-and-full-corpora",
+      "outcome": "complete"
+    },
+    {
+      "name": "bm25-inverts-record-id-order",
+      "outcome": "verified"
+    },
+    {
+      "name": "corpus-growth-flips-ranked-order",
+      "outcome": "verified"
+    },
+    {
+      "name": "receipts-label-order-non-authoritative",
+      "outcome": "complete"
+    }
+  ],
+  "outcome": "complete",
+  "projection": {
+    "full_record_count": 5,
+    "full_source_record_set_digest": "sha-256:4c71dcf629bab7909159eca519484dd0eae440dd5624c4823060ccef9f03d1c9",
+    "paired_record_count": 2,
+    "paired_source_record_set_digest": "sha-256:f1e2317afa935dd30c4b5b49250ca188d3a924d5a2be6d72ebae9afc72bc5fd8"
+  },
+  "ranked_search": {
+    "default_receipt_omits_result_order": true,
+    "full_ranked_record_ids": [
+      "record://synthetic/search-ranking-0001",
+      "record://synthetic/search-ranking-0002"
+    ],
+    "paired_ranked_record_ids": [
+      "record://synthetic/search-ranking-0002",
+      "record://synthetic/search-ranking-0001"
+    ],
+    "query": "beta gamma",
+    "receipt_result_order": {
+      "authoritative": false,
+      "corpus_dependent": true,
+      "ranking": "bm25",
+      "tiebreak": "record-id"
+    },
+    "unranked_record_ids": [
+      "record://synthetic/search-ranking-0001",
+      "record://synthetic/search-ranking-0002"
+    ]
+  },
+  "receipt_id": "search-ranking-slice-receipt://synthetic/e3263b3252d00956468e5e347ee7a3d783447300dc33b73fbf4f04c0329f6bb0",
+  "schema_id": "artifact-memory/search-ranking-slice-receipt/v1"
+}

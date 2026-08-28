@@ -592,8 +592,107 @@ class ProjectionTests(unittest.TestCase):
             inactive["exclude_superseded"] = False
             with self.assertRaises(ValidationFailure):
                 validate(inactive, load_schema("core", "search-receipt.v1.schema.json"))
-            self.assertEqual(filtered_receipt["query_digest"], default_receipt["query_digest"])
-            self.assertEqual(filtered_receipt["source_record_set_digest"], default_receipt["source_record_set_digest"])
+
+    def _ranking_fixture(self, root: Path) -> Path:
+        records = (
+            ("accepted", "beta beta beta beta beta gamma alpha"),
+            ("accepted", "beta gamma gamma gamma gamma alpha"),
+        )
+        for ordinal, (lifecycle, summary) in enumerate(records, start=1):
+            record = {
+                "schema_id": "artifact-memory/knowledge-record/v1",
+                "record_id": f"record://synthetic/ranking-000{ordinal}",
+                "record_type": "note",
+                "lifecycle": lifecycle,
+                "meaning": {"summary": summary},
+                "artifact_refs": [],
+                "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/ranking/v1"}],
+                "sensitivity": "public",
+            }
+            (root / f"ranking-000{ordinal}.json").write_text(json.dumps(record), encoding="utf-8")
+        for ordinal in range(3, 6):
+            record = {
+                "schema_id": "artifact-memory/knowledge-record/v1",
+                "record_id": f"record://synthetic/ranking-000{ordinal}",
+                "record_type": "note",
+                "lifecycle": "accepted",
+                "meaning": {"summary": "gamma alpha"},
+                "artifact_refs": [],
+                "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/ranking/v1"}],
+                "sensitivity": "public",
+            }
+            (root / f"ranking-000{ordinal}.json").write_text(json.dumps(record), encoding="utf-8")
+        return root
+
+    def test_ranked_search_orders_by_bm25_with_record_id_tiebreak(self):
+        """Ranking is opt-in and never authoritative: bm25 reorders results
+        away from record_id order, equal scores tiebreak deterministically by
+        record_id, the receipt labels the order as bm25/non-authoritative/
+        corpus-dependent, and default output keeps record_id order with no
+        result_order field."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self._ranking_fixture(Path(temporary))
+            output = root / "generated"
+            project_records(sorted(root.glob("ranking-000[12].json")), output)
+            index = output / "records.sqlite"
+            first = ["record://synthetic/ranking-0001", "record://synthetic/ranking-0002"]
+            self.assertEqual(search_records(index, "beta gamma"), first)
+            self.assertEqual(search_records(index, "beta gamma", rank=True), list(reversed(first)))
+            default_receipt = search_receipt(index, "beta gamma")
+            ranked_receipt = search_receipt(index, "beta gamma", rank=True)
+            self.assertNotIn("result_order", default_receipt)
+            self.assertEqual(
+                ranked_receipt["result_order"],
+                {"ranking": "bm25", "tiebreak": "record-id", "authoritative": False, "corpus_dependent": True},
+            )
+            self.assertEqual(ranked_receipt["record_ids"], list(reversed(first)))
+            self.assertEqual(ranked_receipt["query_digest"], default_receipt["query_digest"])
+            self.assertEqual(ranked_receipt["source_record_set_digest"], default_receipt["source_record_set_digest"])
+
+    def test_ranked_search_ties_break_by_record_id_and_compose_with_other_modes(self):
+        """Identical documents score identically, so ranked order is the
+        record_id order; ranking composes with literal mode and with
+        supersession exclusion, preserving relevance order among survivors."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            records = (
+                ("accepted", "delta delta delta epsilon"),
+                ("accepted", "delta delta delta epsilon"),
+                ("superseded", "delta delta delta delta delta epsilon"),
+                ("accepted", "zeta unrelated"),
+            )
+            for ordinal, (lifecycle, summary) in enumerate(records, start=1):
+                record = {
+                    "schema_id": "artifact-memory/knowledge-record/v1",
+                    "record_id": f"record://synthetic/ranking-tie-000{ordinal}",
+                    "record_type": "note",
+                    "lifecycle": lifecycle,
+                    "meaning": {"summary": summary},
+                    "artifact_refs": [],
+                    "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/ranking/v1"}],
+                    "sensitivity": "public",
+                }
+                (root / f"tie-000{ordinal}.json").write_text(json.dumps(record), encoding="utf-8")
+            output = root / "generated"
+            project_records(sorted(root.glob("tie-*.json")), output)
+            index = output / "records.sqlite"
+            matched = [
+                "record://synthetic/ranking-tie-0001",
+                "record://synthetic/ranking-tie-0002",
+                "record://synthetic/ranking-tie-0003",
+            ]
+            self.assertEqual(search_records(index, "delta epsilon", rank=True), matched)
+            self.assertEqual(
+                search_records(index, "delta epsilon", rank=True, exclude_superseded=True),
+                matched[:2],
+            )
+            literal_receipt = search_receipt(index, "delta epsilon", rank=True, literal=True)
+            self.assertEqual(literal_receipt["record_ids"], matched)
+            self.assertEqual(literal_receipt["query_mode"], "literal")
+            self.assertEqual(
+                literal_receipt["result_order"],
+                {"ranking": "bm25", "tiebreak": "record-id", "authoritative": False, "corpus_dependent": True},
+            )
 
 
 if __name__ == "__main__":

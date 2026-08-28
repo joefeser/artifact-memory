@@ -86,12 +86,14 @@ def main(argv: list[str] | None = None) -> int:
     search.add_argument("query")
     search.add_argument("--literal", action="store_true", help="treat the query as one literal term instead of raw FTS5 syntax")
     search.add_argument("--exclude-superseded", action="store_true", dest="exclude_superseded", help="drop matches whose record lifecycle is superseded")
+    search.add_argument("--rank", action="store_true", help="order results by bm25 relevance with a record-id tiebreak; corpus-dependent, never authoritative")
     search.add_argument("--json", action="store_true", dest="as_json")
     search_receipt_parser = subparsers.add_parser("search-receipt")
     search_receipt_parser.add_argument("index", type=Path)
     search_receipt_parser.add_argument("query")
     search_receipt_parser.add_argument("--literal", action="store_true", help="treat the query as one literal term instead of raw FTS5 syntax")
     search_receipt_parser.add_argument("--exclude-superseded", action="store_true", dest="exclude_superseded", help="drop matches whose record lifecycle is superseded")
+    search_receipt_parser.add_argument("--rank", action="store_true", help="order results by bm25 relevance with a record-id tiebreak; corpus-dependent, never authoritative")
     search_receipt_parser.add_argument("--json", action="store_true", dest="as_json")
     related = subparsers.add_parser("related")
     related.add_argument("index", type=Path)
@@ -280,7 +282,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_OK
     if args.command == "search":
         try:
-            record_ids = search_records(args.index, args.query, literal=args.literal, exclude_superseded=args.exclude_superseded)
+            record_ids = search_records(args.index, args.query, literal=args.literal, exclude_superseded=args.exclude_superseded, rank=args.rank)
         except ValidationFailure as exc:
             _receipt({"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]}, args.as_json)
             return EXIT_INVALID
@@ -288,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_OK
     if args.command == "search-receipt":
         try:
-            receipt = search_receipt(args.index, args.query, literal=args.literal, exclude_superseded=args.exclude_superseded)
+            receipt = search_receipt(args.index, args.query, literal=args.literal, exclude_superseded=args.exclude_superseded, rank=args.rank)
         except ValidationFailure as exc:
             _receipt({"outcome": "rejected", "diagnostics": [{"code": exc.code, "message": exc.message}]}, args.as_json)
             return EXIT_INVALID

@@ -11,6 +11,17 @@
     "query_mode": {"enum": ["raw", "literal"]},
     "query_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
     "exclude_superseded": {"const": true},
+    "result_order": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ranking", "tiebreak", "authoritative", "corpus_dependent"],
+      "properties": {
+        "ranking": {"const": "bm25"},
+        "tiebreak": {"const": "record-id"},
+        "authoritative": {"const": false},
+        "corpus_dependent": {"const": true}
+      }
+    },
     "record_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
     "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
     "integrity_gate": {"const": "verified"}
