@@ -486,6 +486,8 @@ class ProjectionTests(unittest.TestCase):
             replacements = (
                 "CREATE TABLE records_fts (record_id TEXT, summary TEXT, labels TEXT)",
                 "CREATE VIRTUAL TABLE records_fts USING fts4(record_id, summary, labels /* using fts5 */)",
+                "CREATE VIRTUAL TABLE records_fts USING fts5(record_id UNINDEXED, summary, labels UNINDEXED)",
+                "CREATE VIRTUAL TABLE records_fts USING fts5(record_id UNINDEXED, summary, labels, tokenize='porter unicode61')",
             )
             for replacement_sql in replacements:
                 connection = sqlite3.connect(index)

@@ -48,10 +48,21 @@ _REQUIRED_INDEXES = {
 _knowledge_schema = knowledge_schema
 _FTS5_INTEGRITY_MINIMUM_VERSION = (3, 44, 0)
 _RUNTIME_VERIFIES_FTS5_INTEGRITY = sqlite3.sqlite_version_info >= _FTS5_INTEGRITY_MINIMUM_VERSION
-_VIRTUAL_MODULE_PATTERN = re.compile(
-    r'^create\s+virtual\s+table\s+(?:"[^"]*"|\[[^\]]*\]|`[^`]*`|\S+)\s+using\s+([A-Za-z_][A-Za-z0-9_]*)',
-    re.IGNORECASE,
+_FTS_DECLARATION_PATTERN = re.compile(
+    r"CREATE\s+VIRTUAL\s+TABLE\s+records_fts\s+USING\s+fts5\s*\([^;]*\)",
+    re.IGNORECASE | re.DOTALL,
 )
+
+
+def _normalized_declaration(statement: str) -> str:
+    return re.sub(r"\s+", "", statement).lower()
+
+
+_CONTRACT_FTS_DECLARATION_MATCH = _FTS_DECLARATION_PATTERN.search(
+    load_contract_text("core", "index-sqlite.v1.sql")
+)
+assert _CONTRACT_FTS_DECLARATION_MATCH is not None, "packaged projection contract lacks the records_fts declaration"
+_CANONICAL_FTS_DECLARATION = _normalized_declaration(_CONTRACT_FTS_DECLARATION_MATCH.group(0))
 
 
 def _validate_projection_contract(connection: sqlite3.Connection) -> None:
@@ -66,8 +77,12 @@ def _validate_projection_contract(connection: sqlite3.Connection) -> None:
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'records_fts'"
     ).fetchone()
     declaration = (fts_declaration[0] if fts_declaration is not None and fts_declaration[0] else "") or ""
-    module_match = _VIRTUAL_MODULE_PATTERN.match(declaration.lstrip())
-    if module_match is None or module_match.group(1).lower() != "fts5":
+    # The exact FTS declaration is part of the projection contract: a recreated
+    # table with the same columns but altered indexing options (labels
+    # UNINDEXED, a different tokenizer, prefix or detail options) passes
+    # table_info, module, and integrity checks while silently steering bm25
+    # and match semantics, so only the canonical declaration is certifiable.
+    if _normalized_declaration(declaration) != _CANONICAL_FTS_DECLARATION:
         raise ValidationFailure("projection-unavailable", "generated SQLite projection schema is incomplete or invalid")
     actual_indexes = {
         row[0]
