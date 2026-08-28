@@ -10,6 +10,7 @@
     "outcome": {"const": "complete"},
     "query_mode": {"enum": ["raw", "literal"]},
     "query_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "exclude_superseded": {"const": true},
     "record_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
     "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
     "integrity_gate": {"const": "verified"}

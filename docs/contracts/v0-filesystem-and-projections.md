@@ -95,7 +95,15 @@ classify on the SQLite result code, not message text:
 `sqlite_errorcode & 0xff` of 1 is `query-invalid`; any other code is
 `projection-unavailable`. Search receipts record `query_mode`
 (`raw` or `literal`) beside the query digest, so a receipt identifies which
-grammar produced its results. Search is lexically restricted to
+grammar produced its results. Both search commands also accept
+`--exclude-superseded`, which drops matches whose record lifecycle is
+`superseded`; superseded records remain first-class hits by default, and the
+receipt records `exclude_superseded` — only when the filter is active, so
+default receipts keep the pre-filter shape for consumers pinned to the
+earlier schema — beside the mode and query digest so filtered results are
+replayable. Exclusion is a read-time lifecycle filter,
+not revocation: revocation suppression remains a projection-build input.
+Search is lexically restricted to
 `meaning.summary` and record labels; no other record field is indexed or
 reachable from search. Search is a confirmation oracle over that restricted
 meaning — an ungated term, adjacency, and prefix match — and applies no
@@ -135,4 +143,11 @@ mode and error-code classification end to end. Replay it with:
 
 ```sh
 python3 scripts/run_search_literal_slice.py --check
+```
+
+The checked-in `fixtures/synthetic/search-supersession/v1` receipt proves the
+supersession filter and its receipt binding end to end. Replay it with:
+
+```sh
+python3 scripts/run_search_supersession_slice.py --check
 ```

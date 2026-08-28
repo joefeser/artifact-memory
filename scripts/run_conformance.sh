@@ -5,6 +5,7 @@ python3 scripts/run_scan_projection_slice.py --check >/dev/null
 python3 scripts/run_projection_integrity_slice.py --check >/dev/null
 python3 scripts/run_search_receipt_slice.py --check >/dev/null
 python3 scripts/run_search_literal_slice.py --check >/dev/null
+python3 scripts/run_search_supersession_slice.py --check >/dev/null
 python3 scripts/run_context_export_slice.py --check >/dev/null
 python3 scripts/run_retention_lifecycle_slice.py --check >/dev/null
 python3 scripts/run_authenticity_conformance.py --check >/dev/null

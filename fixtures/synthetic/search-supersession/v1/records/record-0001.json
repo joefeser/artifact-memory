@@ -1,0 +1,18 @@
+{
+  "schema_id": "artifact-memory/knowledge-record/v1",
+  "record_id": "record://synthetic/search-supersession-0001",
+  "record_type": "note",
+  "lifecycle": "accepted",
+  "meaning": {
+    "summary": "Accepted synthetic ledger note survives supersession filtering.",
+    "labels": ["synthetic", "ledger"]
+  },
+  "artifact_refs": [],
+  "provenance": [
+    {
+      "kind": "author",
+      "source_ref": "fixture://synthetic/search-supersession/v1"
+    }
+  ],
+  "sensitivity": "public"
+}
