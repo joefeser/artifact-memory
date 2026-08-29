@@ -172,7 +172,14 @@ def _run_cli_binaries() -> list[dict]:
                 [binary, "-batch"], input=TIER_A_SQL, capture_output=True, text=True, check=True
             )
             integrity_rows = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
-        except (subprocess.SubprocessError, OSError):
+        except (subprocess.SubprocessError, OSError) as exc:
+            entries.append(
+                {
+                    "runtime": f"sqlite3-cli ({binary})",
+                    "library_tier_expected": False,
+                    "error": f"probe failed: {type(exc).__name__}: {exc}",
+                }
+            )
             continue
         if version in seen:
             continue
@@ -180,6 +187,7 @@ def _run_cli_binaries() -> list[dict]:
         entries.append(
             {
                 "runtime": f"sqlite3-cli ({binary})",
+                "library_tier_expected": False,
                 "python_version": None,
                 "sqlite_version": version,
                 "tier_a": {
@@ -209,6 +217,11 @@ def _assert_invariants(entries: list[dict]) -> tuple[list[str], dict]:
                     f"{entry['sqlite_version']} implies {expected}"
                 )
         tier_b = entry.get("tier_b") or {}
+        if entry.get("library_tier_expected", True) and tier_b.get("available") is False:
+            failures.append(
+                f"{entry['runtime']}: library tier unavailable ({tier_b.get('reason')})"
+            )
+            continue
         if tier_b.get("available"):
             capable = _version_tuple(entry["sqlite_version"]) >= FTS5_MINIMUM
             if capable and not tier_b.get("clean_read_succeeded"):

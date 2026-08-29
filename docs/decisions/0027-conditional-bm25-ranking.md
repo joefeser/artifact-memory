@@ -42,13 +42,15 @@ dependence.
 
 - Additive: defaulted keyword argument, CLI flag, optional receipt field; no
   schema, output, or fixture shape changes; default behavior unchanged.
-- Measured (issue #117, 2026-08-28): ranked search is at cost parity with
-  unranked search (57.4 ms vs 62.6 ms at 1,000 records; 291.3 ms vs 289.1 ms
-  at 5,000 — per-query cost is dominated by revalidation), and single-record
-  corpus additions caused no ranked-order flip in forty bounded trials at
-  those scales, for query-term-sharing and unrelated additions alike. The
-  deterministic flip proven by the slice is a small-corpus phenomenon;
-  corpus dependence remains a disclosed property of ranked order.
+- Measured (issue #117, 2026-08-28; generator profile
+  `rank-measure/v1:corpus-v2:summaries-v1`, corpus digests recorded in the
+  performance baseline): ranked search is at cost parity with unranked
+  search (56.2 ms vs 56.0 ms at 1,000 records; 287.9 ms vs 288.4 ms at
+  5,000 — per-query cost is dominated by revalidation), and forty distinct
+  single-record additions — query-term-sharing and unrelated alike — caused
+  no ranked-order flip at those scales. The deterministic flip proven by
+  the slice is a small-corpus phenomenon; corpus dependence remains a
+  disclosed property of ranked order.
 
 ## Authority and limitations
 
