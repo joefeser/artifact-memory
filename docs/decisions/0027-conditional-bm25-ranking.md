@@ -42,9 +42,15 @@ dependence.
 
 - Additive: defaulted keyword argument, CLI flag, optional receipt field; no
   schema, output, or fixture shape changes; default behavior unchanged.
-- bm25 cost and flip reachability at vault scale remain unmeasured (open
-  epic limitations); the flag must not be documented as stable until they
-  are measured.
+- Measured (issue #117, 2026-08-28; generator profile
+  `rank-measure/v1:corpus-v2:summaries-v1`, corpus digests recorded in the
+  performance baseline): ranked search is at cost parity with unranked
+  search (56.2 ms vs 56.0 ms at 1,000 records; 287.9 ms vs 288.4 ms at
+  5,000 — per-query cost is dominated by revalidation), and forty distinct
+  single-record additions — query-term-sharing and unrelated alike — caused
+  no ranked-order flip at those scales. The deterministic flip proven by
+  the slice is a small-corpus phenomenon; corpus dependence remains a
+  disclosed property of ranked order.
 
 ## Authority and limitations
 
@@ -65,3 +71,6 @@ rank can shift when unrelated records are added to or removed from the vault.
   (`test_ranked_search_orders_by_bm25_with_record_id_tiebreak`,
   `test_ranked_search_ties_break_by_record_id_and_compose_with_other_modes`)
   and `tests/test_cli.py` (`test_search_ranking_through_cli`)
+- Measurements: `python3 scripts/measure_ranked_search.py` (issue #117),
+  with observed values recorded in
+  `docs/contracts/v0-performance-baseline.md`

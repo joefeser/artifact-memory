@@ -77,3 +77,29 @@ The profile schema publishes each direct numeric ceiling. Arithmetic and
 generated-payload relationships between profile fields are enforced by
 `validate_profile()` because standard JSON Schema cannot compare sibling
 numeric values; schema-only acceptance is therefore not execution admission.
+
+## Ranked-search measurements (2026-08-28)
+
+`scripts/measure_ranked_search.py` (descriptive, per decision 0015; generator
+profile `rank-measure/v1:corpus-v2:summaries-v1`, corpus digest bound per
+scale) measured bm25-ranked versus unranked search through the real library —
+integrity gate, contract validation, and match included — on deterministic
+synthetic corpora (Python 3.14.4, SQLite 3.52.0):
+
+| Records | Corpus digest (prefix) | Projection build | Unranked median | Ranked median | Ratio |
+| --- | --- | --- | --- | --- | --- |
+| 1,000 | sha-256:01c29a4b… | 0.135 s | 56.0 ms | 56.2 ms | 1.00 |
+| 5,000 | sha-256:d3d0d5a0… | 0.674 s | 288.4 ms | 287.9 ms | 1.00 |
+
+Ranked search is at cost parity with unranked search: per-query cost is
+dominated by per-query revalidation (consistent with the audit's ~315 ms per
+5,000-record measurement), and bm25 ordering added no measurable overhead at
+either scale.
+
+Flip reachability at scale: across forty distinct single-record additions —
+at each scale, ten lexically unrelated additions and ten query-term-sharing
+additions, each varied in length and term frequency — the ranked order of the
+unchanged matched set never changed (0/40 trials). The deterministic
+corpus-growth flip proven by the checked-in ranking slice is a small-corpus
+phenomenon; corpus dependence remains a disclosed property of ranked order,
+not an observed event at these scales.
