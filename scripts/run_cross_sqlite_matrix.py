@@ -147,7 +147,12 @@ def _run_docker() -> list[dict]:
     return entries
 
 
-TIER_A_SQL = """CREATE VIRTUAL TABLE records_fts USING fts5(record_id UNINDEXED, summary, labels);
+TIER_A_SQL = """-- The sqlite3 CLI may enable defensive mode by default, which rejects the
+-- direct shadow-table write this probe depends on. Defensive mode is a CLI
+-- configuration, not an engine capability, so the probe disables it to
+-- measure the engine's actual tamper-detection behavior uniformly.
+.dbconfig defensive off
+CREATE VIRTUAL TABLE records_fts USING fts5(record_id UNINDEXED, summary, labels);
 INSERT INTO records_fts VALUES ('record://synthetic/matrix-0001', 'beta beta beta beta beta gamma alpha', '');
 INSERT INTO records_fts VALUES ('record://synthetic/matrix-0002', 'beta gamma gamma gamma gamma alpha', '');
 INSERT INTO records_fts VALUES ('record://synthetic/matrix-0003', 'gamma alpha', '');
