@@ -53,9 +53,12 @@ tamper evidence for a generated, replaceable projection.
 - Detection of inverted-index tamper depends on the runtime SQLite
   participating in `PRAGMA integrity_check` through FTS5 `xIntegrity`
   (SQLite >= 3.44; verified on 3.52.0). Runtimes below that floor fail
-  closed rather than serving an unverifiable projection; the cross-SQLite
-  determinism matrix above the floor remains unverified and is recorded as
-  an open epic limitation.
+  closed rather than serving an unverifiable projection. The cross-SQLite
+  matrix (issue #117) verified the behavior on 3.34.1 and 3.40.1 (fail
+  closed, forgery never served), and on 3.46.1, 3.51.0, and 3.52.0
+  (forgery detected typed, clean reads served) with identical projection
+  digests and default and ranked search results across gate-passing
+  runtimes.
 - Digest-bearing search receipts (issue #106) remain gated on this decision.
 
 ## Authority and limitations
@@ -72,6 +75,8 @@ the absence of tampering in any copy not read through `_read_index`.
 - Slice: `artifact_memory/projection_integrity_slice.py`, replayed by
   `python3 scripts/run_projection_integrity_slice.py --check` against
   `fixtures/synthetic/projection-integrity/v1/expected-receipt.json`
+- Matrix: `python3 scripts/run_cross_sqlite_matrix.py` (issue #117), with
+  observed runtime results recorded above
 - Receipt schema:
   `artifact_memory/schemas/core/projection-integrity-slice-receipt.v1.schema.json`
 - Unit fixture: `tests/test_projection.py`
