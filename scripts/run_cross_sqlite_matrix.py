@@ -74,7 +74,9 @@ def _docker_reference(image: str) -> tuple[str, str]:
     """Resolve the immutable digest reference for a mutable tag.
 
     The tag stays human-readable, but execution and the receipt bind to the
-    digest so a later rerun cannot silently execute a different build.
+    digest so a later rerun cannot silently execute a different build. A tag
+    whose digest cannot be resolved is a hard error: executing an
+    unidentifiable image would produce unreplayable evidence.
     """
     completed = subprocess.run(
         ["docker", "image", "inspect", image, "--format", "{{index .RepoDigests 0}}"],
@@ -83,7 +85,7 @@ def _docker_reference(image: str) -> tuple[str, str]:
         timeout=60,
     )
     digest = completed.stdout.strip() if completed.returncode == 0 else ""
-    if not digest or "@sha256:" not in digest:
+    if "@sha256:" not in digest:
         subprocess.run(["docker", "pull", image], capture_output=True, timeout=600)
         completed = subprocess.run(
             ["docker", "image", "inspect", image, "--format", "{{index .RepoDigests 0}}"],
@@ -92,9 +94,9 @@ def _docker_reference(image: str) -> tuple[str, str]:
             timeout=60,
         )
         digest = completed.stdout.strip() if completed.returncode == 0 else ""
-    if "@sha256:" in digest:
-        return digest, digest.split("@sha256:")[1]
-    return image, ""
+    if "@sha256:" not in digest:
+        raise RuntimeError(f"could not resolve an immutable digest for {image}")
+    return digest, digest.split("@sha256:")[1]
 
 
 def _run_docker() -> list[dict]:
@@ -113,7 +115,16 @@ def _run_docker() -> list[dict]:
     entries = []
     seen: set[str] = set()
     for image in DOCKER_IMAGES:
-        reference, digest = _docker_reference(image)
+        try:
+            reference, digest = _docker_reference(image)
+        except (subprocess.SubprocessError, RuntimeError) as exc:
+            entries.append(
+                {
+                    "runtime": image,
+                    "error": f"digest resolution failed: {type(exc).__name__}: {exc}",
+                }
+            )
+            continue
         try:
             completed = subprocess.run(
                 [
@@ -176,7 +187,13 @@ def _run_cli_binaries() -> list[dict]:
             completed = subprocess.run(
                 [binary, "-batch"], input=TIER_A_SQL, capture_output=True, text=True, check=True
             )
-            integrity_rows = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+            # The .dbconfig dot-command echoes its new state ("defensive off")
+            # to stdout; only integrity_check output belongs in the result.
+            integrity_rows = [
+                line.strip()
+                for line in completed.stdout.splitlines()
+                if line.strip() and not line.strip().startswith("defensive ")
+            ]
         except (subprocess.SubprocessError, OSError) as exc:
             entries.append(
                 {
