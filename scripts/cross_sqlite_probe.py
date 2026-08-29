@@ -134,10 +134,18 @@ def tier_b() -> dict:
         try:
             result["clean_default_order"] = search_records(index, "beta gamma")
             result["clean_ranked_order"] = search_records(index, "beta gamma", rank=True)
+            result["clean_literal_order"] = search_records(index, "beta gamma", literal=True)
             result["clean_read_succeeded"] = True
         except ValidationFailure as exc:
             result["clean_read_succeeded"] = False
             result["clean_read_code"] = exc.code
+        if result["clean_read_succeeded"]:
+            from artifact_memory.canonical import canonical_bytes, sha256_bytes
+            from artifact_memory.projection import logical_projection_snapshot
+
+            result["logical_snapshot_digest"] = sha256_bytes(
+                canonical_bytes(logical_projection_snapshot(index))
+            )
 
         tampered = workspace / "tampered.sqlite"
         tampered.write_bytes(index.read_bytes())

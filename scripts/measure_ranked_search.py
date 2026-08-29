@@ -23,10 +23,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from artifact_memory.canonical import canonical_bytes, sha256_bytes  # noqa: E402
 from artifact_memory.projection import project_records, search_records  # noqa: E402
 
+GENERATOR_PROFILE = "rank-measure/v1:corpus-v2:summaries-v1"
 COMMON = ("alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta")
 RARE = ("quokka", "wombat", "narwhal", "axolotl", "pangolin", "okapi")
+UNRELATED = ("iota", "kappa", "lambda", "mu", "nu", "xi", "omicron", "pi")
 
 
 def _summary(index: int) -> str:
@@ -51,14 +54,21 @@ def _record(index: int) -> dict:
 
 
 def _unrelated_record(index: int) -> dict:
+    """One lexically unrelated addition, varied per index in length and mix."""
     record = _record(10_000_000 + index)
-    record["meaning"] = {"summary": " ".join(("iota", "kappa", "lambda", "mu", "nu", "xi"))}
+    words = [UNRELATED[(index * 5 + position * 2) % len(UNRELATED)] for position in range(3 + index % 6)]
+    record["meaning"] = {"summary": " ".join(words)}
     return record
 
 
 def _related_record(index: int) -> dict:
+    """One query-term-sharing addition, varied per index in frequency and length."""
     record = _record(20_000_000 + index)
-    record["meaning"] = {"summary": f"beta beta beta gamma {RARE[index % len(RARE)]}"}
+    betas = 1 + index % 4
+    gammas = 1 + (index * 3) % 4
+    filler = [COMMON[(index + position) % len(COMMON)] for position in range(index % 3)]
+    words = ["beta"] * betas + ["gamma"] * gammas + filler + [RARE[index % len(RARE)]]
+    record["meaning"] = {"summary": " ".join(words)}
     return record
 
 
@@ -82,8 +92,11 @@ def _measure_scale(count: int, repeats: int, trials: int) -> dict:
             paths.append(path)
         base_output = workspace / "base"
         start = time.perf_counter()
-        project_records(paths, base_output)
+        base_receipt = project_records(paths, base_output)
         projection_seconds = round(time.perf_counter() - start, 3)
+        corpus_digest = sha256_bytes(
+            b"".join(canonical_bytes(record) + b"\n" for record in records)
+        )
         index = base_output / "records.sqlite"
         query = "beta gamma"
         unranked_ms = _median_ms(lambda: search_records(index, query), repeats)
@@ -109,6 +122,8 @@ def _measure_scale(count: int, repeats: int, trials: int) -> dict:
                         flips_related += 1
         return {
             "record_count": count,
+            "corpus_digest": corpus_digest,
+            "source_record_set_digest": base_receipt["source_record_set_digest"],
             "projection_build_seconds": projection_seconds,
             "unranked_median_ms": unranked_ms,
             "ranked_median_ms": ranked_ms,
@@ -131,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
     ]
     receipt = {
         "schema": "artifact-memory/ranked-search-measurement/v1",
+        "generator_profile": GENERATOR_PROFILE,
         "sqlite_version": __import__("sqlite3").sqlite_version,
         "python_version": sys.version.split()[0],
         "measurements": measurements,

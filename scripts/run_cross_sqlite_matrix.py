@@ -51,18 +51,50 @@ def _run_local() -> list[dict]:
         if path is None:
             continue
         try:
-            report = json.loads(
-                subprocess.run(
-                    [path, str(PROBE)], capture_output=True, text=True, check=True, timeout=180
-                ).stdout
+            completed = subprocess.run(
+                [path, str(PROBE)], capture_output=True, text=True, check=True, timeout=180
             )
-        except (subprocess.SubprocessError, json.JSONDecodeError):
+            report = json.loads(completed.stdout)
+        except (subprocess.SubprocessError, json.JSONDecodeError) as exc:
+            entries.append(
+                {
+                    "runtime": f"{name} ({path})",
+                    "error": f"probe failed: {type(exc).__name__}: {exc}",
+                }
+            )
             continue
         if report["sqlite_version"] in seen:
             continue
         seen.add(report["sqlite_version"])
         entries.append({"runtime": f"{name} ({path})", **report})
     return entries
+
+
+def _docker_reference(image: str) -> tuple[str, str]:
+    """Resolve the immutable digest reference for a mutable tag.
+
+    The tag stays human-readable, but execution and the receipt bind to the
+    digest so a later rerun cannot silently execute a different build.
+    """
+    completed = subprocess.run(
+        ["docker", "image", "inspect", image, "--format", "{{index .RepoDigests 0}}"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    digest = completed.stdout.strip() if completed.returncode == 0 else ""
+    if not digest or "@sha256:" not in digest:
+        subprocess.run(["docker", "pull", image], capture_output=True, timeout=600)
+        completed = subprocess.run(
+            ["docker", "image", "inspect", image, "--format", "{{index .RepoDigests 0}}"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        digest = completed.stdout.strip() if completed.returncode == 0 else ""
+    if "@sha256:" in digest:
+        return digest, digest.split("@sha256:")[1]
+    return image, ""
 
 
 def _run_docker() -> list[dict]:
@@ -81,6 +113,7 @@ def _run_docker() -> list[dict]:
     entries = []
     seen: set[str] = set()
     for image in DOCKER_IMAGES:
+        reference, digest = _docker_reference(image)
         try:
             completed = subprocess.run(
                 [
@@ -89,7 +122,7 @@ def _run_docker() -> list[dict]:
                     "--rm",
                     "-v",
                     f"{ROOT}:/repo:ro",
-                    image,
+                    reference,
                     "python3",
                     "/repo/scripts/cross_sqlite_probe.py",
                 ],
@@ -99,12 +132,18 @@ def _run_docker() -> list[dict]:
             )
             report = json.loads(completed.stdout)
         except (subprocess.SubprocessError, json.JSONDecodeError) as exc:
-            entries.append({"runtime": image, "error": f"{type(exc).__name__}: {exc}"})
+            entries.append(
+                {
+                    "runtime": image,
+                    "image_digest": digest,
+                    "error": f"probe failed: {type(exc).__name__}: {exc}",
+                }
+            )
             continue
         if report["sqlite_version"] in seen:
             continue
         seen.add(report["sqlite_version"])
-        entries.append({"runtime": image, **report})
+        entries.append({"runtime": image, "image_digest": digest, **report})
     return entries
 
 
@@ -153,12 +192,12 @@ def _run_cli_binaries() -> list[dict]:
     return entries
 
 
-def _assert_invariants(entries: list[dict]) -> list[str]:
+def _assert_invariants(entries: list[dict]) -> tuple[list[str], dict]:
     failures = []
     gate_passing = []
     for entry in entries:
         if "error" in entry:
-            failures.append(f"{entry['runtime']}: probe error {entry['error']}")
+            failures.append(f"{entry['runtime']}: {entry['error']}")
             continue
         tier_a = entry.get("tier_a") or {}
         if "integrity_check_detects_forgery" in tier_a:
@@ -171,9 +210,10 @@ def _assert_invariants(entries: list[dict]) -> list[str]:
                 )
         tier_b = entry.get("tier_b") or {}
         if tier_b.get("available"):
-            if entry["sqlite_version"] >= "3.44" and not tier_b.get("clean_read_succeeded"):
+            capable = _version_tuple(entry["sqlite_version"]) >= FTS5_MINIMUM
+            if capable and not tier_b.get("clean_read_succeeded"):
                 failures.append(f"{entry['runtime']}: clean read failed on a capable runtime")
-            if entry["sqlite_version"] < "3.44" and tier_b.get("clean_read_succeeded"):
+            if not capable and tier_b.get("clean_read_succeeded"):
                 failures.append(f"{entry['runtime']}: runtime floor did not fail closed")
             if tier_b.get("tampered_outcome") not in ("projection-unavailable", None):
                 failures.append(
@@ -181,12 +221,20 @@ def _assert_invariants(entries: list[dict]) -> list[str]:
                 )
             if tier_b.get("clean_read_succeeded"):
                 gate_passing.append(entry)
+    versions = {entry["sqlite_version"] for entry in gate_passing}
+    if len(versions) < 2:
+        failures.append(
+            f"insufficient gate-passing runtime coverage: determinism compared across "
+            f"{sorted(versions)}; at least two distinct SQLite versions are required"
+        )
     reference = None
     for entry in gate_passing:
         fingerprint = json.dumps(
             {
-                "digest": entry["tier_b"]["source_record_set_digest"],
+                "source_digest": entry["tier_b"]["source_record_set_digest"],
+                "snapshot_digest": entry["tier_b"].get("logical_snapshot_digest"),
                 "default": entry["tier_b"]["clean_default_order"],
+                "literal": entry["tier_b"].get("clean_literal_order"),
                 "ranked": entry["tier_b"]["clean_ranked_order"],
             },
             sort_keys=True,
@@ -198,7 +246,19 @@ def _assert_invariants(entries: list[dict]) -> list[str]:
                 f"{entry['runtime']}: results diverge from {reference[0]}: "
                 f"{fingerprint} vs {reference[1]}"
             )
-    return failures
+    summary = {
+        "gate_passing_versions": sorted(versions),
+        "fail_closed_versions": sorted(
+            {
+                entry["sqlite_version"]
+                for entry in entries
+                if "error" not in entry
+                and (entry.get("tier_b") or {}).get("available")
+                and not (entry.get("tier_b") or {}).get("clean_read_succeeded")
+            }
+        ),
+    }
+    return failures, summary
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -208,12 +268,13 @@ def main(argv: list[str] | None = None) -> int:
     entries = _run_local() + _run_cli_binaries()
     if not args.no_docker:
         entries += _run_docker()
-    failures = _assert_invariants(entries)
+    failures, summary = _assert_invariants(entries)
     matrix = {
         "schema": "artifact-memory/cross-sqlite-matrix/v1",
         "invariants_hold": not failures,
         "runtime_count": len(entries),
         "runtimes": entries,
+        "coverage": summary,
         "failures": failures,
     }
     json.dump(matrix, sys.stdout, indent=2, sort_keys=True)
