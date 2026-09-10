@@ -138,6 +138,16 @@ def _parse_scales(text: str) -> list[int]:
     return scales
 
 
+def _positive_int(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be an integer") from exc
+    if value < 1:
+        raise argparse.ArgumentTypeError("value must be at least 1")
+    return value
+
+
 def _measure_scale(count: int, repeats: int, trials: int) -> dict:
     records = [_record(index) for index in range(count)]
     with tempfile.TemporaryDirectory(prefix=f"rank-measure-{count}-") as temporary:
@@ -199,8 +209,8 @@ def _measure_scale(count: int, repeats: int, trials: int) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scales", type=_parse_scales, default=[1000, 5000])
-    parser.add_argument("--repeats", type=int, default=5)
-    parser.add_argument("--trials", type=int, default=10)
+    parser.add_argument("--repeats", type=_positive_int, default=5)
+    parser.add_argument("--trials", type=_positive_int, default=10)
     args = parser.parse_args(argv)
     measurements = [
         _measure_scale(count, args.repeats, args.trials) for count in args.scales

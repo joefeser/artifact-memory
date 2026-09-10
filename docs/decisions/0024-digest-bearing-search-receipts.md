@@ -30,9 +30,10 @@ conformance tests; an additive implementation passed them all.
   query, so the digest and the matches come from one verified snapshot; a
   tampered index produces a typed `projection-unavailable` failure instead of
   a vouched receipt.
-- Share one query-failure classifier with `search_records` so both surfaces
-  classify identically; its implementation remains message-based until the
-  error-code classification lands (issue #107).
+- Share one SQLite-result-code query-failure classifier with `search_records`
+  so both surfaces classify identically. The required `query_mode` field added
+  before publication binds raw versus literal grammar to every valid v1
+  receipt.
 - Keep `search_records`, `related`, `provenance`, projection receipts, and
   all pinned fixtures byte-identical.
 
@@ -48,10 +49,10 @@ conformance tests; an additive implementation passed them all.
 A search receipt is informational evidence pinning results to the exact
 canonical record set that produced the index. It does not certify record
 truth, semantic relevance, freshness of the source records, or grant any
-execution, mutation, disclosure, or approval authority. Ordering remains
-`record_id`-only until conditional bm25 lands (issue #109). The unkeyed query
-digest prevents direct receipt logging but does not conceal a guessable
-low-entropy query from dictionary inference.
+execution, mutation, disclosure, or approval authority. Default ordering
+remains `record_id`-only; optional bm25 ranking is non-authoritative and
+corpus-dependent. The unkeyed query digest prevents direct receipt logging but
+does not conceal a guessable low-entropy query from dictionary inference.
 
 ## Evidence
 

@@ -608,6 +608,9 @@ class ProjectionTests(unittest.TestCase):
             "Scattered alpha and beta words never form the phrase.",
             'Synthetic five "inches recorded without escapes.',
             "Adjacent alpha beta spacing without punctuation.",
+            "Synthetic STRASSE uppercase form.",
+            "Synthetic Straße sharp-s form.",
+            "Synthetic ß symbol form.",
         )
         for ordinal, summary in enumerate(summaries, start=1):
             record = {
@@ -662,6 +665,32 @@ class ProjectionTests(unittest.TestCase):
             with self.assertRaises(ValidationFailure) as raised:
                 search_receipt(root / "missing.sqlite", "", literal=True)
             self.assertEqual(raised.exception.code, "query-invalid")
+
+    def test_literal_search_preserves_expanding_unicode_casefold_equivalence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self._literal_fixture(Path(temporary))
+            output = root / "generated"
+            project_records(sorted(root.glob("literal-*.json")), output)
+            index = output / "records.sqlite"
+            phrase_matches = [
+                "record://synthetic/literal-0005",
+                "record://synthetic/literal-0006",
+            ]
+            for query in ("straße", "STRASSE"):
+                with self.subTest(query=query):
+                    self.assertEqual(search_records(index, query, literal=True), phrase_matches)
+                    self.assertEqual(
+                        search_records(index, query, literal=True, rank=True),
+                        phrase_matches,
+                    )
+                    self.assertEqual(
+                        search_receipt(index, query, literal=True)["record_ids"],
+                        phrase_matches,
+                    )
+            self.assertEqual(
+                search_records(index, "ss", literal=True),
+                ["record://synthetic/literal-0007"],
+            )
 
     def test_search_rejects_non_fts5_records_table_before_match_execution(self):
         """A non-FTS5 records_fts with the expected columns passes column and
@@ -740,6 +769,10 @@ class ProjectionTests(unittest.TestCase):
             raw_receipt = search_receipt(output / "records.sqlite", "adjacent")
             self.assertEqual(raw_receipt["query_mode"], "raw")
             self.assertEqual(raw_receipt["query_digest"], sha256_bytes(b"adjacent"))
+            missing_mode = dict(receipt)
+            del missing_mode["query_mode"]
+            with self.assertRaises(ValidationFailure):
+                validate(missing_mode, load_schema("core", "search-receipt.v1.schema.json"))
 
     def _supersession_fixture(self, root: Path) -> Path:
         records = (

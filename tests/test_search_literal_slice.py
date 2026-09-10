@@ -20,6 +20,14 @@ class SearchLiteralSliceTests(unittest.TestCase):
         self.assertEqual(receipt, expected)
         self.assertEqual(receipt["outcome"], "complete")
         self.assertEqual(receipt["literal_search"]["adjacent_record_ids"], ["record://synthetic/search-literal-0001"])
+        self.assertEqual(
+            receipt["literal_search"]["casefold_phrase_record_ids"],
+            ["record://synthetic/search-literal-0005", "record://synthetic/search-literal-0006"],
+        )
+        self.assertEqual(
+            receipt["literal_search"]["casefold_symbol_record_ids"],
+            ["record://synthetic/search-literal-0007"],
+        )
         validate(receipt, load_schema("core", "search-literal-slice-receipt.v1.schema.json"))
 
 
