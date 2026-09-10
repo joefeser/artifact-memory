@@ -332,11 +332,108 @@ class ProjectionTests(unittest.TestCase):
             output = Path(temporary) / "generated"
             project_records([FIXTURE], output)
             index = output / "records.sqlite"
-            with mock.patch.object(projection, "_RUNTIME_VERIFIES_FTS5_INTEGRITY", False):
+            with mock.patch.object(projection, "_runtime_verifies_fts5_integrity", return_value=False):
                 with self.assertRaises(ValidationFailure) as raised:
                     search_records(index, "synthetic")
                 self.assertEqual(raised.exception.code, "projection-unavailable")
             self.assertEqual(search_records(index, "synthetic"), ["record://synthetic/record-0001"])
+
+    def test_runtime_fts5_integrity_capability_is_behaviorally_probed(self):
+        projection._runtime_verifies_fts5_integrity.cache_clear()
+        result = projection._runtime_verifies_fts5_integrity()
+        self.assertIs(type(result), bool)
+
+    def test_runtime_fts5_integrity_probe_has_no_reported_version_floor(self):
+        projection._runtime_verifies_fts5_integrity.cache_clear()
+        try:
+            with mock.patch.object(projection.sqlite3, "sqlite_version_info", (3, 43, 0)):
+                self.assertTrue(projection._runtime_verifies_fts5_integrity())
+        finally:
+            projection._runtime_verifies_fts5_integrity.cache_clear()
+
+    def test_filtered_receipts_reject_case_insensitive_schema_substitution(self):
+        """Column-name and integrity checks alone do not preserve join
+        semantics: a NOCASE replacement can associate case-distinct FTS IDs
+        with the wrong lifecycle row while SQLite still reports integrity ok."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = []
+            for name, record_id, lifecycle in (
+                ("upper", "record://synthetic/A", "superseded"),
+                ("lower", "record://synthetic/a", "accepted"),
+            ):
+                record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+                record["record_id"] = record_id
+                record["lifecycle"] = lifecycle
+                record["meaning"]["summary"] = "synthetic collation bypass"
+                path = root / f"{name}.json"
+                path.write_text(json.dumps(record), encoding="utf-8")
+                paths.append(path)
+            output = root / "generated"
+            project_records(paths, output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            rows = connection.execute("SELECT * FROM records ORDER BY record_id").fetchall()
+            connection.execute("DROP TABLE records")
+            connection.executescript(
+                """
+                CREATE TABLE records (
+                    record_id TEXT COLLATE NOCASE,
+                    record_type TEXT NOT NULL,
+                    lifecycle TEXT NOT NULL,
+                    sensitivity TEXT,
+                    record_json TEXT NOT NULL,
+                    source_record_set_digest TEXT NOT NULL
+                );
+                CREATE INDEX records_type_idx ON records(record_type, record_id);
+                CREATE INDEX records_lifecycle_idx ON records(lifecycle, record_id);
+                """
+            )
+            connection.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", rows)
+            connection.commit()
+            self.assertEqual(connection.execute("PRAGMA integrity_check").fetchall(), [("ok",)])
+            connection.close()
+            for literal in (False, True):
+                for rank in (False, True):
+                    with self.subTest(literal=literal, rank=rank):
+                        with self.assertRaises(ValidationFailure) as raised:
+                            search_receipt(
+                                index,
+                                "synthetic",
+                                literal=literal,
+                                rank=rank,
+                                exclude_superseded=True,
+                            )
+                        self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_projection_reads_reject_unexpected_application_objects(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            connection.execute("CREATE TABLE unexpected_application_state (value TEXT)")
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "synthetic")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_projection_reads_reject_explicit_index_semantic_substitution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            connection.execute("DROP INDEX records_type_idx")
+            connection.execute(
+                "CREATE INDEX records_type_idx ON records(record_type COLLATE NOCASE, record_id)"
+            )
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "synthetic")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
 
     def test_projection_read_holds_one_snapshot_against_concurrent_writers(self):
         """Verification and the caller query must observe one read snapshot: a

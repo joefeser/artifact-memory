@@ -53,16 +53,20 @@ rows, query results, canonical NDJSON, and source-record-set identity. SQLite
 file bytes themselves are not canonical identity.
 Query commands open SQLite projections read-only. A missing or malformed index
 returns `projection-unavailable` and must not create a replacement database.
-Every query first verifies the SQLite user version, projection schema identity,
-required columns and indexes, metadata cardinality and types, source-set
+Every query first verifies the SQLite user version, the exact application
+object set, normalized ordinary table and explicit-index declarations, the
+exact FTS5 declaration, required columns and indexes, metadata cardinality and
+types, source-set
 digest consistency, record count, and provenance ordinals. Every query then
 requires `PRAGMA integrity_check` to return `ok`, so an index whose FTS5
 inverted index disagrees with its content rows — for example a summary
 reindexed through `records_fts` and then restored in `records_fts_content` —
 returns `projection-unavailable` instead of serving forged terms that pass
-content-row validation. A runtime whose integrity check cannot reach the FTS5
-inverted index (SQLite older than 3.44) also returns `projection-unavailable`
-rather than trusting an unverifiable `ok`, and validation plus the query run
+content-row validation. A runtime whose behavioral capability probe cannot
+demonstrate that its integrity check reaches the FTS5 inverted index also
+returns `projection-unavailable` rather than trusting an unverifiable `ok`.
+Upstream SQLite added this coverage in 3.44, but the probe remains authoritative
+for the loaded build. Validation plus the query run
 inside one read transaction so the caller sees exactly the verified snapshot.
 An incompatible
 version or schema identity returns `projection-schema-mismatch`; malformed FTS

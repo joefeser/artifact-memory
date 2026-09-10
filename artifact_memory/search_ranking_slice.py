@@ -88,7 +88,7 @@ def run_search_ranking_slice(fixture_root: Path, workspace: Path) -> dict[str, A
         "limitations": [
             "ranked order is corpus-dependent: adding three lexically unrelated records (no query terms) changed the order in this proof, and any result's rank can shift when the vault changes",
             "ranked order is a findability aid, never an authority or relevance claim about record truth",
-            "bm25 cost and flip reachability at vault scale remain unmeasured; ties break deterministically by record_id",
+            "vault-scale cost and corpus-only flip evidence are measured separately by the descriptive issue #117 harness; ties break deterministically by record_id",
         ],
     }
     receipt_document = receipt_with_digest(

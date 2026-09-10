@@ -2,6 +2,12 @@
 
 Artifact Memory v0 is a provider-free Python reference runtime. It is not a
 service and it does not require a vault, credentials, or network access.
+Querying a generated SQLite/FTS5 projection requires a loaded SQLite runtime
+whose integrity check behaviorally demonstrates FTS5 inverted-index coverage;
+upstream SQLite added that capability in 3.44. An incapable or custom runtime
+fails closed with `projection-unavailable` rather than serving unverifiable
+results. Check the runtime linked to Python with
+`python3 -c 'import sqlite3; print(sqlite3.sqlite_version)'`.
 
 From a clean clone:
 
@@ -24,5 +30,5 @@ explicit outcomes.
 
 To evaluate Artifact Memory from another repository, start with the read-only
 fit audit in the [repository adoption prompts](onboarding/repository-adoption.md).
-The prompts pin implementation claims to the owner-signed v0.1.1 release and
+The prompts pin implementation claims to the owner-signed v0.1.2 release and
 keep product meaning and operational authority with their owning systems.

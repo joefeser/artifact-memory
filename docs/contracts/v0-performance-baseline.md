@@ -78,28 +78,30 @@ generated-payload relationships between profile fields are enforced by
 `validate_profile()` because standard JSON Schema cannot compare sibling
 numeric values; schema-only acceptance is therefore not execution admission.
 
-## Ranked-search measurements (2026-08-28)
+## Ranked-search measurements (reconciled 2026-09-09)
 
 `scripts/measure_ranked_search.py` (descriptive, per decision 0015; generator
-profile `rank-measure/v1:corpus-v2:summaries-v1`, corpus digest bound per
+profile `rank-measure/v2:timing-corpus-v2:heterogeneous-flip-v1`, corpus digest bound per
 scale) measured bm25-ranked versus unranked search through the real library —
 integrity gate, contract validation, and match included — on deterministic
 synthetic corpora (Python 3.14.4, SQLite 3.52.0):
 
 | Records | Corpus digest (prefix) | Projection build | Unranked median | Ranked median | Ratio |
 | --- | --- | --- | --- | --- | --- |
-| 1,000 | sha-256:01c29a4b… | 0.135 s | 56.0 ms | 56.2 ms | 1.00 |
-| 5,000 | sha-256:d3d0d5a0… | 0.674 s | 288.4 ms | 287.9 ms | 1.00 |
+| 1,000 | sha-256:01c29a4b… | 0.157 s | 65.3 ms | 62.9 ms | 0.96 |
+| 5,000 | sha-256:d3d0d5a0… | 0.728 s | 307.3 ms | 305.7 ms | 0.99 |
 
 Ranked search is at cost parity with unranked search: per-query cost is
-dominated by per-query revalidation (consistent with the audit's ~315 ms per
-5,000-record measurement), and bm25 ordering added no measurable overhead at
-either scale.
+dominated by per-query revalidation (consistent with the architecture review's
+~310-316 ms per 5,000-record observations), and bm25 ordering added no
+measurable overhead at either scale.
 
-Flip reachability at scale: across forty distinct single-record additions —
-at each scale, ten lexically unrelated additions and ten query-term-sharing
-additions, each varied in length and term frequency — the ranked order of the
-unchanged matched set never changed (0/40 trials). The deterministic
-corpus-growth flip proven by the checked-in ranking slice is a small-corpus
-phenomenon; corpus dependence remains a disclosed property of ranked order,
-not an observed event at these scales.
+The timing corpus's matching documents have uniform length and term-frequency
+structure, so its 0/40 no-flip result is retained only as a control observation
+for that workload and does not support a scale-wide conclusion. A separate
+heterogeneous probe at both 1,000 and 5,000 records starts with exactly two
+`beta gamma` matches of different length and term frequency. Adding one
+`alpha alpha alpha` document changes their relative BM25 order while leaving
+the matched set unchanged. Corpus-dependent rank flips are therefore directly
+reachable at both measured scales; ranking remains informational and never an
+authority or objective-importance signal.

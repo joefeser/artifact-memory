@@ -22,10 +22,11 @@ additive.
   superseded records as first-class hits; the flag is the caller's opt-in.
 - The filter runs inside the same gated read transaction as the match, on the
   same verified snapshot, and composes with both query grammars. Raw mode
-  applies the lifecycle predicate in SQL alongside the match, and literal
-  mode bounds its exclusion lookups by the post-filtered candidates, so no
-  filtered search does work proportional to every superseded record in the
-  projection.
+  applies the lifecycle predicate in a candidate-bounded SQL join alongside
+  the match for both raw and literal modes, so no filtered search does work
+  proportional to every superseded record in the projection. The projection
+  gate validates the ordinary table and index declarations that determine the
+  join's identity, key, and collation semantics before issuing results.
 - Search receipts record `exclude_superseded` (optional boolean in the v1
   schema) only when the filter is active. Default receipts omit the field
   entirely, keeping the exact pre-filter v1 shape for consumers pinned to the

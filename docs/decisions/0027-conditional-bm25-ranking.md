@@ -42,15 +42,16 @@ dependence.
 
 - Additive: defaulted keyword argument, CLI flag, optional receipt field; no
   schema, output, or fixture shape changes; default behavior unchanged.
-- Measured (issue #117, 2026-08-28; generator profile
-  `rank-measure/v1:corpus-v2:summaries-v1`, corpus digests recorded in the
+- Measured (issue #117, reconciled 2026-09-09; generator profile
+  `rank-measure/v2:timing-corpus-v2:heterogeneous-flip-v1`, corpus digests recorded in the
   performance baseline): ranked search is at cost parity with unranked
-  search (56.2 ms vs 56.0 ms at 1,000 records; 287.9 ms vs 288.4 ms at
-  5,000 — per-query cost is dominated by revalidation), and forty distinct
-  single-record additions — query-term-sharing and unrelated alike — caused
-  no ranked-order flip at those scales. The deterministic flip proven by
-  the slice is a small-corpus phenomenon; corpus dependence remains a
-  disclosed property of ranked order.
+  search (62.9 ms vs 65.3 ms at 1,000 records; 305.7 ms vs 307.3 ms at
+  5,000 in the reconciled timing run — per-query cost is dominated by
+  revalidation). The uniform timing corpus produced tied matching documents,
+  so its forty no-flip trials are retained only as workload-specific control
+  observations. A separate heterogeneous probe demonstrates a corpus-only
+  order flip at both 1,000 and 5,000 records after adding one document that
+  contains neither query term while leaving the matched set unchanged.
 
 ## Authority and limitations
 

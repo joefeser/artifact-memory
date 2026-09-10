@@ -6,9 +6,10 @@ only, via a generated SQL script), and pinned Docker images when Docker is
 available. The matrix asserts the epic invariants:
 
 - a two-step records_fts/records_fts_content forgery never yields results
-  through the library: above SQLite 3.44 the read gate detects it typed,
-  below it the runtime floor fails every read closed;
-- PRAGMA integrity_check detects the forgery exactly on 3.44+ runtimes;
+  through the library: builds that behaviorally detect it serve clean reads,
+  while incapable builds fail every read closed;
+- tier-A observations record whether each loaded engine detects the forgery
+  without inferring capability from its reported version;
 - gate-passing runtimes agree on projection digests and on default, literal,
   and ranked search results.
 
@@ -29,7 +30,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "scripts" / "cross_sqlite_probe.py"
-FTS5_MINIMUM = (3, 44, 0)
 DOCKER_IMAGES = (
     "python:3.11-slim-bullseye",
     "python:3.12-slim-bookworm",
@@ -37,10 +37,6 @@ DOCKER_IMAGES = (
     "python:3.13-slim",
 )
 CLI_BINARIES = ("/usr/bin/sqlite3", "/opt/homebrew/opt/sqlite/bin/sqlite3")
-
-
-def _version_tuple(text: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in text.split(".")[:3])
 
 
 def _run_local() -> list[dict]:
@@ -230,14 +226,6 @@ def _assert_invariants(entries: list[dict]) -> tuple[list[str], dict]:
             failures.append(f"{entry['runtime']}: {entry['error']}")
             continue
         tier_a = entry.get("tier_a") or {}
-        if "integrity_check_detects_forgery" in tier_a:
-            expected = _version_tuple(entry["sqlite_version"]) >= FTS5_MINIMUM
-            observed = tier_a["integrity_check_detects_forgery"]
-            if observed != expected:
-                failures.append(
-                    f"{entry['runtime']}: forgery detection {observed} but SQLite "
-                    f"{entry['sqlite_version']} implies {expected}"
-                )
         tier_b = entry.get("tier_b") or {}
         if entry.get("library_tier_expected", True) and tier_b.get("available") is False:
             failures.append(
@@ -245,11 +233,16 @@ def _assert_invariants(entries: list[dict]) -> tuple[list[str], dict]:
             )
             continue
         if tier_b.get("available"):
-            capable = _version_tuple(entry["sqlite_version"]) >= FTS5_MINIMUM
+            capable = tier_a.get("integrity_check_detects_forgery")
+            if type(capable) is not bool:
+                failures.append(
+                    f"{entry['runtime']}: library tier lacks a behavioral integrity capability observation"
+                )
+                continue
             if capable and not tier_b.get("clean_read_succeeded"):
                 failures.append(f"{entry['runtime']}: clean read failed on a capable runtime")
             if not capable and tier_b.get("clean_read_succeeded"):
-                failures.append(f"{entry['runtime']}: runtime floor did not fail closed")
+                failures.append(f"{entry['runtime']}: incapable runtime did not fail closed")
             if tier_b.get("tampered_outcome") not in ("projection-unavailable", None):
                 failures.append(
                     f"{entry['runtime']}: tampered index yielded {tier_b.get('tampered_outcome')}"

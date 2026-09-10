@@ -119,8 +119,8 @@ def run_projection_integrity_slice(fixture_root: Path, workspace: Path) -> dict[
         },
         "authority_boundary": AUTHORITY_BOUNDARY,
         "limitations": [
-            "runtimes whose PRAGMA integrity_check cannot reach the FTS5 inverted index (SQLite < 3.44) fail closed as projection-unavailable instead of serving unverifiable projections (capable runtime verified on 3.52.0)",
-            "the cross-SQLite determinism matrix remains unverified",
+            "the loaded SQLite/FTS5 build must behaviorally demonstrate that PRAGMA integrity_check detects the known inverted-index forgery; incapable builds fail closed as projection-unavailable",
+            "cross-SQLite evidence is tiered and descriptive; standalone engine probes do not establish Python-library or universal cross-platform behavior",
             "canonical records are unaffected; the gate protects a generated, replaceable projection",
         ],
     }

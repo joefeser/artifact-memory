@@ -31,9 +31,11 @@ tamper evidence for a generated, replaceable projection.
   because the command form is unusable on a read-only connection.
 - Run the check last: content-row validation cannot observe the inverted
   index, so it must not be the final authority on search-row integrity.
-- Reject runtimes whose `PRAGMA integrity_check` cannot verify FTS5
-  (SQLite < 3.44) with `projection-unavailable`: on an incapable runtime an
-  `ok` result is absence of evidence, not verification.
+- Reject runtimes whose cached behavioral probe cannot demonstrate that
+  `PRAGMA integrity_check` detects the known FTS5 inverted-index forgery.
+  Upstream SQLite added the required `xIntegrity` coverage in 3.44, but a
+  version number alone does not prove the capability of a custom build. On an
+  incapable runtime an `ok` result is absence of evidence, not verification.
 - Hold one read transaction across contract validation, integrity
   verification, and the caller's query, so a concurrent writer cannot commit
   tampering between check and use and the caller only ever sees the verified
@@ -45,20 +47,21 @@ tamper evidence for a generated, replaceable projection.
 
 ## Compatibility
 
-- Additive and fail-closed: indexes that are already physically inconsistent
-  now return `projection-unavailable`; no schema, CLI, receipt, or output
-  shape changes, and clean projections are unaffected.
+- Additive and fail-closed: indexes that are physically inconsistent or whose
+  application schema differs from the packaged contract now return
+  `projection-unavailable`; no receipt or default query output shape changes.
+  A clean projection remains readable only on a runtime that demonstrates the
+  required FTS5 integrity capability.
 - Read-only cost measured at roughly 0.1 ms per query at audit scale, beside
   existing per-query revalidation.
-- Detection of inverted-index tamper depends on the runtime SQLite
-  participating in `PRAGMA integrity_check` through FTS5 `xIntegrity`
-  (SQLite >= 3.44; verified on 3.52.0). Runtimes below that floor fail
-  closed rather than serving an unverifiable projection. The cross-SQLite
-  matrix (issue #117) verified the behavior on 3.34.1 and 3.40.1 (fail
-  closed, forgery never served) and on 3.46.1, 3.51.0, and 3.52.0 (forgery
-  detected typed, clean reads served), with the gate-passing runtimes
-  agreeing on source-record-set digests, logical projection snapshots, and
-  default, literal, and ranked search results.
+- Detection of inverted-index tamper depends on the loaded SQLite/FTS5 build
+  participating in `PRAGMA integrity_check` through `xIntegrity`. The issue
+  #117 matrix separates tier-A engine observations from tier-B Python-library
+  evidence: 3.34.1 and 3.40.1 did not provide the required upstream behavior;
+  Python-linked 3.46.1 and 3.52.0 passed the library gate and agreed on source
+  digests, logical snapshots, and search results. Standalone CLI observations,
+  including 3.51.0, establish engine behavior only. The general platform CI
+  workflow does not independently extend these query guarantees to every OS.
 - Digest-bearing search receipts (issue #106) remain gated on this decision.
 
 ## Authority and limitations
