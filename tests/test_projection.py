@@ -110,6 +110,19 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual(logical_projection_snapshot(first_out / "records.sqlite"), first_snapshot)
             self.assertEqual(search_records(first_out / "records.sqlite", "projection"), ["record://synthetic/record-0002"])
 
+    def test_projection_creation_reports_incapable_sqlite_runtime_typed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            with mock.patch.object(
+                projection.sqlite3,
+                "connect",
+                side_effect=sqlite3.OperationalError("no such module: fts5"),
+            ):
+                with self.assertRaises(ValidationFailure) as raised:
+                    project_records([FIXTURE], output)
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+            self.assertEqual(list(output.iterdir()), [])
+
     def test_projection_rejects_invalid_canonical_record_before_writing_views(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -351,6 +364,54 @@ class ProjectionTests(unittest.TestCase):
         finally:
             projection._runtime_verifies_fts5_integrity.cache_clear()
 
+    def test_declaration_normalization_preserves_quoted_semantics(self):
+        expected = "CREATE TABLE sample(value TEXT CHECK(value IN ('accepted value', 'it''s final')))"
+        formatting_only = "create\n table sample ( value text check ( value in ( 'accepted value' , 'it''s final' ) ) )"
+        changed_case = expected.replace("'accepted value'", "'ACCEPTED VALUE'")
+        changed_space = expected.replace("'accepted value'", "'accepted  value'")
+        self.assertEqual(
+            projection._normalized_declaration(expected),
+            projection._normalized_declaration(formatting_only),
+        )
+        self.assertNotEqual(
+            projection._normalized_declaration(expected),
+            projection._normalized_declaration(changed_case),
+        )
+        self.assertNotEqual(
+            projection._normalized_declaration(expected),
+            projection._normalized_declaration(changed_space),
+        )
+
+    def test_clean_case_distinct_lifecycle_filtering_preserves_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = []
+            for name, record_id, lifecycle in (
+                ("upper", "record://synthetic/A", "superseded"),
+                ("lower", "record://synthetic/a", "accepted"),
+            ):
+                record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+                record["record_id"] = record_id
+                record["lifecycle"] = lifecycle
+                record["meaning"]["summary"] = "synthetic case distinct identity"
+                path = root / f"{name}.json"
+                path.write_text(json.dumps(record), encoding="utf-8")
+                paths.append(path)
+            output = root / "generated"
+            project_records(paths, output)
+            for literal in (False, True):
+                for rank in (False, True):
+                    with self.subTest(literal=literal, rank=rank):
+                        receipt = search_receipt(
+                            output / "records.sqlite",
+                            "synthetic",
+                            literal=literal,
+                            rank=rank,
+                            exclude_superseded=True,
+                        )
+                        self.assertEqual(receipt["record_ids"], ["record://synthetic/a"])
+                        self.assertEqual(receipt["integrity_gate"], "verified")
+
     def test_filtered_receipts_reject_case_insensitive_schema_substitution(self):
         """Column-name and integrity checks alone do not preserve join
         semantics: a NOCASE replacement can associate case-distinct FTS IDs
@@ -413,6 +474,38 @@ class ProjectionTests(unittest.TestCase):
             index = output / "records.sqlite"
             connection = sqlite3.connect(index)
             connection.execute("CREATE TABLE unexpected_application_state (value TEXT)")
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "synthetic")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_projection_reads_reject_unexpected_trigger(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            connection.execute(
+                "CREATE TRIGGER unexpected_trigger AFTER INSERT ON records BEGIN SELECT 1; END"
+            )
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "synthetic")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_projection_reads_reject_shadow_table_view_substitution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            connection.execute("DROP TABLE records_fts_content")
+            connection.execute(
+                "CREATE VIEW records_fts_content AS "
+                "SELECT NULL AS id, NULL AS c0, NULL AS c1, NULL AS c2 WHERE 0"
+            )
             connection.commit()
             connection.close()
             with self.assertRaises(ValidationFailure) as raised:

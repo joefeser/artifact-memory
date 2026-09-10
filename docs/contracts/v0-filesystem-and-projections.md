@@ -57,7 +57,11 @@ Every query first verifies the SQLite user version, the exact application
 object set, normalized ordinary table and explicit-index declarations, the
 exact FTS5 declaration, required columns and indexes, metadata cardinality and
 types, source-set
-digest consistency, record count, and provenance ordinals. Every query then
+digest consistency, record count, and provenance ordinals.
+Declaration normalization ignores spelling case and whitespace only outside
+quoted tokens; quoted strings and identifiers preserve exact case, whitespace,
+and doubled-quote escapes so future semantic literals cannot compare equal
+after substitution. Every query then
 requires `PRAGMA integrity_check` to return `ok`, so an index whose FTS5
 inverted index disagrees with its content rows — for example a summary
 reindexed through `records_fts` and then restored in `records_fts_content` —

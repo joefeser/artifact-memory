@@ -1,12 +1,16 @@
 import copy
+import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
 import zipfile
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
+from artifact_memory import cli
 from artifact_memory.canonical import receipt_with_digest
 from artifact_memory.canonical import sha256_bytes
 from artifact_memory.release_preparation import RELEASE_PREPARATION_RECEIPT_PREFIX
@@ -32,6 +36,32 @@ class CliTests(unittest.TestCase):
         result = self.run_cli("validate", str(FIXTURES / "v0-valid-record.json"), "--json")
         self.assertEqual(result.returncode, 0)
         self.assertTrue(json.loads(result.stdout)["valid"])
+
+    def test_project_reports_projection_creation_failure_as_json(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = io.StringIO()
+            with mock.patch.object(
+                cli,
+                "project_records",
+                side_effect=cli.ValidationFailure(
+                    "projection-unavailable",
+                    "generated SQLite projection could not be created by the loaded runtime",
+                ),
+            ):
+                with redirect_stdout(output):
+                    result = cli.main(
+                        [
+                            "project",
+                            str(FIXTURES / "v0-valid-record.json"),
+                            "--out",
+                            str(Path(temporary) / "generated"),
+                            "--json",
+                        ]
+                    )
+        self.assertEqual(result, 2)
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(receipt["outcome"], "rejected")
+        self.assertEqual(receipt["diagnostics"][0]["code"], "projection-unavailable")
 
     def test_search_receipt_pins_digest_through_cli(self):
         from artifact_memory.projection import project_records
