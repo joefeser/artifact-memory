@@ -2,7 +2,15 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from artifact_memory import (
+    projection_integrity_slice,
+    search_literal_slice,
+    search_ranking_slice,
+    search_receipt_slice,
+    search_supersession_slice,
+)
 from artifact_memory.projection_integrity_slice import run_projection_integrity_slice
 from artifact_memory.schema_resources import load_schema
 from artifact_memory.validator import ValidationFailure, validate
@@ -48,6 +56,53 @@ class ProjectionIntegritySliceTests(unittest.TestCase):
                 failed_without_failure["outcome"] = "failed"
                 with self.assertRaises(ValidationFailure):
                     validate(failed_without_failure, schema)
+
+    def test_slice_runners_emit_schema_valid_failed_receipts(self):
+        cases = (
+            (
+                projection_integrity_slice,
+                "projection-integrity",
+                "projection-integrity-slice-receipt.v1.schema.json",
+                "run_projection_integrity_slice",
+            ),
+            (
+                search_literal_slice,
+                "search-literal",
+                "search-literal-slice-receipt.v1.schema.json",
+                "run_search_literal_slice",
+            ),
+            (
+                search_ranking_slice,
+                "search-ranking",
+                "search-ranking-slice-receipt.v1.schema.json",
+                "run_search_ranking_slice",
+            ),
+            (
+                search_receipt_slice,
+                "search-receipt",
+                "search-receipt-slice-receipt.v1.schema.json",
+                "run_search_receipt_slice",
+            ),
+            (
+                search_supersession_slice,
+                "search-supersession",
+                "search-supersession-slice-receipt.v1.schema.json",
+                "run_search_supersession_slice",
+            ),
+        )
+        for module, fixture_name, schema_name, runner_name in cases:
+            with self.subTest(slice=fixture_name), tempfile.TemporaryDirectory() as temporary:
+                fixture = ROOT / "fixtures" / "synthetic" / fixture_name / "v1"
+                project_records = module.project_records
+
+                def failed_projection(*args, **kwargs):
+                    return {**project_records(*args, **kwargs), "outcome": "failed"}
+
+                with mock.patch.object(module, "project_records", side_effect=failed_projection):
+                    receipt = getattr(module, runner_name)(fixture, Path(temporary))
+                self.assertEqual(receipt["outcome"], "failed")
+                self.assertIn("failed", {operation["outcome"] for operation in receipt["operations"]})
+                validate(receipt, load_schema("core", schema_name))
 
 
 if __name__ == "__main__":

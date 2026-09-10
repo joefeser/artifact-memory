@@ -130,7 +130,7 @@ def _median_ms(action, repeats: int) -> float:
 
 
 def _warm_search_modes(index: Path, query: str) -> None:
-    """Pay one-time validation, connection, and page costs before timing."""
+    """Warm process-scoped validation/schema caches and operating-system pages."""
     search_records(index, query)
     search_records(index, query, rank=True)
 
@@ -174,6 +174,9 @@ def _measure_scale(count: int, repeats: int, trials: int) -> dict:
         index = base_output / "records.sqlite"
         query = "beta gamma"
         _warm_search_modes(index, query)
+        # Each timed call intentionally uses the public API and therefore opens
+        # a fresh connection. Both modes pay that per-call cost; only one-time
+        # process caches and cold pages are removed by the warm-up above.
         unranked_ms = _median_ms(lambda: search_records(index, query), repeats)
         ranked_ms = _median_ms(lambda: search_records(index, query, rank=True), repeats)
         base_ranked = search_records(index, query, rank=True)
