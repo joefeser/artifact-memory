@@ -54,7 +54,41 @@ _FTS_DECLARATION_PATTERN = re.compile(
 
 
 def _normalized_declaration(statement: str) -> str:
-    return re.sub(r"\s+", "", statement).lower()
+    """Normalize SQL spelling without changing quoted-token semantics.
+
+    The packaged contract and sqlite_master may differ in keyword case or
+    insignificant whitespace. Quoted strings and identifiers are opaque:
+    their case, whitespace, and doubled-quote escapes remain exact so a future
+    semantic literal cannot be normalized into a different value.
+    """
+    normalized: list[str] = []
+    closing_quote: str | None = None
+    index = 0
+    while index < len(statement):
+        character = statement[index]
+        if closing_quote is not None:
+            normalized.append(character)
+            if character == closing_quote:
+                doubled_quote = (
+                    closing_quote != "]"
+                    and index + 1 < len(statement)
+                    and statement[index + 1] == closing_quote
+                )
+                if doubled_quote:
+                    normalized.append(statement[index + 1])
+                    index += 1
+                else:
+                    closing_quote = None
+        elif character in {"'", '"', "`"}:
+            closing_quote = character
+            normalized.append(character)
+        elif character == "[":
+            closing_quote = "]"
+            normalized.append(character)
+        elif not character.isspace():
+            normalized.append(character.lower())
+        index += 1
+    return "".join(normalized)
 
 
 @lru_cache(maxsize=1)
