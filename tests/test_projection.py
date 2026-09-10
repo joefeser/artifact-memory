@@ -110,6 +110,19 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual(logical_projection_snapshot(first_out / "records.sqlite"), first_snapshot)
             self.assertEqual(search_records(first_out / "records.sqlite", "projection"), ["record://synthetic/record-0002"])
 
+    def test_projection_creation_reports_incapable_sqlite_runtime_typed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            with mock.patch.object(
+                projection.sqlite3,
+                "connect",
+                side_effect=sqlite3.OperationalError("no such module: fts5"),
+            ):
+                with self.assertRaises(ValidationFailure) as raised:
+                    project_records([FIXTURE], output)
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+            self.assertEqual(list(output.iterdir()), [])
+
     def test_projection_rejects_invalid_canonical_record_before_writing_views(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

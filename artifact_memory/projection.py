@@ -354,46 +354,52 @@ def _record_lines(records: list[dict[str, Any]]) -> bytes:
 
 
 def _create_sqlite(path: Path, records: list[dict[str, Any]], source_digest: str) -> None:
-    connection = sqlite3.connect(path)
     try:
-        connection.executescript(load_contract_text("core", "index-sqlite.v1.sql"))
-        user_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if user_version != PROJECTION_USER_VERSION:
-            raise ValidationFailure("projection-schema-mismatch", "packaged SQLite projection contract has an unsupported version")
-        connection.execute(
-            "INSERT INTO projection_metadata VALUES (1, ?, ?, ?, ?)",
-            (PROJECTION_SCHEMA_ID, CANONICAL_JSON_PROFILE, source_digest, len(records)),
-        )
-        for record in records:
+        connection = sqlite3.connect(path)
+        try:
+            connection.executescript(load_contract_text("core", "index-sqlite.v1.sql"))
+            user_version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if user_version != PROJECTION_USER_VERSION:
+                raise ValidationFailure("projection-schema-mismatch", "packaged SQLite projection contract has an unsupported version")
             connection.execute(
-                "INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    record["record_id"],
-                    record["record_type"],
-                    record["lifecycle"],
-                    record.get("sensitivity"),
-                    _canonical(record).decode("utf-8"),
-                    source_digest,
-                ),
+                "INSERT INTO projection_metadata VALUES (1, ?, ?, ?, ?)",
+                (PROJECTION_SCHEMA_ID, CANONICAL_JSON_PROFILE, source_digest, len(records)),
             )
-            meaning = record["meaning"]
-            connection.execute(
-                "INSERT INTO records_fts VALUES (?, ?, ?)",
-                (record["record_id"], meaning["summary"], " ".join(meaning.get("labels", []))),
-            )
-            for ordinal, provenance in enumerate(record["provenance"]):
+            for record in records:
                 connection.execute(
-                    "INSERT INTO provenance VALUES (?, ?, ?, ?)",
-                    (record["record_id"], ordinal, provenance["kind"], provenance["source_ref"]),
+                    "INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        record["record_id"],
+                        record["record_type"],
+                        record["lifecycle"],
+                        record.get("sensitivity"),
+                        _canonical(record).decode("utf-8"),
+                        source_digest,
+                    ),
                 )
-            for relationship in record.get("relationships", []):
+                meaning = record["meaning"]
                 connection.execute(
-                    "INSERT INTO relationships VALUES (?, ?, ?)",
-                    (record["record_id"], relationship["type"], relationship["target_ref"]),
+                    "INSERT INTO records_fts VALUES (?, ?, ?)",
+                    (record["record_id"], meaning["summary"], " ".join(meaning.get("labels", []))),
                 )
-        connection.commit()
-    finally:
-        connection.close()
+                for ordinal, provenance in enumerate(record["provenance"]):
+                    connection.execute(
+                        "INSERT INTO provenance VALUES (?, ?, ?, ?)",
+                        (record["record_id"], ordinal, provenance["kind"], provenance["source_ref"]),
+                    )
+                for relationship in record.get("relationships", []):
+                    connection.execute(
+                        "INSERT INTO relationships VALUES (?, ?, ?)",
+                        (record["record_id"], relationship["type"], relationship["target_ref"]),
+                    )
+            connection.commit()
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        raise ValidationFailure(
+            "projection-unavailable",
+            "generated SQLite projection could not be created by the loaded runtime",
+        ) from exc
 
 
 def project_records(record_paths: Iterable[Path], output_dir: Path, *, revocation_receipts: Iterable[dict[str, Any]] = ()) -> dict[str, Any]:

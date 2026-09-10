@@ -28,20 +28,26 @@ Exercise the authoritative behavioral gate by building and reading a synthetic
 projection outside the repository:
 
 ```shell
-am_probe_dir="$(mktemp -d)"
-python3 -m artifact_memory project \
-  fixtures/synthetic/contracts/v0-valid-record.json \
-  --out "$am_probe_dir" \
-  --json
-python3 -m artifact_memory search \
-  "$am_probe_dir/records.sqlite" \
-  synthetic \
-  --json
+(
+  set -eu
+  am_probe_dir="$(mktemp -d)"
+  trap 'rm -r -- "$am_probe_dir"' EXIT
+  python3 -m artifact_memory project \
+    fixtures/synthetic/contracts/v0-valid-record.json \
+    --out "$am_probe_dir" \
+    --json
+  python3 -m artifact_memory search \
+    "$am_probe_dir/records.sqlite" \
+    synthetic \
+    --json
+)
 ```
 
 A successful search demonstrates the required behavior for that loaded
-SQLite/FTS5 build. An incapable build returns the typed
-`projection-unavailable` outcome regardless of its reported version.
+SQLite/FTS5 build. If the build cannot create or verify the projection, the
+`project` or `search` command returns the typed `projection-unavailable`
+outcome regardless of its reported version. The subshell removes the temporary
+projection on success or failure.
 
 The repository contains synthetic fixtures only. A generated index or context
 pack is a derived view; it is not a replacement for canonical records.
