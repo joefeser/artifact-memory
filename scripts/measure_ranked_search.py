@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT))
 from artifact_memory.canonical import canonical_bytes, sha256_bytes  # noqa: E402
 from artifact_memory.projection import project_records, search_records  # noqa: E402
 
-GENERATOR_PROFILE = "rank-measure/v1:corpus-v2:summaries-v1"
+GENERATOR_PROFILE = "rank-measure/v2:timing-corpus-v2:heterogeneous-flip-v1"
 COMMON = ("alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta")
 RARE = ("quokka", "wombat", "narwhal", "axolotl", "pangolin", "okapi")
 UNRELATED = ("iota", "kappa", "lambda", "mu", "nu", "xi", "omicron", "pi")
@@ -70,6 +70,53 @@ def _related_record(index: int) -> dict:
     words = ["beta"] * betas + ["gamma"] * gammas + filler + [RARE[index % len(RARE)]]
     record["meaning"] = {"summary": " ".join(words)}
     return record
+
+
+def _measure_heterogeneous_flip(count: int, workspace: Path) -> dict:
+    """Prove a corpus-only rank flip at the requested scale.
+
+    The two matched documents deliberately differ in term frequency and length.
+    An added document contains neither query term, so the matched set is stable
+    while corpus-wide BM25 statistics cross the pair's ranking threshold.
+    """
+    first = _record(30_000_000)
+    first["meaning"] = {"summary": "beta gamma"}
+    second = _record(30_000_001)
+    second["meaning"] = {
+        "summary": "beta beta beta beta gamma gamma gamma gamma "
+        "alpha alpha alpha alpha alpha alpha alpha"
+    }
+    fillers = []
+    for index in range(count - 2):
+        record = _record(31_000_000 + index)
+        record["meaning"] = {"summary": "alpha alpha alpha alpha alpha alpha alpha"}
+        fillers.append(record)
+    base_records = [first, second, *fillers]
+    paths = []
+    flip_root = workspace / "heterogeneous-flip"
+    flip_root.mkdir()
+    for ordinal, payload in enumerate(base_records):
+        path = flip_root / f"record-{ordinal:06d}.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        paths.append(path)
+    base_output = flip_root / "base"
+    project_records(paths, base_output)
+    before = search_records(base_output / "records.sqlite", "beta gamma", rank=True)
+    addition = _record(32_000_000)
+    addition["meaning"] = {"summary": "alpha alpha alpha"}
+    addition_path = flip_root / "addition.json"
+    addition_path.write_text(json.dumps(addition), encoding="utf-8")
+    grown_output = flip_root / "grown"
+    project_records([*paths, addition_path], grown_output)
+    after = search_records(grown_output / "records.sqlite", "beta gamma", rank=True)
+    return {
+        "query": "beta gamma",
+        "addition_contains_query_terms": False,
+        "matched_set_unchanged": set(before) == set(after),
+        "order_before": before,
+        "order_after": after,
+        "order_flipped": before != after,
+    }
 
 
 def _median_ms(action, repeats: int) -> float:
@@ -120,6 +167,9 @@ def _measure_scale(count: int, repeats: int, trials: int) -> dict:
                         flips_unrelated += 1
                     else:
                         flips_related += 1
+        heterogeneous_flip = _measure_heterogeneous_flip(count, workspace)
+        if not heterogeneous_flip["matched_set_unchanged"] or not heterogeneous_flip["order_flipped"]:
+            raise RuntimeError("heterogeneous scale probe did not demonstrate the required corpus-only rank flip")
         return {
             "record_count": count,
             "corpus_digest": corpus_digest,
@@ -132,6 +182,7 @@ def _measure_scale(count: int, repeats: int, trials: int) -> dict:
             "flip_trials": trials,
             "flips_after_unrelated_addition": flips_unrelated,
             "flips_after_related_addition": flips_related,
+            "heterogeneous_corpus_flip": heterogeneous_flip,
         }
 
 

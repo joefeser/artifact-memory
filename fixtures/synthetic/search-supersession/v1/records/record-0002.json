@@ -1,5 +1,5 @@
 {
-  "schema_id": "artifact-memory/knowledge-record/v1",
+  "schema_id": "artifact-memory/knowledge-record/v3",
   "record_id": "record://synthetic/search-supersession-0002",
   "record_type": "note",
   "lifecycle": "superseded",
@@ -14,5 +14,6 @@
       "source_ref": "fixture://synthetic/search-supersession/v1"
     }
   ],
+  "relationships": [],
   "sensitivity": "public"
 }

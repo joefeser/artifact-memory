@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
-from .canonical import receipt_with_digest
+from .canonical import canonical_bytes, receipt_with_digest, sha256_bytes
 from .projection import project_records, search_receipt, search_records
 from .schema_resources import load_schema
 from .validator import validate
@@ -24,6 +25,16 @@ def _operation(name: str, outcome: str = "complete") -> dict[str, str]:
 def run_search_supersession_slice(fixture_root: Path, workspace: Path) -> dict[str, Any]:
     """Run the checked-in fixture without emitting machine-local paths."""
     record_paths = sorted((fixture_root / "records").glob("*.json"))
+    records = [json.loads(path.read_text(encoding="utf-8")) for path in record_paths]
+    survivor = next(record for record in records if record["record_id"] == SURVIVOR_RECORD_ID)
+    predecessor = next(record for record in records if record["record_id"] == SUPERSEDED_RECORD_ID)
+    replacement_binds_predecessor = survivor.get("relationships") == [
+        {
+            "type": "supersedes",
+            "target_ref": SUPERSEDED_RECORD_ID,
+            "target_revision_digest": sha256_bytes(canonical_bytes(predecessor)),
+        }
+    ]
     output = workspace / "projection"
     projection_receipt = project_records(record_paths, output)
     index = output / "records.sqlite"
@@ -50,6 +61,7 @@ def run_search_supersession_slice(fixture_root: Path, workspace: Path) -> dict[s
         _operation("default-search-returns-both-lifecycles", "complete" if default_returns_both else "failed"),
         _operation("exclude-superseded-returns-survivor", "verified" if filtered_returns_survivor else "failed"),
         _operation("literal-mode-composes-with-exclusion", "complete" if literal_filtered_ids == [SURVIVOR_RECORD_ID] else "failed"),
+        _operation("replacement-binds-exact-predecessor-revision", "verified" if replacement_binds_predecessor else "failed"),
         _operation("receipts-bind-exclusion", "complete" if receipts_bind_exclusion else "failed"),
     ]
     outcome = "complete" if all(operation["outcome"] in {"complete", "verified"} for operation in operations) else "failed"

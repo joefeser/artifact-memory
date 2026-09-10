@@ -9,6 +9,7 @@ import re
 import sqlite3
 import tempfile
 from contextlib import contextmanager
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -47,7 +48,6 @@ _REQUIRED_INDEXES = {
 
 _knowledge_schema = knowledge_schema
 _FTS5_INTEGRITY_MINIMUM_VERSION = (3, 44, 0)
-_RUNTIME_VERIFIES_FTS5_INTEGRITY = sqlite3.sqlite_version_info >= _FTS5_INTEGRITY_MINIMUM_VERSION
 _FTS_DECLARATION_PATTERN = re.compile(
     r"CREATE\s+VIRTUAL\s+TABLE\s+records_fts\s+USING\s+fts5\s*\([^;]*\)",
     re.IGNORECASE | re.DOTALL,
@@ -58,6 +58,40 @@ def _normalized_declaration(statement: str) -> str:
     return re.sub(r"\s+", "", statement).lower()
 
 
+@lru_cache(maxsize=1)
+def _contract_schema_objects() -> tuple[dict[str, tuple[str, str | None]], dict[str, str]]:
+    """Materialize the packaged contract through this SQLite runtime.
+
+    SQLite owns autoindexes and FTS5 shadow-table declarations. Their names and
+    object types are still part of the expected generated database, while only
+    the ordinary application tables and explicit indexes have declarations
+    authored by this package that can be compared byte-semantically after
+    whitespace normalization.
+    """
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.executescript(load_contract_text("core", "index-sqlite.v1.sql"))
+        rows = connection.execute(
+            "SELECT type, name, sql FROM sqlite_master "
+            "WHERE name NOT LIKE 'sqlite_autoindex_%' ORDER BY type, name"
+        ).fetchall()
+    finally:
+        connection.close()
+    objects = {name: (object_type, sql) for object_type, name, sql in rows}
+    authored_names = {
+        "projection_metadata",
+        "records",
+        "provenance",
+        "relationships",
+        *list(_REQUIRED_INDEXES),
+    }
+    declarations = {
+        name: _normalized_declaration(objects[name][1] or "")
+        for name in authored_names
+    }
+    return objects, declarations
+
+
 _CONTRACT_FTS_DECLARATION_MATCH = _FTS_DECLARATION_PATTERN.search(
     load_contract_text("core", "index-sqlite.v1.sql")
 )
@@ -65,10 +99,53 @@ assert _CONTRACT_FTS_DECLARATION_MATCH is not None, "packaged projection contrac
 _CANONICAL_FTS_DECLARATION = _normalized_declaration(_CONTRACT_FTS_DECLARATION_MATCH.group(0))
 
 
+@lru_cache(maxsize=1)
+def _runtime_verifies_fts5_integrity() -> bool:
+    """Prove this loaded SQLite/FTS5 combination detects the known forgery."""
+    if sqlite3.sqlite_version_info < _FTS5_INTEGRITY_MINIMUM_VERSION:
+        return False
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.execute("CREATE VIRTUAL TABLE integrity_probe USING fts5(record_id UNINDEXED, summary)")
+        connection.execute("INSERT INTO integrity_probe VALUES ('record://synthetic/probe', 'original')")
+        original = connection.execute(
+            "SELECT c1 FROM integrity_probe_content WHERE c0 = 'record://synthetic/probe'"
+        ).fetchone()[0]
+        connection.execute(
+            "UPDATE integrity_probe SET summary = 'forged synthetic probe' "
+            "WHERE record_id = 'record://synthetic/probe'"
+        )
+        connection.execute(
+            "UPDATE integrity_probe_content SET c1 = ? WHERE c0 = 'record://synthetic/probe'",
+            (original,),
+        )
+        rows = [row[0] for row in connection.execute("PRAGMA integrity_check")]
+        return rows != ["ok"]
+    except sqlite3.Error:
+        return False
+    finally:
+        connection.close()
+
+
 def _validate_projection_contract(connection: sqlite3.Connection) -> None:
     user_version = connection.execute("PRAGMA user_version").fetchone()[0]
     if type(user_version) is not int or user_version != PROJECTION_USER_VERSION:
         raise ValidationFailure("projection-schema-mismatch", "generated index uses an unsupported SQLite projection version")
+    schema_rows = connection.execute(
+        "SELECT type, name, sql FROM sqlite_master "
+        "WHERE name NOT LIKE 'sqlite_autoindex_%' ORDER BY type, name"
+    ).fetchall()
+    actual_objects = {name: (object_type, sql) for object_type, name, sql in schema_rows}
+    contract_objects, contract_declarations = _contract_schema_objects()
+    expected_object_types = {name: object_type for name, (object_type, _) in contract_objects.items()}
+    actual_object_types = {
+        name: object_type for name, (object_type, _) in actual_objects.items()
+    }
+    if actual_object_types != expected_object_types:
+        raise ValidationFailure("projection-unavailable", "generated SQLite projection object set is incomplete or invalid")
+    for name, expected_declaration in contract_declarations.items():
+        if _normalized_declaration(actual_objects[name][1] or "") != expected_declaration:
+            raise ValidationFailure("projection-unavailable", "generated SQLite projection object definition is invalid")
     for table, expected_columns in _REQUIRED_COLUMNS.items():
         actual_columns = [row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')]
         if actual_columns != expected_columns:
@@ -181,8 +258,8 @@ def _read_index(index_path: Path) -> Iterator[sqlite3.Connection]:
     verified. Runtimes whose integrity_check cannot reach the inverted index
     are rejected outright: their `ok` is absence of evidence.
     """
-    if not _RUNTIME_VERIFIES_FTS5_INTEGRITY:
-        raise ValidationFailure("projection-unavailable", "generated SQLite projection requires SQLite 3.44 or newer for FTS5 integrity verification")
+    if not _runtime_verifies_fts5_integrity():
+        raise ValidationFailure("projection-unavailable", "generated SQLite projection requires demonstrated FTS5 integrity verification capability")
     if Path(str(index_path) + "-wal").exists() or Path(str(index_path) + "-shm").exists():
         raise ValidationFailure("projection-unavailable", "generated SQLite projection has uncheckpointed sidecars")
     try:

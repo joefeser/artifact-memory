@@ -18,8 +18,8 @@
     ]
   },
   "limitations": [
-    "runtimes whose PRAGMA integrity_check cannot reach the FTS5 inverted index (SQLite < 3.44) fail closed as projection-unavailable instead of serving unverifiable projections (capable runtime verified on 3.52.0)",
-    "the cross-SQLite determinism matrix remains unverified",
+    "the loaded SQLite/FTS5 build must behaviorally demonstrate that PRAGMA integrity_check detects the known inverted-index forgery; incapable builds fail closed as projection-unavailable",
+    "cross-SQLite evidence is tiered and descriptive; standalone engine probes do not establish Python-library or universal cross-platform behavior",
     "canonical records are unaffected; the gate protects a generated, replaceable projection"
   ],
   "operations": [
@@ -70,6 +70,6 @@
     "record_count": 2,
     "source_record_set_digest": "sha-256:62d8a5479647cbba71f2bc961f337116b9020b8a34ff8d18c5e8a4bf579b601d"
   },
-  "receipt_id": "projection-integrity-receipt://synthetic/ee60e232e67f6859dcdf367405028893618bf122b85b54bf03f84db3a4776594",
+  "receipt_id": "projection-integrity-receipt://synthetic/184bbc2f6d7b9be36aea6e38c952a9503ac97f790b9cd137b6ca2c52f2f483be",
   "schema_id": "artifact-memory/projection-integrity-slice-receipt/v1"
 }
