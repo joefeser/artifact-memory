@@ -1,0 +1,18 @@
+{
+  "schema_id": "artifact-memory/knowledge-record/v1",
+  "record_id": "record://synthetic/projection-integrity-0002",
+  "record_type": "decision",
+  "lifecycle": "accepted",
+  "meaning": {
+    "summary": "Projection reads fail closed when the FTS5 index disagrees with stored meaning.",
+    "labels": ["synthetic", "gate"]
+  },
+  "artifact_refs": [],
+  "provenance": [
+    {
+      "kind": "author",
+      "source_ref": "fixture://synthetic/projection-integrity/v1"
+    }
+  ],
+  "sensitivity": "public"
+}

@@ -1,0 +1,25 @@
+{
+  "schema_id": "artifact-memory/knowledge-record/v3",
+  "record_id": "record://synthetic/search-supersession-0001",
+  "record_type": "note",
+  "lifecycle": "accepted",
+  "meaning": {
+    "summary": "Accepted synthetic ledger note survives supersession filtering.",
+    "labels": ["synthetic", "ledger"]
+  },
+  "artifact_refs": [],
+  "provenance": [
+    {
+      "kind": "author",
+      "source_ref": "fixture://synthetic/search-supersession/v1"
+    }
+  ],
+  "relationships": [
+    {
+      "type": "supersedes",
+      "target_ref": "record://synthetic/search-supersession-0002",
+      "target_revision_digest": "sha-256:84ee748e1e80379f6dbe1fea085f43b193db5de6cde4315ba91935b526062038"
+    }
+  ],
+  "sensitivity": "public"
+}

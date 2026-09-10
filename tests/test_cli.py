@@ -1,13 +1,18 @@
 import copy
+import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
 import zipfile
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
+from artifact_memory import cli
 from artifact_memory.canonical import receipt_with_digest
+from artifact_memory.canonical import sha256_bytes
 from artifact_memory.release_preparation import RELEASE_PREPARATION_RECEIPT_PREFIX
 from artifact_memory.scan import ScanLimits, make_scan_policy, scan_path
 
@@ -31,6 +36,187 @@ class CliTests(unittest.TestCase):
         result = self.run_cli("validate", str(FIXTURES / "v0-valid-record.json"), "--json")
         self.assertEqual(result.returncode, 0)
         self.assertTrue(json.loads(result.stdout)["valid"])
+
+    def test_project_reports_projection_creation_failure_as_json(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = io.StringIO()
+            with mock.patch.object(
+                cli,
+                "project_records",
+                side_effect=cli.ValidationFailure(
+                    "projection-unavailable",
+                    "generated SQLite projection could not be created by the loaded runtime",
+                ),
+            ):
+                with redirect_stdout(output):
+                    result = cli.main(
+                        [
+                            "project",
+                            str(FIXTURES / "v0-valid-record.json"),
+                            "--out",
+                            str(Path(temporary) / "generated"),
+                            "--json",
+                        ]
+                    )
+        self.assertEqual(result, 2)
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(receipt["outcome"], "rejected")
+        self.assertEqual(receipt["diagnostics"][0]["code"], "projection-unavailable")
+
+    def test_search_receipt_pins_digest_through_cli(self):
+        from artifact_memory.projection import project_records
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            projection_receipt = project_records([FIXTURES / "v0-valid-record.json"], output)
+            index = output / "records.sqlite"
+
+            sensitive_query = "synthetic NOT bearer_canary_42"
+            result = self.run_cli("search-receipt", str(index), sensitive_query, "--json")
+            human_result = self.run_cli("search-receipt", str(index), sensitive_query)
+            rejected = self.run_cli("search-receipt", str(index), '"', "--json")
+
+        self.assertEqual(result.returncode, 0)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["schema_id"], "artifact-memory/search-receipt/v1")
+        self.assertNotIn("query", payload)
+        self.assertEqual(payload["query_digest"], sha256_bytes(sensitive_query.encode("utf-8")))
+        self.assertNotIn(sensitive_query, result.stdout)
+        self.assertNotIn(sensitive_query, human_result.stdout)
+        self.assertEqual(payload["source_record_set_digest"], projection_receipt["source_record_set_digest"])
+        self.assertEqual(payload["record_ids"], ["record://synthetic/record-0001"])
+        self.assertEqual(payload["integrity_gate"], "verified")
+        self.assertIn("source_record_set_digest: " + projection_receipt["source_record_set_digest"], human_result.stdout)
+        self.assertEqual(rejected.returncode, 2)
+        self.assertEqual(json.loads(rejected.stdout)["diagnostics"][0]["code"], "query-invalid")
+
+    def test_search_literal_mode_through_cli(self):
+        from artifact_memory.projection import project_records
+
+        record = {
+            "schema_id": "artifact-memory/knowledge-record/v1",
+            "record_id": "record://synthetic/literal-cli-0001",
+            "record_type": "note",
+            "lifecycle": "accepted",
+            "meaning": {"summary": "Synthetic alpha-beta adjacency proves literal quoting."},
+            "artifact_refs": [],
+            "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/literal/v1"}],
+            "sensitivity": "public",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            record_path = root / "record.json"
+            record_path.write_text(json.dumps(record), encoding="utf-8")
+            output = root / "generated"
+            project_records([record_path], output)
+            index = output / "records.sqlite"
+
+            literal = self.run_cli("search", str(index), "alpha-beta", "--literal", "--json")
+            raw = self.run_cli("search", str(index), "alpha-beta", "--json")
+            receipt = self.run_cli("search-receipt", str(index), "alpha-beta", "--literal", "--json")
+
+        self.assertEqual(literal.returncode, 0)
+        self.assertEqual(json.loads(literal.stdout)["record_ids"], ["record://synthetic/literal-cli-0001"])
+        self.assertEqual(raw.returncode, 2)
+        self.assertEqual(json.loads(raw.stdout)["diagnostics"][0]["code"], "query-invalid")
+        self.assertEqual(receipt.returncode, 0)
+        self.assertEqual(json.loads(receipt.stdout)["record_ids"], ["record://synthetic/literal-cli-0001"])
+
+    def test_search_exclude_superseded_through_cli(self):
+        from artifact_memory.projection import project_records
+
+        records = []
+        for ordinal, lifecycle in enumerate(("accepted", "superseded"), start=1):
+            records.append(
+                {
+                    "schema_id": "artifact-memory/knowledge-record/v1",
+                    "record_id": f"record://synthetic/supersession-cli-000{ordinal}",
+                    "record_type": "note",
+                    "lifecycle": lifecycle,
+                    "meaning": {"summary": f"{lifecycle} synthetic ledger note for the CLI filter"},
+                    "artifact_refs": [],
+                    "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/supersession/v1"}],
+                    "sensitivity": "public",
+                }
+            )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = []
+            for ordinal, record in enumerate(records, start=1):
+                path = root / f"record-000{ordinal}.json"
+                path.write_text(json.dumps(record), encoding="utf-8")
+                paths.append(path)
+            output = root / "generated"
+            project_records(paths, output)
+            index = output / "records.sqlite"
+
+            default = self.run_cli("search", str(index), "ledger", "--json")
+            filtered = self.run_cli("search", str(index), "ledger", "--exclude-superseded", "--json")
+            receipt = self.run_cli("search-receipt", str(index), "ledger", "--exclude-superseded", "--json")
+
+        self.assertEqual(default.returncode, 0)
+        self.assertEqual(len(json.loads(default.stdout)["record_ids"]), 2)
+        self.assertEqual(filtered.returncode, 0)
+        self.assertEqual(json.loads(filtered.stdout)["record_ids"], ["record://synthetic/supersession-cli-0001"])
+        self.assertEqual(receipt.returncode, 0)
+        payload = json.loads(receipt.stdout)
+        self.assertTrue(payload["exclude_superseded"])
+        self.assertEqual(payload["record_ids"], ["record://synthetic/supersession-cli-0001"])
+
+    def test_search_ranking_through_cli(self):
+        from artifact_memory.projection import project_records
+
+        records = []
+        summaries = (
+            "beta beta beta beta beta gamma alpha",
+            "beta gamma gamma gamma gamma alpha",
+        )
+        for ordinal, summary in enumerate(summaries, start=1):
+            records.append(
+                {
+                    "schema_id": "artifact-memory/knowledge-record/v1",
+                    "record_id": f"record://synthetic/ranking-cli-000{ordinal}",
+                    "record_type": "note",
+                    "lifecycle": "accepted",
+                    "meaning": {"summary": summary},
+                    "artifact_refs": [],
+                    "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/ranking/v1"}],
+                    "sensitivity": "public",
+                }
+            )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = []
+            for ordinal, record in enumerate(records, start=1):
+                path = root / f"record-000{ordinal}.json"
+                path.write_text(json.dumps(record), encoding="utf-8")
+                paths.append(path)
+            output = root / "generated"
+            project_records(paths, output)
+            index = output / "records.sqlite"
+
+            unranked = self.run_cli("search", str(index), "beta gamma", "--json")
+            ranked = self.run_cli("search", str(index), "beta gamma", "--rank", "--json")
+            receipt = self.run_cli("search-receipt", str(index), "beta gamma", "--rank", "--json")
+            human = self.run_cli("search-receipt", str(index), "beta gamma", "--rank")
+
+        self.assertEqual(unranked.returncode, 0)
+        self.assertEqual(
+            json.loads(unranked.stdout)["record_ids"],
+            ["record://synthetic/ranking-cli-0001", "record://synthetic/ranking-cli-0002"],
+        )
+        self.assertEqual(ranked.returncode, 0)
+        self.assertEqual(
+            json.loads(ranked.stdout)["record_ids"],
+            ["record://synthetic/ranking-cli-0002", "record://synthetic/ranking-cli-0001"],
+        )
+        payload = json.loads(receipt.stdout)
+        self.assertEqual(
+            payload["result_order"],
+            {"ranking": "bm25", "tiebreak": "record-id", "authoritative": False, "corpus_dependent": True},
+        )
+        self.assertIn("result_order", human.stdout)
+        self.assertIn("'authoritative': False", human.stdout)
 
     def test_archive_receipt_requires_semantic_validation(self):
         from artifact_memory.archive import inspect_zip

@@ -1,0 +1,56 @@
+{
+  "authority_boundary": "informational-only/no-execution-authority",
+  "limitations": [
+    "exclusion is a read-time lifecycle filter; it is not revocation, which remains a projection-build input",
+    "superseded records remain first-class hits by default; callers must opt in",
+    "only lifecycle superseded is excluded; other non-current lifecycles are unaffected"
+  ],
+  "operations": [
+    {
+      "name": "project-synthetic-records",
+      "outcome": "complete"
+    },
+    {
+      "name": "default-search-returns-both-lifecycles",
+      "outcome": "complete"
+    },
+    {
+      "name": "exclude-superseded-returns-survivor",
+      "outcome": "verified"
+    },
+    {
+      "name": "literal-mode-composes-with-exclusion",
+      "outcome": "complete"
+    },
+    {
+      "name": "replacement-binds-exact-predecessor-revision",
+      "outcome": "verified"
+    },
+    {
+      "name": "receipts-bind-exclusion",
+      "outcome": "complete"
+    }
+  ],
+  "outcome": "complete",
+  "projection": {
+    "record_count": 2,
+    "source_record_set_digest": "sha-256:8a859c704d1c3e91b80087bdf2ffa440c8a7616fe21c682444ba5bb282f79d25"
+  },
+  "receipt_id": "search-supersession-slice-receipt://synthetic/b6acb594558e80d1cd323a61f34e57c515cf3603a4326b4c3e315c262dfa631e",
+  "schema_id": "artifact-memory/search-supersession-slice-receipt/v1",
+  "supersession_filter": {
+    "default_record_ids": [
+      "record://synthetic/search-supersession-0001",
+      "record://synthetic/search-supersession-0002"
+    ],
+    "filtered_record_ids": [
+      "record://synthetic/search-supersession-0001"
+    ],
+    "literal_filtered_record_ids": [
+      "record://synthetic/search-supersession-0001"
+    ],
+    "query": "ledger",
+    "receipt_default_omits_exclude_superseded": true,
+    "receipt_filtered_exclude_superseded": true
+  }
+}

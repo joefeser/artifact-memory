@@ -1,0 +1,76 @@
+{
+  "authority_boundary": "informational-only/no-execution-authority",
+  "limitations": [
+    "literal mode accepts one query string, including adjacent multiword phrases, and fully case-folds the validated indexed text so expanding Unicode folds remain equivalent while punctuation stays significant",
+    "raw mode remains the default and still exposes full FTS5 query syntax",
+    "only meaning.summary and labels are lexically indexed; other record fields are unreachable from search"
+  ],
+  "literal_search": {
+    "adjacent_record_ids": [
+      "record://synthetic/search-literal-0001"
+    ],
+    "casefold_phrase_query": "stra\u00dfe",
+    "casefold_phrase_record_ids": [
+      "record://synthetic/search-literal-0005",
+      "record://synthetic/search-literal-0006"
+    ],
+    "casefold_symbol_query": "ss",
+    "casefold_symbol_record_ids": [
+      "record://synthetic/search-literal-0007"
+    ],
+    "empty_literal_outcome": "query-invalid",
+    "hyphenated_query": "alpha-beta",
+    "quoted_query_outcome": "matched-with-doubled-quotes",
+    "raw_hyphenated_outcome": "query-invalid",
+    "raw_quoted_outcome": "query-invalid",
+    "receipt_binds_mode_and_typed_query": true,
+    "spaced_query_record_ids": [
+      "record://synthetic/search-literal-0004"
+    ]
+  },
+  "operations": [
+    {
+      "name": "project-synthetic-records",
+      "outcome": "complete"
+    },
+    {
+      "name": "literal-hyphenated-phrase-matches-adjacent-only",
+      "outcome": "complete"
+    },
+    {
+      "name": "literal-punctuation-is-significant",
+      "outcome": "verified"
+    },
+    {
+      "name": "raw-hyphenated-query-typed-invalid",
+      "outcome": "verified"
+    },
+    {
+      "name": "literal-embedded-quote-doubled",
+      "outcome": "complete"
+    },
+    {
+      "name": "raw-unterminated-quote-typed-invalid",
+      "outcome": "verified"
+    },
+    {
+      "name": "empty-literal-query-typed-invalid",
+      "outcome": "verified"
+    },
+    {
+      "name": "literal-expanding-unicode-casefold-equivalent",
+      "outcome": "verified"
+    },
+    {
+      "name": "receipt-binds-mode-and-typed-query",
+      "outcome": "complete"
+    }
+  ],
+  "outcome": "complete",
+  "projection": {
+    "record_count": 7,
+    "source_record_set_digest": "sha-256:3c26f008399fa22fd87c211cf2d82133e11f65006f66d957dfe5397545fa1472"
+  },
+  "receipt_id": "search-literal-slice-receipt://synthetic/b96f1a1393332d79e64c50eb0f756e5207800237652aa627cdaae629f4916c42",
+  "schema_id": "artifact-memory/search-literal-slice-receipt/v1"
+}

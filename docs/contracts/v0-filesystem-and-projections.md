@@ -53,11 +53,79 @@ rows, query results, canonical NDJSON, and source-record-set identity. SQLite
 file bytes themselves are not canonical identity.
 Query commands open SQLite projections read-only. A missing or malformed index
 returns `projection-unavailable` and must not create a replacement database.
-Every query first verifies the SQLite user version, projection schema identity,
-required columns and indexes, metadata cardinality and types, source-set
-digest consistency, record count, and provenance ordinals. An incompatible
+Every query first verifies the SQLite user version, the exact application
+object set, normalized ordinary table and explicit-index declarations, the
+exact FTS5 declaration, required columns and indexes, metadata cardinality and
+types, source-set
+digest consistency, record count, and provenance ordinals.
+Declaration normalization ignores spelling case and whitespace only outside
+quoted tokens; quoted strings and identifiers preserve exact case, whitespace,
+and doubled-quote escapes so future semantic literals cannot compare equal
+after substitution. Every query then
+requires `PRAGMA integrity_check` to return `ok`, so an index whose FTS5
+inverted index disagrees with its content rows — for example a summary
+reindexed through `records_fts` and then restored in `records_fts_content` —
+returns `projection-unavailable` instead of serving forged terms that pass
+content-row validation. A runtime whose behavioral capability probe cannot
+demonstrate that its integrity check reaches the FTS5 inverted index also
+returns `projection-unavailable` rather than trusting an unverifiable `ok`.
+Upstream SQLite added this coverage in 3.44, but the probe remains authoritative
+for the loaded build. Validation plus the query run
+inside one read transaction so the caller sees exactly the verified snapshot.
+An incompatible
 version or schema identity returns `projection-schema-mismatch`; malformed FTS
 syntax remains a distinct `query-invalid` caller outcome.
+
+A `search-receipt` command beside raw `search` returns the SHA-256 digest of
+the exact UTF-8 query bytes, matched record IDs, the projection's
+`source_record_set_digest`, and the integrity-gate outcome
+(`artifact-memory/search-receipt/v1`), pinning query evidence to the exact
+canonical record set that produced the index. The receipt never echoes the raw
+query. Its unkeyed digest prevents direct logging but does not conceal a
+guessable low-entropy query from dictionary inference. Because the receipt is
+issued inside the gated read, a tampered index yields a typed failure instead
+of a vouched receipt. The raw `search` output and every existing receipt keep
+their shapes.
+
+Both `search` and `search-receipt` accept `--literal`, which treats the query
+as one literal query string, including an adjacent multiword phrase such as
+`alpha beta`. The query and validated indexed text are fully case-folded into
+a connection-local FTS5 table before the query is quoted as a single FTS5
+string with any embedded double quote doubled. A matched record must also
+contain the query's case-folded bytes in its summary or labels, so punctuation
+and spelling are significant (`alpha-beta` does not match adjacent
+`alpha beta` text). Full Unicode folds such as `Straße`/`STRASSE` are therefore
+equivalent without exposing raw FTS5 syntax. Without the flag, the raw query is passed to FTS5 unmodified
+and full MATCH syntax remains caller-controlled; a raw hyphenated query can
+otherwise surface as column-filter syntax. `records_fts` must be an FTS5
+virtual table: a non-FTS5 table with the expected columns is
+`projection-unavailable`, because MATCH support is part of the projection
+contract rather than a property of the caller's query. Query failures
+classify on the SQLite result code, not message text:
+`sqlite_errorcode & 0xff` of 1 is `query-invalid`; any other code is
+`projection-unavailable`. Search receipts record `query_mode`
+(`raw` or `literal`) beside the query digest, so a receipt identifies which
+grammar produced its results. Both search commands also accept
+`--exclude-superseded`, which drops matches whose record lifecycle is
+`superseded`; superseded records remain first-class hits by default, and the
+receipt records `exclude_superseded` — only when the filter is active, so
+default receipts keep the pre-filter shape for consumers pinned to the
+earlier schema — beside the mode and query digest so filtered results are
+replayable. Exclusion is a read-time lifecycle filter,
+not revocation: revocation suppression remains a projection-build input.
+Both search commands also accept `--rank`, which orders results by FTS5 bm25
+relevance with a deterministic record_id tiebreak instead of record_id alone.
+Ranked order is corpus-dependent — adding unrelated records to the vault can
+change any result's rank — and is a findability aid only, never an authority
+or relevance claim about record truth; ranked receipts therefore carry a
+`result_order` label naming the ranking, tiebreak, and its explicit
+non-authoritative, corpus-dependent status, while default receipts omit the
+field entirely and keep record_id order. Search is lexically restricted to
+`meaning.summary` and record labels; no other record field is indexed or
+reachable from search. Search is a confirmation oracle over that restricted
+meaning — an ungated term, adjacency, and prefix match — and applies no
+context-pack exclusion policy; context export remains the surface that counts
+and reports exclusions.
 
 Projections do not copy credentials, resolver configuration, protected bytes,
 TraceMap provider schemas, WITS memory cards, HACP Task Packets, Route Tasks,
@@ -69,4 +137,42 @@ end to end. Replay it with:
 
 ```sh
 python3 scripts/run_scan_projection_slice.py --check
+```
+
+The checked-in `fixtures/synthetic/projection-integrity/v1` receipt proves the
+read integrity gate end to end, including the two-step inverted-index forgery.
+Replay it with:
+
+```sh
+python3 scripts/run_projection_integrity_slice.py --check
+```
+
+The checked-in `fixtures/synthetic/search-receipt/v1` receipt proves the
+digest-bearing search receipt end to end, from canonical records through the
+CLI receipt. Replay it with:
+
+```sh
+python3 scripts/run_search_receipt_slice.py --check
+```
+
+The checked-in `fixtures/synthetic/search-literal/v1` receipt proves literal
+mode and error-code classification end to end. Replay it with:
+
+```sh
+python3 scripts/run_search_literal_slice.py --check
+```
+
+The checked-in `fixtures/synthetic/search-supersession/v1` receipt proves the
+supersession filter and its receipt binding end to end. Replay it with:
+
+```sh
+python3 scripts/run_search_supersession_slice.py --check
+```
+
+The checked-in `fixtures/synthetic/search-ranking/v1` receipt proves
+conditional bm25 end to end, including the corpus-growth order flip. Replay it
+with:
+
+```sh
+python3 scripts/run_search_ranking_slice.py --check
 ```

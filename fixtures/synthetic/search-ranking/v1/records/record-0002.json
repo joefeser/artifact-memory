@@ -1,0 +1,17 @@
+{
+  "schema_id": "artifact-memory/knowledge-record/v1",
+  "record_id": "record://synthetic/search-ranking-0002",
+  "record_type": "note",
+  "lifecycle": "accepted",
+  "meaning": {
+    "summary": "beta gamma gamma gamma gamma alpha"
+  },
+  "artifact_refs": [],
+  "provenance": [
+    {
+      "kind": "author",
+      "source_ref": "fixture://synthetic/search-ranking/v1"
+    }
+  ],
+  "sensitivity": "public"
+}

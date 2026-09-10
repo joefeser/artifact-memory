@@ -3,17 +3,23 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from artifact_memory import projection
+from artifact_memory.canonical import sha256_bytes
 from artifact_memory.projection import (
+    _read_index,
     canonical_records,
     logical_projection_snapshot,
     project_records,
     projection_metadata,
     records_with_provenance,
     related_records,
+    search_receipt,
     search_records,
 )
-from artifact_memory.validator import ValidationFailure
+from artifact_memory.schema_resources import load_schema
+from artifact_memory.validator import ValidationFailure, validate
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,6 +109,19 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual(rebuilt_receipt, first_receipt)
             self.assertEqual(logical_projection_snapshot(first_out / "records.sqlite"), first_snapshot)
             self.assertEqual(search_records(first_out / "records.sqlite", "projection"), ["record://synthetic/record-0002"])
+
+    def test_projection_creation_reports_incapable_sqlite_runtime_typed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            with mock.patch.object(
+                projection.sqlite3,
+                "connect",
+                side_effect=sqlite3.OperationalError("no such module: fts5"),
+            ):
+                with self.assertRaises(ValidationFailure) as raised:
+                    project_records([FIXTURE], output)
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+            self.assertEqual(list(output.iterdir()), [])
 
     def test_projection_rejects_invalid_canonical_record_before_writing_views(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -282,6 +301,648 @@ class ProjectionTests(unittest.TestCase):
             with self.assertRaises(ValidationFailure) as raised:
                 search_records(search_output / "records.sqlite", "forged")
             self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_projection_queries_reject_fts_inverted_index_tampering(self):
+        """A two-step forgery reindexes through records_fts and then restores
+        records_fts_content, so every content row still matches its canonical
+        record while the inverted index serves forged terms; reads must fail
+        closed on physical integrity instead of trusting the content rows."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            original_id, original_summary = connection.execute("SELECT c0, c1 FROM records_fts_content").fetchone()
+            connection.execute(
+                "UPDATE records_fts SET summary = ? WHERE record_id = ?",
+                ("forged summary containing syntheticforged", original_id),
+            )
+            connection.execute(
+                "UPDATE records_fts_content SET c1 = ? WHERE c0 = ?",
+                (original_summary, original_id),
+            )
+            connection.commit()
+            connection.close()
+            probes = {
+                "search": lambda: search_records(index, "syntheticforged"),
+                "related": lambda: related_records(index, original_id),
+                "provenance": lambda: records_with_provenance(index, "fixture://synthetic/contracts/v0"),
+                "metadata": lambda: projection_metadata(index),
+                "logical-snapshot": lambda: logical_projection_snapshot(index),
+            }
+            for surface, probe in probes.items():
+                with self.subTest(surface=surface):
+                    with self.assertRaises(ValidationFailure) as raised:
+                        probe()
+                    self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_projection_reads_fail_closed_without_fts5_integrity_runtime(self):
+        """A runtime whose PRAGMA integrity_check cannot reach the FTS5
+        inverted index returns ok without evidence, so reads must fail closed
+        instead of treating that ok as verification."""
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            with mock.patch.object(projection, "_runtime_verifies_fts5_integrity", return_value=False):
+                with self.assertRaises(ValidationFailure) as raised:
+                    search_records(index, "synthetic")
+                self.assertEqual(raised.exception.code, "projection-unavailable")
+            self.assertEqual(search_records(index, "synthetic"), ["record://synthetic/record-0001"])
+
+    def test_runtime_fts5_integrity_capability_is_behaviorally_probed(self):
+        projection._runtime_verifies_fts5_integrity.cache_clear()
+        result = projection._runtime_verifies_fts5_integrity()
+        self.assertIs(type(result), bool)
+
+    def test_runtime_fts5_integrity_probe_has_no_reported_version_floor(self):
+        projection._runtime_verifies_fts5_integrity.cache_clear()
+        try:
+            with mock.patch.object(projection.sqlite3, "sqlite_version_info", (3, 43, 0)):
+                self.assertTrue(projection._runtime_verifies_fts5_integrity())
+        finally:
+            projection._runtime_verifies_fts5_integrity.cache_clear()
+
+    def test_declaration_normalization_preserves_quoted_semantics(self):
+        expected = "CREATE TABLE sample(value TEXT CHECK(value IN ('accepted value', 'it''s final')))"
+        formatting_only = "create\n table sample ( value text check ( value in ( 'accepted value' , 'it''s final' ) ) )"
+        changed_case = expected.replace("'accepted value'", "'ACCEPTED VALUE'")
+        changed_space = expected.replace("'accepted value'", "'accepted  value'")
+        self.assertEqual(
+            projection._normalized_declaration(expected),
+            projection._normalized_declaration(formatting_only),
+        )
+        self.assertNotEqual(
+            projection._normalized_declaration(expected),
+            projection._normalized_declaration(changed_case),
+        )
+        self.assertNotEqual(
+            projection._normalized_declaration(expected),
+            projection._normalized_declaration(changed_space),
+        )
+
+    def test_clean_case_distinct_lifecycle_filtering_preserves_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = []
+            for name, record_id, lifecycle in (
+                ("upper", "record://synthetic/A", "superseded"),
+                ("lower", "record://synthetic/a", "accepted"),
+            ):
+                record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+                record["record_id"] = record_id
+                record["lifecycle"] = lifecycle
+                record["meaning"]["summary"] = "synthetic case distinct identity"
+                path = root / f"{name}.json"
+                path.write_text(json.dumps(record), encoding="utf-8")
+                paths.append(path)
+            output = root / "generated"
+            project_records(paths, output)
+            for literal in (False, True):
+                for rank in (False, True):
+                    with self.subTest(literal=literal, rank=rank):
+                        receipt = search_receipt(
+                            output / "records.sqlite",
+                            "synthetic",
+                            literal=literal,
+                            rank=rank,
+                            exclude_superseded=True,
+                        )
+                        self.assertEqual(receipt["record_ids"], ["record://synthetic/a"])
+                        self.assertEqual(receipt["integrity_gate"], "verified")
+
+    def test_filtered_receipts_reject_case_insensitive_schema_substitution(self):
+        """Column-name and integrity checks alone do not preserve join
+        semantics: a NOCASE replacement can associate case-distinct FTS IDs
+        with the wrong lifecycle row while SQLite still reports integrity ok."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = []
+            for name, record_id, lifecycle in (
+                ("upper", "record://synthetic/A", "superseded"),
+                ("lower", "record://synthetic/a", "accepted"),
+            ):
+                record = json.loads(FIXTURE.read_text(encoding="utf-8"))
+                record["record_id"] = record_id
+                record["lifecycle"] = lifecycle
+                record["meaning"]["summary"] = "synthetic collation bypass"
+                path = root / f"{name}.json"
+                path.write_text(json.dumps(record), encoding="utf-8")
+                paths.append(path)
+            output = root / "generated"
+            project_records(paths, output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            rows = connection.execute("SELECT * FROM records ORDER BY record_id").fetchall()
+            connection.execute("DROP TABLE records")
+            connection.executescript(
+                """
+                CREATE TABLE records (
+                    record_id TEXT COLLATE NOCASE,
+                    record_type TEXT NOT NULL,
+                    lifecycle TEXT NOT NULL,
+                    sensitivity TEXT,
+                    record_json TEXT NOT NULL,
+                    source_record_set_digest TEXT NOT NULL
+                );
+                CREATE INDEX records_type_idx ON records(record_type, record_id);
+                CREATE INDEX records_lifecycle_idx ON records(lifecycle, record_id);
+                """
+            )
+            connection.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", rows)
+            connection.commit()
+            self.assertEqual(connection.execute("PRAGMA integrity_check").fetchall(), [("ok",)])
+            connection.close()
+            for literal in (False, True):
+                for rank in (False, True):
+                    with self.subTest(literal=literal, rank=rank):
+                        with self.assertRaises(ValidationFailure) as raised:
+                            search_receipt(
+                                index,
+                                "synthetic",
+                                literal=literal,
+                                rank=rank,
+                                exclude_superseded=True,
+                            )
+                        self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_projection_reads_reject_unexpected_application_objects(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            connection.execute("CREATE TABLE unexpected_application_state (value TEXT)")
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "synthetic")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_projection_reads_reject_unexpected_trigger(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            connection.execute(
+                "CREATE TRIGGER unexpected_trigger AFTER INSERT ON records BEGIN SELECT 1; END"
+            )
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "synthetic")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_projection_reads_reject_shadow_table_view_substitution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            connection.execute("DROP TABLE records_fts_content")
+            connection.execute(
+                "CREATE VIEW records_fts_content AS "
+                "SELECT NULL AS id, NULL AS c0, NULL AS c1, NULL AS c2 WHERE 0"
+            )
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "synthetic")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_projection_reads_reject_explicit_index_semantic_substitution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            connection.execute("DROP INDEX records_type_idx")
+            connection.execute(
+                "CREATE INDEX records_type_idx ON records(record_type COLLATE NOCASE, record_id)"
+            )
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "synthetic")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_projection_read_holds_one_snapshot_against_concurrent_writers(self):
+        """Verification and the caller query must observe one read snapshot: a
+        writer cannot commit the two-step forgery after the integrity check but
+        before the query while the read transaction is open."""
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            with _read_index(index) as reader:
+                snapshot = reader.execute("SELECT record_id FROM records ORDER BY record_id").fetchall()
+                writer = sqlite3.connect(index, timeout=0.05)
+                try:
+                    with self.assertRaises(sqlite3.OperationalError):
+                        writer.execute(
+                            "UPDATE records_fts SET summary = 'forged summary containing syntheticforged'"
+                        )
+                        writer.commit()
+                finally:
+                    writer.close()
+                self.assertEqual(
+                    reader.execute("SELECT record_id FROM records ORDER BY record_id").fetchall(),
+                    snapshot,
+                )
+            writer = sqlite3.connect(index)
+            writer.execute("UPDATE records_fts SET summary = 'forged summary containing syntheticforged'")
+            writer.commit()
+            writer.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "syntheticforged")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def test_search_receipt_pins_results_to_source_record_set(self):
+        """The digest-bearing receipt is additive: same matches as the raw
+        search surface, plus the source digest and gate state, while
+        search_records keeps its shape."""
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            projection_receipt = project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            receipt = search_receipt(index, "synthetic")
+            self.assertEqual(receipt["schema_id"], "artifact-memory/search-receipt/v1")
+            self.assertEqual(receipt["outcome"], "complete")
+            self.assertNotIn("query", receipt)
+            self.assertEqual(receipt["query_digest"], sha256_bytes(b"synthetic"))
+            self.assertEqual(receipt["record_ids"], search_records(index, "synthetic"))
+            self.assertEqual(receipt["source_record_set_digest"], projection_receipt["source_record_set_digest"])
+            self.assertEqual(receipt["integrity_gate"], "verified")
+            with self.assertRaises(ValidationFailure) as raised:
+                search_receipt(index, '"')
+            self.assertEqual(raised.exception.code, "query-invalid")
+
+    def test_search_receipt_refuses_tampered_index(self):
+        """A receipt must not vouch for an index whose inverted index failed
+        the read gate, even though its content rows still validate."""
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            original_id, original_summary = connection.execute("SELECT c0, c1 FROM records_fts_content").fetchone()
+            connection.execute(
+                "UPDATE records_fts SET summary = ? WHERE record_id = ?",
+                ("forged summary containing syntheticforged", original_id),
+            )
+            connection.execute(
+                "UPDATE records_fts_content SET c1 = ? WHERE c0 = ?",
+                (original_summary, original_id),
+            )
+            connection.commit()
+            connection.close()
+            with self.assertRaises(ValidationFailure) as raised:
+                search_receipt(index, "syntheticforged")
+            self.assertEqual(raised.exception.code, "projection-unavailable")
+
+    def _literal_fixture(self, root: Path) -> Path:
+        summaries = (
+            "Synthetic alpha-beta adjacency proves literal quoting.",
+            "Scattered alpha and beta words never form the phrase.",
+            'Synthetic five "inches recorded without escapes.',
+            "Adjacent alpha beta spacing without punctuation.",
+            "Synthetic STRASSE uppercase form.",
+            "Synthetic Straße sharp-s form.",
+            "Synthetic ß symbol form.",
+        )
+        for ordinal, summary in enumerate(summaries, start=1):
+            record = {
+                "schema_id": "artifact-memory/knowledge-record/v1",
+                "record_id": f"record://synthetic/literal-000{ordinal}",
+                "record_type": "note",
+                "lifecycle": "accepted",
+                "meaning": {"summary": summary},
+                "artifact_refs": [],
+                "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/literal/v1"}],
+                "sensitivity": "public",
+            }
+            (root / f"literal-000{ordinal}.json").write_text(json.dumps(record), encoding="utf-8")
+        return root
+
+    def test_literal_search_matches_one_term_without_syntax_reinterpretation(self):
+        """Literal mode treats the query as a single term whose own bytes must
+        appear: a hyphenated query is a phrase match whose punctuation is
+        significant (adjacent 'alpha beta' text does not match 'alpha-beta'),
+        an embedded double quote is doubled instead of parsed as FTS5 string
+        syntax, and an empty literal query fails typed before the index is
+        opened, so a missing index cannot outrank the caller-input failure."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self._literal_fixture(Path(temporary))
+            output = root / "generated"
+            project_records(sorted(root.glob("literal-*.json")), output)
+            index = output / "records.sqlite"
+            self.assertEqual(
+                search_records(index, "alpha-beta", literal=True),
+                ["record://synthetic/literal-0001"],
+            )
+            self.assertEqual(
+                search_records(index, "alpha beta", literal=True),
+                ["record://synthetic/literal-0004"],
+            )
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "alpha-beta")
+            self.assertEqual(raised.exception.code, "query-invalid")
+            self.assertEqual(
+                search_records(index, 'five "inches', literal=True),
+                ["record://synthetic/literal-0003"],
+            )
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, 'five "inches')
+            self.assertEqual(raised.exception.code, "query-invalid")
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(index, "", literal=True)
+            self.assertEqual(raised.exception.code, "query-invalid")
+            with self.assertRaises(ValidationFailure) as raised:
+                search_records(root / "missing.sqlite", "", literal=True)
+            self.assertEqual(raised.exception.code, "query-invalid")
+            with self.assertRaises(ValidationFailure) as raised:
+                search_receipt(root / "missing.sqlite", "", literal=True)
+            self.assertEqual(raised.exception.code, "query-invalid")
+
+    def test_literal_search_preserves_expanding_unicode_casefold_equivalence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self._literal_fixture(Path(temporary))
+            output = root / "generated"
+            project_records(sorted(root.glob("literal-*.json")), output)
+            index = output / "records.sqlite"
+            phrase_matches = [
+                "record://synthetic/literal-0005",
+                "record://synthetic/literal-0006",
+            ]
+            for query in ("straße", "STRASSE"):
+                with self.subTest(query=query):
+                    self.assertEqual(search_records(index, query, literal=True), phrase_matches)
+                    self.assertEqual(
+                        search_records(index, query, literal=True, rank=True),
+                        phrase_matches,
+                    )
+                    self.assertEqual(
+                        search_receipt(index, query, literal=True)["record_ids"],
+                        phrase_matches,
+                    )
+            self.assertEqual(
+                search_records(index, "ss", literal=True),
+                ["record://synthetic/literal-0007"],
+            )
+
+    def test_search_rejects_non_fts5_records_table_before_match_execution(self):
+        """A non-FTS5 records_fts with the expected columns passes column and
+        integrity checks but cannot serve FTS5 semantics; the contract must
+        reject it as projection-unavailable instead of letting the resulting
+        SQLITE_ERROR classify a valid query as query-invalid — including a
+        non-FTS5 virtual table whose declaration mentions fts5 in a comment."""
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "generated"
+            project_records([FIXTURE], output)
+            index = output / "records.sqlite"
+            replacements = (
+                "CREATE TABLE records_fts (record_id TEXT, summary TEXT, labels TEXT)",
+                "CREATE VIRTUAL TABLE records_fts USING fts4(record_id, summary, labels /* using fts5 */)",
+                "CREATE VIRTUAL TABLE records_fts USING fts5(record_id UNINDEXED, summary, labels UNINDEXED)",
+                "CREATE VIRTUAL TABLE records_fts USING fts5(record_id UNINDEXED, summary, labels, tokenize='porter unicode61')",
+            )
+            for replacement_sql in replacements:
+                connection = sqlite3.connect(index)
+                rows = connection.execute("SELECT record_id, summary, labels FROM records_fts ORDER BY record_id").fetchall()
+                connection.execute("DROP TABLE records_fts")
+                connection.execute(replacement_sql)
+                connection.executemany("INSERT INTO records_fts VALUES (?, ?, ?)", rows)
+                connection.commit()
+                connection.close()
+                for probe in (
+                    lambda: search_records(index, "synthetic"),
+                    lambda: search_receipt(index, "synthetic"),
+                ):
+                    with self.subTest(declaration=replacement_sql):
+                        with self.assertRaises(ValidationFailure) as raised:
+                            probe()
+                        self.assertEqual(raised.exception.code, "projection-unavailable")
+                connection = sqlite3.connect(index)
+                rows = connection.execute("SELECT record_id, summary, labels FROM records_fts ORDER BY record_id").fetchall()
+                connection.execute("DROP TABLE records_fts")
+                connection.execute(
+                    "CREATE VIRTUAL TABLE records_fts USING fts5(record_id UNINDEXED, summary, labels)"
+                )
+                connection.executemany("INSERT INTO records_fts VALUES (?, ?, ?)", rows)
+                connection.commit()
+                connection.close()
+                self.assertEqual(search_records(index, "synthetic"), ["record://synthetic/record-0001"])
+
+    def test_search_failure_classification_uses_sqlite_error_code(self):
+        """Query failures classify on sqlite_errorcode & 0xff, not message
+        text: 1 (SQLITE_ERROR) is query-invalid, anything else is
+        projection-unavailable."""
+        connection = sqlite3.connect(":memory:")
+        connection.execute("CREATE VIRTUAL TABLE t USING fts5(body)")
+        connection.commit()
+        try:
+            connection.execute('SELECT rowid FROM t WHERE t MATCH ?', ("'",)).fetchall()
+            self.fail("malformed match expression did not raise")
+        except sqlite3.Error as exc:
+            syntax_error = exc
+        finally:
+            connection.close()
+        self.assertEqual(syntax_error.sqlite_errorcode & 0xFF, 1)
+        self.assertEqual(projection._classify_search_failure(syntax_error).code, "query-invalid")
+        io_error = sqlite3.OperationalError("disk I/O error during match execution")
+        io_error.sqlite_errorcode = 10
+        self.assertEqual(projection._classify_search_failure(io_error).code, "projection-unavailable")
+
+    def test_search_receipt_literal_mode_pins_typed_query(self):
+        """The receipt works in literal mode and digests the query exactly as
+        the caller typed it, not the quoted match expression."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self._literal_fixture(Path(temporary))
+            output = root / "generated"
+            project_records(sorted(root.glob("literal-*.json")), output)
+            receipt = search_receipt(output / "records.sqlite", "alpha-beta", literal=True)
+            self.assertEqual(receipt["record_ids"], ["record://synthetic/literal-0001"])
+            self.assertEqual(receipt["query_mode"], "literal")
+            self.assertEqual(receipt["query_digest"], sha256_bytes(b"alpha-beta"))
+            raw_receipt = search_receipt(output / "records.sqlite", "adjacent")
+            self.assertEqual(raw_receipt["query_mode"], "raw")
+            self.assertEqual(raw_receipt["query_digest"], sha256_bytes(b"adjacent"))
+            missing_mode = dict(receipt)
+            del missing_mode["query_mode"]
+            with self.assertRaises(ValidationFailure):
+                validate(missing_mode, load_schema("core", "search-receipt.v1.schema.json"))
+
+    def _supersession_fixture(self, root: Path) -> Path:
+        records = (
+            ("accepted", "Accepted synthetic ledger note survives supersession filtering."),
+            ("superseded", "Superseded synthetic ledger note is excluded on request."),
+        )
+        for ordinal, (lifecycle, summary) in enumerate(records, start=1):
+            record = {
+                "schema_id": "artifact-memory/knowledge-record/v1",
+                "record_id": f"record://synthetic/supersession-000{ordinal}",
+                "record_type": "note",
+                "lifecycle": lifecycle,
+                "meaning": {"summary": summary},
+                "artifact_refs": [],
+                "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/supersession/v1"}],
+                "sensitivity": "public",
+            }
+            (root / f"supersession-000{ordinal}.json").write_text(json.dumps(record), encoding="utf-8")
+        return root
+
+    def test_search_exclude_superseded_filters_lifecycle_at_read_time(self):
+        """Superseded records stay first-class search hits by default; the
+        explicit filter drops them, both grammars compose with it, and the
+        receipt binds the exclusion so results are replayable."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self._supersession_fixture(Path(temporary))
+            output = root / "generated"
+            project_records(sorted(root.glob("supersession-*.json")), output)
+            index = output / "records.sqlite"
+            both = ["record://synthetic/supersession-0001", "record://synthetic/supersession-0002"]
+            survivor = ["record://synthetic/supersession-0001"]
+            self.assertEqual(search_records(index, "ledger"), both)
+            self.assertEqual(search_records(index, "ledger", exclude_superseded=True), survivor)
+            self.assertEqual(search_records(index, "ledger", literal=True, exclude_superseded=True), survivor)
+            default_receipt = search_receipt(index, "ledger")
+            filtered_receipt = search_receipt(index, "ledger", exclude_superseded=True)
+            self.assertEqual(default_receipt["record_ids"], both)
+            self.assertNotIn("exclude_superseded", default_receipt)
+            self.assertEqual(filtered_receipt["record_ids"], survivor)
+            self.assertTrue(filtered_receipt["exclude_superseded"])
+            inactive = dict(filtered_receipt)
+            inactive["exclude_superseded"] = False
+            with self.assertRaises(ValidationFailure):
+                validate(inactive, load_schema("core", "search-receipt.v1.schema.json"))
+
+    def _ranking_fixture(self, root: Path) -> Path:
+        records = (
+            ("accepted", "beta beta beta beta beta gamma alpha"),
+            ("accepted", "beta gamma gamma gamma gamma alpha"),
+        )
+        for ordinal, (lifecycle, summary) in enumerate(records, start=1):
+            record = {
+                "schema_id": "artifact-memory/knowledge-record/v1",
+                "record_id": f"record://synthetic/ranking-000{ordinal}",
+                "record_type": "note",
+                "lifecycle": lifecycle,
+                "meaning": {"summary": summary},
+                "artifact_refs": [],
+                "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/ranking/v1"}],
+                "sensitivity": "public",
+            }
+            (root / f"ranking-000{ordinal}.json").write_text(json.dumps(record), encoding="utf-8")
+        for ordinal in range(3, 6):
+            record = {
+                "schema_id": "artifact-memory/knowledge-record/v1",
+                "record_id": f"record://synthetic/ranking-000{ordinal}",
+                "record_type": "note",
+                "lifecycle": "accepted",
+                "meaning": {"summary": "gamma alpha"},
+                "artifact_refs": [],
+                "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/ranking/v1"}],
+                "sensitivity": "public",
+            }
+            (root / f"ranking-000{ordinal}.json").write_text(json.dumps(record), encoding="utf-8")
+        return root
+
+    def test_ranked_search_orders_by_bm25_with_record_id_tiebreak(self):
+        """Ranking is opt-in and never authoritative: bm25 reorders results
+        away from record_id order, equal scores tiebreak deterministically by
+        record_id, the receipt labels the order as bm25/non-authoritative/
+        corpus-dependent, and default output keeps record_id order with no
+        result_order field."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self._ranking_fixture(Path(temporary))
+            output = root / "generated"
+            project_records(sorted(root.glob("ranking-000[12].json")), output)
+            index = output / "records.sqlite"
+            first = ["record://synthetic/ranking-0001", "record://synthetic/ranking-0002"]
+            self.assertEqual(search_records(index, "beta gamma"), first)
+            self.assertEqual(search_records(index, "beta gamma", rank=True), list(reversed(first)))
+            default_receipt = search_receipt(index, "beta gamma")
+            ranked_receipt = search_receipt(index, "beta gamma", rank=True)
+            self.assertNotIn("result_order", default_receipt)
+            self.assertEqual(
+                ranked_receipt["result_order"],
+                {"ranking": "bm25", "tiebreak": "record-id", "authoritative": False, "corpus_dependent": True},
+            )
+            self.assertEqual(ranked_receipt["record_ids"], list(reversed(first)))
+            self.assertEqual(ranked_receipt["query_digest"], default_receipt["query_digest"])
+            self.assertEqual(ranked_receipt["source_record_set_digest"], default_receipt["source_record_set_digest"])
+
+    def test_ranked_search_ties_break_by_record_id_and_compose_with_other_modes(self):
+        """Identical documents score identically, so ranked order is the
+        record_id order; ranking composes with literal mode and with
+        supersession exclusion, preserving relevance order among survivors."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            records = (
+                ("accepted", "delta delta delta epsilon"),
+                ("accepted", "delta delta delta epsilon"),
+                ("superseded", "delta delta delta delta delta epsilon"),
+                ("accepted", "zeta unrelated"),
+            )
+            for ordinal, (lifecycle, summary) in enumerate(records, start=1):
+                record = {
+                    "schema_id": "artifact-memory/knowledge-record/v1",
+                    "record_id": f"record://synthetic/ranking-tie-000{ordinal}",
+                    "record_type": "note",
+                    "lifecycle": lifecycle,
+                    "meaning": {"summary": summary},
+                    "artifact_refs": [],
+                    "provenance": [{"kind": "author", "source_ref": "fixture://synthetic/ranking/v1"}],
+                    "sensitivity": "public",
+                }
+                (root / f"tie-000{ordinal}.json").write_text(json.dumps(record), encoding="utf-8")
+            output = root / "generated"
+            project_records(sorted(root.glob("tie-*.json")), output)
+            index = output / "records.sqlite"
+            matched = [
+                "record://synthetic/ranking-tie-0001",
+                "record://synthetic/ranking-tie-0002",
+                "record://synthetic/ranking-tie-0003",
+            ]
+            self.assertEqual(search_records(index, "delta epsilon", rank=True), matched)
+            self.assertEqual(
+                search_records(index, "delta epsilon", rank=True, exclude_superseded=True),
+                matched[:2],
+            )
+            literal_receipt = search_receipt(index, "delta epsilon", rank=True, literal=True)
+            self.assertEqual(literal_receipt["record_ids"], matched)
+            self.assertEqual(literal_receipt["query_mode"], "literal")
+            self.assertEqual(
+                literal_receipt["result_order"],
+                {"ranking": "bm25", "tiebreak": "record-id", "authoritative": False, "corpus_dependent": True},
+            )
+
+    def test_ranked_search_ignores_persisted_fts5_rank_configuration(self):
+        """A tampered index can reconfigure the FTS5 `rank` alias through
+        legitimate means while passing contract validation and
+        integrity_check; ranked search must use the explicit bm25() function
+        so the persisted configuration cannot steer the vouched order."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self._ranking_fixture(Path(temporary))
+            output = root / "generated"
+            project_records(sorted(root.glob("ranking-000[12].json")), output)
+            index = output / "records.sqlite"
+            connection = sqlite3.connect(index)
+            connection.execute("INSERT INTO records_fts(records_fts, rank) VALUES('rank', 'bm25(0.0, 0.0)')")
+            connection.commit()
+            connection.close()
+            self.assertEqual(
+                search_records(index, "beta gamma", rank=True),
+                ["record://synthetic/ranking-0002", "record://synthetic/ranking-0001"],
+            )
+            tampered_receipt = search_receipt(index, "beta gamma", rank=True)
+            self.assertEqual(
+                tampered_receipt["record_ids"],
+                ["record://synthetic/ranking-0002", "record://synthetic/ranking-0001"],
+            )
+            self.assertEqual(tampered_receipt["integrity_gate"], "verified")
 
 
 if __name__ == "__main__":

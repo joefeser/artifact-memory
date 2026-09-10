@@ -77,3 +77,34 @@ The profile schema publishes each direct numeric ceiling. Arithmetic and
 generated-payload relationships between profile fields are enforced by
 `validate_profile()` because standard JSON Schema cannot compare sibling
 numeric values; schema-only acceptance is therefore not execution admission.
+
+## Ranked-search measurements (reconciled 2026-09-10)
+
+`scripts/measure_ranked_search.py` (descriptive, per decision 0015; generator
+profile `rank-measure/v3:timing-corpus-v2:warm-both-v1:heterogeneous-flip-v1`,
+corpus digest bound per scale) measured bm25-ranked versus unranked search
+through the real library — integrity gate, contract validation, and match
+included — on deterministic synthetic corpora (Python 3.14.4, SQLite 3.52.0).
+Both modes receive one untimed warm-up query before samples are collected, so
+one-time schema/runtime caches and cold database pages are excluded from the
+comparison:
+
+| Records | Corpus digest (prefix) | Projection build | Unranked median | Ranked median | Ratio |
+| --- | --- | --- | --- | --- | --- |
+| 1,000 | sha-256:01c29a4b… | 0.162 s | 60.9 ms | 60.6 ms | 0.99 |
+| 5,000 | sha-256:d3d0d5a0… | 0.767 s | 306.7 ms | 308.0 ms | 1.00 |
+
+Ranked search is at cost parity with unranked search: per-query cost is
+dominated by per-query revalidation (consistent with the architecture review's
+~310-316 ms per 5,000-record observations), and bm25 ordering added no
+measurable overhead at either scale.
+
+The timing corpus's matching documents have uniform length and term-frequency
+structure, so its 0/40 no-flip result is retained only as a control observation
+for that workload and does not support a scale-wide conclusion. A separate
+heterogeneous probe at both 1,000 and 5,000 records starts with exactly two
+`beta gamma` matches of different length and term frequency. Adding one
+`alpha alpha alpha` document changes their relative BM25 order while leaving
+the matched set unchanged. Corpus-dependent rank flips are therefore directly
+reachable at both measured scales; ranking remains informational and never an
+authority or objective-importance signal.

@@ -5,7 +5,7 @@ importing private project context. They are bounded handoffs, not authority
 grants. Copy the smallest prompt that matches the integration being attempted.
 
 The implementation baseline is the owner-signed
-[`v0.1.1`](https://github.com/joefeser/artifact-memory/releases/tag/v0.1.1)
+[`v0.1.2`](https://github.com/joefeser/artifact-memory/releases/tag/v0.1.2)
 release. An adopter must record the exact Artifact Memory tag or commit and the
 schema identifiers it uses. Documentation can be corrected or expanded between
 software releases; a documentation merge does not modify the signed release or
@@ -32,7 +32,7 @@ Expected mode: read-only architecture and boundary audit. Do not edit code,
 issues, discussions, settings, or workflows.
 
 Evaluate whether <ADOPTING_REPOSITORY> should integrate Artifact Memory using
-the owner-signed v0.1.1 release.
+the owner-signed v0.1.2 release.
 
 1. Fetch both repositories and report the exact repo/ref/SHA inspected for
    each. Do not rely on a moving local branch.
@@ -69,13 +69,13 @@ Use this after the fit audit identifies a useful seam.
 ```text
 Expected mode: bounded implementation in <ADOPTING_REPOSITORY> only.
 
-Implement one provider-free Artifact Memory v0.1.1 conformance proof governed
+Implement one provider-free Artifact Memory v0.1.2 conformance proof governed
 by <ISSUE_URL>.
 
 Pinned inputs:
 - Fetch and verify exact <ADOPTING_REPOSITORY_REF>; report its SHA before
   editing.
-- Pin Artifact Memory to owner-signed tag v0.1.1, record the resolved commit,
+- Pin Artifact Memory to owner-signed tag v0.1.2, record the resolved commit,
   and record every negotiated schema identifier.
 - Use wholly synthetic records and artifact bytes created for this fixture.
 
@@ -124,7 +124,7 @@ For <PROVIDER_OR_PRODUCT>, implement only the declaration and synthetic
 boundary fixture governed by <ISSUE_URL>.
 
 1. Pin and report exact SHAs for the provider repository and Artifact Memory
-   v0.1.1.
+   v0.1.2.
 2. Keep provider schema references as provider contracts; do not copy their
    schema text or product logic into Artifact Memory core schemas.
 3. Declare exact adapter identity/version, supported contracts, input/output
@@ -149,7 +149,7 @@ dynamic loading, remote execution, task creation, or provider mutation.
 
 ## Prompt: authority-safe context consumption
 
-The v0.1.1 exporter supports frozen context-pack v2/v3 and negotiated v4. V4 is
+The v0.1.2 exporter supports frozen context-pack v2/v3 and negotiated v4. V4 is
 required when lifecycle exclusions must be receipted. Caller selection and
 freshness are disclosed assertions, not authenticated authorization or inferred
 truth.
@@ -157,7 +157,7 @@ truth.
 ```text
 Expected mode: bounded informational context-pack integration.
 
-Consume one synthetic Artifact Memory v0.1.1 context pack in
+Consume one synthetic Artifact Memory v0.1.2 context pack in
 <ADOPTING_REPOSITORY>, governed by <ISSUE_URL>.
 
 1. Pin exact producer and consumer SHAs and negotiate an explicit supported
@@ -199,7 +199,7 @@ the claim.
 Expected mode: read-only evidence review. Do not patch or broaden scope.
 
 Review the completed Artifact Memory adoption proof at exact
-<ADOPTING_REPOSITORY_SHA> against owner-signed Artifact Memory v0.1.1.
+<ADOPTING_REPOSITORY_SHA> against owner-signed Artifact Memory v0.1.2.
 
 Report:
 1. exact repositories, refs, SHAs, release tag, and schema versions inspected;
@@ -223,7 +223,7 @@ caller selection, records, context, manifests, or successful checks.
 
 A merge to `main` is not automatically a release. Documentation, examples, and
 other reviewed source changes may merge without creating a tag or GitHub
-Release. The signed `v0.1.1` tag and its published assets remain immutable.
+Release. The signed `v0.1.2` tag and its published assets remain immutable.
 
 A new software release is appropriate when publishable runtime behavior,
 package contents, normative schemas, compatibility promises, or release-bound
