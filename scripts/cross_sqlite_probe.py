@@ -8,9 +8,9 @@ comparison.
 
 Tier B (runs when the artifact-memory package is importable): exercises the
 real library — projection digests, default/literal/ranked search results,
-and the typed outcome for a tampered index. Below the 3.44 runtime floor the
-clean read itself must fail closed; above it the tampered read must fail
-typed while the clean read succeeds.
+and the typed outcome for a tampered index. When the loaded engine cannot
+behaviorally detect the forgery, the clean read itself must fail closed;
+capable engines must serve the clean read and reject the tampered one typed.
 
 Prints one JSON object on stdout. No repository writes, synthetic data only.
 """
