@@ -57,49 +57,115 @@ class ProjectionIntegritySliceTests(unittest.TestCase):
                 with self.assertRaises(ValidationFailure):
                     validate(failed_without_failure, schema)
 
-    def test_slice_runners_emit_schema_valid_failed_receipts(self):
+    def test_projection_creation_failures_propagate_without_slice_receipts(self):
         cases = (
-            (
-                projection_integrity_slice,
-                "projection-integrity",
-                "projection-integrity-slice-receipt.v1.schema.json",
-                "run_projection_integrity_slice",
-            ),
-            (
-                search_literal_slice,
-                "search-literal",
-                "search-literal-slice-receipt.v1.schema.json",
-                "run_search_literal_slice",
-            ),
-            (
-                search_ranking_slice,
-                "search-ranking",
-                "search-ranking-slice-receipt.v1.schema.json",
-                "run_search_ranking_slice",
-            ),
-            (
-                search_receipt_slice,
-                "search-receipt",
-                "search-receipt-slice-receipt.v1.schema.json",
-                "run_search_receipt_slice",
-            ),
-            (
-                search_supersession_slice,
-                "search-supersession",
-                "search-supersession-slice-receipt.v1.schema.json",
-                "run_search_supersession_slice",
-            ),
+            (projection_integrity_slice, "projection-integrity", "run_projection_integrity_slice"),
+            (search_literal_slice, "search-literal", "run_search_literal_slice"),
+            (search_ranking_slice, "search-ranking", "run_search_ranking_slice"),
+            (search_receipt_slice, "search-receipt", "run_search_receipt_slice"),
+            (search_supersession_slice, "search-supersession", "run_search_supersession_slice"),
         )
-        for module, fixture_name, schema_name, runner_name in cases:
+        for module, fixture_name, runner_name in cases:
             with self.subTest(slice=fixture_name), tempfile.TemporaryDirectory() as temporary:
                 fixture = ROOT / "fixtures" / "synthetic" / fixture_name / "v1"
-                project_records = module.project_records
+                failure = ValidationFailure("projection-unavailable", "synthetic projection failure")
+                with mock.patch.object(module, "project_records", side_effect=failure):
+                    with self.assertRaisesRegex(ValidationFailure, "synthetic projection failure"):
+                        getattr(module, runner_name)(fixture, Path(temporary))
 
-                def failed_projection(*args, **kwargs):
-                    return {**project_records(*args, **kwargs), "outcome": "failed"}
+    def test_post_projection_failures_emit_schema_valid_failed_receipts(self):
+        def run(module, fixture_name, runner_name):
+            fixture = ROOT / "fixtures" / "synthetic" / fixture_name / "v1"
+            with tempfile.TemporaryDirectory() as temporary:
+                return getattr(module, runner_name)(fixture, Path(temporary))
 
-                with mock.patch.object(module, "project_records", side_effect=failed_projection):
-                    receipt = getattr(module, runner_name)(fixture, Path(temporary))
+        receipts = []
+
+        original_integrity_search = projection_integrity_slice.search_records
+        clean_control_reads = 0
+
+        def mismatched_clean_control(*args, **kwargs):
+            nonlocal clean_control_reads
+            result = original_integrity_search(*args, **kwargs)
+            if args[1] == "canonical":
+                clean_control_reads += 1
+                if clean_control_reads == 2:
+                    return []
+            return result
+
+        with mock.patch.object(
+            projection_integrity_slice,
+            "search_records",
+            side_effect=mismatched_clean_control,
+        ):
+            receipts.append(
+                (
+                    "projection-integrity-slice-receipt.v1.schema.json",
+                    run(projection_integrity_slice, "projection-integrity", "run_projection_integrity_slice"),
+                )
+            )
+
+        original_literal_search = search_literal_slice.search_records
+        literal_miss_injected = False
+
+        def miss_first_literal_check(*args, **kwargs):
+            nonlocal literal_miss_injected
+            if not literal_miss_injected and args[1] == search_literal_slice.HYPHENATED_QUERY and kwargs.get("literal"):
+                literal_miss_injected = True
+                return []
+            return original_literal_search(*args, **kwargs)
+
+        with mock.patch.object(search_literal_slice, "search_records", side_effect=miss_first_literal_check):
+            receipts.append(
+                (
+                    "search-literal-slice-receipt.v1.schema.json",
+                    run(search_literal_slice, "search-literal", "run_search_literal_slice"),
+                )
+            )
+
+        original_ranking_search = search_ranking_slice.search_records
+        unranked_miss_injected = False
+
+        def miss_first_unranked_check(*args, **kwargs):
+            nonlocal unranked_miss_injected
+            if not unranked_miss_injected and args[1] == search_ranking_slice.RANKING_QUERY and not kwargs.get("rank"):
+                unranked_miss_injected = True
+                return []
+            return original_ranking_search(*args, **kwargs)
+
+        with mock.patch.object(search_ranking_slice, "search_records", side_effect=miss_first_unranked_check):
+            receipts.append(
+                (
+                    "search-ranking-slice-receipt.v1.schema.json",
+                    run(search_ranking_slice, "search-ranking", "run_search_ranking_slice"),
+                )
+            )
+
+        original_search_receipt = search_receipt_slice.search_receipt
+
+        def report_wrong_tamper_code(*args, **kwargs):
+            if Path(args[0]).name == "tampered.sqlite":
+                raise ValidationFailure("query-invalid", "synthetic wrong tamper outcome")
+            return original_search_receipt(*args, **kwargs)
+
+        with mock.patch.object(search_receipt_slice, "search_receipt", side_effect=report_wrong_tamper_code):
+            receipts.append(
+                (
+                    "search-receipt-slice-receipt.v1.schema.json",
+                    run(search_receipt_slice, "search-receipt", "run_search_receipt_slice"),
+                )
+            )
+
+        with mock.patch.object(search_supersession_slice, "sha256_bytes", return_value="sha-256:" + "0" * 64):
+            receipts.append(
+                (
+                    "search-supersession-slice-receipt.v1.schema.json",
+                    run(search_supersession_slice, "search-supersession", "run_search_supersession_slice"),
+                )
+            )
+
+        for schema_name, receipt in receipts:
+            with self.subTest(schema=schema_name):
                 self.assertEqual(receipt["outcome"], "failed")
                 self.assertIn("failed", {operation["outcome"] for operation in receipt["operations"]})
                 validate(receipt, load_schema("core", schema_name))
