@@ -88,12 +88,14 @@ of a vouched receipt. The raw `search` output and every existing receipt keep
 their shapes.
 
 Both `search` and `search-receipt` accept `--literal`, which treats the query
-as one literal term: the term is quoted as a single FTS5 string with any
-embedded double quote doubled, and a matched record must also contain the
-query's own case-folded bytes in its indexed summary or labels, so
-punctuation and spelling are significant (`alpha-beta` does not match
-adjacent `alpha beta` text) while matching stays case-insensitive and
-single-term. Without the flag, the raw query is passed to FTS5 unmodified
+as one literal query string, including an adjacent multiword phrase such as
+`alpha beta`. The query and validated indexed text are fully case-folded into
+a connection-local FTS5 table before the query is quoted as a single FTS5
+string with any embedded double quote doubled. A matched record must also
+contain the query's case-folded bytes in its summary or labels, so punctuation
+and spelling are significant (`alpha-beta` does not match adjacent
+`alpha beta` text). Full Unicode folds such as `Straße`/`STRASSE` are therefore
+equivalent without exposing raw FTS5 syntax. Without the flag, the raw query is passed to FTS5 unmodified
 and full MATCH syntax remains caller-controlled; a raw hyphenated query can
 otherwise surface as column-filter syntax. `records_fts` must be an FTS5
 virtual table: a non-FTS5 table with the expected columns is

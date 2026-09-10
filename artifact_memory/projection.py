@@ -454,21 +454,18 @@ _RANKED_MATCH_EXCLUDING_SUPERSEDED_QUERY = (
     "WHERE records_fts MATCH ? AND records.lifecycle != 'superseded' "
     "ORDER BY bm25(records_fts), records_fts.record_id"
 )
-_LITERAL_MATCH_QUERY = "SELECT record_id, summary, labels FROM records_fts WHERE records_fts MATCH ? ORDER BY record_id"
-_LITERAL_RANKED_MATCH_QUERY = (
-    "SELECT record_id, summary, labels FROM records_fts WHERE records_fts MATCH ? ORDER BY bm25(records_fts), record_id"
-)
-_LITERAL_MATCH_EXCLUDING_SUPERSEDED_QUERY = (
-    "SELECT records_fts.record_id, records_fts.summary, records_fts.labels FROM records_fts "
-    "JOIN records ON records.record_id = records_fts.record_id "
-    "WHERE records_fts MATCH ? AND records.lifecycle != 'superseded' "
+_LITERAL_SOURCE_QUERY = (
+    "SELECT records_fts.record_id, records_fts.summary, records_fts.labels, records.lifecycle "
+    "FROM records_fts JOIN records ON records.record_id = records_fts.record_id "
     "ORDER BY records_fts.record_id"
 )
-_LITERAL_RANKED_MATCH_EXCLUDING_SUPERSEDED_QUERY = (
-    "SELECT records_fts.record_id, records_fts.summary, records_fts.labels FROM records_fts "
-    "JOIN records ON records.record_id = records_fts.record_id "
-    "WHERE records_fts MATCH ? AND records.lifecycle != 'superseded' "
-    "ORDER BY bm25(records_fts), records_fts.record_id"
+_LITERAL_FOLDED_MATCH_QUERY = (
+    "SELECT record_id, summary, labels FROM temp.literal_records_fts "
+    "WHERE literal_records_fts MATCH ? ORDER BY record_id"
+)
+_LITERAL_FOLDED_RANKED_MATCH_QUERY = (
+    "SELECT record_id, summary, labels FROM temp.literal_records_fts "
+    "WHERE literal_records_fts MATCH ? ORDER BY bm25(literal_records_fts), record_id"
 )
 
 
@@ -488,35 +485,40 @@ def _matched_record_ids(
 ) -> list[str]:
     """Run one match in the caller's grammar.
 
-    Raw mode passes the query to FTS5 unmodified. Literal mode quotes the
-    query as one FTS5 string — doubling embedded double quotes, FTS5's only
-    string escape — so tokens must appear as an adjacent phrase, then keeps
-    only rows whose indexed summary or labels contain the query's case-folded
-    bytes, which the tokenizer would otherwise discard (the hyphen in
-    alpha-beta, the quote in five "inches). With exclude_superseded, matched
-    records whose lifecycle column is superseded are dropped in the same SQL
-    statement; the default keeps them. With rank, results are ordered by the
-    explicit bm25(records_fts) relevance with a record_id tiebreak instead of
-    record_id alone — the explicit function, not the mutable `rank` alias,
-    because a persisted FTS5 rank configuration can otherwise steer the order
-    of an index that still passes contract validation and integrity_check.
-    That ranked order is corpus-dependent and never authoritative.
+    Raw mode passes the query to FTS5 unmodified. Literal mode case-folds both
+    the query and the already-validated search rows into a connection-local
+    FTS5 table, then quotes the query as one FTS5 string — doubling embedded
+    double quotes, FTS5's only string escape — so tokens must appear as an
+    adjacent phrase. The same case-folded bytes are retained as a punctuation
+    post-filter. Building the temporary table is necessary because SQLite's
+    default tokenizer does not implement expanding Unicode folds such as
+    Straße/STRASSE, and using the durable FTS table as a prefilter could discard
+    a valid literal match before Python's full case fold sees it. With
+    exclude_superseded, matched records whose lifecycle column is superseded
+    are dropped; the default keeps them. With rank, results are ordered by the
+    explicit bm25(literal_records_fts) relevance with a record_id tiebreak
+    instead of record_id alone. That ranked order is corpus-dependent and never
+    authoritative.
     """
     if literal:
-        expression = '"' + query.replace('"', '""') + '"'
         folded = query.casefold()
-        if exclude_superseded:
-            match_query = (
-                _LITERAL_RANKED_MATCH_EXCLUDING_SUPERSEDED_QUERY
-                if rank
-                else _LITERAL_MATCH_EXCLUDING_SUPERSEDED_QUERY
-            )
-        else:
-            match_query = _LITERAL_RANKED_MATCH_QUERY if rank else _LITERAL_MATCH_QUERY
+        expression = '"' + folded.replace('"', '""') + '"'
+        source_rows = connection.execute(_LITERAL_SOURCE_QUERY).fetchall()
+        lifecycle_by_id = {row[0]: row[3] for row in source_rows}
+        connection.execute(
+            "CREATE VIRTUAL TABLE temp.literal_records_fts "
+            "USING fts5(record_id UNINDEXED, summary, labels)"
+        )
+        connection.executemany(
+            "INSERT INTO temp.literal_records_fts VALUES (?, ?, ?)",
+            ((row[0], row[1].casefold(), row[2].casefold()) for row in source_rows),
+        )
+        match_query = _LITERAL_FOLDED_RANKED_MATCH_QUERY if rank else _LITERAL_FOLDED_MATCH_QUERY
         return [
             row[0]
             for row in connection.execute(match_query, (expression,))
-            if folded in row[1].casefold() or folded in row[2].casefold()
+            if (folded in row[1] or folded in row[2])
+            and (not exclude_superseded or lifecycle_by_id[row[0]] != "superseded")
         ]
     if exclude_superseded:
         match_query = _RANKED_MATCH_EXCLUDING_SUPERSEDED_QUERY if rank else _SEARCH_MATCH_EXCLUDING_SUPERSEDED_QUERY

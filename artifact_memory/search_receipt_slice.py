@@ -138,7 +138,7 @@ def run_search_receipt_slice(fixture_root: Path, workspace: Path) -> dict[str, A
             "the receipt pins results to the exact canonical record set that produced the index; it does not certify record truth",
             "the receipt omits the raw query and binds its exact UTF-8 bytes by SHA-256; an unkeyed digest does not conceal a guessable low-entropy query",
             "the raw search_records surface is deliberately unchanged; the receipt is additive only",
-            "relevance ordering remains record_id-only until conditional bm25 lands",
+            "default relevance ordering remains record_id-only; optional bm25 ranking is available but non-authoritative and corpus-dependent",
         ],
     }
     receipt_document = receipt_with_digest(

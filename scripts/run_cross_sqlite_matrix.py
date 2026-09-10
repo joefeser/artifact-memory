@@ -41,28 +41,29 @@ CLI_BINARIES = ("/usr/bin/sqlite3", "/opt/homebrew/opt/sqlite/bin/sqlite3")
 
 def _run_local() -> list[dict]:
     entries = []
-    seen: set[str] = set()
+    seen_paths: set[Path] = set()
     for name in ("python3", "python3.11", "python3.12", "python3.13", "python3.14"):
         path = shutil.which(name)
         if path is None:
             continue
+        resolved_path = Path(path).resolve()
+        if resolved_path in seen_paths:
+            continue
+        seen_paths.add(resolved_path)
         try:
             completed = subprocess.run(
-                [path, str(PROBE)], capture_output=True, text=True, check=True, timeout=180
+                [str(resolved_path), str(PROBE)], capture_output=True, text=True, check=True, timeout=180
             )
             report = json.loads(completed.stdout)
-        except (subprocess.SubprocessError, json.JSONDecodeError) as exc:
+        except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
             entries.append(
                 {
-                    "runtime": f"{name} ({path})",
+                    "runtime": f"{name} ({resolved_path})",
                     "error": f"probe failed: {type(exc).__name__}: {exc}",
                 }
             )
             continue
-        if report["sqlite_version"] in seen:
-            continue
-        seen.add(report["sqlite_version"])
-        entries.append({"runtime": f"{name} ({path})", **report})
+        entries.append({"runtime": f"{name} ({resolved_path})", **report})
     return entries
 
 
@@ -109,7 +110,7 @@ def _run_docker() -> list[dict]:
         print("docker daemon unavailable; skipping container runtimes", file=sys.stderr)
         return []
     entries = []
-    seen: set[str] = set()
+    seen_digests: set[str] = set()
     for image in DOCKER_IMAGES:
         try:
             reference, digest = _docker_reference(image)
@@ -121,6 +122,9 @@ def _run_docker() -> list[dict]:
                 }
             )
             continue
+        if digest in seen_digests:
+            continue
+        seen_digests.add(digest)
         try:
             completed = subprocess.run(
                 [
@@ -147,9 +151,6 @@ def _run_docker() -> list[dict]:
                 }
             )
             continue
-        if report["sqlite_version"] in seen:
-            continue
-        seen.add(report["sqlite_version"])
         entries.append({"runtime": image, "image_digest": digest, **report})
     return entries
 
@@ -171,17 +172,33 @@ PRAGMA integrity_check;
 
 def _run_cli_binaries() -> list[dict]:
     entries = []
-    seen: set[str] = set()
+    seen_paths: set[Path] = set()
     for binary in CLI_BINARIES:
-        if not Path(binary).exists():
+        path = Path(binary)
+        if not path.exists():
             continue
+        resolved_path = path.resolve()
+        if resolved_path in seen_paths:
+            continue
+        seen_paths.add(resolved_path)
         try:
             version = (
-                subprocess.run([binary, "--version"], capture_output=True, text=True, check=True)
+                subprocess.run(
+                    [str(resolved_path), "--version"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=30,
+                )
                 .stdout.split()[0]
             )
             completed = subprocess.run(
-                [binary, "-batch"], input=TIER_A_SQL, capture_output=True, text=True, check=True
+                [str(resolved_path), "-batch"],
+                input=TIER_A_SQL,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=180,
             )
             # The .dbconfig dot-command echoes its new state ("defensive off")
             # to stdout; only integrity_check output belongs in the result.
@@ -193,18 +210,15 @@ def _run_cli_binaries() -> list[dict]:
         except (subprocess.SubprocessError, OSError) as exc:
             entries.append(
                 {
-                    "runtime": f"sqlite3-cli ({binary})",
+                    "runtime": f"sqlite3-cli ({resolved_path})",
                     "library_tier_expected": False,
                     "error": f"probe failed: {type(exc).__name__}: {exc}",
                 }
             )
             continue
-        if version in seen:
-            continue
-        seen.add(version)
         entries.append(
             {
-                "runtime": f"sqlite3-cli ({binary})",
+                "runtime": f"sqlite3-cli ({resolved_path})",
                 "library_tier_expected": False,
                 "python_version": None,
                 "sqlite_version": version,
@@ -243,6 +257,15 @@ def _assert_invariants(entries: list[dict]) -> tuple[list[str], dict]:
                 failures.append(f"{entry['runtime']}: clean read failed on a capable runtime")
             if not capable and tier_b.get("clean_read_succeeded"):
                 failures.append(f"{entry['runtime']}: incapable runtime did not fail closed")
+            if (
+                not capable
+                and not tier_b.get("clean_read_succeeded")
+                and tier_b.get("clean_read_code") != "projection-unavailable"
+            ):
+                failures.append(
+                    f"{entry['runtime']}: incapable runtime failed with "
+                    f"{tier_b.get('clean_read_code')!r} instead of projection-unavailable"
+                )
             if tier_b.get("tampered_outcome") not in ("projection-unavailable", None):
                 failures.append(
                     f"{entry['runtime']}: tampered index yielded {tier_b.get('tampered_outcome')}"
@@ -283,6 +306,7 @@ def _assert_invariants(entries: list[dict]) -> tuple[list[str], dict]:
                 if "error" not in entry
                 and (entry.get("tier_b") or {}).get("available")
                 and not (entry.get("tier_b") or {}).get("clean_read_succeeded")
+                and (entry.get("tier_b") or {}).get("clean_read_code") == "projection-unavailable"
             }
         ),
     }

@@ -20,13 +20,15 @@ caller-side errors on this path surface SQLite result code 1 (SQLITE_ERROR).
 ## Decision
 
 - Both `search` and `search-receipt` accept `--literal`. Literal mode treats
-  the query as one literal term with significant bytes: the term is quoted
-  as a single FTS5 string (embedded double quotes doubled, FTS5's only
-  string escape) so its tokens must appear as an adjacent phrase, and the
-  matched record's indexed summary or labels must also contain the query's
-  case-folded bytes. Punctuation and spelling are therefore significant —
-  literal `alpha-beta` does not match adjacent `alpha beta` text — while
-  matching stays case-insensitive and single-term. An empty literal query
+  the query as one literal query string, which may contain an adjacent
+  multiword phrase. The query and validated indexed text are fully case-folded
+  into a connection-local FTS5 table before the query is quoted as one FTS5
+  string (embedded double quotes doubled, FTS5's only string escape), so its
+  tokens must appear as an adjacent phrase. A matching summary or label must
+  also contain the folded query bytes. Punctuation and spelling are therefore
+  significant — literal `alpha-beta` does not match adjacent `alpha beta` text
+  — while expanding Unicode folds such as `Straße`/`STRASSE` remain
+  equivalent. An empty literal query
   returns `query-invalid` before the index is opened, so a missing or
   invalid index cannot outrank the caller-input failure.
 - Raw mode remains the default and passes the query to FTS5 unmodified.
@@ -37,11 +39,12 @@ caller-side errors on this path surface SQLite result code 1 (SQLITE_ERROR).
   integrity checks but cannot serve MATCH, and its code-1 failure would
   otherwise misclassify a valid query as `query-invalid`; the contract
   rejects it as `projection-unavailable` first.
-- Search receipts record `query_mode` (`raw` or `literal`) beside the query
-  digest, added to the v1 receipt schema as an optional field so existing
-  receipts remain valid while every newly issued receipt identifies which
-  grammar produced its results. The digest still pins the query exactly as
-  the caller typed it in either mode.
+- Search receipts record the required `query_mode` (`raw` or `literal`) beside
+  the query digest, so every valid v1 receipt identifies which grammar produced
+  its results. The digest still pins the query exactly as the caller typed it
+  in either mode. This requirement was corrected before v0.1.3 published the
+  v1 receipt contract; earlier development-candidate receipts without the mode
+  are not release contracts.
 - Document the query-surface boundary in the projection contract: search is
   lexically restricted to `meaning.summary` and labels, is an ungated
   term/adjacency/prefix confirmation oracle over that restricted meaning, and
@@ -50,8 +53,8 @@ caller-side errors on this path surface SQLite result code 1 (SQLITE_ERROR).
 
 ## Compatibility
 
-- Additive: a defaulted keyword argument on both library functions, a CLI
-  flag, no schema, receipt, or output-shape changes. Raw behavior is
+- Additive relative to v0.1.2: a defaulted keyword argument on both library
+  functions, a CLI flag, and the new search-receipt v1 contract. Raw behavior is
   unchanged except that classification now keys on the error code; the
   previously matched messages all carried code 1 on the reference runtime, so
   observable outcomes are identical there.
@@ -60,10 +63,11 @@ caller-side errors on this path surface SQLite result code 1 (SQLITE_ERROR).
 
 ## Authority and limitations
 
-Literal mode removes query-syntax reinterpretation for one term; it is not a
-multi-term phrase interface, grants no authority, and changes nothing about
-what search can see: restricted lexical meaning only, no context exclusions,
-`record_id` ordering until conditional bm25 lands (issue #109).
+Literal mode removes query-syntax reinterpretation for one literal query
+string, including an adjacent multiword phrase. It grants no authority and
+changes nothing about what search can see: restricted lexical meaning only and
+no context exclusions. Default ordering remains `record_id`; optional bm25
+ranking is separately available and non-authoritative.
 
 ## Evidence
 
