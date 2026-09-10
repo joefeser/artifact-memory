@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Descriptive bm25 measurement: ranked search cost and flip reachability.
 
-Generates deterministic synthetic corpora at bounded scales, measures ranked
-versus unranked query cost through the real library (gate included), and
+Generates deterministic synthetic corpora at bounded scales, warms both search
+modes, measures ranked versus unranked query cost through the real library
+(gate included), and
 counts how often corpus growth changes the ranked order of an unchanged
 matched set — with additions that share query terms and with lexically
 unrelated additions. Measurements are descriptive evidence per decision
@@ -26,7 +27,7 @@ sys.path.insert(0, str(ROOT))
 from artifact_memory.canonical import canonical_bytes, sha256_bytes  # noqa: E402
 from artifact_memory.projection import project_records, search_records  # noqa: E402
 
-GENERATOR_PROFILE = "rank-measure/v2:timing-corpus-v2:heterogeneous-flip-v1"
+GENERATOR_PROFILE = "rank-measure/v3:timing-corpus-v2:warm-both-v1:heterogeneous-flip-v1"
 COMMON = ("alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta")
 RARE = ("quokka", "wombat", "narwhal", "axolotl", "pangolin", "okapi")
 UNRELATED = ("iota", "kappa", "lambda", "mu", "nu", "xi", "omicron", "pi")
@@ -128,6 +129,12 @@ def _median_ms(action, repeats: int) -> float:
     return round(statistics.median(samples), 3)
 
 
+def _warm_search_modes(index: Path, query: str) -> None:
+    """Pay one-time validation, connection, and page costs before timing."""
+    search_records(index, query)
+    search_records(index, query, rank=True)
+
+
 def _parse_scales(text: str) -> list[int]:
     try:
         scales = [int(part) for part in text.split(",")]
@@ -166,6 +173,7 @@ def _measure_scale(count: int, repeats: int, trials: int) -> dict:
         )
         index = base_output / "records.sqlite"
         query = "beta gamma"
+        _warm_search_modes(index, query)
         unranked_ms = _median_ms(lambda: search_records(index, query), repeats)
         ranked_ms = _median_ms(lambda: search_records(index, query, rank=True), repeats)
         base_ranked = search_records(index, query, rank=True)

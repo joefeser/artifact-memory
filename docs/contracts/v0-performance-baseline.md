@@ -78,18 +78,21 @@ generated-payload relationships between profile fields are enforced by
 `validate_profile()` because standard JSON Schema cannot compare sibling
 numeric values; schema-only acceptance is therefore not execution admission.
 
-## Ranked-search measurements (reconciled 2026-09-09)
+## Ranked-search measurements (reconciled 2026-09-10)
 
 `scripts/measure_ranked_search.py` (descriptive, per decision 0015; generator
-profile `rank-measure/v2:timing-corpus-v2:heterogeneous-flip-v1`, corpus digest bound per
-scale) measured bm25-ranked versus unranked search through the real library —
-integrity gate, contract validation, and match included — on deterministic
-synthetic corpora (Python 3.14.4, SQLite 3.52.0):
+profile `rank-measure/v3:timing-corpus-v2:warm-both-v1:heterogeneous-flip-v1`,
+corpus digest bound per scale) measured bm25-ranked versus unranked search
+through the real library — integrity gate, contract validation, and match
+included — on deterministic synthetic corpora (Python 3.14.4, SQLite 3.52.0).
+Both modes receive one untimed warm-up query before samples are collected, so
+one-time schema/runtime caches and cold database pages are excluded from the
+comparison:
 
 | Records | Corpus digest (prefix) | Projection build | Unranked median | Ranked median | Ratio |
 | --- | --- | --- | --- | --- | --- |
-| 1,000 | sha-256:01c29a4b… | 0.157 s | 65.3 ms | 62.9 ms | 0.96 |
-| 5,000 | sha-256:d3d0d5a0… | 0.728 s | 307.3 ms | 305.7 ms | 0.99 |
+| 1,000 | sha-256:01c29a4b… | 0.162 s | 60.9 ms | 60.6 ms | 0.99 |
+| 5,000 | sha-256:d3d0d5a0… | 0.767 s | 306.7 ms | 308.0 ms | 1.00 |
 
 Ranked search is at cost parity with unranked search: per-query cost is
 dominated by per-query revalidation (consistent with the architecture review's

@@ -4,6 +4,7 @@ import io
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +16,18 @@ SPEC.loader.exec_module(measure_ranked_search)
 
 
 class RankedSearchMeasurementTests(unittest.TestCase):
+    def test_both_search_modes_are_warmed_before_measurement(self):
+        index = Path("/synthetic/records.sqlite")
+        with mock.patch.object(measure_ranked_search, "search_records") as search:
+            measure_ranked_search._warm_search_modes(index, "beta gamma")
+        self.assertEqual(
+            search.call_args_list,
+            [
+                mock.call(index, "beta gamma"),
+                mock.call(index, "beta gamma", rank=True),
+            ],
+        )
+
     def test_scales_require_at_least_two_records(self):
         for value in ("0", "1", "1000,1"):
             with self.subTest(value=value):

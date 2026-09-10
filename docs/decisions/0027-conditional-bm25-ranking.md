@@ -42,11 +42,12 @@ dependence.
 
 - Additive: defaulted keyword argument, CLI flag, optional receipt field; no
   schema, output, or fixture shape changes; default behavior unchanged.
-- Measured (issue #117, reconciled 2026-09-09; generator profile
-  `rank-measure/v2:timing-corpus-v2:heterogeneous-flip-v1`, corpus digests recorded in the
-  performance baseline): ranked search is at cost parity with unranked
-  search (62.9 ms vs 65.3 ms at 1,000 records; 305.7 ms vs 307.3 ms at
-  5,000 in the reconciled timing run — per-query cost is dominated by
+- Measured (issue #117, reconciled 2026-09-10; generator profile
+  `rank-measure/v3:timing-corpus-v2:warm-both-v1:heterogeneous-flip-v1`, corpus
+  digests recorded in the performance baseline): both modes receive an untimed
+  warm-up before samples are collected. Ranked search is at cost parity with
+  unranked search (60.6 ms vs 60.9 ms at 1,000 records; 308.0 ms vs 306.7 ms
+  at 5,000 in the reconciled timing run — per-query cost is dominated by
   revalidation). The uniform timing corpus produced tied matching documents,
   so its forty no-flip trials are retained only as workload-specific control
   observations. A separate heterogeneous probe demonstrates a corpus-only
