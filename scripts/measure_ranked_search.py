@@ -128,6 +128,16 @@ def _median_ms(action, repeats: int) -> float:
     return round(statistics.median(samples), 3)
 
 
+def _parse_scales(text: str) -> list[int]:
+    try:
+        scales = [int(part) for part in text.split(",")]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("scales must be comma-separated integers") from exc
+    if not scales or any(scale < 2 for scale in scales):
+        raise argparse.ArgumentTypeError("every scale must be at least 2 records")
+    return scales
+
+
 def _measure_scale(count: int, repeats: int, trials: int) -> dict:
     records = [_record(index) for index in range(count)]
     with tempfile.TemporaryDirectory(prefix=f"rank-measure-{count}-") as temporary:
@@ -188,7 +198,7 @@ def _measure_scale(count: int, repeats: int, trials: int) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scales", type=lambda text: [int(part) for part in text.split(",")], default=[1000, 5000])
+    parser.add_argument("--scales", type=_parse_scales, default=[1000, 5000])
     parser.add_argument("--repeats", type=int, default=5)
     parser.add_argument("--trials", type=int, default=10)
     args = parser.parse_args(argv)

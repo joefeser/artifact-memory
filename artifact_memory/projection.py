@@ -47,7 +47,6 @@ _REQUIRED_INDEXES = {
 
 
 _knowledge_schema = knowledge_schema
-_FTS5_INTEGRITY_MINIMUM_VERSION = (3, 44, 0)
 _FTS_DECLARATION_PATTERN = re.compile(
     r"CREATE\s+VIRTUAL\s+TABLE\s+records_fts\s+USING\s+fts5\s*\([^;]*\)",
     re.IGNORECASE | re.DOTALL,
@@ -102,8 +101,6 @@ _CANONICAL_FTS_DECLARATION = _normalized_declaration(_CONTRACT_FTS_DECLARATION_M
 @lru_cache(maxsize=1)
 def _runtime_verifies_fts5_integrity() -> bool:
     """Prove this loaded SQLite/FTS5 combination detects the known forgery."""
-    if sqlite3.sqlite_version_info < _FTS5_INTEGRITY_MINIMUM_VERSION:
-        return False
     connection = sqlite3.connect(":memory:")
     try:
         connection.execute("CREATE VIRTUAL TABLE integrity_probe USING fts5(record_id UNINDEXED, summary)")

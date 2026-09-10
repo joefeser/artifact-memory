@@ -342,8 +342,14 @@ class ProjectionTests(unittest.TestCase):
         projection._runtime_verifies_fts5_integrity.cache_clear()
         result = projection._runtime_verifies_fts5_integrity()
         self.assertIs(type(result), bool)
-        if result:
-            self.assertGreaterEqual(sqlite3.sqlite_version_info, (3, 44, 0))
+
+    def test_runtime_fts5_integrity_probe_has_no_reported_version_floor(self):
+        projection._runtime_verifies_fts5_integrity.cache_clear()
+        try:
+            with mock.patch.object(projection.sqlite3, "sqlite_version_info", (3, 43, 0)):
+                self.assertTrue(projection._runtime_verifies_fts5_integrity())
+        finally:
+            projection._runtime_verifies_fts5_integrity.cache_clear()
 
     def test_filtered_receipts_reject_case_insensitive_schema_substitution(self):
         """Column-name and integrity checks alone do not preserve join
