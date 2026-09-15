@@ -84,6 +84,11 @@ class PrivateVaultOnboardingSliceTests(unittest.TestCase):
             "api" + "Key",
             "auth" + "Token",
             "refresh" + "Token",
+            "api" + "key",
+            "access" + "key",
+            "client" + "secret",
+            "private" + "key",
+            "session" + "token",
         ):
             with self.subTest(credential_key=credential_key):
                 with tempfile.TemporaryDirectory() as temporary:
@@ -98,6 +103,16 @@ class PrivateVaultOnboardingSliceTests(unittest.TestCase):
                             copied_fixture,
                             Path(temporary) / "workspace",
                         )
+
+    def test_startup_template_requires_verified_source_for_release_baselines(self):
+        template = (
+            ROOT / "docs/onboarding/templates/private-vault-agent-startup.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("verify-tag", template)
+        self.assertIn("gpg.ssh.allowedSignersFile", template)
+        self.assertIn("status --porcelain", template)
+        self.assertIn("python3 -m artifact_memory validate", template)
+        self.assertNotIn("artifact-memory version --json", template)
 
     def test_fixture_boundary_rejects_raw_source_material(self):
         with tempfile.TemporaryDirectory() as temporary:

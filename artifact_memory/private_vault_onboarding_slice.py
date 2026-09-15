@@ -75,6 +75,9 @@ _CREDENTIAL_KEY_PARTS = {
     "token",
 }
 _KEY_QUALIFIERS = {"access", "api", "client", "private", "signing", "ssh"}
+_COLLAPSED_CREDENTIAL_KEYS = {
+    key.replace("_", "") for key in _CREDENTIAL_KEYS if "_" in key
+}
 
 
 def _record_paths(fixture_root: Path) -> list[Path]:
@@ -131,6 +134,7 @@ def _is_credential_key(key: str) -> bool:
     parts = set(key.split("_"))
     return (
         key in _CREDENTIAL_KEYS
+        or key.replace("_", "") in _COLLAPSED_CREDENTIAL_KEYS
         or bool(parts & _CREDENTIAL_KEY_PARTS)
         or ("key" in parts and bool(parts & _KEY_QUALIFIERS))
     )

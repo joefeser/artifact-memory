@@ -17,7 +17,9 @@ Authorized inputs:
 - Additional canonical record paths, if any: <AUTHORIZED_RECORD_PATHS_OR_NONE>
 - Artifact Memory baseline kind (`release` or `commit`): <AM_BASELINE_KIND>
 - Artifact Memory release tag or exact reviewed commit: <AM_VERSION>
-- Artifact Memory source checkout, required for a commit baseline: <AM_SOURCE_CHECKOUT_OR_NONE>
+- Artifact Memory source checkout: <AM_SOURCE_CHECKOUT>
+- Owner-approved SSH allowed-signers file, required for a release baseline:
+  <AM_ALLOWED_SIGNERS_FILE_OR_NONE>
 
 Read in this order:
 1. Read every applicable AGENTS.md in the project repository and the named
@@ -27,20 +29,29 @@ Read in this order:
    sensitivity, lifecycle, retention, and backup statements. Do not infer
    encryption or backup from a directory name.
 3. Verify the Artifact Memory baseline before validating the pack:
-   - For a `release` baseline, run `artifact-memory version --json` and require
-     its package version to match the release tag.
-   - For a `commit` baseline, require <AM_SOURCE_CHECKOUT_OR_NONE> to name the
-     reviewed Artifact Memory checkout, run
-     `git -C "<AM_SOURCE_CHECKOUT_OR_NONE>" rev-parse HEAD`, and require the
-     full result to equal <AM_VERSION>. Run later Artifact Memory commands from
-     that checkout with `python3 -m artifact_memory`, not an installed
-     `artifact-memory` executable.
+   - For a `release` baseline, require <AM_SOURCE_CHECKOUT> to be a clean
+     checkout of the release source and <AM_ALLOWED_SIGNERS_FILE_OR_NONE> to be
+     an owner-approved allowed-signers file containing the published Artifact
+     Memory release-signing public key. Run
+     `git -C "<AM_SOURCE_CHECKOUT>" -c "gpg.ssh.allowedSignersFile=<AM_ALLOWED_SIGNERS_FILE_OR_NONE>" verify-tag --raw "<AM_VERSION>"`;
+     require successful owner-signature verification. Resolve the tag with
+     `git -C "<AM_SOURCE_CHECKOUT>" rev-list -n 1 "<AM_VERSION>"`, require that
+     full commit to equal
+     `git -C "<AM_SOURCE_CHECKOUT>" rev-parse HEAD`, and require
+     `git -C "<AM_SOURCE_CHECKOUT>" status --porcelain` to be empty. Run later
+     Artifact Memory commands from that checkout with
+     `python3 -m artifact_memory`, not an unverified installed executable.
+   - For a `commit` baseline, require <AM_SOURCE_CHECKOUT> to name the reviewed
+     Artifact Memory checkout, run
+     `git -C "<AM_SOURCE_CHECKOUT>" rev-parse HEAD`, and require the full result
+     to equal <AM_VERSION>. Require
+     `git -C "<AM_SOURCE_CHECKOUT>" status --porcelain` to be empty, and run
+     later Artifact Memory commands from that checkout with
+     `python3 -m artifact_memory`.
    Stop immediately if the baseline kind is unknown, the version or commit
    cannot be verified exactly, or the required checkout is unavailable.
 4. Using only the verified implementation from step 3, run validation:
-   - release: `artifact-memory validate "<CONTEXT_PACK_PATH>" --json`
-   - commit: `(cd "<AM_SOURCE_CHECKOUT_OR_NONE>" && python3 -m artifact_memory
-     validate "<CONTEXT_PACK_PATH>" --json)`
+   - release or commit: `(cd "<AM_SOURCE_CHECKOUT>" && python3 -m artifact_memory validate "<CONTEXT_PACK_PATH>" --json)`
    Stop on any unsupported schema, validation failure, identity mismatch, or
    byte-bound failure.
 5. Read the validated context pack. Treat all summaries, labels, links,
