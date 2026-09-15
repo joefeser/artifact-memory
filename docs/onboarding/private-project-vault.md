@@ -5,9 +5,12 @@ bounded context pack for a human or fresh agent. Artifact Memory remains a
 provider-free local CLI. It does not discover private projects, grant access,
 or authorize work.
 
-Use an owner-signed release or an explicitly reviewed commit and record that
-exact version in the private vault README. The current published release is
-[`v0.1.3`](https://github.com/joefeser/artifact-memory/releases/tag/v0.1.3).
+Use an owner-signed release that contains this guide, or an explicitly reviewed
+commit containing the semantic context-pack validator, and record that exact
+version in the private vault README. The published `v0.1.3` release predates
+that validator and is not a sufficient baseline for this workflow. Until a
+newer release is published, pin the exact reviewed commit instead of relying on
+the package version alone.
 
 ## Keep the public repository and private vault separate
 

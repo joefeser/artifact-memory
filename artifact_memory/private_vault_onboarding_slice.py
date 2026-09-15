@@ -137,8 +137,19 @@ def _is_credential_key(key: str) -> bool:
 
 
 def _fixture_safety(fixture_root: Path, records: list[dict[str, Any]]) -> dict[str, Any]:
-    records_root = fixture_root / "records"
-    raw_sources = [path for path in records_root.rglob("*") if path.is_file() and path.suffix != ".json"]
+    canonical_record_paths = set(_record_paths(fixture_root))
+    allowed_evidence_paths = {
+        fixture_root / "README.md",
+        fixture_root / "expected-receipt.json",
+        fixture_root / "receipt.md",
+    }
+    raw_sources = [
+        path
+        for path in fixture_root.rglob("*")
+        if path.is_file()
+        and path not in canonical_record_paths
+        and path not in allowed_evidence_paths
+    ]
     findings = len(raw_sources)
     for record in records:
         keys, strings = _walk(record)

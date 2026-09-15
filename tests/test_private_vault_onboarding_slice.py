@@ -102,10 +102,19 @@ class PrivateVaultOnboardingSliceTests(unittest.TestCase):
     def test_fixture_boundary_rejects_raw_source_material(self):
         with tempfile.TemporaryDirectory() as temporary:
             copied_fixture, _ = self._copied_fixture(temporary)
-            (copied_fixture / "records/operations/source.txt").write_text(
+            source_root = copied_fixture / "sources"
+            source_root.mkdir()
+            (source_root / "task-transcript.txt").write_text(
                 "synthetic raw source that does not belong in the fixture",
                 encoding="utf-8",
             )
+            with self.assertRaisesRegex(ValidationFailure, "forbidden category"):
+                run_private_vault_onboarding_slice(copied_fixture, Path(temporary) / "workspace")
+
+    def test_fixture_boundary_rejects_unallowlisted_json_outside_records(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            copied_fixture, _ = self._copied_fixture(temporary)
+            (copied_fixture / "unexpected.json").write_text("{}\n", encoding="utf-8")
             with self.assertRaisesRegex(ValidationFailure, "forbidden category"):
                 run_private_vault_onboarding_slice(copied_fixture, Path(temporary) / "workspace")
 

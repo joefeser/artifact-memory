@@ -15,11 +15,11 @@ from .codex_history import (
     write_import_bundle,
 )
 from .context import (
-    CONTEXT_SCHEMAS,
+    CONTEXT_READ_SCHEMAS,
     ContextFailure,
     build_selection_policy,
     export_context,
-    render_context_selection_receipt,
+    validate_context_pack,
 )
 from .projection import project_records, records_with_provenance, related_records, search_records, search_receipt
 from .release import (
@@ -457,9 +457,9 @@ def main(argv: list[str] | None = None) -> int:
             "artifact-memory/archive-receipt/v2",
         }:
             validate_archive_receipt(record)
-        if schema_id in CONTEXT_SCHEMAS:
+        if schema_id in CONTEXT_READ_SCHEMAS:
             try:
-                render_context_selection_receipt(record)
+                validate_context_pack(record)
             except ContextFailure as exc:
                 raise ValidationFailure(exc.code, exc.message) from exc
     except ValidationFailure as exc:

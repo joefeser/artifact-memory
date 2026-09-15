@@ -474,6 +474,52 @@ class CliTests(unittest.TestCase):
             self.assertFalse(result["valid"])
             self.assertEqual(result["diagnostics"][0]["code"], "context-pack-invalid")
 
+    def test_validate_legacy_context_pack_applies_identity_and_byte_bound_semantics(self):
+        body = {
+            "schema_id": "artifact-memory/context-pack/v1",
+            "authority_boundary": "informational-only; no execution, routing, disclosure, or mutation authority",
+            "records": [],
+            "artifact_refs": [],
+            "external_evidence": [],
+            "selection_receipt": {
+                "selector_id": "artifact-memory/reference-cli/v0",
+                "source_record_set_digest": "sha-256:" + "0" * 64,
+                "selected_record_ids": [],
+                "redacted_record_ids": [],
+                "max_bytes": 4096,
+                "freshness": "selection-time",
+                "disclosure": "informational-only",
+            },
+        }
+        valid = {
+            **body,
+            "pack_id": "context-pack://" + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:"),
+        }
+        forged = copy.deepcopy(valid)
+        forged["pack_id"] = "context-pack://" + "f" * 64
+        over_budget = copy.deepcopy(valid)
+        over_budget["selection_receipt"]["max_bytes"] = 1
+        over_budget_body = {key: value for key, value in over_budget.items() if key != "pack_id"}
+        over_budget["pack_id"] = "context-pack://" + sha256_bytes(
+            canonical_bytes(over_budget_body)
+        ).removeprefix("sha-256:")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            results = []
+            for name, pack in (("valid", valid), ("forged", forged), ("over-budget", over_budget)):
+                path = root / f"{name}.json"
+                path.write_text(json.dumps(pack), encoding="utf-8")
+                results.append(self.run_cli("validate", str(path), "--json"))
+
+        self.assertEqual(results[0].returncode, 0, results[0].stderr)
+        self.assertTrue(json.loads(results[0].stdout)["valid"])
+        for rejected in results[1:]:
+            self.assertEqual(rejected.returncode, 2, rejected.stderr)
+            result = json.loads(rejected.stdout)
+            self.assertFalse(result["valid"])
+            self.assertEqual(result["diagnostics"][0]["code"], "context-pack-invalid")
+
     def test_context_command_explicitly_negotiates_lifecycle_aware_v4(self):
         fixture = ROOT / "fixtures/synthetic/record-evolution/v2"
         predecessor = fixture / "superseded-predecessor.json"

@@ -22,6 +22,7 @@ from .validator import ValidationFailure, validate
 
 AUTHORITY_BOUNDARY = "informational-only; no execution, routing, disclosure, or mutation authority"
 _LEGACY_RECORD_SCHEMA_ID = "artifact-memory/knowledge-record/v1"
+LEGACY_CONTEXT_SCHEMA_ID = "artifact-memory/context-pack/v1"
 SENSITIVITY_RANK = {"public": 0, "private": 1, "restricted": 2}
 UTC_INSTANT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SHA256 = re.compile(r"^sha-256:[0-9a-f]{64}$")
@@ -30,6 +31,7 @@ CONTEXT_SCHEMAS = {
     "artifact-memory/context-pack/v3",
     "artifact-memory/context-pack/v4",
 }
+CONTEXT_READ_SCHEMAS = {LEGACY_CONTEXT_SCHEMA_ID, *CONTEXT_SCHEMAS}
 
 
 class ContextFailure(Exception):
@@ -429,22 +431,38 @@ def export_context(
     return result
 
 
-def render_context_selection_receipt(pack: dict[str, Any]) -> str:
-    """Render a stable human-readable projection of a context selection receipt."""
+def validate_context_pack(pack: dict[str, Any]) -> None:
+    """Validate schema and semantic identity/size bindings for a readable pack."""
     schema_id = pack.get("schema_id") if isinstance(pack, dict) else None
-    if schema_id not in CONTEXT_SCHEMAS:
+    if schema_id not in CONTEXT_READ_SCHEMAS:
         raise ContextFailure("context-schema-unsupported", "context pack schema is unsupported")
     version = schema_id.rsplit("/", 1)[-1]
     try:
         validate(pack, load_schema("core", f"context-pack.{version}.schema.json"))
     except ValidationFailure as exc:
         raise ContextFailure("context-pack-invalid", "context pack does not satisfy its declared schema") from exc
+    if schema_id == LEGACY_CONTEXT_SCHEMA_ID:
+        body_without_id = {key: value for key, value in pack.items() if key != "pack_id"}
+        expected_id = "context-pack://" + hashlib.sha256(_canonical(body_without_id)).hexdigest()
+        max_bytes = pack["selection_receipt"]["max_bytes"]
+        if pack["pack_id"] != expected_id or len(_canonical(pack)) > max_bytes:
+            raise ContextFailure("context-pack-invalid", "legacy context pack semantic bindings are invalid")
+        return
+
     from .independent_context_reader import ContextReaderFailure, recall_context
 
     try:
         recall_context(_canonical(pack))
     except (CanonicalizationFailure, ContextReaderFailure) as exc:
         raise ContextFailure("context-pack-invalid", "context pack semantic bindings are invalid") from exc
+
+
+def render_context_selection_receipt(pack: dict[str, Any]) -> str:
+    """Render a stable human-readable projection of a context selection receipt."""
+    schema_id = pack.get("schema_id") if isinstance(pack, dict) else None
+    if schema_id not in CONTEXT_SCHEMAS:
+        raise ContextFailure("context-schema-unsupported", "context pack schema is unsupported")
+    validate_context_pack(pack)
     receipt = pack["selection_receipt"]
     lines = [
         "# Context selection receipt",
