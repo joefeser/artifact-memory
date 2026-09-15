@@ -503,11 +503,18 @@ class CliTests(unittest.TestCase):
         over_budget["pack_id"] = "context-pack://" + sha256_bytes(
             canonical_bytes(over_budget_body)
         ).removeprefix("sha-256:")
+        noncanonical = copy.deepcopy(valid)
+        noncanonical["selection_receipt"]["max_bytes"] = 9_007_199_254_740_992
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             results = []
-            for name, pack in (("valid", valid), ("forged", forged), ("over-budget", over_budget)):
+            for name, pack in (
+                ("valid", valid),
+                ("forged", forged),
+                ("over-budget", over_budget),
+                ("noncanonical", noncanonical),
+            ):
                 path = root / f"{name}.json"
                 path.write_text(json.dumps(pack), encoding="utf-8")
                 results.append(self.run_cli("validate", str(path), "--json"))

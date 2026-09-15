@@ -442,10 +442,13 @@ def validate_context_pack(pack: dict[str, Any]) -> None:
     except ValidationFailure as exc:
         raise ContextFailure("context-pack-invalid", "context pack does not satisfy its declared schema") from exc
     if schema_id == LEGACY_CONTEXT_SCHEMA_ID:
-        body_without_id = {key: value for key, value in pack.items() if key != "pack_id"}
-        expected_id = "context-pack://" + hashlib.sha256(_canonical(body_without_id)).hexdigest()
-        max_bytes = pack["selection_receipt"]["max_bytes"]
-        if pack["pack_id"] != expected_id or len(_canonical(pack)) > max_bytes:
+        try:
+            body_without_id = {key: value for key, value in pack.items() if key != "pack_id"}
+            expected_id = "context-pack://" + hashlib.sha256(_canonical(body_without_id)).hexdigest()
+            serialized_pack = _canonical(pack)
+        except CanonicalizationFailure as exc:
+            raise ContextFailure("context-pack-invalid", "legacy context pack is not canonicalizable") from exc
+        if pack["pack_id"] != expected_id or len(serialized_pack) > pack["selection_receipt"]["max_bytes"]:
             raise ContextFailure("context-pack-invalid", "legacy context pack semantic bindings are invalid")
         return
 
