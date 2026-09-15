@@ -1,0 +1,23 @@
+{
+  "artifact_refs": [],
+  "lifecycle": "accepted",
+  "meaning": {
+    "labels": [
+      "connectivity",
+      "operations",
+      "overlay",
+      "synthetic"
+    ],
+    "summary": "Synthetic relay failures on an overlay network are diagnosed by checking overlay connectivity before service health."
+  },
+  "provenance": [
+    {
+      "kind": "observation",
+      "source_ref": "fixture://synthetic/relay-observation"
+    }
+  ],
+  "record_id": "record://synthetic-onboarding/relay-connectivity",
+  "record_type": "note",
+  "schema_id": "artifact-memory/knowledge-record/v3",
+  "sensitivity": "private"
+}

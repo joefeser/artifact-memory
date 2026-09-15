@@ -81,12 +81,15 @@ See [Security](SECURITY.md) and the
 Start with the [quickstart](docs/quickstart.md). Repositories evaluating or
 adopting Artifact Memory can use the bounded
 [repository adoption prompts](docs/onboarding/repository-adoption.md).
+Operators using private project context should follow the
+[private project-vault guide](docs/onboarding/private-project-vault.md) and its
+[fresh-agent startup template](docs/onboarding/templates/private-vault-agent-startup.md).
 Versioning and release requirements are in
 [the release policy](docs/release/versioning-and-launch.md) and
 [the readiness audit](docs/release/public-readiness-audit.md). The current
 [support boundary](SUPPORT.md),
-[v0.1.3 candidate notes](docs/release/v0.1.3-release-notes.md),
-[published v0.1.2 release notes](docs/release/v0.1.2-release-notes.md), historical
+[published v0.1.3 release notes](docs/release/v0.1.3-release-notes.md), historical
+[v0.1.2 release notes](docs/release/v0.1.2-release-notes.md), historical
 [v0.1.1 release notes](docs/release/v0.1.1-release-notes.md), historical
 [v0.1.0 release notes](docs/release/v0.1.0-release-notes.md), and historical
 [preview notes](docs/release/v0.1.0-preview-notes.md) distinguish reviewed source
@@ -103,6 +106,7 @@ are needed; `inspect` does not validate record semantics.
 - [Foundation and rewrite concept](docs/architecture/foundation.md)
 - [Initial roadmap](docs/roadmap/initial-roadmap.md)
 - [Repository adoption prompts](docs/onboarding/repository-adoption.md)
+- [Private project-vault onboarding](docs/onboarding/private-project-vault.md)
 - [Decision log](docs/decisions/README.md)
 - [Extension and adapter boundary](adapters/README.md)
 - [Schema work area](artifact_memory/schemas/README.md)

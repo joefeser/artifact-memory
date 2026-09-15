@@ -59,5 +59,11 @@ explicit outcomes.
 
 To evaluate Artifact Memory from another repository, start with the read-only
 fit audit in the [repository adoption prompts](onboarding/repository-adoption.md).
-The prompts pin implementation claims to the owner-signed v0.1.2 release and
+The prompts pin implementation claims to the owner-signed v0.1.3 release and
 keep product meaning and operational authority with their owning systems.
+
+To use private operational context from a vault outside every Git worktree,
+follow [Using Artifact Memory for a private project vault](onboarding/private-project-vault.md).
+Its synthetic proof exercises validation, projection, literal search, bounded
+context-pack v4 export, and independent informational recall without loading a
+real vault.

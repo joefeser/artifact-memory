@@ -1,0 +1,23 @@
+{
+  "artifact_refs": [],
+  "lifecycle": "accepted",
+  "meaning": {
+    "labels": [
+      "operations",
+      "recovery",
+      "relay",
+      "synthetic"
+    ],
+    "summary": "Synthetic relay recovery restarts the edge adapter only after the overlay route is confirmed."
+  },
+  "provenance": [
+    {
+      "kind": "author",
+      "source_ref": "actor://synthetic/operator"
+    }
+  ],
+  "record_id": "record://synthetic-onboarding/restart-order",
+  "record_type": "decision",
+  "schema_id": "artifact-memory/knowledge-record/v3",
+  "sensitivity": "private"
+}
