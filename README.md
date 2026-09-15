@@ -97,7 +97,8 @@ candidates from owner-signed published releases.
 
 `artifact-memory validate RECORD` applies schema validation plus the supported
 semantic rules for recognized contracts. In particular, a schema-readable
-release manifest can still be rejected as unreleasable. Use
+release manifest can still be rejected as unreleasable, and a context pack
+with a forged identity or exceeded canonical byte budget is rejected. Use
 `artifact-memory inspect RECORD` when only schema and top-level field metadata
 are needed; `inspect` does not validate record semantics.
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 from pathlib import Path
@@ -33,10 +34,47 @@ SAFETY_CATEGORIES = [
 ]
 _EMAIL = re.compile(r"\b[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 _IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+_IPV6_CANDIDATE = re.compile(r"\[?[0-9A-Fa-f:.]+(?:%[A-Za-z0-9_.-]+)?\]?")
+_NETWORK_URL = re.compile(r"\b(?:https?|ssh|sftp|ftp|ftps|nfs|smb)://", re.IGNORECASE)
+_HOSTNAME = re.compile(
+    r"\b(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}\b"
+)
 _MACHINE_PATH = re.compile(
     r"(?:^|\s)(?:/(?:Users|home|srv|mnt|var|etc|opt|private|Volumes)/\S+|[A-Za-z]:[\\/]\S+|\\\\\S+)"
 )
-_CREDENTIAL_KEYS = {"password", "passwd", "secret", "api_key", "access_token", "private_key"}
+_CREDENTIAL_KEYS = {
+    "access_key",
+    "access_token",
+    "api_key",
+    "authorization",
+    "bearer",
+    "client_secret",
+    "cookie",
+    "credential",
+    "credentials",
+    "passphrase",
+    "passwd",
+    "password",
+    "private_key",
+    "secret",
+    "session_token",
+    "signing_key",
+    "ssh_key",
+    "token",
+}
+_CREDENTIAL_KEY_PARTS = {
+    "authorization",
+    "bearer",
+    "cookie",
+    "credential",
+    "credentials",
+    "passphrase",
+    "passwd",
+    "password",
+    "secret",
+    "token",
+}
+_KEY_QUALIFIERS = {"access", "api", "client", "private", "signing", "ssh"}
 
 
 def _record_paths(fixture_root: Path) -> list[Path]:
@@ -59,7 +97,8 @@ def _walk(value: Any) -> tuple[list[str], list[str]]:
     strings: list[str] = []
     if isinstance(value, dict):
         for key, item in value.items():
-            keys.append(str(key).casefold().replace("-", "_"))
+            normalized_key = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key))
+            keys.append(normalized_key.casefold().replace("-", "_"))
             child_keys, child_strings = _walk(item)
             keys.extend(child_keys)
             strings.extend(child_strings)
@@ -71,6 +110,30 @@ def _walk(value: Any) -> tuple[list[str], list[str]]:
     elif isinstance(value, str):
         strings.append(value)
     return keys, strings
+
+
+def _has_network_binding(value: str) -> bool:
+    if _IPV4.search(value) or _NETWORK_URL.search(value) or _HOSTNAME.search(value):
+        return True
+    for candidate in _IPV6_CANDIDATE.findall(value):
+        address = candidate.strip("[]().,;").split("%", 1)[0]
+        if ":" not in address:
+            continue
+        try:
+            if isinstance(ipaddress.ip_address(address), ipaddress.IPv6Address):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _is_credential_key(key: str) -> bool:
+    parts = set(key.split("_"))
+    return (
+        key in _CREDENTIAL_KEYS
+        or bool(parts & _CREDENTIAL_KEY_PARTS)
+        or ("key" in parts and bool(parts & _KEY_QUALIFIERS))
+    )
 
 
 def _fixture_safety(fixture_root: Path, records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -85,9 +148,14 @@ def _fixture_safety(fixture_root: Path, records: list[dict[str, Any]]) -> dict[s
             findings += 1
         if record.get("artifact_refs"):
             findings += 1
-        if any(key in _CREDENTIAL_KEYS for key in keys):
+        if any(_is_credential_key(key) for key in keys):
             findings += 1
-        if any(_EMAIL.search(value) or _IPV4.search(value) or _MACHINE_PATH.search(value) for value in strings):
+        if any(
+            _EMAIL.search(value)
+            or _has_network_binding(value)
+            or _MACHINE_PATH.search(value)
+            for value in strings
+        ):
             findings += 1
         provenance = record.get("provenance", [])
         if any(
@@ -221,13 +289,18 @@ def run_private_vault_onboarding_slice(fixture_root: Path, workspace: Path) -> d
 
 def render_private_vault_onboarding_receipt(receipt: dict[str, Any]) -> str:
     validate(receipt, load_schema("core", "private-vault-onboarding-slice-receipt.v1.schema.json"))
+    search_outcome = next(
+        operation["outcome"]
+        for operation in receipt["operations"]
+        if operation["name"] == "find-operational-topics"
+    )
     lines = [
         "# Synthetic private-vault onboarding receipt",
         "",
         f'- Outcome: `{receipt["outcome"]}`',
         f'- Canonical records validated: `{receipt["record_validation"]["record_count"]}`',
         f'- Projection source digest: `{receipt["projection"]["source_record_set_digest"]}`',
-        f'- Operational searches verified: `{len(receipt["searches"])}`',
+        f'- Operational searches executed: `{len(receipt["searches"])}`; outcome: `{search_outcome}`',
         f'- Context contract: `{receipt["context"]["schema_id"]}`',
         f'- Context bytes: `{receipt["context"]["serialized_bytes"]}` / `{receipt["context"]["max_bytes"]}`',
         f'- Public fixture forbidden-category matches: `{receipt["public_fixture_safety"]["forbidden_category_match_count"]}`',

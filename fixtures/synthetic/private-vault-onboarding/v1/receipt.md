@@ -3,7 +3,7 @@
 - Outcome: `complete`
 - Canonical records validated: `3`
 - Projection source digest: `sha-256:fd48ce48562dadcd87c4663a80a94b6082c586e9dc5d4142d5c25237c0ba4f38`
-- Operational searches verified: `2`
+- Operational searches executed: `2`; outcome: `verified`
 - Context contract: `artifact-memory/context-pack/v4`
 - Context bytes: `2094` / `4096`
 - Public fixture forbidden-category matches: `0`
