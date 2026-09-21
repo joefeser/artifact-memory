@@ -1,5 +1,5 @@
 agentControl:
-  requiredVersion: ">=0.4.1 <0.6.0"
+  requiredVersion: ">=0.5.2 <0.6.0"
   channel: stable
   allowPrerelease: false
   requiredCapabilities:
@@ -19,6 +19,7 @@ description: >
   are processed as a batch; main and release promotion remain human-mediated.
 
 prLoopPacket:
+  repo: joefeser/artifact-memory
   costProfile: high_assurance
   policyProfile: default
   reviewQuorum:
