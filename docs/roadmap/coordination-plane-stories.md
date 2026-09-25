@@ -33,7 +33,11 @@ push both to a hub dir, then pull both ⇒ both contain the union; a second
 push/pull round is a no-op (byte-identical state); two valid revisions under one record ID merge by
 `(record_id, revision_digest)`; different canonical bytes claiming the same
 complete pair ⇒ quarantine error naming the pair and both observed content
-digests, no merge.
+digests, no merge. Each successful pull returns a canonical sync receipt whose
+authorized-set count and digest match the resulting local set and whose
+submitted pairs have typed admission outcomes; rejected or quarantined pairs
+are absent from the authorized set. Tampering with the receipt or local set
+fails typed and does not advance the last-successful-sync marker.
 
 ### AM-4: Outbox semantics — local append is never blocked by the hub (M)
 Sync failures spool; work continues.
@@ -46,9 +50,14 @@ duplicated (count invariant across a 100-append soak).
 fresh-session context (session-start protocol + authority boundary + current
 queue) from the context pack + queue records.
 **Accept:** generated prompt contains the verification command from the unique
-current revision of the lexicographically latest open task, contains the
-standing no-authority lines, and never renders record text as authorization;
-golden-file test. A forked or broken TaskPacket predecessor chain fails typed.
+current revision of the lexicographically latest open task admitted by the
+latest successful authenticated sync receipt, identifies the receipt's
+observation time and hub scope generation, contains the standing no-authority
+lines, and never renders record text as authorization; golden-file test. A
+missing/tampered receipt, local authorized-set mismatch, pending/rejected/
+quarantined revision, or forked/broken TaskPacket predecessor chain fails
+typed. The retained receipt is integrity evidence from an authenticated
+session, not issuer authenticity or authority.
 
 ### AM-6: Freshness linked to repo heads (S)
 Records may carry `trueAsOfCommit`; readers mechanically detect drift.
@@ -86,7 +95,10 @@ at context-pack generation, so restricted clients never receive other
 projects' records.
 **Accept:** sync delta and context pack generated with `label-scoped-client`
 contain zero records for an excluded synthetic project; each exclusion appears
-only as a count in its receipt, without protected record identities.
+only as a count in its receipt, without protected record identities. The
+restricted sync response contains no full AccessLabel body and no denied
+project UUID or display name; local context export without a trusted policy
+view denies rather than inferring access from an opaque label reference.
 
 ## WITS stories (W)
 
@@ -96,6 +108,9 @@ bearer + capability auth (reuse `AgentApiKey`), validated append into the
 vault store (no WITS-owned copy), claim exclusivity check.
 **Accept:** integration test — two concurrent claims for one taskId: one
 201, one 409; a receipt with a failing schema or wrong writer: 422 typed;
+the authenticated key's server-owned principal binding, not the submitted
+writer string, determines the expected writer; a correct-looking writer under
+the wrong key is also 422 typed;
 project-scoped audit evidence written for accepted mutations through the
 WITS-owned coordination audit contract, without inventing a case identity.
 
@@ -115,10 +130,13 @@ observed per mutation.
 ### W-4: Sync endpoint for AM-3 (S)
 `POST /api/agent/coordination/sync` accepting a batch of records, returning
 the authorized union delta (revisions the caller lacks and may read), a
-count-only exclusion receipt, and enforcement of the quarantine rule.
+canonical sync receipt with authorized-set count/digest and typed submission
+outcomes, a count-only exclusion receipt, and enforcement of the quarantine
+rule.
 **Accept:** AM-3's integration test runs against this endpoint as its hub; a
 restricted credential receives no excluded project record or protected
-identity and does receive the count-only exclusion receipt.
+identity, receives no full AccessLabel body, and does receive the count-only
+exclusion receipt.
 
 ## Sequencing
 

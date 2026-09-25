@@ -55,6 +55,25 @@ not proof of convergence when a later writer has not pushed yet. After all
 pushes and pulls complete, another sync of every unchanged replica is a
 byte-identical no-op.
 
+Every successful pull returns a canonical, digest-identified
+`coordination-sync-receipt/v0`. It binds the authenticated principal and exact
+AccessLabel revision used by the hub, the hub's logical (not network)
+identifier, a monotonic hub scope generation, the completion time, and the
+count plus canonical set digest of every authorized `(record_id,
+revision_digest)` pair visible in that scope. It also carries the count-only
+exclusion receipt. Submitted pairs receive typed `admitted`, `rejected`, or
+`quarantined` outcomes; rejected and quarantined submissions never enter the
+authorized set. The receipt never names excluded records, projects, labels, or
+other protected identities.
+
+A replica verifies the receipt's canonical digest and recomputes the
+authorized-set count and digest after applying the returned delta. A mismatch
+fails typed and cannot advance the replica's last-successful-sync marker. The
+receipt is durable evidence of what the client observed over an authenticated
+channel; under `docs/contracts/v0-authenticity-assessment.md` it remains
+`integrity-verified / issuer-unverified`. Authenticated transport does not turn
+the later-restored receipt into issuer authenticity, trust, or authority.
+
 ## Canonical coordination identity and task state
 
 Each TaskPacket, WorkReceipt, and AccessLabel is itself one canonical record
@@ -75,13 +94,19 @@ This avoids a self-referential digest and gives AM-3 the exact
 TaskPacket evolution is an immutable predecessor chain. A genesis revision has
 `predecessor: null`; every later revision uses an object containing exactly
 `record_id` (the same TaskPacket identity) and `revision_digest` (the exact
-digest of its immediate predecessor). The unique hub-admitted leaf is current.
-Zero leaves, multiple leaves, a broken predecessor, or a predecessor from a
-different `record_id` is a typed conflict requiring quarantine and human
-review. Historical open revisions never become current merely because they are
-replayed later. For AM-5, "latest open task" means the lexicographically
-greatest ULID-bearing `taskId` among unique current leaves whose status is
-`open`.
+digest of its immediate predecessor). A leaf is hub-admitted only when its
+exact pair is present in the authorized set bound by the replica's latest
+successful authenticated sync receipt. The unique admitted leaf is current as
+of that receipt's hub scope generation and completion time; offline readers
+must not claim fresher global state. Zero leaves, multiple leaves, a broken
+predecessor, a predecessor from a different `record_id`, an absent receipt, or
+a local set that does not match the receipt's authorized-set count and digest
+is a typed conflict requiring quarantine or resync and human review.
+Historical, pending, rejected, and quarantined revisions never become current
+merely because they exist in a local vault or are replayed later. For AM-5,
+"latest open task" means the lexicographically greatest ULID-bearing `taskId`
+among unique current leaves whose status is `open`, explicitly qualified by the
+receipt's observation time and generation.
 
 Every TaskPacket and WorkReceipt carries `accessLabelRef`, an exact object with
 `record_id` and `revision_digest` for the AccessLabel revision governing its
@@ -113,10 +138,18 @@ the hub in the sync model IS a merged vault (set union of immutable
 revisions). Origin-unique ULIDs plus a vault/origin component remain the rule
 when minting a new `record_id`, preventing independent origins from minting the
 same logical identity. Revisions under one record ID union freely by their
-complete `(record_id, revision_digest)` identity. AccessLabels travel with
-records so scoping survives a union, and the hub enforces that scoping before
-egress. Vault separation remains the default for isolation; merging is an
-operator convenience, never a requirement.
+complete `(record_id, revision_digest)` identity. TaskPackets and WorkReceipts
+carry exact AccessLabel references so scoping survives a union. Full
+AccessLabel bodies are hub/admin-side policy records and are not ordinary sync
+payloads for restricted replicas: returning a label that names denied projects
+would defeat the count-only privacy boundary. The hub enforces the referenced
+label before egress. A separately authorized administrative export may carry a
+full AccessLabel; a restricted replica receives only its own opaque exact
+label reference, authorized records, authorized-set digest/count, and the
+count-only exclusion receipt. Local context export without a trusted local
+policy view defaults to deny; it must not infer permission from record text or
+the opaque reference. Vault separation remains the default for isolation;
+merging is an operator convenience, never a requirement.
 
 ## Records (three new record types)
 
@@ -242,13 +275,18 @@ Pins what a credential may see and do. Maps onto WITS's existing
 
 `credentialHint` is display-only provenance and never selects or authenticates
 a policy. WITS maintains a server-owned binding from the authenticated
-`AgentApiKey` identity to one exact accepted AccessLabel
-`(record_id, revision_digest)` pair. A client cannot submit or choose that
-binding. Missing, unknown, stale, revoked, or multiply bound labels fail
-closed. Registering, replacing, or revoking the binding requires separate WITS
-administrative authority; ordinary sync, claim, and receipt capabilities
-cannot mutate it. Synced AccessLabel records are portable policy evidence, not
-self-authorizing grants.
+`AgentApiKey` identity to both (a) one stable coordination principal identifier
+and (b) one exact accepted AccessLabel `(record_id, revision_digest)` pair. A
+client cannot submit or choose either binding. Missing, unknown, stale,
+revoked, or multiply bound labels or principals fail closed. On receipt intake,
+WITS requires `WorkReceipt.writer` to equal the server-bound principal and the
+TaskPacket's `assignedWriter`; a caller-controlled writer string is never
+authorization. Claim intake applies the same principal binding. Registering,
+replacing, or revoking either binding requires separate WITS administrative
+authority; ordinary sync, claim, and receipt capabilities cannot mutate it.
+AccessLabel records are portable policy evidence, not self-authorizing grants,
+and their full bodies are visible only to separately authorized administrators
+or policy readers.
 
 ## Authority boundary
 
@@ -271,7 +309,9 @@ stores no second copy of coordination truth outside the vault:
   exclusivity check, single-writer queue enforcement.
 - `POST /api/agent/coordination/sync` — authenticated union exchange. The
   response is filtered by the credential-bound AccessLabel and read
-  capabilities before egress and includes a count-only exclusion receipt.
+  capabilities before egress and includes the canonical sync receipt,
+  authorized-set count/digest, and count-only exclusion receipt. Restricted
+  responses never include full AccessLabel bodies or denied identities.
 - Existing strengths reused as-is: bearer + capability auth
   (`AgentApiKey`), append-only handoff precedent (`/api/handoffs`), and
   `BUS_TRANSPORT` for notifications.
@@ -282,9 +322,11 @@ case-bound `Event` model can represent that evidence. WITS owns a separate
 coordination audit contract or an explicit valid project-to-case mapping; it
 must not invent a case identity merely to satisfy the existing model.
 
-WITS resolves the authenticated key-to-label binding before all three routes.
-The caller never supplies the effective label. Label administration remains a
-separate owner/admin operation and is not a coordination intake route.
+WITS resolves the authenticated key-to-principal and key-to-label bindings
+before all three routes. The caller never supplies the effective principal or
+label. WITS compares record writer fields to the effective principal rather
+than trusting them. Principal and label administration remain separate
+owner/admin operations and are not coordination intake routes.
 
 ## Non-goals (v0)
 
