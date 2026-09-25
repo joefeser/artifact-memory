@@ -27,6 +27,10 @@ fields never enter repository fixtures. Every body has deterministic
 `schema_id`, stable UUID `originId`, and origin-namespaced `record_id`;
 `revision_digest` is recomputed from canonical bytes and carried externally in
 revision references. WorkReceipt binds an exact admitted TaskPacket revision.
+TaskPacket claims are strict typed entries bound to the exact open revision;
+the v0 `open`/`claimed` lifecycle and immutable predecessor transition are
+validated. AccessLabel read grant and denial sets are duplicate-free and
+disjoint.
 Each strict schema admits only the structured optional `extensions` container;
 the AM-6 freshness extension is optional and namespaced.
 **Accept:** `artifact-memory records validate fixtures/coordination/*.json` —
@@ -34,7 +38,10 @@ valid fixtures pass; each field-omission fixture fails with a typed error;
 duplicate human identifiers from distinct synthetic origin UUIDs do not
 collide; mismatched origin/record IDs, stale or forked `taskRef` values, raw
 provider URLs in artifact locations, and unknown top-level fields fail typed;
-the optional freshness extension is preserved canonically.
+the optional freshness extension is preserved canonically. Negative fixtures
+reject malformed claim entries, a claimed successor not bound to its exact
+open predecessor, duplicate read UUIDs, and overlap between
+`may.readProjects` and `mayNot.readProjects`.
 
 ### AM-3: Vault sync CLI — push/pull as set union (M)
 As a machine-local vault, I want `artifact-memory sync --hub <url>` so
@@ -125,7 +132,9 @@ view denies rather than inferring access from an opaque label reference. After
 a synthetic label narrows, a full replacement membership manifest advances
 the scope generation, rebuilds the generated authorized projection, and
 suppresses formerly visible records without deleting canonical history or
-claiming erasure.
+claiming erasure. An AccessLabel with duplicate or overlapping read grant and
+denial UUIDs is rejected typed before use; sync and context export fail closed
+if such a label reaches evaluation.
 
 ## WITS stories (W)
 
@@ -134,7 +143,12 @@ claiming erasure.
 bearer + capability auth (reuse `AgentApiKey`), validated append into the
 vault store (no WITS-owned copy), claim exclusivity check.
 **Accept:** integration test — two concurrent claims for one taskId: one
-201, one 409; a receipt with a failing schema or wrong writer: 422 typed;
+201, one 409, with the winner atomically appending one durable claimed
+TaskPacket successor whose `predecessor` and strict claim-entry `taskRef` bind
+the exact prior open revision; restart and sync reconstruct the same winner;
+retrying that exact claim appends no duplicate successor; ordinary sync cannot
+inject an `open`-to-`claimed` transition. A receipt with a failing schema or
+wrong writer: 422 typed;
 the authenticated key's server-owned principal binding, not the submitted
 writer string, determines the expected writer; a correct-looking writer under
 the wrong key is also 422 typed; a receipt referencing a stale TaskPacket

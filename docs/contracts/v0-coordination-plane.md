@@ -214,6 +214,37 @@ merely because they exist in a local vault or are replayed later. For AM-5,
 among unique current leaves whose status is `open`, explicitly qualified by the
 receipt's observation time and generation.
 
+For the v0 claim lifecycle, `status` is either `open` or `claimed`. An `open`
+TaskPacket has an empty `claims` array. A `claimed` TaskPacket has exactly one
+claim entry, containing exactly `claimId`, `principalId`, `taskRef`, and
+`claimedAt`. `claimId` is a hub-minted, origin-unique ULID-bearing identifier;
+`principalId` is the stable principal resolved from the authenticated key;
+`taskRef` is the exact `(record_id, revision_digest)` pair of the open revision
+that was claimed; and `claimedAt` is an RFC 3339 timestamp assigned by the hub.
+Unknown claim fields fail strict validation.
+
+A claim request body contains exactly one field, `taskRef`, with exactly
+`record_id` and `revision_digest`; the caller cannot submit `claimId`,
+`principalId`, `claimedAt`, status, predecessor, or replacement TaskPacket
+bytes. Those values are resolved or minted by the hub after authentication.
+
+A successful claim is one atomic compare-and-append operation. The hub requires
+`taskRef` to name the unique current admitted leaf, requires that leaf to be
+`open` with no claims, and requires its `assignedWriter` to equal the
+server-bound principal. In the same durable transaction, the hub appends one
+successor TaskPacket whose `predecessor` and claim-entry `taskRef` both equal
+the requested pair, whose prior fields are unchanged except for
+`status: "claimed"` and the one appended claim, and whose resulting exact pair
+becomes the unique admitted leaf. Only the claims route may admit that
+`open`-to-`claimed` transition; ordinary sync rejects a client-authored claim
+transition. The hub returns 201 only after the successor is durable. A
+concurrent request that lost the compare appends nothing and returns 409. A
+retry by the same principal for the same exact `taskRef` returns the already
+admitted successor without appending another revision; any other stale,
+already-claimed, or conflicting request returns 409. Thus claim exclusivity is
+recoverable from canonical TaskPacket history after restart or sync rather
+than existing only in a transient lock or audit entry.
+
 Every TaskPacket and WorkReceipt carries `accessLabelRef`, an exact object with
 `record_id` and `revision_digest` for the AccessLabel revision governing its
 project disclosure. For ordinary intake, the hub requires this reference to
@@ -309,6 +340,21 @@ merging is an operator convenience, never a requirement.
     }
   },
   "authority_boundary": "informational only; authority requires independently authenticated WITS enforcement"
+}
+```
+
+The claim entry in the hub-created successor has this strict shape; its
+`taskRef` and the successor's `predecessor` both name the open revision above:
+
+```json
+{
+  "claimId": "claim_01J00000000000000000000002",
+  "principalId": "agent-session-synthetic-1",
+  "taskRef": {
+    "record_id": "record://coordination/33333333-3333-4333-8333-333333333333/task/task_01J00000000000000000000000",
+    "revision_digest": "sha-256:93be6b6e63c11906c955f835da6e7f547c1672e1b173cf59126ac03f43f41022"
+  },
+  "claimedAt": "2026-09-25T19:05:00Z"
 }
 ```
 
@@ -415,6 +461,14 @@ Pins what a credential may see and do. Maps onto WITS's existing
   "authority_boundary": "informational only; authority requires independently authenticated WITS enforcement"
 }
 ```
+
+Within one AccessLabel revision, `may.readProjects` and
+`mayNot.readProjects` are sets and MUST be disjoint. A duplicate UUID within
+either array or a UUID present in both arrays makes the label invalid; it is
+rejected before binding or use, with a typed validation error. There is no
+grant-versus-denial precedence rule for an invalid label. If a bound label is
+later found to violate this invariant, sync and context export fail closed
+rather than choosing either interpretation.
 
 `credentialHint` is display-only provenance and never selects or authenticates
 a policy. WITS maintains a server-owned binding from the authenticated
