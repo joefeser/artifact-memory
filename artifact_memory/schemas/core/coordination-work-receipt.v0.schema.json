@@ -7,15 +7,15 @@
   "required": ["schema_id", "record_id", "originId", "receiptId", "taskRef", "writer", "machine", "projectId", "projectName", "headSha", "accessLabelRef", "evidence", "consumedTokensNote", "recordedAt", "authority_boundary"],
   "properties": {
     "schema_id": {"const": "artifact-memory/coordination-work-receipt/v0"},
-    "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/receipt/rcpt-[0-9A-HJKMNP-TV-Z]{26}$"},
+    "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/receipt/rcpt-[0-7][0-9A-HJKMNP-TV-Z]{25}$"},
     "originId": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
-    "receiptId": {"type": "string", "pattern": "^rcpt-[0-9A-HJKMNP-TV-Z]{26}$"},
+    "receiptId": {"type": "string", "pattern": "^rcpt-[0-7][0-9A-HJKMNP-TV-Z]{25}$"},
     "taskRef": {
       "type": "object",
       "additionalProperties": false,
       "required": ["record_id", "revision_digest"],
       "properties": {
-        "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/task/task_[0-9A-HJKMNP-TV-Z]{26}$"},
+        "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/task/task_[0-7][0-9A-HJKMNP-TV-Z]{25}$"},
         "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
       }
     },

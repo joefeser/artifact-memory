@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from copy import deepcopy
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
-from .canonical import canonical_bytes, sha256_bytes
+from .canonical import CanonicalizationFailure, canonical_bytes, sha256_bytes
 from .extensions import ExtensionFailure, preserve_extensions
+from .location import RELATIVE_PATH
 from .schema_resources import core_schemas
 from .validator import ValidationFailure, load_json, validate
 
@@ -109,16 +110,7 @@ def _validate_portable_locations(receipt: dict[str, Any]) -> None:
     for evidence_index, evidence in enumerate(receipt["evidence"]):
         for artifact_index, artifact in enumerate(evidence["artifacts"]):
             relative_path = artifact["location"]["relative_path"]
-            path = PurePosixPath(relative_path)
-            parts = relative_path.split("/")
-            if (
-                relative_path.startswith("/")
-                or "\\" in relative_path
-                or "://" in relative_path
-                or (len(relative_path) >= 2 and relative_path[1] == ":")
-                or any(part in {"", ".", ".."} for part in parts)
-                or path.is_absolute()
-            ):
+            if RELATIVE_PATH.fullmatch(relative_path) is None:
                 raise ValidationFailure(
                     "artifact-location-nonportable",
                     "artifact location must be a portable endpoint-relative path",
@@ -149,11 +141,9 @@ def _validate_label_sets(label: dict[str, Any]) -> None:
         )
 
 
-def _project_is_named(label: dict[str, Any], project_id: str, project_name: str) -> bool:
-    return any(
-        item["projectId"] == project_id and item["projectName"] == project_name
-        for item in label["projectNames"]
-    )
+def _label_declares_project(label: dict[str, Any], project_id: str) -> bool:
+    """Match only the authoritative UUID; projectName is immutable provenance."""
+    return any(item["projectId"] == project_id for item in label["projectNames"])
 
 
 def _validate_task_chains(
@@ -200,6 +190,9 @@ def _validate_task_chains(
                     "TaskPacket chain has more than one successor for an exact predecessor",
                     "$.predecessor",
                 )
+            # Contract source: v0-coordination-plane.md, "Canonical coordination
+            # identity and task state". V0 permits only the exact open-to-claimed
+            # successor described below; these are contract invariants, not policy.
             if task["status"] != "claimed" or prior["status"] != "open":
                 raise ValidationFailure(
                     "coordination-transition-invalid",
@@ -268,6 +261,7 @@ def validate_coordination_records(records: list[dict[str, Any]]) -> dict[str, An
         raise ValidationFailure("invalid-input", "at least one coordination record is required")
     schemas = core_schemas()
     materialized: list[dict[str, Any]] = []
+    materialized_digests: list[str] = []
     pairs: dict[tuple[str, str], dict[str, Any]] = {}
     for index, candidate in enumerate(records):
         if not isinstance(candidate, dict):
@@ -291,10 +285,17 @@ def validate_coordination_records(records: list[dict[str, Any]]) -> dict[str, An
                 _validate_label_sets(candidate)
             elif schema_id == WORK_RECEIPT_SCHEMA_ID:
                 _validate_portable_locations(candidate)
+            digest = revision_digest(candidate)
+        except CanonicalizationFailure as exc:
+            raise ValidationFailure(
+                "canonicalization-failed",
+                str(exc),
+                f"$.records[{index}]",
+            ) from exc
         except ValidationFailure as exc:
             raise _with_record_path(exc, index) from exc
         record = deepcopy(candidate)
-        key = record["record_id"], revision_digest(record)
+        key = record["record_id"], digest
         if key in pairs:
             raise ValidationFailure(
                 "duplicate-record-revision",
@@ -303,8 +304,23 @@ def validate_coordination_records(records: list[dict[str, Any]]) -> dict[str, An
             )
         pairs[key] = record
         materialized.append(record)
+        materialized_digests.append(digest)
 
     tasks = [record for record in materialized if record["schema_id"] == TASK_PACKET_SCHEMA_ID]
+    claim_ids: dict[tuple[str, str], str] = {}
+    for index, task in enumerate(materialized):
+        if task["schema_id"] != TASK_PACKET_SCHEMA_ID or not task["claims"]:
+            continue
+        claim = task["claims"][0]
+        claim_key = task["originId"], claim["claimId"]
+        prior_record_id = claim_ids.get(claim_key)
+        if prior_record_id is not None and prior_record_id != task["record_id"]:
+            raise ValidationFailure(
+                "coordination-claim-id-duplicate",
+                "claimId must be unique within its origin namespace",
+                f"$.records[{index}].claims[0].claimId",
+            )
+        claim_ids[claim_key] = task["record_id"]
     leaves = _validate_task_chains(tasks, pairs)
     for index, record in enumerate(materialized):
         if record["schema_id"] not in {TASK_PACKET_SCHEMA_ID, WORK_RECEIPT_SCHEMA_ID}:
@@ -312,7 +328,7 @@ def validate_coordination_records(records: list[dict[str, Any]]) -> dict[str, An
         try:
             if record["schema_id"] == TASK_PACKET_SCHEMA_ID:
                 label = _resolve_label(record["accessLabelRef"], pairs)
-                if not _project_is_named(label, record["projectId"], record["projectName"]):
+                if not _label_declares_project(label, record["projectId"]):
                     raise ValidationFailure(
                         "access-label-project-mismatch",
                         "AccessLabel project provenance does not match the coordination record",
@@ -339,7 +355,7 @@ def validate_coordination_records(records: list[dict[str, Any]]) -> dict[str, An
                     "WorkReceipt must bind a claimed TaskPacket revision",
                     "$.taskRef",
                 )
-            if record["projectId"] != task["projectId"] or record["projectName"] != task["projectName"]:
+            if record["projectId"] != task["projectId"]:
                 raise ValidationFailure(
                     "work-receipt-project-mismatch",
                     "WorkReceipt project must match its exact TaskPacket revision",
@@ -358,7 +374,7 @@ def validate_coordination_records(records: list[dict[str, Any]]) -> dict[str, An
                     "$.writer",
                 )
             label = _resolve_label(record["accessLabelRef"], pairs)
-            if not _project_is_named(label, record["projectId"], record["projectName"]):
+            if not _label_declares_project(label, record["projectId"]):
                 raise ValidationFailure(
                     "access-label-project-mismatch",
                     "AccessLabel project provenance does not match the coordination record",
@@ -375,8 +391,8 @@ def validate_coordination_records(records: list[dict[str, Any]]) -> dict[str, An
         "type_counts": dict(sorted(type_counts.items())),
         "record_revisions": sorted(
             (
-                {"record_id": record["record_id"], "revision_digest": revision_digest(record)}
-                for record in materialized
+                {"record_id": record["record_id"], "revision_digest": digest}
+                for record, digest in zip(materialized, materialized_digests)
             ),
             key=lambda item: (item["record_id"], item["revision_digest"]),
         ),

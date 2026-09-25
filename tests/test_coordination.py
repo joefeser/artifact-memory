@@ -150,6 +150,11 @@ class CoordinationRecordTests(unittest.TestCase):
                         {"required-field-missing", "constraint-failed", "type-mismatch"},
                     )
 
+    def test_empty_work_evidence_is_rejected_typed(self):
+        records = valid_records()
+        records[-1]["evidence"] = []
+        self.assert_rejected(records, "constraint-failed")
+
     def test_same_human_task_id_from_distinct_origins_does_not_collide(self):
         records = valid_records()
         tasks = [record for record in records if record["schema_id"] == TASK_PACKET_SCHEMA_ID]
@@ -182,6 +187,8 @@ class CoordinationRecordTests(unittest.TestCase):
             "/private/result.json",
             "C:\\private\\result.json",
             "../private/result.json",
+            "reviews/result.json?mode=synthetic",
+            "reviews/result.json#fragment",
         ):
             with self.subTest(path=bad_path):
                 records = valid_records()
@@ -243,6 +250,85 @@ class CoordinationRecordTests(unittest.TestCase):
         records = valid_records()
         records[-1]["accessLabelRef"]["revision_digest"] = "sha-256:" + "f" * 64
         self.assert_rejected(records, "work-receipt-label-mismatch")
+
+    def test_project_display_names_are_provenance_not_join_keys(self):
+        records = valid_records()
+        records[1]["projectName"] = "renamed-task-display"
+        records[2]["projectName"] = "renamed-task-display"
+        open_ref = {
+            "record_id": records[1]["record_id"],
+            "revision_digest": revision_digest(records[1]),
+        }
+        records[2]["predecessor"] = copy.deepcopy(open_ref)
+        records[2]["claims"][0]["taskRef"] = copy.deepcopy(open_ref)
+        records[-1]["taskRef"]["revision_digest"] = revision_digest(records[2])
+        records[-1]["projectName"] = "historical-receipt-display"
+        validate_coordination_records(records)
+
+    def test_canonicalization_failure_is_typed_through_cli(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            receipt = synthetic_work_receipt()
+            receipt["evidence"][0]["counts"]["passed"] = 9_007_199_254_740_992
+            receipt_path = root / "work-receipt.json"
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+            paths = sorted(FIXTURES.glob("*.json")) + [receipt_path]
+            completed = subprocess.run(
+                [sys.executable, "-m", "artifact_memory", "records", "validate", *map(str, paths), "--json"],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+        self.assertEqual(completed.returncode, 2)
+        self.assertEqual(json.loads(completed.stdout)["diagnostics"][0]["code"], "canonicalization-failed")
+        self.assertNotIn("Traceback", completed.stderr)
+
+    def test_claim_ids_are_unique_within_an_origin(self):
+        records = valid_records()
+        open_task = copy.deepcopy(records[1])
+        claimed_task = copy.deepcopy(records[2])
+        replacement_task_id = "task_01J00000000000000000000004"
+        replacement_record_id = (
+            "record://coordination/33333333-3333-4333-8333-333333333333/task/"
+            + replacement_task_id
+        )
+        for task in (open_task, claimed_task):
+            task["taskId"] = replacement_task_id
+            task["record_id"] = replacement_record_id
+            task["title"] = "Synthetic second claim chain"
+        open_ref = {
+            "record_id": replacement_record_id,
+            "revision_digest": revision_digest(open_task),
+        }
+        claimed_task["predecessor"] = copy.deepcopy(open_ref)
+        claimed_task["claims"][0]["taskRef"] = copy.deepcopy(open_ref)
+        records.extend((open_task, claimed_task))
+        self.assert_rejected(records, "coordination-claim-id-duplicate")
+
+    def test_ulid_leading_character_range_is_enforced(self):
+        schemas = core_schemas()
+        cases = []
+        task = fixture("task-open.json")
+        task["taskId"] = "task_Z1J00000000000000000000000"
+        task["record_id"] = (
+            "record://coordination/33333333-3333-4333-8333-333333333333/task/"
+            + task["taskId"]
+        )
+        cases.append((task, schemas[TASK_PACKET_SCHEMA_ID]))
+        claim = fixture("task-claimed.json")
+        claim["claims"][0]["claimId"] = "claim_Z1J00000000000000000000000"
+        cases.append((claim, schemas[TASK_PACKET_SCHEMA_ID]))
+        receipt = synthetic_work_receipt()
+        receipt["receiptId"] = "rcpt-Z1J00000000000000000000000"
+        receipt["record_id"] = (
+            "record://coordination/33333333-3333-4333-8333-333333333333/receipt/"
+            + receipt["receiptId"]
+        )
+        cases.append((receipt, schemas[WORK_RECEIPT_SCHEMA_ID]))
+        for record, schema in cases:
+            with self.subTest(schema_id=record["schema_id"]):
+                with self.assertRaises(ValidationFailure):
+                    validate(record, schema)
 
     def test_freshness_and_unknown_optional_extensions_round_trip_canonically(self):
         records = valid_records()

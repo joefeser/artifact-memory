@@ -7,9 +7,9 @@
   "required": ["schema_id", "record_id", "originId", "taskId", "projectId", "projectName", "title", "dod", "scopeFence", "accessLabelRef", "assignedWriter", "claims", "status", "parentEpic", "predecessor", "authority_boundary"],
   "properties": {
     "schema_id": {"const": "artifact-memory/coordination-task-packet/v0"},
-    "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/task/task_[0-9A-HJKMNP-TV-Z]{26}$"},
+    "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/task/task_[0-7][0-9A-HJKMNP-TV-Z]{25}$"},
     "originId": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
-    "taskId": {"type": "string", "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$"},
+    "taskId": {"type": "string", "pattern": "^task_[0-7][0-9A-HJKMNP-TV-Z]{25}$"},
     "projectId": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
     "projectName": {"type": "string", "minLength": 1},
     "title": {"type": "string", "minLength": 1},
@@ -50,14 +50,14 @@
         "additionalProperties": false,
         "required": ["claimId", "principalId", "taskRef", "claimedAt"],
         "properties": {
-          "claimId": {"type": "string", "pattern": "^claim_[0-9A-HJKMNP-TV-Z]{26}$"},
+          "claimId": {"type": "string", "pattern": "^claim_[0-7][0-9A-HJKMNP-TV-Z]{25}$"},
           "principalId": {"type": "string", "minLength": 1},
           "taskRef": {
             "type": "object",
             "additionalProperties": false,
             "required": ["record_id", "revision_digest"],
             "properties": {
-              "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/task/task_[0-9A-HJKMNP-TV-Z]{26}$"},
+              "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/task/task_[0-7][0-9A-HJKMNP-TV-Z]{25}$"},
               "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
             }
           },
@@ -75,7 +75,7 @@
           "additionalProperties": false,
           "required": ["record_id", "revision_digest"],
           "properties": {
-            "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/task/task_[0-9A-HJKMNP-TV-Z]{26}$"},
+            "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/task/task_[0-7][0-9A-HJKMNP-TV-Z]{25}$"},
             "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
           }
         }
