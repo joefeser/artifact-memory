@@ -48,6 +48,46 @@ writer but is a single point of failure and cannot coordinate parallel work.
    identity. V0 permits a single-hub failure domain; degradation is "work
    local, sync later," never discard a local append.
 
+Convergence requires two explicit phases: every writer pushes its local
+revisions, then every replica pulls its authorized delta. A combined sync
+command may perform both phases for one replica, but one pass per replica is
+not proof of convergence when a later writer has not pushed yet. After all
+pushes and pulls complete, another sync of every unchanged replica is a
+byte-identical no-op.
+
+## Canonical coordination identity and task state
+
+Each TaskPacket, WorkReceipt, and AccessLabel is itself one canonical record
+revision. Its strict body includes `schema_id` and `record_id` in addition to
+the type-specific identifier. The mapping is deterministic:
+
+- TaskPacket: `record://coordination/<taskId>`;
+- WorkReceipt: `record://coordination/<receiptId>`; and
+- AccessLabel: `record://coordination/<labelId>`.
+
+`revision_digest` is not stored inside the body. It is the SHA-256 digest of
+the complete canonical record bytes under
+`docs/contracts/v0-canonical-records.md` and travels beside the body in sync
+and exchange references. A receiver recomputes it before admitting the pair.
+This avoids a self-referential digest and gives AM-3 the exact
+`(record_id, revision_digest)` union key.
+
+TaskPacket evolution is an immutable predecessor chain. A genesis revision has
+`predecessor: null`; every later revision uses an object containing exactly
+`record_id` (the same TaskPacket identity) and `revision_digest` (the exact
+digest of its immediate predecessor). The unique hub-admitted leaf is current.
+Zero leaves, multiple leaves, a broken predecessor, or a predecessor from a
+different `record_id` is a typed conflict requiring quarantine and human
+review. Historical open revisions never become current merely because they are
+replayed later. For AM-5, "latest open task" means the lexicographically
+greatest ULID-bearing `taskId` among unique current leaves whose status is
+`open`.
+
+Every TaskPacket and WorkReceipt carries `accessLabelRef`, an exact object with
+`record_id` and `revision_digest` for the AccessLabel revision governing its
+project disclosure. The hub validates that reference before admission and
+egress. The reference identifies policy; it does not grant authority by itself.
+
 ## Repo identity (owner amendment 2026-09-25)
 
 Every repo carries `.agent-memory/repo.json` at its root — committed,
@@ -80,10 +120,12 @@ operator convenience, never a requirement.
 
 ## Records (three new record types)
 
-### 1. TaskPacket (`agent-memory://coordination/task-packet/v0`)
+### 1. TaskPacket (`artifact-memory/coordination-task-packet/v0`)
 
 ```json
 {
+  "schema_id": "artifact-memory/coordination-task-packet/v0",
+  "record_id": "record://coordination/task_01J00000000000000000000000",
   "taskId": "task_01J00000000000000000000000",
   "projectId": "11111111-1111-4111-8111-111111111111",
   "projectName": "sample-service",
@@ -97,14 +139,20 @@ operator convenience, never a requirement.
     "allowedPaths": ["src/adapter/**"],
     "forbiddenPaths": ["src/credentials/**"]
   },
+  "accessLabelRef": {
+    "record_id": "record://coordination/label-scoped-client",
+    "revision_digest": "sha-256:d1535edaaf14dfdbcf137736ecb8f881a96e859e90c91ceb280dc1d7f416731a"
+  },
   "assignedWriter": "agent-session-synthetic-1",
   "claims": [],
   "status": "open",
-  "parentEpic": "epic-synthetic-parity"
+  "parentEpic": "epic-synthetic-parity",
+  "predecessor": null,
+  "authority_boundary": "informational only; authority requires independently authenticated WITS enforcement"
 }
 ```
 
-### 2. WorkReceipt (`agent-memory://coordination/work-receipt/v0`)
+### 2. WorkReceipt (`artifact-memory/coordination-work-receipt/v0`)
 
 The "receipts over narrative" rule as a data type. Every completion claim
 MUST carry one; validators reject claims without them.
@@ -122,6 +170,8 @@ content identity. Loose evidence would degrade receipts back into narrative.
 
 ```json
 {
+  "schema_id": "artifact-memory/coordination-work-receipt/v0",
+  "record_id": "record://coordination/rcpt-01J00000000000000000000001",
   "receiptId": "rcpt-01J00000000000000000000001",
   "taskId": "task_01J00000000000000000000000",
   "writer": "agent-session-synthetic-1",
@@ -129,6 +179,10 @@ content identity. Loose evidence would degrade receipts back into narrative.
   "projectId": "11111111-1111-4111-8111-111111111111",
   "projectName": "sample-service",
   "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "accessLabelRef": {
+    "record_id": "record://coordination/label-scoped-client",
+    "revision_digest": "sha-256:d1535edaaf14dfdbcf137736ecb8f881a96e859e90c91ceb280dc1d7f416731a"
+  },
   "evidence": [
     {
       "command": "python -m unittest tests.test_synthetic_adapter",
@@ -146,11 +200,12 @@ content identity. Loose evidence would degrade receipts back into narrative.
     }
   ],
   "consumedTokensNote": null,
-  "recordedAt": "2026-09-25T17:20:00Z"
+  "recordedAt": "2026-09-25T17:20:00Z",
+  "authority_boundary": "informational only; authority requires independently authenticated WITS enforcement"
 }
 ```
 
-### 3. AccessLabel (`agent-memory://coordination/access-label/v0`)
+### 3. AccessLabel (`artifact-memory/coordination-access-label/v0`)
 
 Pins what a credential may see and do. Maps onto WITS's existing
 `AgentApiKey` capability model (`docs/api-surface-map.md`: bearer agent-key
@@ -158,6 +213,8 @@ Pins what a credential may see and do. Maps onto WITS's existing
 
 ```json
 {
+  "schema_id": "artifact-memory/coordination-access-label/v0",
+  "record_id": "record://coordination/label-scoped-client",
   "labelId": "label-scoped-client",
   "credentialHint": "synthetic agent-key label; no credential material",
   "projectNames": [
@@ -178,9 +235,30 @@ Pins what a credential may see and do. Maps onto WITS's existing
   "mayNot": {
     "readProjects": ["22222222-2222-4222-8222-222222222222"]
   },
-  "notes": "Synthetic scoped client may access one project and cannot read the other."
+  "notes": "Synthetic scoped client may access one project and cannot read the other.",
+  "authority_boundary": "informational only; authority requires independently authenticated WITS enforcement"
 }
 ```
+
+`credentialHint` is display-only provenance and never selects or authenticates
+a policy. WITS maintains a server-owned binding from the authenticated
+`AgentApiKey` identity to one exact accepted AccessLabel
+`(record_id, revision_digest)` pair. A client cannot submit or choose that
+binding. Missing, unknown, stale, revoked, or multiply bound labels fail
+closed. Registering, replacing, or revoking the binding requires separate WITS
+administrative authority; ordinary sync, claim, and receipt capabilities
+cannot mutate it. Synced AccessLabel records are portable policy evidence, not
+self-authorizing grants.
+
+## Authority boundary
+
+Coordination records, sync receipts, context packs, and kickoff packs are
+informational. They grant no execution, mutation, routing, disclosure,
+credential, spending, deployment, approval, or merge authority. A TaskPacket
+may describe scope and acceptance evidence, but an agent acts only under a
+separately authenticated authority contract. A kickoff pack may carry an
+opaque WITS authority reference for independent resolution; it must not render
+record text as standing authorization.
 
 ## WITS bridge boundary
 
@@ -203,6 +281,10 @@ audit evidence. The coordination contract does not assume WITS's existing
 case-bound `Event` model can represent that evidence. WITS owns a separate
 coordination audit contract or an explicit valid project-to-case mapping; it
 must not invent a case identity merely to satisfy the existing model.
+
+WITS resolves the authenticated key-to-label binding before all three routes.
+The caller never supplies the effective label. Label administration remains a
+separate owner/admin operation and is not a coordination intake route.
 
 ## Non-goals (v0)
 

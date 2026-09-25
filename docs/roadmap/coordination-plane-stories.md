@@ -19,7 +19,9 @@ TaskPacket, WorkReceipt, AccessLabel as first-class record schemas with
 validation, digest, and labels (contract doc §Records). Project references are
 UUIDs with display-name provenance. WorkReceipt evidence and artifact entries
 are strict typed objects; unknown shapes are rejected. Vault-only privacy
-fields never enter repository fixtures.
+fields never enter repository fixtures. Every body has deterministic
+`schema_id` and `record_id`; `revision_digest` is recomputed from canonical
+bytes and carried externally in revision references.
 **Accept:** `artifact-memory records validate fixtures/coordination/*.json` —
 valid fixtures pass; each field-omission fixture fails with a typed error.
 
@@ -27,8 +29,8 @@ valid fixtures pass; each field-omission fixture fails with a typed error.
 As a machine-local vault, I want `artifact-memory sync --hub <url>` so
 local appends converge to the hub and back, idempotently.
 **Accept:** integration test: two fresh vaults, disjoint appends on each,
-sync both against a hub dir ⇒ both contain the union; re-sync is a no-op
-(byte-identical state); two valid revisions under one record ID merge by
+push both to a hub dir, then pull both ⇒ both contain the union; a second
+push/pull round is a no-op (byte-identical state); two valid revisions under one record ID merge by
 `(record_id, revision_digest)`; different canonical bytes claiming the same
 complete pair ⇒ quarantine error naming the pair and both observed content
 digests, no merge.
@@ -40,12 +42,13 @@ Sync failures spool; work continues.
 duplicated (count invariant across a 100-append soak).
 
 ### AM-5: Kickoff-pack generator (S)
-`artifact-memory kickoff --project sample-service` emits the fresh-session
-prompt (session-start protocol + standing rules + current queue) from the
-context pack + queue records.
-**Accept:** generated prompt contains the verification command from the
-latest open task's DoD and the standing authorization lines; golden-file
-test.
+`artifact-memory kickoff --project sample-service` emits informational
+fresh-session context (session-start protocol + authority boundary + current
+queue) from the context pack + queue records.
+**Accept:** generated prompt contains the verification command from the unique
+current revision of the lexicographically latest open task, contains the
+standing no-authority lines, and never renders record text as authorization;
+golden-file test. A forked or broken TaskPacket predecessor chain fails typed.
 
 ### AM-6: Freshness linked to repo heads (S)
 Records may carry `trueAsOfCommit`; readers mechanically detect drift.
@@ -57,8 +60,9 @@ As an operator, I point `artifact-memory onboard` at any repo — existing
 with history, or brand new — and get: repo identity minted or verified
 (`.agent-memory/repo.json`), vault created or linked with the project
 label, AccessLabel registered (credential hint; key issuance is the WITS
-side per W-2), first sync completed (local replica bootstrapped from the
-hub), and the first kickoff pack emitted with a bootstrap receipt.
+side per W-2, and label binding requires separate WITS administrator
+authority), first sync completed (local replica bootstrapped from the hub),
+and the first kickoff pack emitted with a bootstrap receipt.
 **Accept:** (a) fresh repo: `onboard` → repo.json exists with a new UUID,
 kickoff pack renders, bootstrap receipt validates; (b) existing repo with
 prior records: UUID minted, existing session-ledger/history importable via
