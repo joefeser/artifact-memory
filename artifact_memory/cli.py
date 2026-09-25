@@ -21,6 +21,7 @@ from .context import (
     export_context,
     validate_context_pack,
 )
+from .coordination import validate_coordination_files
 from .projection import project_records, records_with_provenance, related_records, search_records, search_receipt
 from .release import (
     render_release_candidate_verification_receipt,
@@ -71,6 +72,14 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("record", type=Path)
         command.add_argument("--schema", type=Path)
         command.add_argument("--json", action="store_true", dest="as_json")
+    records = subparsers.add_parser("records", help="operate on a coordination record set")
+    records_commands = records.add_subparsers(dest="records_command", required=True)
+    records_validate = records_commands.add_parser(
+        "validate",
+        help="validate strict coordination records and their exact in-batch revision bindings",
+    )
+    records_validate.add_argument("records", type=Path, nargs="+")
+    records_validate.add_argument("--json", action="store_true", dest="as_json")
     scan = subparsers.add_parser("scan")
     scan.add_argument("root", type=Path)
     scan.add_argument("--out", type=Path)
@@ -169,6 +178,24 @@ def main(argv: list[str] | None = None) -> int:
     preparation_receipt.add_argument("receipt", type=Path)
     preparation_receipt.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args(argv)
+
+    if args.command == "records" and args.records_command == "validate":
+        try:
+            result = validate_coordination_files(args.records)
+        except ValidationFailure as exc:
+            _receipt(
+                {
+                    "valid": False,
+                    "outcome": "rejected",
+                    "diagnostics": [
+                        {"code": exc.code, "path": exc.path, "message": exc.message}
+                    ],
+                },
+                args.as_json,
+            )
+            return EXIT_INVALID
+        _receipt(result, args.as_json)
+        return EXIT_OK
 
     if args.command == "version":
         _receipt({"implementation": "artifact-memory-python", "version": __version__, "contract_version": CONTRACT_VERSION}, args.as_json)

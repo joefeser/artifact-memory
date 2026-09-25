@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/coordination-task-packet/v0",
+  "title": "Artifact Memory coordination TaskPacket v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "record_id", "originId", "taskId", "projectId", "projectName", "title", "dod", "scopeFence", "accessLabelRef", "assignedWriter", "claims", "status", "parentEpic", "predecessor", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/coordination-task-packet/v0"},
+    "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/task/task_[0-9A-HJKMNP-TV-Z]{26}$"},
+    "originId": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "taskId": {"type": "string", "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$"},
+    "projectId": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "projectName": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1},
+    "dod": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "acceptanceCommand", "expected"],
+      "properties": {
+        "description": {"type": "string", "minLength": 1},
+        "acceptanceCommand": {"type": "string", "minLength": 1},
+        "expected": {"type": "string", "minLength": 1}
+      }
+    },
+    "scopeFence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowedPaths", "forbiddenPaths"],
+      "properties": {
+        "allowedPaths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "forbiddenPaths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "accessLabelRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_id", "revision_digest"],
+      "properties": {
+        "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/label/[A-Za-z0-9._~-]+$"},
+        "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+      }
+    },
+    "assignedWriter": {"type": "string", "minLength": 1},
+    "claims": {
+      "type": "array",
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claimId", "principalId", "taskRef", "claimedAt"],
+        "properties": {
+          "claimId": {"type": "string", "pattern": "^claim_[0-9A-HJKMNP-TV-Z]{26}$"},
+          "principalId": {"type": "string", "minLength": 1},
+          "taskRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["record_id", "revision_digest"],
+            "properties": {
+              "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/task/task_[0-9A-HJKMNP-TV-Z]{26}$"},
+              "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+            }
+          },
+          "claimedAt": {"type": "string", "format": "date-time"}
+        }
+      }
+    },
+    "status": {"type": "string", "enum": ["open", "claimed"]},
+    "parentEpic": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+    "predecessor": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["record_id", "revision_digest"],
+          "properties": {
+            "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/task/task_[0-9A-HJKMNP-TV-Z]{26}$"},
+            "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+          }
+        }
+      ]
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {"pattern": "^https://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~/-]+)?$"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "required", "value"],
+        "properties": {
+          "version": {"type": "string", "pattern": "^v[0-9]+$"},
+          "required": {"type": "boolean"},
+          "value": {"type": "object", "additionalProperties": true}
+        }
+      }
+    },
+    "authority_boundary": {"const": "informational only; authority requires independently authenticated WITS enforcement"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "open"}}, "required": ["status"]},
+      "then": {"properties": {"claims": {"maxItems": 0}, "predecessor": {"type": "null"}}},
+      "else": {"properties": {"claims": {"minItems": 1, "maxItems": 1}, "predecessor": {"type": "object"}}}
+    }
+  ]
+}
