@@ -29,7 +29,7 @@ sync both against a hub dir ⇒ both contain the union; re-sync is a no-op
 naming both digests, no merge.
 
 ### AM-4: Outbox semantics — local append is never blocked by the hub (M)
-Sync failures spool; work continues. 
+Sync failures spool; work continues.
 **Accept:** with the hub unreachable, `record append` succeeds locally and
 `sync` retries later; on recovery the union holds; no record is lost or
 duplicated (count invariant across a 100-append soak).
