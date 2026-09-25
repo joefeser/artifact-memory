@@ -14,7 +14,13 @@ from .codex_history import (
     sanitize_private_import_receipt,
     write_import_bundle,
 )
-from .context import ContextFailure, build_selection_policy, export_context
+from .context import (
+    CONTEXT_READ_SCHEMAS,
+    ContextFailure,
+    build_selection_policy,
+    export_context,
+    validate_context_pack,
+)
 from .projection import project_records, records_with_provenance, related_records, search_records, search_receipt
 from .release import (
     render_release_candidate_verification_receipt,
@@ -54,7 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     record_commands = {
         "validate": (
             "validate JSON syntax, duplicate keys, schema constraints, and supported "
-            "semantic rules (including release-manifest releasability); validation "
+            "semantic rules (including release-manifest releasability and context-pack "
+            "identity/budget binding); validation "
             "does not verify authenticity or accept release evidence"
         ),
         "inspect": "report schema and field names without validating record semantics",
@@ -450,6 +457,11 @@ def main(argv: list[str] | None = None) -> int:
             "artifact-memory/archive-receipt/v2",
         }:
             validate_archive_receipt(record)
+        if schema_id in CONTEXT_READ_SCHEMAS:
+            try:
+                validate_context_pack(record)
+            except ContextFailure as exc:
+                raise ValidationFailure(exc.code, exc.message) from exc
     except ValidationFailure as exc:
         result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}
     else:

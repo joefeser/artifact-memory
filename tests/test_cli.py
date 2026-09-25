@@ -11,8 +11,8 @@ from pathlib import Path
 from unittest import mock
 
 from artifact_memory import cli
-from artifact_memory.canonical import receipt_with_digest
-from artifact_memory.canonical import sha256_bytes
+from artifact_memory.canonical import canonical_bytes, receipt_with_digest, sha256_bytes
+from artifact_memory.context import build_selection_policy, export_context
 from artifact_memory.release_preparation import RELEASE_PREPARATION_RECEIPT_PREFIX
 from artifact_memory.scan import ScanLimits, make_scan_policy, scan_path
 
@@ -289,7 +289,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("semantic rules", result.stdout)
         self.assertIn("release-manifest releasability", result.stdout)
-        self.assertIn("verify authenticity or accept release evidence", result.stdout)
+        self.assertIn("context-pack", result.stdout)
+        self.assertIn("identity/budget binding", result.stdout)
+        self.assertIn("verify authenticity or accept", result.stdout)
+        self.assertIn("release evidence", result.stdout)
 
     def test_release_manifest_validation_preserves_v0_result_shape(self):
         for fixture in (
@@ -426,6 +429,103 @@ class CliTests(unittest.TestCase):
         self.assertEqual(receipt["selected_record_count"], 1)
         self.assertEqual(receipt["excluded_record_count"], 0)
         self.assertEqual(receipt["authority_boundary"], "informational-only; no execution, routing, disclosure, or mutation authority")
+
+    def test_validate_context_pack_applies_identity_and_byte_bound_semantics(self):
+        record = json.loads((FIXTURES / "v0-valid-record.json").read_text(encoding="utf-8"))
+        pack = export_context(
+            [record],
+            allowed_sensitivity="public",
+            max_bytes=4096,
+            supported_context_schema_ids=["artifact-memory/context-pack/v4"],
+            **build_selection_policy(
+                [record["record_id"]],
+                selected_at="2026-09-15T00:00:00Z",
+                freshness_basis="synthetic-cli-semantic-validation",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid_path = root / "valid.json"
+            valid_path.write_text(json.dumps(pack), encoding="utf-8")
+
+            tampered = copy.deepcopy(pack)
+            tampered["records"][0]["summary"] += " tampered"
+            tampered_path = root / "tampered.json"
+            tampered_path.write_text(json.dumps(tampered), encoding="utf-8")
+
+            over_budget = copy.deepcopy(pack)
+            over_budget["selection_receipt"]["max_bytes"] = 1
+            body = {key: value for key, value in over_budget.items() if key != "pack_id"}
+            over_budget["pack_id"] = "context-pack://" + sha256_bytes(
+                canonical_bytes(body)
+            ).removeprefix("sha-256:")
+            over_budget_path = root / "over-budget.json"
+            over_budget_path.write_text(json.dumps(over_budget), encoding="utf-8")
+
+            valid_result = self.run_cli("validate", str(valid_path), "--json")
+            tampered_result = self.run_cli("validate", str(tampered_path), "--json")
+            over_budget_result = self.run_cli("validate", str(over_budget_path), "--json")
+
+        self.assertEqual(valid_result.returncode, 0, valid_result.stderr)
+        self.assertTrue(json.loads(valid_result.stdout)["valid"])
+        for rejected in (tampered_result, over_budget_result):
+            self.assertEqual(rejected.returncode, 2, rejected.stderr)
+            result = json.loads(rejected.stdout)
+            self.assertFalse(result["valid"])
+            self.assertEqual(result["diagnostics"][0]["code"], "context-pack-invalid")
+
+    def test_validate_legacy_context_pack_applies_identity_and_byte_bound_semantics(self):
+        body = {
+            "schema_id": "artifact-memory/context-pack/v1",
+            "authority_boundary": "informational-only; no execution, routing, disclosure, or mutation authority",
+            "records": [],
+            "artifact_refs": [],
+            "external_evidence": [],
+            "selection_receipt": {
+                "selector_id": "artifact-memory/reference-cli/v0",
+                "source_record_set_digest": "sha-256:" + "0" * 64,
+                "selected_record_ids": [],
+                "redacted_record_ids": [],
+                "max_bytes": 4096,
+                "freshness": "selection-time",
+                "disclosure": "informational-only",
+            },
+        }
+        valid = {
+            **body,
+            "pack_id": "context-pack://" + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:"),
+        }
+        forged = copy.deepcopy(valid)
+        forged["pack_id"] = "context-pack://" + "f" * 64
+        over_budget = copy.deepcopy(valid)
+        over_budget["selection_receipt"]["max_bytes"] = 1
+        over_budget_body = {key: value for key, value in over_budget.items() if key != "pack_id"}
+        over_budget["pack_id"] = "context-pack://" + sha256_bytes(
+            canonical_bytes(over_budget_body)
+        ).removeprefix("sha-256:")
+        noncanonical = copy.deepcopy(valid)
+        noncanonical["selection_receipt"]["max_bytes"] = 9_007_199_254_740_992
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            results = []
+            for name, pack in (
+                ("valid", valid),
+                ("forged", forged),
+                ("over-budget", over_budget),
+                ("noncanonical", noncanonical),
+            ):
+                path = root / f"{name}.json"
+                path.write_text(json.dumps(pack), encoding="utf-8")
+                results.append(self.run_cli("validate", str(path), "--json"))
+
+        self.assertEqual(results[0].returncode, 0, results[0].stderr)
+        self.assertTrue(json.loads(results[0].stdout)["valid"])
+        for rejected in results[1:]:
+            self.assertEqual(rejected.returncode, 2, rejected.stderr)
+            result = json.loads(rejected.stdout)
+            self.assertFalse(result["valid"])
+            self.assertEqual(result["diagnostics"][0]["code"], "context-pack-invalid")
 
     def test_context_command_explicitly_negotiates_lifecycle_aware_v4(self):
         fixture = ROOT / "fixtures/synthetic/record-evolution/v2"

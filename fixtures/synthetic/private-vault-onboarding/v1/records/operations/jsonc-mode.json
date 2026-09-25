@@ -1,0 +1,23 @@
+{
+  "artifact_refs": [],
+  "lifecycle": "accepted",
+  "meaning": {
+    "labels": [
+      "configuration",
+      "jsonc",
+      "parser",
+      "synthetic"
+    ],
+    "summary": "Synthetic configuration parsing rejects comments unless JSONC mode is selected explicitly."
+  },
+  "provenance": [
+    {
+      "kind": "author",
+      "source_ref": "actor://synthetic/operator"
+    }
+  ],
+  "record_id": "record://synthetic-onboarding/jsonc-mode",
+  "record_type": "decision",
+  "schema_id": "artifact-memory/knowledge-record/v3",
+  "sensitivity": "private"
+}

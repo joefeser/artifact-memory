@@ -101,7 +101,10 @@ def main() -> None:
                 "'artifact-memory/release-candidate-preparation-receipt/v3'; "
                 "assert load_schema('core', 'release-candidate-verification-receipt.v3.schema.json')"
                 "['properties']['schema_id']['const'] == "
-                "'artifact-memory/release-candidate-verification-receipt/v3'",
+                "'artifact-memory/release-candidate-verification-receipt/v3'; "
+                "assert load_schema('core', 'private-vault-onboarding-slice-receipt.v1.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/private-vault-onboarding-slice-receipt/v1'",
             ],
             cwd=root,
             text=True,
