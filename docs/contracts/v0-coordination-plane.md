@@ -1,8 +1,16 @@
-# v0 Coordination Plane Contract (draft for owner review)
+# v0 Coordination Plane Contract
 
-Status: DRAFT — written 2026-09-25 from owner-reviewed coordination needs.
+Status: accepted design; implementation is tracked by AM-1 through AM-9 and
+W-1 through W-4 and is not claimed by this document-only change.
+Decision: `docs/decisions/0029-coordinate-through-local-first-vault-records.md`.
 All names, identifiers, commands, paths, and locations in this public contract
 are synthetic examples rather than deployment records.
+
+This contract precedes implementation deliberately. No coordination feature or
+interoperability claim is complete until the applicable executable acceptance
+commands and synthetic fixtures in
+`docs/roadmap/coordination-plane-stories.md` pass. Contract prose is not a
+substitute for those tests.
 
 ## Problem
 
@@ -56,33 +64,131 @@ pushes and pulls complete, another sync of every unchanged replica is a
 byte-identical no-op.
 
 Every successful pull returns a canonical, digest-identified
-`coordination-sync-receipt/v0`. It binds the authenticated principal and exact
-AccessLabel revision used by the hub, the hub's logical (not network)
-identifier, a monotonic hub scope generation, the completion time, and the
-count plus canonical set digest of every authorized `(record_id,
-revision_digest)` pair visible in that scope. It also carries the count-only
-exclusion receipt. Submitted pairs receive typed `admitted`, `rejected`, or
-`quarantined` outcomes; rejected and quarantined submissions never enter the
-authorized set. The receipt never names excluded records, projects, labels, or
-other protected identities.
+`artifact-memory/coordination-sync-receipt/v0`. Its strict fields are:
 
-A replica verifies the receipt's canonical digest and recomputes the
-authorized-set count and digest after applying the returned delta. A mismatch
-fails typed and cannot advance the replica's last-successful-sync marker. The
-receipt is durable evidence of what the client observed over an authenticated
-channel; under `docs/contracts/v0-authenticity-assessment.md` it remains
+- `schema_id` and digest-derived `receipt_id`;
+- the authenticated `principal_id`, exact `access_label_ref`, and logical
+  `hub_id` (never a hostname or URL);
+- integer `scope_generation` and RFC 3339 `completed_at`;
+- `authorized_membership` with exact `pair_count`, `pair_set_digest`, and
+  `page_count`;
+- `excluded_count`, with no excluded identity or content; and
+- `submission_outcomes`, each binding one exact submitted pair to one of
+  `admitted`, `rejected`, or `quarantined` plus a typed outcome code;
+- `transport_state: "authenticated"`, `issuer_state: "unverified"`, and the
+  constant no-authority boundary.
+
+Each outcome object contains exactly `record_ref`, `outcome`, and `code`.
+Initial codes are `admitted`, `schema-invalid`, `digest-mismatch`,
+`unauthorized-project`, `unauthorized-record-type`, `label-mismatch`,
+`principal-mismatch`, `same-pair-different-bytes`, `resource-limit`, and
+`unsupported-required-extension`. `same-pair-different-bytes` is quarantined;
+`admitted` is admitted; all other initial codes are rejected.
+
+```json
+{
+  "schema_id": "artifact-memory/coordination-sync-receipt/v0",
+  "receipt_id": "coordination-sync-receipt://sha-256/db27d742213c3788b696d3e9ffdfb65c431100eb652a6526c5e87627fe24c136",
+  "hub_id": "coordination-hub://synthetic/hub-a",
+  "principal_id": "coordination-principal://synthetic/agent-1",
+  "access_label_ref": {
+    "record_id": "record://coordination/33333333-3333-4333-8333-333333333333/label/label-scoped-client",
+    "revision_digest": "sha-256:164b6b386cdedf382529cc57cf7c929446a1f360b164c13d1243849231f4596a"
+  },
+  "scope_generation": 7,
+  "completed_at": "2026-09-25T19:00:00Z",
+  "authorized_membership": {
+    "pair_count": 1,
+    "pair_set_digest": "sha-256:a64fac5313d6206df32c107ff0d3cefdd382dbf712dcb77ddbddd44065278ade",
+    "page_count": 1
+  },
+  "excluded_count": 2,
+  "submission_outcomes": [
+    {
+      "record_ref": {
+        "record_id": "record://coordination/33333333-3333-4333-8333-333333333333/task/task_01J00000000000000000000000",
+        "revision_digest": "sha-256:93be6b6e63c11906c955f835da6e7f547c1672e1b173cf59126ac03f43f41022"
+      },
+      "outcome": "admitted",
+      "code": "admitted"
+    }
+  ],
+  "transport_state": "authenticated",
+  "issuer_state": "unverified",
+  "authority_boundary": "sync receipt grants no execution, disclosure, authorization, or trust"
+}
+```
+
+`receipt_id` is
+`coordination-sync-receipt://sha-256/<lowercase-hex>`, where the hex value is
+SHA-256 over the canonical JSON object containing every receipt field except
+`schema_id` and `receipt_id`. The canonical JSON profile is
+`docs/contracts/v0-canonical-records.md`.
+
+The authorized pair set is represented as an array of objects containing
+exactly `record_id` and `revision_digest`. Sort the array first by `record_id`
+and then by `revision_digest`, both by Unicode code point with no normalization.
+`pair_set_digest` is SHA-256 over the canonical JSON bytes of that sorted
+array. The empty set hashes the canonical bytes of `[]`. Ordering differences
+therefore cannot produce different valid digests.
+
+The response carries a paginated
+`artifact-memory/coordination-authorized-membership-page/v0` manifest listing
+only pairs the caller is authorized to know. Page order and boundaries do not
+enter `pair_set_digest`; the reconstructed complete sorted array does. Each
+page contains exactly `schema_id`, `receipt_ref`, zero-based `page_index`,
+`page_count`, `pairs`, and an opaque `next_token` string or null. The token is
+transport state, not portable identity or authority, and must not enter logs or
+the canonical vault. On a
+changed AccessLabel revision or `scope_generation`, the hub returns a full
+replacement manifest. The replica rebuilds a generated authorized projection
+from that manifest and suppresses pairs absent from it. It does not delete the
+append-only canonical vault or claim erasure. For an unchanged scope, a delta
+plus the previously verified manifest may be used. Missing pages, duplicate or
+conflicting pairs, count/digest mismatch, or use of a prior-generation manifest
+fails typed and cannot advance the last-successful-sync marker.
+
+Submitted pairs receive typed `admitted`, `rejected`, or `quarantined`
+outcomes; rejected and quarantined submissions never enter the authorized set.
+The receipt and manifest never name excluded records, projects, labels, or
+other protected identities. They are durable evidence of what the client
+observed over an authenticated channel; under
+`docs/contracts/v0-authenticity-assessment.md` they remain
 `integrity-verified / issuer-unverified`. Authenticated transport does not turn
-the later-restored receipt into issuer authenticity, trust, or authority.
+a later-restored receipt into issuer authenticity, trust, or authority.
+
+### V0 sync resource bounds
+
+Limits are checked before or during bounded parsing, before canonicalization or
+storage. One request is at most 8 MiB, 1,000 submitted records, 1 MiB per
+canonical record, nesting depth 64, and 1 MiB per string field. One principal
+may have only one sync request in flight. Violations return respectively
+`sync-request-too-large`, `sync-record-limit`, `sync-record-too-large`,
+`sync-depth-limit`, `sync-field-too-large`, or `sync-principal-busy`; no pair is
+admitted from the rejected request.
+
+Response pages are at most 4 MiB and 500 records. A larger authorized delta or
+membership manifest is paginated with opaque, principal- and
+`scope_generation`-bound continuation tokens. A token cannot widen scope and
+expires without changing canonical state. Implementations may configure lower
+deployment limits but must advertise them before intake; they cannot claim v0
+interoperability with higher limits or an unbounded mode.
 
 ## Canonical coordination identity and task state
 
 Each TaskPacket, WorkReceipt, and AccessLabel is itself one canonical record
-revision. Its strict body includes `schema_id` and `record_id` in addition to
-the type-specific identifier. The mapping is deterministic:
+revision. Its strict body includes `schema_id`, `record_id`, and a stable UUID
+`originId` in addition to the type-specific identifier. The mapping is
+deterministic:
 
-- TaskPacket: `record://coordination/<taskId>`;
-- WorkReceipt: `record://coordination/<receiptId>`; and
-- AccessLabel: `record://coordination/<labelId>`.
+- TaskPacket: `record://coordination/<originId>/task/<taskId>`;
+- WorkReceipt: `record://coordination/<originId>/receipt/<receiptId>`; and
+- AccessLabel: `record://coordination/<originId>/label/<labelId>`.
+
+The origin UUID identifies the minting vault or hub namespace, not a machine,
+path, network address, or custodian. It is immutable for the logical record.
+Receivers reject a body whose `record_id`, `originId`, and type-specific
+identifier do not match this mapping.
 
 `revision_digest` is not stored inside the body. It is the SHA-256 digest of
 the complete canonical record bytes under
@@ -110,8 +216,21 @@ receipt's observation time and generation.
 
 Every TaskPacket and WorkReceipt carries `accessLabelRef`, an exact object with
 `record_id` and `revision_digest` for the AccessLabel revision governing its
-project disclosure. The hub validates that reference before admission and
-egress. The reference identifies policy; it does not grant authority by itself.
+project disclosure. For ordinary intake, the hub requires this reference to
+equal the label revision bound server-side to the authenticated key. A client
+cannot select another accepted label merely by naming it. Assigning a different
+label requires a separate authenticated administrative operation outside the
+three coordination routes. The reference identifies policy; it does not grant
+authority by itself.
+
+All three bodies may contain an optional `extensions` object conforming to
+`docs/contracts/v0-extensions.md`. AM-6 uses the optional
+`https://artifact-memory.dev/extensions/coordination-freshness/v1` declaration
+with `version: "v1"`, `required: false`, and an object value containing exactly
+`trueAsOfCommit`, a lowercase 40- or 64-hex Git object ID. Readers that support
+the extension evaluate freshness; other readers preserve it opaquely. Unknown
+required extensions fail closed. Adding `trueAsOfCommit` as a new top-level
+field under the v0 schema is forbidden.
 
 ## Repo identity (owner amendment 2026-09-25)
 
@@ -158,7 +277,8 @@ merging is an operator convenience, never a requirement.
 ```json
 {
   "schema_id": "artifact-memory/coordination-task-packet/v0",
-  "record_id": "record://coordination/task_01J00000000000000000000000",
+  "record_id": "record://coordination/33333333-3333-4333-8333-333333333333/task/task_01J00000000000000000000000",
+  "originId": "33333333-3333-4333-8333-333333333333",
   "taskId": "task_01J00000000000000000000000",
   "projectId": "11111111-1111-4111-8111-111111111111",
   "projectName": "sample-service",
@@ -173,14 +293,21 @@ merging is an operator convenience, never a requirement.
     "forbiddenPaths": ["src/credentials/**"]
   },
   "accessLabelRef": {
-    "record_id": "record://coordination/label-scoped-client",
-    "revision_digest": "sha-256:d1535edaaf14dfdbcf137736ecb8f881a96e859e90c91ceb280dc1d7f416731a"
+    "record_id": "record://coordination/33333333-3333-4333-8333-333333333333/label/label-scoped-client",
+    "revision_digest": "sha-256:164b6b386cdedf382529cc57cf7c929446a1f360b164c13d1243849231f4596a"
   },
   "assignedWriter": "agent-session-synthetic-1",
   "claims": [],
   "status": "open",
   "parentEpic": "epic-synthetic-parity",
   "predecessor": null,
+  "extensions": {
+    "https://artifact-memory.dev/extensions/coordination-freshness/v1": {
+      "version": "v1",
+      "required": false,
+      "value": { "trueAsOfCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    }
+  },
   "authority_boundary": "informational only; authority requires independently authenticated WITS enforcement"
 }
 ```
@@ -201,20 +328,30 @@ entry separately identifies the logical artifact, exact content, observed
 location, media type, and semantic type. A location is never artifact or
 content identity. Loose evidence would degrade receipts back into narrative.
 
+`taskRef` is required and binds the receipt to one exact admitted TaskPacket
+revision. Validators resolve that pair, require its `record_id` to encode the
+same task identity, and verify matching project, effective AccessLabel, and
+assigned writer. Evidence against a superseded revision remains historical
+evidence for that revision; it cannot complete a newer or forked revision.
+
 ```json
 {
   "schema_id": "artifact-memory/coordination-work-receipt/v0",
-  "record_id": "record://coordination/rcpt-01J00000000000000000000001",
+  "record_id": "record://coordination/33333333-3333-4333-8333-333333333333/receipt/rcpt-01J00000000000000000000001",
+  "originId": "33333333-3333-4333-8333-333333333333",
   "receiptId": "rcpt-01J00000000000000000000001",
-  "taskId": "task_01J00000000000000000000000",
+  "taskRef": {
+    "record_id": "record://coordination/33333333-3333-4333-8333-333333333333/task/task_01J00000000000000000000000",
+    "revision_digest": "sha-256:93be6b6e63c11906c955f835da6e7f547c1672e1b173cf59126ac03f43f41022"
+  },
   "writer": "agent-session-synthetic-1",
   "machine": "synthetic-client-a",
   "projectId": "11111111-1111-4111-8111-111111111111",
   "projectName": "sample-service",
   "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "accessLabelRef": {
-    "record_id": "record://coordination/label-scoped-client",
-    "revision_digest": "sha-256:d1535edaaf14dfdbcf137736ecb8f881a96e859e90c91ceb280dc1d7f416731a"
+    "record_id": "record://coordination/33333333-3333-4333-8333-333333333333/label/label-scoped-client",
+    "revision_digest": "sha-256:164b6b386cdedf382529cc57cf7c929446a1f360b164c13d1243849231f4596a"
   },
   "evidence": [
     {
@@ -225,7 +362,10 @@ content identity. Loose evidence would degrade receipts back into narrative.
         {
           "artifactId": "artifact://synthetic/review-receipt",
           "contentDigest": "sha-256:0000000000000000000000000000000000000000000000000000000000000000",
-          "location": "https://example.invalid/reviews/42",
+          "location": {
+            "endpoint_ref": "endpoint://synthetic/review-store",
+            "relative_path": "reviews/42.json"
+          },
           "mediaType": "application/json",
           "semanticType": "code-review-receipt"
         }
@@ -247,7 +387,8 @@ Pins what a credential may see and do. Maps onto WITS's existing
 ```json
 {
   "schema_id": "artifact-memory/coordination-access-label/v0",
-  "record_id": "record://coordination/label-scoped-client",
+  "record_id": "record://coordination/33333333-3333-4333-8333-333333333333/label/label-scoped-client",
+  "originId": "33333333-3333-4333-8333-333333333333",
   "labelId": "label-scoped-client",
   "credentialHint": "synthetic agent-key label; no credential material",
   "projectNames": [
@@ -263,7 +404,9 @@ Pins what a credential may see and do. Maps onto WITS's existing
   "may": {
     "claimProjects": ["11111111-1111-4111-8111-111111111111"],
     "postReceipts": ["11111111-1111-4111-8111-111111111111"],
-    "readProjects": ["11111111-1111-4111-8111-111111111111"]
+    "readProjects": ["11111111-1111-4111-8111-111111111111"],
+    "syncTaskPackets": ["11111111-1111-4111-8111-111111111111"],
+    "syncWorkReceipts": ["11111111-1111-4111-8111-111111111111"]
   },
   "mayNot": {
     "readProjects": ["22222222-2222-4222-8222-222222222222"]
@@ -298,6 +441,14 @@ separately authenticated authority contract. A kickoff pack may carry an
 opaque WITS authority reference for independent resolution; it must not render
 record text as standing authorization.
 
+In particular, `dod.acceptanceCommand` is issuer-unverified record data. A
+kickoff pack renders it only inside a clearly labeled, escaped untrusted-data
+block and includes an explicit `do not execute` instruction. It must never
+splice command text into an instruction, shell, tool call, or executable code
+block. Running it requires separate authenticated execution authority and any
+operator confirmation required by that authority contract. Shell metacharacters,
+newlines, substitutions, and prompt-like prose remain inert quoted data.
+
 ## WITS bridge boundary
 
 WITS gains exactly two mutation routes plus one authenticated sync route; it
@@ -308,10 +459,14 @@ stores no second copy of coordination truth outside the vault:
 - `POST /api/agent/coordination/claims` — hub-authoritative claim with
   exclusivity check, single-writer queue enforcement.
 - `POST /api/agent/coordination/sync` — authenticated union exchange. The
-  response is filtered by the credential-bound AccessLabel and read
-  capabilities before egress and includes the canonical sync receipt,
-  authorized-set count/digest, and count-only exclusion receipt. Restricted
-  responses never include full AccessLabel bodies or denied identities.
+  hub intersects the key's project-scoped capability with its server-bound
+  AccessLabel. Egress requires `coordination:read:<project>`. Intake requires
+  `coordination:sync:task-packet:<project>` or
+  `coordination:sync:work-receipt:<project>` for the submitted type. Ordinary
+  sync never admits AccessLabel bodies; label administration is separate. The
+  response includes the canonical sync receipt, authorized membership
+  manifest, and count-only exclusion receipt. Restricted responses never
+  include full AccessLabel bodies or denied identities.
 - Existing strengths reused as-is: bearer + capability auth
   (`AgentApiKey`), append-only handoff precedent (`/api/handoffs`), and
   `BUS_TRANSPORT` for notifications.
@@ -325,8 +480,15 @@ must not invent a case identity merely to satisfy the existing model.
 WITS resolves the authenticated key-to-principal and key-to-label bindings
 before all three routes. The caller never supplies the effective principal or
 label. WITS compares record writer fields to the effective principal rather
-than trusting them. Principal and label administration remain separate
-owner/admin operations and are not coordination intake routes.
+than trusting them and requires each submitted `accessLabelRef` to equal the
+effective server-bound label. Possessing another valid label reference grants
+nothing. Principal and label administration remain separate owner/admin
+operations and are not coordination intake routes.
+
+The sync route enforces the V0 resource bounds before expensive validation,
+applies all-or-nothing request rejection for a limit violation, and paginates
+bounded responses. Capability, label, principal, resource, and schema checks
+are independent fail-closed gates; passing one never substitutes for another.
 
 ## Non-goals (v0)
 
