@@ -7,9 +7,9 @@
   "required": ["schema_id", "record_id", "originId", "labelId", "credentialHint", "projectNames", "may", "mayNot", "notes", "authority_boundary"],
   "properties": {
     "schema_id": {"const": "artifact-memory/coordination-access-label/v0"},
-    "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/label/[A-Za-z0-9._~-]+$"},
+    "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/label/(?=[A-Za-z0-9._~-]*[A-Za-z0-9_~-]$)[A-Za-z0-9._~-]+$"},
     "originId": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
-    "labelId": {"type": "string", "pattern": "^[A-Za-z0-9._~-]+$"},
+    "labelId": {"type": "string", "pattern": "^(?=[A-Za-z0-9._~-]*[A-Za-z0-9_~-]$)[A-Za-z0-9._~-]+$"},
     "credentialHint": {"type": "string", "minLength": 1},
     "projectNames": {
       "type": "array",

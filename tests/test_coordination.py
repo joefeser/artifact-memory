@@ -372,6 +372,32 @@ class CoordinationRecordTests(unittest.TestCase):
                 with self.assertRaises(ValidationFailure):
                     validate(record, schema)
 
+    def test_access_label_identity_segments_require_non_dot_characters(self):
+        schemas = core_schemas()
+        origin = "33333333-3333-4333-8333-333333333333"
+        for label_id in (".", "..", "..."):
+            label_record_id = f"record://coordination/{origin}/label/{label_id}"
+            cases = []
+
+            label = fixture("access-label.json")
+            label["labelId"] = label_id
+            label["record_id"] = label_record_id
+            cases.append((label, schemas[ACCESS_LABEL_SCHEMA_ID]))
+
+            task = fixture("task-open.json")
+            task["accessLabelRef"]["record_id"] = label_record_id
+            cases.append((task, schemas[TASK_PACKET_SCHEMA_ID]))
+
+            receipt = synthetic_work_receipt()
+            receipt["accessLabelRef"]["record_id"] = label_record_id
+            cases.append((receipt, schemas[WORK_RECEIPT_SCHEMA_ID]))
+
+            for record, schema in cases:
+                with self.subTest(label_id=label_id, schema_id=record["schema_id"]):
+                    with self.assertRaises(ValidationFailure) as raised:
+                        validate(record, schema)
+                    self.assertEqual(raised.exception.code, "constraint-failed")
+
     def test_freshness_and_unknown_optional_extensions_round_trip_canonically(self):
         records = valid_records()
         before = canonical_bytes(records[1]["extensions"])

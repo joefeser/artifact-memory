@@ -97,6 +97,12 @@ def _validate_identity(record: dict[str, Any]) -> None:
         kind, identifier = "receipt", record["receiptId"]
     else:
         kind, identifier = "label", record["labelId"]
+        if not identifier.strip("."):
+            raise ValidationFailure(
+                "coordination-label-id-invalid",
+                "labelId must contain at least one non-dot identifier character",
+                "$.labelId",
+            )
     expected = f"record://coordination/{record['originId']}/{kind}/{identifier}"
     if record["record_id"] != expected:
         raise ValidationFailure(

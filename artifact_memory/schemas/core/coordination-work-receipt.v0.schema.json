@@ -29,7 +29,7 @@
       "additionalProperties": false,
       "required": ["record_id", "revision_digest"],
       "properties": {
-        "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/label/[A-Za-z0-9._~-]+$"},
+        "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/label/(?=[A-Za-z0-9._~-]*[A-Za-z0-9_~-]$)[A-Za-z0-9._~-]+$"},
         "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
       }
     },
