@@ -60,14 +60,14 @@
               "additionalProperties": false,
               "required": ["artifactId", "contentDigest", "location", "mediaType", "semanticType"],
               "properties": {
-                "artifactId": {"type": "string", "pattern": "^artifact://[A-Za-z0-9._~-]+/[A-Za-z0-9._~-]+$"},
+                "artifactId": {"type": "string", "pattern": "^artifact://(?=[A-Za-z0-9._~-]*[A-Za-z0-9_~-])[A-Za-z0-9._~-]+/(?=[A-Za-z0-9._~-]*[A-Za-z0-9_~-])[A-Za-z0-9._~-]+$"},
                 "contentDigest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
                 "location": {
                   "type": "object",
                   "additionalProperties": false,
                   "required": ["endpoint_ref", "relative_path"],
                   "properties": {
-                    "endpoint_ref": {"type": "string", "pattern": "^endpoint://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)?$"},
+                    "endpoint_ref": {"type": "string", "pattern": "^endpoint://(?=[A-Za-z0-9._~-]*[A-Za-z0-9_~-])[A-Za-z0-9._~-]+(?:/(?=[A-Za-z0-9._~-]*[A-Za-z0-9_~-])[A-Za-z0-9._~-]+)?$"},
                     "relative_path": {"type": "string", "minLength": 1}
                   }
                 },

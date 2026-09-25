@@ -198,8 +198,10 @@ class CoordinationRecordTests(unittest.TestCase):
     def test_artifact_evidence_uses_canonical_logical_reference_grammars(self):
         accepted = (
             ("artifactId", "artifact://synthetic/review-receipt"),
+            ("artifactId", "artifact://.synthetic/.review-receipt."),
             ("endpoint_ref", "endpoint://synthetic"),
             ("endpoint_ref", "endpoint://synthetic/review-store"),
+            ("endpoint_ref", "endpoint://.synthetic/.review-store."),
         )
         for field, value in accepted:
             with self.subTest(outcome="accepted", field=field, value=value):
@@ -213,8 +215,15 @@ class CoordinationRecordTests(unittest.TestCase):
 
         rejected = (
             ("artifactId", "artifact://../machine/path"),
+            ("artifactId", "artifact://../machine"),
+            ("artifactId", "artifact://./machine"),
+            ("artifactId", "artifact://synthetic/.."),
+            ("artifactId", "artifact://.../machine"),
             ("artifactId", "artifact://synthetic//receipt"),
             ("artifactId", "artifact://synthetic"),
+            ("endpoint_ref", "endpoint://.."),
+            ("endpoint_ref", "endpoint://../machine"),
+            ("endpoint_ref", "endpoint://synthetic/..."),
             ("endpoint_ref", "endpoint://synthetic//store"),
             ("endpoint_ref", "endpoint://synthetic/store/extra"),
         )

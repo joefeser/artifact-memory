@@ -125,7 +125,10 @@ def _validate_portable_locations(receipt: dict[str, Any]) -> None:
                 ),
             )
             for value, pattern, path in logical_references:
-                if pattern.fullmatch(value) is None:
+                segments = value.split("://", 1)[-1].split("/")
+                if pattern.fullmatch(value) is None or any(
+                    not segment.strip(".") for segment in segments
+                ):
                     raise ValidationFailure(
                         "artifact-logical-reference-invalid",
                         "artifact evidence must use canonical logical references",
