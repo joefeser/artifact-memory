@@ -4,6 +4,23 @@ from artifact_memory.validator import ValidationFailure, validate
 
 
 class ValidatorTests(unittest.TestCase):
+    def test_date_time_format_is_strict_rfc3339(self):
+        schema = {"type": "string", "format": "date-time"}
+        for value in (
+            "2026-09-25T19:05:00Z",
+            "2026-09-25T19:05:00.123+00:00",
+            "2026-09-25T14:05:00-05:00",
+            "2026-09-25t19:05:00z",
+        ):
+            validate(value, schema)
+        for value in (
+            "2026-09-25X19:05:00+00:00",
+            "2026-09-25 19:05:00+00:00",
+            "2026-09-25T19:05:00",
+        ):
+            with self.subTest(value=value), self.assertRaises(ValidationFailure):
+                validate(value, schema)
+
     def test_const_and_enum_do_not_coerce_booleans_to_numbers(self):
         for schema in ({"const": True}, {"enum": [True]}):
             validate(True, schema)

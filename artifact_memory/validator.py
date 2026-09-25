@@ -9,6 +9,15 @@ from pathlib import Path
 from typing import Any
 
 
+RFC3339_DATE_TIME = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:\.[0-9]+)?(?:[Zz]|[+-][0-9]{2}:[0-9]{2})$"
+)
+RFC3339_DATE_TIME_WITHOUT_OFFSET = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?$"
+)
+
+
 class ValidationFailure(Exception):
     """Raised for malformed JSON or unsupported schema input."""
 
@@ -172,8 +181,13 @@ def validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
         if "pattern" in schema and re.fullmatch(schema["pattern"], value) is None:
             _fail("constraint-failed", "string does not match pattern", path)
         if schema.get("format") == "date-time":
+            if RFC3339_DATE_TIME.fullmatch(value) is None:
+                if RFC3339_DATE_TIME_WITHOUT_OFFSET.fullmatch(value) is not None:
+                    _fail("constraint-failed", "date-time requires a timezone offset", path)
+                _fail("constraint-failed", "invalid RFC 3339 date-time", path)
             try:
-                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                normalized = value[:-1] + "+00:00" if value.endswith(("Z", "z")) else value
+                parsed = datetime.fromisoformat(normalized)
             except ValueError:
                 _fail("constraint-failed", "invalid date-time", path)
             if parsed.utcoffset() is None:

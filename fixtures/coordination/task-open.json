@@ -1,0 +1,37 @@
+{
+  "schema_id": "artifact-memory/coordination-task-packet/v0",
+  "record_id": "record://coordination/33333333-3333-4333-8333-333333333333/task/task_01J00000000000000000000000",
+  "originId": "33333333-3333-4333-8333-333333333333",
+  "taskId": "task_01J00000000000000000000000",
+  "projectId": "11111111-1111-4111-8111-111111111111",
+  "projectName": "sample-service",
+  "title": "Verify synthetic adapter parity",
+  "dod": {
+    "description": "Synthetic adapter and direct writes satisfy one contract",
+    "acceptanceCommand": "python3 -m unittest tests.test_synthetic_adapter",
+    "expected": "OK"
+  },
+  "scopeFence": {
+    "allowedPaths": ["src/adapter/**"],
+    "forbiddenPaths": ["src/credentials/**"]
+  },
+  "accessLabelRef": {
+    "record_id": "record://coordination/33333333-3333-4333-8333-333333333333/label/label-scoped-client",
+    "revision_digest": "sha-256:164b6b386cdedf382529cc57cf7c929446a1f360b164c13d1243849231f4596a"
+  },
+  "assignedWriter": "agent-session-synthetic-1",
+  "claims": [],
+  "status": "open",
+  "parentEpic": "epic-synthetic-parity",
+  "predecessor": null,
+  "extensions": {
+    "https://artifact-memory.dev/extensions/coordination-freshness/v1": {
+      "version": "v1",
+      "required": false,
+      "value": {
+        "trueAsOfCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  },
+  "authority_boundary": "informational only; authority requires independently authenticated WITS enforcement"
+}
