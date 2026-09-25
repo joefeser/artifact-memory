@@ -1,0 +1,146 @@
+# Coordination Plane Stories (draft for owner review)
+
+Source: `docs/contracts/v0-coordination-plane.md`. Story style: DoD first,
+one acceptance command where possible. Sizes are S (< half day) / M (day) /
+L (multi-day, slice further).
+
+## artifact-memory stories (AM)
+
+### AM-1: Session-ledger ingestion (M)
+As a coordinating agent, when my session ends I want done-log entries
+imported as WorkReceipt-adjacent records so parallel sessions share memory
+through the vault instead of file copies.
+**Accept:** `artifact-memory import-session-ledger <done-log.md> --vault <v>`
+creates one record per dated entry with provenance `session-ledger`, and a
+dry-run prints the mapping without writing.
+
+### AM-2: The three coordination record types (S)
+TaskPacket, WorkReceipt, AccessLabel as first-class record schemas with
+validation, digest, and labels (contract doc §Records). Project references are
+UUIDs with display-name provenance. WorkReceipt evidence and artifact entries
+are strict typed objects; unknown shapes are rejected. Vault-only privacy
+fields never enter repository fixtures. Every body has deterministic
+`schema_id` and `record_id`; `revision_digest` is recomputed from canonical
+bytes and carried externally in revision references.
+**Accept:** `artifact-memory records validate fixtures/coordination/*.json` —
+valid fixtures pass; each field-omission fixture fails with a typed error.
+
+### AM-3: Vault sync CLI — push/pull as set union (M)
+As a machine-local vault, I want `artifact-memory sync --hub <url>` so
+local appends converge to the hub and back, idempotently.
+**Accept:** integration test: two fresh vaults, disjoint appends on each,
+push both to a hub dir, then pull both ⇒ both contain the union; a second
+push/pull round is a no-op (byte-identical state); two valid revisions under one record ID merge by
+`(record_id, revision_digest)`; different canonical bytes claiming the same
+complete pair ⇒ quarantine error naming the pair and both observed content
+digests, no merge. Each successful pull returns a canonical sync receipt whose
+authorized-set count and digest match the resulting local set and whose
+submitted pairs have typed admission outcomes; rejected or quarantined pairs
+are absent from the authorized set. Tampering with the receipt or local set
+fails typed and does not advance the last-successful-sync marker.
+
+### AM-4: Outbox semantics — local append is never blocked by the hub (M)
+Sync failures spool; work continues.
+**Accept:** with the hub unreachable, `record append` succeeds locally and
+`sync` retries later; on recovery the union holds; no record is lost or
+duplicated (count invariant across a 100-append soak).
+
+### AM-5: Kickoff-pack generator (S)
+`artifact-memory kickoff --project sample-service` emits informational
+fresh-session context (session-start protocol + authority boundary + current
+queue) from the context pack + queue records.
+**Accept:** generated prompt contains the verification command from the unique
+current revision of the lexicographically latest open task admitted by the
+latest successful authenticated sync receipt, identifies the receipt's
+observation time and hub scope generation, contains the standing no-authority
+lines, and never renders record text as authorization; golden-file test. A
+missing/tampered receipt, local authorized-set mismatch, pending/rejected/
+quarantined revision, or forked/broken TaskPacket predecessor chain fails
+typed. The retained receipt is integrity evidence from an authenticated
+session, not issuer authenticity or authority.
+
+### AM-6: Freshness linked to repo heads (S)
+Records may carry `trueAsOfCommit`; readers mechanically detect drift.
+**Accept:** `context-pack` marks records whose `trueAsOfCommit` is not an
+ancestor of the repo's current head as `stale-verify`.
+
+### AM-9: Project onboarding — one command from zero to working agent (M)
+As an operator, I point `artifact-memory onboard` at any repo — existing
+with history, or brand new — and get: repo identity minted or verified
+(`.agent-memory/repo.json`), vault created or linked with the project
+label, AccessLabel registered (credential hint; key issuance is the WITS
+side per W-2, and label binding requires separate WITS administrator
+authority), first sync completed (local replica bootstrapped from the hub),
+and the first kickoff pack emitted with a bootstrap receipt.
+**Accept:** (a) fresh repo: `onboard` → repo.json exists with a new UUID,
+kickoff pack renders, bootstrap receipt validates; (b) existing repo with
+prior records: UUID minted, existing session-ledger/history importable via
+AM-1, no duplicate records; (c) idempotent: second run changes nothing
+(byte-identical vault state); (d) an un-onboarded repo calling any plane
+command (sync/claim/receipt) fails with a typed error naming `onboard` as
+the fix.
+
+### AM-8: Repo identity manifest (S)
+Every repo carries `.agent-memory/repo.json` (`uuid`, `humanName`),
+committed and non-secret; all records reference the UUID (contract §Repo
+identity).
+**Accept:** two fixtures with the same `humanName` but different UUIDs
+coexist in one vault with zero ambiguity; records referencing an unknown
+UUID fail validation with a typed error; rename of `humanName` changes no
+record digests.
+
+### AM-7: Per-label read scoping at sync and context export (M)
+AccessLabel read permissions are default-deny at hub egress and enforced again
+at context-pack generation, so restricted clients never receive other
+projects' records.
+**Accept:** sync delta and context pack generated with `label-scoped-client`
+contain zero records for an excluded synthetic project; each exclusion appears
+only as a count in its receipt, without protected record identities. The
+restricted sync response contains no full AccessLabel body and no denied
+project UUID or display name; local context export without a trusted policy
+view denies rather than inferring access from an opaque label reference.
+
+## WITS stories (W)
+
+### W-1: Coordination intake routes (M)
+`POST /api/agent/coordination/receipts` and `.../claims` per the contract:
+bearer + capability auth (reuse `AgentApiKey`), validated append into the
+vault store (no WITS-owned copy), claim exclusivity check.
+**Accept:** integration test — two concurrent claims for one taskId: one
+201, one 409; a receipt with a failing schema or wrong writer: 422 typed;
+the authenticated key's server-owned principal binding, not the submitted
+writer string, determines the expected writer; a correct-looking writer under
+the wrong key is also 422 typed;
+project-scoped audit evidence written for accepted mutations through the
+WITS-owned coordination audit contract, without inventing a case identity.
+
+### W-2: Capability names for coordination (S)
+Add `coordination:claim:<project>` and `coordination:receipt:<project>`
+capabilities to the capability model; document in `api-surface-map.md`.
+**Accept:** route tests reject keys lacking the capability; map row added.
+
+### W-3: Bus notification only (S)
+On accepted receipt/claim, publish a notification via `BUS_TRANSPORT`;
+nothing durable is read from the bus; intake works with bus disabled.
+**Accept:** with `BUS_TRANSPORT=in_process` (the default, per
+`lib/bus/constants.ts`) all intake tests still pass — notifications are a
+sink without a subscriber; with rabbitmq configured, a notification is
+observed per mutation.
+
+### W-4: Sync endpoint for AM-3 (S)
+`POST /api/agent/coordination/sync` accepting a batch of records, returning
+the authorized union delta (revisions the caller lacks and may read), a
+canonical sync receipt with authorized-set count/digest and typed submission
+outcomes, a count-only exclusion receipt, and enforcement of the quarantine
+rule.
+**Accept:** AM-3's integration test runs against this endpoint as its hub; a
+restricted credential receives no excluded project record or protected
+identity, receives no full AccessLabel body, and does receive the count-only
+exclusion receipt.
+
+## Sequencing
+
+AM-2 → AM-3 + AM-4 (storage correctness first) → W-1 + W-2 + W-4 (bridge)
+→ AM-8 + **AM-9** + AM-5 (onboarding and ergonomics — the get-everyone-
+moving slice) → AM-1, AM-6, AM-7, W-3 (history import and hardening). An
+existing local-ledger flow remains valid until AM-3/W-1 land.
