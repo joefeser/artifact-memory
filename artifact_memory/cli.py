@@ -22,6 +22,12 @@ from .context import (
     validate_context_pack,
 )
 from .coordination import validate_coordination_files
+from .coordination_sync import (
+    SYNC_RECEIPT_SCHEMA_ID,
+    SyncFailure,
+    sync as sync_coordination,
+    validate_sync_receipt,
+)
 from .projection import project_records, records_with_provenance, related_records, search_records, search_receipt
 from .release import (
     render_release_candidate_verification_receipt,
@@ -80,6 +86,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     records_validate.add_argument("records", type=Path, nargs="+")
     records_validate.add_argument("--json", action="store_true", dest="as_json")
+    sync_parser = subparsers.add_parser(
+        "sync",
+        help="run the provider-free local coordination sync adapter",
+    )
+    sync_parser.add_argument("--vault", required=True, type=Path)
+    sync_parser.add_argument("--hub", required=True, type=Path)
+    sync_parser.add_argument(
+        "--session-id",
+        required=True,
+        help="opaque authenticated-session handle resolved by the hub",
+    )
+    sync_parser.add_argument("--phase", choices=["push", "pull", "both"], default="both")
+    sync_parser.add_argument("--completed-at", required=True)
+    sync_parser.add_argument("--json", action="store_true", dest="as_json")
     scan = subparsers.add_parser("scan")
     scan.add_argument("root", type=Path)
     scan.add_argument("--out", type=Path)
@@ -189,6 +209,32 @@ def main(argv: list[str] | None = None) -> int:
                     "outcome": "rejected",
                     "diagnostics": [
                         {"code": exc.code, "path": exc.path, "message": exc.message}
+                    ],
+                },
+                args.as_json,
+            )
+            return EXIT_INVALID
+        _receipt(result, args.as_json)
+        return EXIT_OK
+
+    if args.command == "sync":
+        try:
+            result = sync_coordination(
+                args.vault,
+                args.hub,
+                session_id=args.session_id,
+                completed_at=args.completed_at,
+                phase=args.phase,
+            )
+        except (SyncFailure, ValidationFailure, OSError) as exc:
+            _receipt(
+                {
+                    "outcome": "rejected",
+                    "diagnostics": [
+                        {
+                            "code": getattr(exc, "code", "sync-storage-unavailable"),
+                            "message": getattr(exc, "message", "sync storage is unavailable"),
+                        }
                     ],
                 },
                 args.as_json,
@@ -489,6 +535,8 @@ def main(argv: list[str] | None = None) -> int:
                 validate_context_pack(record)
             except ContextFailure as exc:
                 raise ValidationFailure(exc.code, exc.message) from exc
+        if schema_id == SYNC_RECEIPT_SCHEMA_ID:
+            validate_sync_receipt(record)
     except ValidationFailure as exc:
         result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}
     else:
