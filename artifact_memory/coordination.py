@@ -9,7 +9,7 @@ from typing import Any
 
 from .canonical import CanonicalizationFailure, canonical_bytes, sha256_bytes
 from .extensions import ExtensionFailure, preserve_extensions
-from .location import RELATIVE_PATH
+from .location import ARTIFACT_REF, ENDPOINT_REF, RELATIVE_PATH
 from .schema_resources import core_schemas
 from .validator import ValidationFailure, load_json, validate
 
@@ -109,7 +109,28 @@ def _validate_identity(record: dict[str, Any]) -> None:
 def _validate_portable_locations(receipt: dict[str, Any]) -> None:
     for evidence_index, evidence in enumerate(receipt["evidence"]):
         for artifact_index, artifact in enumerate(evidence["artifacts"]):
+            artifact_ref = artifact["artifactId"]
+            endpoint_ref = artifact["location"]["endpoint_ref"]
             relative_path = artifact["location"]["relative_path"]
+            logical_references = (
+                (
+                    artifact_ref,
+                    ARTIFACT_REF,
+                    f"$.evidence[{evidence_index}].artifacts[{artifact_index}].artifactId",
+                ),
+                (
+                    endpoint_ref,
+                    ENDPOINT_REF,
+                    f"$.evidence[{evidence_index}].artifacts[{artifact_index}].location.endpoint_ref",
+                ),
+            )
+            for value, pattern, path in logical_references:
+                if pattern.fullmatch(value) is None:
+                    raise ValidationFailure(
+                        "artifact-logical-reference-invalid",
+                        "artifact evidence must use canonical logical references",
+                        path,
+                    )
             if RELATIVE_PATH.fullmatch(relative_path) is None:
                 raise ValidationFailure(
                     "artifact-location-nonportable",

@@ -195,6 +195,39 @@ class CoordinationRecordTests(unittest.TestCase):
                 records[-1]["evidence"][0]["artifacts"][0]["location"]["relative_path"] = bad_path
                 self.assert_rejected(records, "artifact-location-nonportable")
 
+    def test_artifact_evidence_uses_canonical_logical_reference_grammars(self):
+        accepted = (
+            ("artifactId", "artifact://synthetic/review-receipt"),
+            ("endpoint_ref", "endpoint://synthetic"),
+            ("endpoint_ref", "endpoint://synthetic/review-store"),
+        )
+        for field, value in accepted:
+            with self.subTest(outcome="accepted", field=field, value=value):
+                records = valid_records()
+                artifact = records[-1]["evidence"][0]["artifacts"][0]
+                if field == "artifactId":
+                    artifact[field] = value
+                else:
+                    artifact["location"][field] = value
+                validate_coordination_records(records)
+
+        rejected = (
+            ("artifactId", "artifact://../machine/path"),
+            ("artifactId", "artifact://synthetic//receipt"),
+            ("artifactId", "artifact://synthetic"),
+            ("endpoint_ref", "endpoint://synthetic//store"),
+            ("endpoint_ref", "endpoint://synthetic/store/extra"),
+        )
+        for field, value in rejected:
+            with self.subTest(outcome="rejected", field=field, value=value):
+                records = valid_records()
+                artifact = records[-1]["evidence"][0]["artifacts"][0]
+                if field == "artifactId":
+                    artifact[field] = value
+                else:
+                    artifact["location"][field] = value
+                self.assert_rejected(records, "constraint-failed")
+
     def test_unknown_top_level_and_malformed_typed_entries_are_rejected(self):
         records = valid_records()
         records[-1]["narrativeEvidence"] = "looks good"
