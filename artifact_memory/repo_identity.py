@@ -302,6 +302,12 @@ def validate_repo_bound_coordination_files(
             raise ValidationFailure(
                 exc.code, exc.message, f"$.files[{index}]"
             ) from exc
+        except RecursionError as exc:
+            raise ValidationFailure(
+                "invalid-json",
+                "coordination record exceeds supported JSON nesting",
+                f"$.files[{index}]",
+            ) from exc
         if not isinstance(value, dict):
             raise ValidationFailure(
                 "invalid-input",
