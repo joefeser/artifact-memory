@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +14,7 @@ from .coordination import (
     validate_coordination_records,
 )
 from .schema_resources import load_schema
-from .validator import ValidationFailure, load_json, validate
+from .validator import ValidationFailure, load_json, load_json_bytes, validate
 
 
 REPO_IDENTITY_RELATIVE_PATH = Path(".agent-memory/repo.json")
@@ -28,25 +30,100 @@ _LABEL_PERMISSION_FIELDS = (
 )
 
 
-def load_repo_identity(repo_root: Path) -> dict[str, str]:
-    """Load one strict, committed repository identity manifest."""
-    manifest_path = repo_root / REPO_IDENTITY_RELATIVE_PATH
-    if manifest_path.is_symlink():
-        raise ValidationFailure(
-            "repo-identity-unsafe",
-            "repository identity manifest must not be a symbolic link",
-            "$",
-        )
-    if not manifest_path.is_file():
+def _required_entry(path: Path, *, kind: str) -> os.stat_result:
+    try:
+        entry = path.stat(follow_symlinks=False)
+    except FileNotFoundError as exc:
         raise ValidationFailure(
             "repo-identity-missing",
             "repository root has no .agent-memory/repo.json identity manifest",
             "$",
+        ) from exc
+    except OSError as exc:
+        raise ValidationFailure(
+            "repo-identity-unavailable",
+            "repository identity path could not be inspected",
+            "$",
+        ) from exc
+    expected = (
+        stat.S_ISDIR(entry.st_mode)
+        if kind == "directory"
+        else stat.S_ISREG(entry.st_mode)
+    )
+    if stat.S_ISLNK(entry.st_mode) or not expected:
+        raise ValidationFailure(
+            "repo-identity-unsafe",
+            "repository root, identity directory, and manifest must be real entries of the expected type",
+            "$",
         )
+    return entry
+
+
+def _entry_identity(entry: os.stat_result) -> tuple[int, int, int]:
+    return entry.st_dev, entry.st_ino, stat.S_IFMT(entry.st_mode)
+
+
+def _read_manifest_bytes(repo_root: Path) -> bytes:
+    identity_directory = repo_root / REPO_IDENTITY_RELATIVE_PATH.parent
+    manifest_path = repo_root / REPO_IDENTITY_RELATIVE_PATH
+    root_entry = _required_entry(repo_root, kind="directory")
+    identity_entry = _required_entry(identity_directory, kind="directory")
+    manifest_entry = _required_entry(manifest_path, kind="file")
+
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
     try:
-        candidate = load_json(manifest_path)
-    except ValidationFailure as exc:
-        raise ValidationFailure(exc.code, exc.message, "$") from exc
+        descriptor = os.open(manifest_path, flags)
+        try:
+            opened_entry = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(opened_entry.st_mode)
+                or _entry_identity(opened_entry) != _entry_identity(manifest_entry)
+            ):
+                raise ValidationFailure(
+                    "repo-identity-unsafe",
+                    "repository identity manifest changed while it was opened",
+                    "$",
+                )
+            with os.fdopen(descriptor, "rb", closefd=True) as stream:
+                descriptor = -1
+                data = stream.read()
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+    except ValidationFailure:
+        raise
+    except OSError as exc:
+        raise ValidationFailure(
+            "repo-identity-unsafe",
+            "repository identity manifest could not be opened without following links",
+            "$",
+        ) from exc
+
+    stable_entries = (
+        (repo_root, "directory", root_entry),
+        (identity_directory, "directory", identity_entry),
+        (manifest_path, "file", manifest_entry),
+    )
+    if any(
+        _entry_identity(_required_entry(path, kind=kind))
+        != _entry_identity(expected)
+        for path, kind, expected in stable_entries
+    ):
+        raise ValidationFailure(
+            "repo-identity-unsafe",
+            "repository identity path changed while the manifest was read",
+            "$",
+        )
+    return data
+
+
+def load_repo_identity(repo_root: Path) -> dict[str, str]:
+    """Load one strict, committed repository identity manifest."""
+    candidate = load_json_bytes(_read_manifest_bytes(repo_root))
     validate(candidate, REPO_IDENTITY_SCHEMA)
     return {"uuid": candidate["uuid"], "humanName": candidate["humanName"]}
 
@@ -62,7 +139,17 @@ def load_repo_identity_registry(repo_roots: list[Path]) -> dict[str, Any]:
         raise ValidationFailure(
             "invalid-input", "at least one repository root is required", "$.repos"
         )
-    identities = [load_repo_identity(root) for root in repo_roots]
+    identities = []
+    for index, root in enumerate(repo_roots):
+        try:
+            identities.append(load_repo_identity(root))
+        except ValidationFailure as exc:
+            suffix = exc.path[1:] if exc.path.startswith("$") else f".{exc.path}"
+            raise ValidationFailure(
+                exc.code,
+                exc.message,
+                f"$.roots[{index}]{suffix}",
+            ) from exc
     known_project_ids = {identity["uuid"] for identity in identities}
     return {
         "manifest_count": len(identities),

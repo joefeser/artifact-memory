@@ -19,6 +19,13 @@ COORDINATION = ROOT / "fixtures" / "coordination"
 
 
 class RepoIdentityTests(unittest.TestCase):
+    def write_manifest(self, root: Path, candidate: dict) -> None:
+        manifest_dir = root / ".agent-memory"
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "repo.json").write_text(
+            json.dumps(candidate), encoding="utf-8"
+        )
+
     def test_repository_manifest_is_strict_and_public(self):
         identity = load_repo_identity(ROOT)
         self.assertEqual(identity["humanName"], "artifact-memory")
@@ -105,6 +112,79 @@ class RepoIdentityTests(unittest.TestCase):
             with self.assertRaises(ValidationFailure) as caught:
                 load_repo_identity(root)
             self.assertEqual(caught.exception.code, "unknown-field")
+
+    def test_manifest_schema_constraints_fail_closed(self):
+        invalid_candidates = (
+            (
+                {
+                    "uuid": "not-a-uuid",
+                    "humanName": "synthetic",
+                },
+                "constraint-failed",
+                "$.uuid",
+            ),
+            (
+                {"humanName": "synthetic"},
+                "required-field-missing",
+                "$",
+            ),
+            (
+                {
+                    "uuid": "11111111-1111-4111-8111-111111111111",
+                    "humanName": "",
+                },
+                "constraint-failed",
+                "$.humanName",
+            ),
+        )
+        for candidate, code, path in invalid_candidates:
+            with (
+                self.subTest(code=code, path=path),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary)
+                self.write_manifest(root, candidate)
+                with self.assertRaises(ValidationFailure) as caught:
+                    load_repo_identity(root)
+                self.assertEqual(caught.exception.code, code)
+                self.assertEqual(caught.exception.path, path)
+
+    def test_manifest_rejects_symlinked_root_and_identity_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            real_root = base / "real-root"
+            self.write_manifest(
+                real_root,
+                {
+                    "uuid": "11111111-1111-4111-8111-111111111111",
+                    "humanName": "synthetic",
+                },
+            )
+            linked_root = base / "linked-root"
+            linked_root.symlink_to(real_root, target_is_directory=True)
+            with self.assertRaises(ValidationFailure) as caught:
+                load_repo_identity(linked_root)
+            self.assertEqual(caught.exception.code, "repo-identity-unsafe")
+
+            outside = base / "outside-identity"
+            outside.mkdir()
+            (outside / "repo.json").write_text(
+                json.dumps(
+                    {
+                        "uuid": "22222222-2222-4222-8222-222222222222",
+                        "humanName": "external-synthetic",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            local_root = base / "local-root"
+            local_root.mkdir()
+            (local_root / ".agent-memory").symlink_to(
+                outside, target_is_directory=True
+            )
+            with self.assertRaises(ValidationFailure) as caught:
+                load_repo_identity(local_root)
+            self.assertEqual(caught.exception.code, "repo-identity-unsafe")
 
 
 if __name__ == "__main__":

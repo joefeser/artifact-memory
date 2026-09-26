@@ -211,6 +211,31 @@ class CliTests(unittest.TestCase):
         self.assertTrue(receipt["repo_identity_verified"])
         self.assertEqual(receipt["known_project_count"], 2)
 
+    def test_repo_validate_identifies_invalid_root_index(self):
+        fixture = ROOT / "fixtures" / "coordination-repo-identity" / "v0"
+        with tempfile.TemporaryDirectory() as temporary:
+            invalid_root = Path(temporary) / "invalid"
+            identity = invalid_root / ".agent-memory"
+            identity.mkdir(parents=True)
+            (identity / "repo.json").write_text(
+                '{"uuid":"not-a-uuid","humanName":"synthetic"}',
+                encoding="utf-8",
+            )
+            result = self.run_cli(
+                "repo",
+                "validate",
+                str(fixture / "repositories" / "alpha"),
+                str(invalid_root),
+                "--records",
+                str(COORDINATION_FIXTURES / "access-label.json"),
+                str(COORDINATION_FIXTURES / "task-open.json"),
+                "--json",
+            )
+        self.assertEqual(result.returncode, 2)
+        diagnostic = json.loads(result.stdout)["diagnostics"][0]
+        self.assertEqual(diagnostic["code"], "constraint-failed")
+        self.assertEqual(diagnostic["path"], "$.roots[1].uuid")
+
     def test_project_reports_projection_creation_failure_as_json(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = io.StringIO()
