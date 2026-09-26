@@ -179,7 +179,10 @@ by that response. A non-empty pending envelope must be acknowledged by pull
 before another push; it cannot be overwritten by a later request. Pending
 outcome evidence binds to the logical hub and stable principal, not an
 ephemeral session handle, so an authenticated replacement session for that
-same principal can acknowledge it. A different principal cannot. Hub binding
+same principal can acknowledge it. Administrative replacement of the bound
+AccessLabel may also change its record identity; acknowledgement validates the
+exact prior label against retained policy history without treating label
+identity as principal identity. A different principal cannot. Hub binding
 replacement is coordinated with the affected principal locks, so revocation or
 scope rotation cannot race an already authenticated request. The logical
 `hub_id` is immutable for one local hub directory; reconfiguration may rotate
@@ -562,6 +565,9 @@ The sync route enforces the V0 resource bounds before expensive validation,
 applies all-or-nothing request rejection for a limit violation, and paginates
 bounded responses. Capability, label, principal, resource, and schema checks
 are independent fail-closed gates; passing one never substitutes for another.
+Egress requires the project UUID to appear in `projectNames` provenance for
+both the authenticated caller's current label and the record's exact retained
+label; a permission UUID without matching provenance cannot disclose a record.
 
 ## Non-goals (v0)
 

@@ -935,11 +935,6 @@ def _load_pending_outcomes(
             "pending submission outcomes have an invalid AccessLabel reference",
         ) from exc
     if pending_label_ref != current_label_ref:
-        if pending_label_ref["record_id"] != current_label_ref["record_id"]:
-            raise SyncFailure(
-                "sync-pending-binding-mismatch",
-                "pending submission outcomes belong to another AccessLabel identity",
-            )
         _retained_policy_label(
             hub,
             pending_label_ref,
@@ -1132,6 +1127,7 @@ def _authorized_records(
         if (
             project_id in allowed
             and project_id not in denied
+            and _label_declares_project(label, project_id)
             and project_id in bound_allowed
             and project_id not in bound_denied
         ):

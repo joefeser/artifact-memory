@@ -1023,6 +1023,32 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(result["receipt"]["excluded_count"], 3)
             self.assertNotIn(task["record_id"], json.dumps(result))
 
+    def test_egress_requires_project_provenance_in_the_caller_label(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            record_label = label_identity(label_for([PROJECT_A]), "label-record")
+            configure(hub, record_label)
+            task = task_for(record_label)
+            store_coordination_record(hub, task)
+
+            caller_label = label_identity(label_for([PROJECT_A]), "label-caller")
+            caller_label["projectNames"] = [
+                item
+                for item in caller_label["projectNames"]
+                if item["projectId"] != PROJECT_A
+            ]
+            configure(hub, caller_label, generation=2)
+            result = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            self.assertEqual(result["authorized_pairs"], [])
+            self.assertEqual(result["receipt"]["excluded_count"], 3)
+            self.assertNotIn(task["record_id"], json.dumps(result))
+
     def test_missing_record_bound_access_label_fails_egress_closed(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1239,6 +1265,43 @@ class CoordinationSyncTests(unittest.TestCase):
                     completed_at="2026-09-25T20:01:00Z",
                 )
             self.assertEqual(revoked.exception.code, "principal-binding-invalid")
+
+    def test_pending_outcomes_survive_access_label_identity_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            original_label = label_identity(label_for([PROJECT_A]), "label-original")
+            configure(hub, original_label, generation=1)
+            store_coordination_record(vault, task_for(original_label))
+            outcomes = push(vault, hub, session_id=SESSION)
+            pending_path = (
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "pending-submission-outcomes.json"
+            )
+
+            replacement_label = label_identity(
+                label_for([PROJECT_A]),
+                "label-replacement",
+            )
+            configure(hub, replacement_label, generation=2)
+            result = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            self.assertEqual(result["receipt"]["submission_outcomes"], outcomes)
+            self.assertEqual(
+                result["receipt"]["access_label_ref"],
+                {
+                    "record_id": replacement_label["record_id"],
+                    "revision_digest": revision_digest(replacement_label),
+                },
+            )
+            self.assertFalse(pending_path.exists())
+            self.assertEqual(len(result["authorized_pairs"]), 1)
 
     def test_configuration_rotation_cannot_race_an_in_flight_principal(self):
         with tempfile.TemporaryDirectory() as temporary:
