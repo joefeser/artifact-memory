@@ -11,6 +11,7 @@ import hashlib
 import os
 import stat
 import tempfile
+from bisect import bisect_right
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
@@ -240,7 +241,6 @@ def _scan_retained_policy_labels(
 
 def _validate_storage_root(boundary: Path, *, create: bool) -> None:
     """Reject a storage root that is itself a symlink or non-directory."""
-    created = False
     if boundary.is_symlink():
         raise SyncFailure("sync-storage-unsafe", "sync storage root is a symlink")
     if boundary.exists():
@@ -249,10 +249,26 @@ def _validate_storage_root(boundary: Path, *, create: bool) -> None:
     else:
         if not create:
             return
-        boundary.mkdir(parents=True, exist_ok=True)
-        created = True
-        if boundary.is_symlink() or not boundary.is_dir():
+        missing: list[Path] = []
+        current = boundary
+        while not current.exists() and not current.is_symlink():
+            missing.append(current)
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        if current.is_symlink() or not current.is_dir():
             raise SyncFailure("sync-storage-unsafe", "sync storage root is unsafe")
+        for candidate in reversed(missing):
+            parent = candidate.parent
+            try:
+                candidate.mkdir()
+            except FileExistsError:
+                pass
+            if candidate.is_symlink() or not candidate.is_dir():
+                raise SyncFailure("sync-storage-unsafe", "sync storage root is unsafe")
+            _sync_directory(candidate)
+            _sync_directory(parent)
     flags = os.O_RDONLY
     if hasattr(os, "O_DIRECTORY"):
         flags |= os.O_DIRECTORY
@@ -267,10 +283,6 @@ def _validate_storage_root(boundary: Path, *, create: bool) -> None:
             raise SyncFailure("sync-storage-unsafe", "sync storage root is not a directory")
     finally:
         os.close(descriptor)
-    if created:
-        _sync_directory(boundary)
-        if boundary.parent.is_dir():
-            _sync_directory(boundary.parent)
 
 
 def _sync_directory(path: Path) -> None:
@@ -1087,14 +1099,19 @@ def _admit_submission(
 
 def _acknowledged_hub_state(
     vault: Path, hub_id: str, principal_id: str
-) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
-    """Recover admitted and previously attempted pairs from verified projections."""
+) -> tuple[
+    set[tuple[str, str]],
+    set[tuple[str, str]],
+    tuple[str, str] | None,
+]:
+    """Recover admitted pairs, attempts, and the latest retry cursor."""
     _validate_storage_root(vault, create=False)
     roots = vault / "generated" / "coordination-sync" / "projections"
     known: set[tuple[str, str]] = set()
     attempted: set[tuple[str, str]] = set()
+    latest_attempt: tuple[datetime, str, tuple[str, str]] | None = None
     if not roots.exists():
-        return known, attempted
+        return known, attempted, None
     if roots.is_symlink() or not roots.is_dir():
         raise SyncFailure("sync-storage-unsafe", "sync projection storage is unsafe")
     projections = sorted(roots.iterdir())
@@ -1123,12 +1140,23 @@ def _acknowledged_hub_state(
         except ValidationFailure:
             continue
         known.update(_pair_key(pair) for pair in pairs)
-        for item in receipt["submission_outcomes"]:
-            key = _pair_key(item["record_ref"])
+        outcome_keys = [
+            _pair_key(item["record_ref"])
+            for item in receipt["submission_outcomes"]
+        ]
+        for item, key in zip(receipt["submission_outcomes"], outcome_keys):
             attempted.add(key)
             if item["outcome"] == "admitted":
                 known.add(key)
-    return known, attempted
+        if outcome_keys:
+            candidate = (
+                _parse_receipt_time(receipt["completed_at"]),
+                receipt["receipt_id"],
+                outcome_keys[-1],
+            )
+            if latest_attempt is None or candidate[:2] > latest_attempt[:2]:
+                latest_attempt = candidate
+    return known, attempted, latest_attempt[2] if latest_attempt else None
 
 
 def _pending_outcomes_path(vault: Path) -> Path:
@@ -1280,7 +1308,7 @@ def _push_bound(
     principal_id: str,
 ) -> list[dict[str, Any]]:
     """Push while the caller holds the authenticated principal lock."""
-    known, attempted = _acknowledged_hub_state(
+    known, attempted, retry_cursor = _acknowledged_hub_state(
         vault, config["hub_id"], principal_id
     )
     pending = _load_pending_outcomes(
@@ -1313,11 +1341,21 @@ def _push_bound(
     candidates = [
         path for path in _record_files(vault) if path not in known_paths
     ]
-    # Never-before-attempted pairs go first. Rejected and quarantined pairs
-    # remain retryable, but a full terminal prefix cannot starve later appends.
-    submission_paths = [
+    # Never-before-attempted pairs go first. Rotate the retry tail after the
+    # latest acknowledged outcome so a bounded terminal prefix cannot starve
+    # another previously attempted pair forever.
+    never_attempted_paths = [
         path for path in candidates if path not in attempted_paths
-    ] + [path for path in candidates if path in attempted_paths]
+    ]
+    retry_paths = [path for path in candidates if path in attempted_paths]
+    if retry_cursor is not None and retry_paths:
+        cursor_path = _record_path(
+            vault,
+            {"record_id": retry_cursor[0], "revision_digest": retry_cursor[1]},
+        )
+        split = bisect_right(retry_paths, cursor_path)
+        retry_paths = retry_paths[split:] + retry_paths[:split]
+    submission_paths = never_attempted_paths + retry_paths
     bounded_paths: list[Path] = []
     bounded_bytes = 0
     for path in submission_paths:

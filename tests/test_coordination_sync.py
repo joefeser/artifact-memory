@@ -363,6 +363,71 @@ class CoordinationSyncTests(unittest.TestCase):
                 [admitted["record_id"]],
             )
 
+    def test_previously_attempted_receipt_retries_after_terminal_prefix(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            opened, claimed = claimed_task_for(label)
+
+            receipts = []
+            for ordinal in range(1, 4):
+                receipt = work_receipt_for(label, claimed)
+                receipt_id = receipt["receiptId"][:-2] + f"{ordinal:02d}"
+                receipt["receiptId"] = receipt_id
+                receipt["record_id"] = (
+                    f"record://coordination/{receipt['originId']}/receipt/{receipt_id}"
+                )
+                receipt["writer"] = "coordination-principal://synthetic/not-bound"
+                receipts.append(receipt)
+
+            receipts.sort(key=lambda item: claimed_path(vault, item))
+            retriable = receipts[-1]
+            retriable["writer"] = PRINCIPAL
+            retriable_ref = {
+                "record_id": retriable["record_id"],
+                "revision_digest": revision_digest(retriable),
+            }
+            for receipt in receipts:
+                append_local_coordination_record(vault, receipt)
+
+            with patch(
+                "artifact_memory.coordination_sync.MAX_SUBMITTED_RECORDS", 1
+            ):
+                for ordinal in range(3):
+                    initial = sync(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at=f"2026-09-25T20:00:0{ordinal}Z",
+                    )
+                    self.assertEqual(
+                        initial["submission_outcomes"][0]["outcome"],
+                        "rejected",
+                    )
+
+                store_coordination_record(hub, opened)
+                store_coordination_record(hub, claimed)
+                retried = []
+                for ordinal in range(3, 6):
+                    result = sync(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at=f"2026-09-25T20:00:0{ordinal}Z",
+                    )
+                    retried.extend(result["submission_outcomes"])
+
+            self.assertIn(
+                {
+                    "record_ref": retriable_ref,
+                    "outcome": "admitted",
+                    "code": "admitted",
+                },
+                retried,
+            )
+
     def test_local_append_rejects_undeliverable_record_bounds_before_write(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -413,7 +478,9 @@ class CoordinationSyncTests(unittest.TestCase):
     def test_local_append_syncs_created_directory_metadata(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            vault = root / "vault"
+            first = root / "first"
+            second = first / "second"
+            vault = second / "vault"
             label = label_for([PROJECT_A])
             import artifact_memory.coordination_sync as coordination_sync
 
@@ -430,6 +497,7 @@ class CoordinationSyncTests(unittest.TestCase):
             )
             self.assertEqual(len(record_directories), 1)
             self.assertIn(record_directories[0], synced)
+            self.assertTrue({root, first, second, vault}.issubset(synced))
 
     def test_distinct_authoritative_revisions_of_one_record_merge_by_exact_pair(self):
         with tempfile.TemporaryDirectory() as temporary:
