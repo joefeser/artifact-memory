@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -190,10 +191,112 @@ def _read_manifest_bytes(repo_root: Path) -> bytes:
     return data
 
 
+def _git_output(repo_root: Path, *args: str) -> bytes:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", os.fspath(repo_root), *args],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise ValidationFailure(
+            "repo-identity-unavailable",
+            "repository identity could not be verified against Git",
+            "$",
+        ) from exc
+    if completed.returncode != 0:
+        raise ValidationFailure(
+            "repo-identity-uncommitted",
+            "repository identity manifest is not available from the pinned HEAD commit",
+            "$",
+        )
+    return completed.stdout
+
+
+def _verify_committed_manifest(repo_root: Path, manifest_bytes: bytes) -> None:
+    absolute_root = _absolute_without_resolution(repo_root)
+    try:
+        prefix = _git_output(absolute_root, "rev-parse", "--show-prefix")
+    except ValidationFailure as exc:
+        if exc.code == "repo-identity-unavailable":
+            raise
+        raise ValidationFailure(
+            "repo-identity-not-repository",
+            "repository identity root must be the exact top level of a Git worktree",
+            "$",
+        ) from exc
+    if prefix.strip():
+        raise ValidationFailure(
+            "repo-identity-not-repository",
+            "repository identity root must be the exact top level of a Git worktree",
+            "$",
+        )
+
+    commit = _git_output(
+        absolute_root, "rev-parse", "--verify", "HEAD^{commit}"
+    ).strip()
+    if not commit:
+        raise ValidationFailure(
+            "repo-identity-uncommitted",
+            "repository identity manifest is not available from the pinned HEAD commit",
+            "$",
+        )
+    try:
+        commit_name = commit.decode("ascii", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValidationFailure(
+            "repo-identity-unavailable",
+            "Git returned an invalid repository commit identity",
+            "$",
+        ) from exc
+    if len(commit_name) not in {40, 64} or any(
+        character not in "0123456789abcdef" for character in commit_name
+    ):
+        raise ValidationFailure(
+            "repo-identity-unavailable",
+            "Git returned an invalid repository commit identity",
+            "$",
+        )
+    relative_path = REPO_IDENTITY_RELATIVE_PATH.as_posix()
+    tree_entry = _git_output(
+        absolute_root,
+        "--literal-pathspecs",
+        "ls-tree",
+        "-z",
+        commit_name,
+        "--",
+        relative_path,
+    )
+    regular_prefixes = (b"100644 blob ", b"100755 blob ")
+    expected_suffix = b"\t" + relative_path.encode("ascii") + b"\0"
+    if (
+        not tree_entry.startswith(regular_prefixes)
+        or not tree_entry.endswith(expected_suffix)
+        or tree_entry.count(b"\0") != 1
+    ):
+        raise ValidationFailure(
+            "repo-identity-uncommitted",
+            "repository identity manifest must be a regular file committed at the repository root",
+            "$",
+        )
+    committed_bytes = _git_output(
+        absolute_root, "show", f"{commit_name}:{relative_path}"
+    )
+    if committed_bytes != manifest_bytes:
+        raise ValidationFailure(
+            "repo-identity-uncommitted",
+            "repository identity manifest differs from the pinned HEAD commit",
+            "$",
+        )
+
+
 def load_repo_identity(repo_root: Path) -> dict[str, str]:
     """Load one strict, committed repository identity manifest."""
     try:
-        candidate = load_json_bytes(_read_manifest_bytes(repo_root))
+        manifest_bytes = _read_manifest_bytes(repo_root)
+        _verify_committed_manifest(repo_root, manifest_bytes)
+        candidate = load_json_bytes(manifest_bytes)
         validate(candidate, REPO_IDENTITY_SCHEMA)
     except RecursionError as exc:
         raise ValidationFailure(

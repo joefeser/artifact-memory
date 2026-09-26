@@ -28,6 +28,46 @@ class CliTests(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run([sys.executable, "-m", "artifact_memory", *args], cwd=ROOT, text=True, capture_output=True)
 
+    def create_identity_repository(self, root: Path, manifest_text: str) -> Path:
+        identity = root / ".agent-memory"
+        identity.mkdir(parents=True)
+        (identity / "repo.json").write_text(manifest_text, encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Synthetic Fixture"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "fixture@example.invalid"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "add", ".agent-memory/repo.json"], cwd=root, check=True
+        )
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "Synthetic identity"],
+            cwd=root,
+            check=True,
+        )
+        return root
+
+    def fixture_identity_repository(self, root: Path, name: str) -> Path:
+        fixture = (
+            ROOT
+            / "fixtures"
+            / "coordination-repo-identity"
+            / "v0"
+            / "repositories"
+            / name
+            / ".agent-memory"
+            / "repo.json"
+        )
+        return self.create_identity_repository(
+            root, fixture.read_text(encoding="utf-8")
+        )
+
     def test_version_json(self):
         result = self.run_cli("version", "--json")
         self.assertEqual(result.returncode, 0)
@@ -179,9 +219,12 @@ class CliTests(unittest.TestCase):
         )
 
     def test_repo_validate_accepts_same_name_distinct_project_uuids(self):
-        fixture = ROOT / "fixtures" / "coordination-repo-identity" / "v0"
         with tempfile.TemporaryDirectory() as temporary:
-            record_root = Path(temporary)
+            record_root = Path(temporary).resolve()
+            alpha = self.fixture_identity_repository(
+                record_root / "alpha", "alpha"
+            )
+            beta = self.fixture_identity_repository(record_root / "beta", "beta")
             label = json.loads(
                 (COORDINATION_FIXTURES / "access-label.json").read_text(
                     encoding="utf-8"
@@ -199,8 +242,8 @@ class CliTests(unittest.TestCase):
             result = self.run_cli(
                 "repo",
                 "validate",
-                str(fixture / "repositories" / "alpha"),
-                str(fixture / "repositories" / "beta"),
+                str(alpha),
+                str(beta),
                 "--records",
                 str(label_path),
                 str(task_path),
@@ -212,19 +255,17 @@ class CliTests(unittest.TestCase):
         self.assertEqual(receipt["known_project_count"], 2)
 
     def test_repo_validate_identifies_invalid_root_index(self):
-        fixture = ROOT / "fixtures" / "coordination-repo-identity" / "v0"
         with tempfile.TemporaryDirectory() as temporary:
-            invalid_root = Path(temporary).resolve() / "invalid"
-            identity = invalid_root / ".agent-memory"
-            identity.mkdir(parents=True)
-            (identity / "repo.json").write_text(
+            base = Path(temporary).resolve()
+            alpha = self.fixture_identity_repository(base / "alpha", "alpha")
+            invalid_root = self.create_identity_repository(
+                base / "invalid",
                 '{"uuid":"not-a-uuid","humanName":"synthetic"}',
-                encoding="utf-8",
             )
             result = self.run_cli(
                 "repo",
                 "validate",
-                str(fixture / "repositories" / "alpha"),
+                str(alpha),
                 str(invalid_root),
                 "--records",
                 str(COORDINATION_FIXTURES / "access-label.json"),
@@ -237,19 +278,16 @@ class CliTests(unittest.TestCase):
         self.assertEqual(diagnostic["path"], "$.roots[1].uuid")
 
     def test_repo_validate_rejects_recursive_manifest_with_typed_receipt(self):
-        fixture = ROOT / "fixtures" / "coordination-repo-identity" / "v0"
         with tempfile.TemporaryDirectory() as temporary:
-            invalid_root = Path(temporary).resolve() / "recursive"
-            identity = invalid_root / ".agent-memory"
-            identity.mkdir(parents=True)
-            (identity / "repo.json").write_text(
-                ("[" * 100_000) + ("]" * 100_000),
-                encoding="utf-8",
+            base = Path(temporary).resolve()
+            alpha = self.fixture_identity_repository(base / "alpha", "alpha")
+            invalid_root = self.create_identity_repository(
+                base / "recursive", ("[" * 100_000) + ("]" * 100_000)
             )
             result = self.run_cli(
                 "repo",
                 "validate",
-                str(fixture / "repositories" / "alpha"),
+                str(alpha),
                 str(invalid_root),
                 "--records",
                 str(COORDINATION_FIXTURES / "access-label.json"),
@@ -263,9 +301,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(diagnostic["path"], "$.roots[1]")
 
     def test_repo_validate_rejects_recursive_record_with_typed_receipt(self):
-        fixture = ROOT / "fixtures" / "coordination-repo-identity" / "v0"
         with tempfile.TemporaryDirectory() as temporary:
-            record_path = Path(temporary) / "recursive-record.json"
+            base = Path(temporary).resolve()
+            alpha = self.fixture_identity_repository(base / "alpha", "alpha")
+            record_path = base / "recursive-record.json"
             record_path.write_text(
                 ("[" * 100_000) + ("]" * 100_000),
                 encoding="utf-8",
@@ -273,7 +312,7 @@ class CliTests(unittest.TestCase):
             result = self.run_cli(
                 "repo",
                 "validate",
-                str(fixture / "repositories" / "alpha"),
+                str(alpha),
                 "--records",
                 str(record_path),
                 "--json",
@@ -285,7 +324,6 @@ class CliTests(unittest.TestCase):
         self.assertEqual(diagnostic["path"], "$.files[0]")
 
     def test_repo_validate_rejects_recursive_record_validation(self):
-        fixture = ROOT / "fixtures" / "coordination-repo-identity" / "v0"
         candidate = json.loads(
             (COORDINATION_FIXTURES / "task-open.json").read_text(encoding="utf-8")
         )
@@ -298,12 +336,14 @@ class CliTests(unittest.TestCase):
             "https://synthetic.example/extensions/deep-validation/v1"
         ] = {"version": "v1", "required": False, "value": value}
         with tempfile.TemporaryDirectory() as temporary:
-            record_path = Path(temporary) / "deep-validation-record.json"
+            base = Path(temporary).resolve()
+            alpha = self.fixture_identity_repository(base / "alpha", "alpha")
+            record_path = base / "deep-validation-record.json"
             record_path.write_text(json.dumps(candidate), encoding="utf-8")
             result = self.run_cli(
                 "repo",
                 "validate",
-                str(fixture / "repositories" / "alpha"),
+                str(alpha),
                 "--records",
                 str(record_path),
                 "--json",

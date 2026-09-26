@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import tempfile
 from copy import deepcopy
 from pathlib import Path
@@ -25,6 +26,27 @@ CONFORMANCE_SCHEMA_ID = (
 PROJECT_A = "11111111-1111-4111-8111-111111111111"
 PROJECT_B = "22222222-2222-4222-8222-222222222222"
 UNKNOWN_PROJECT = "99999999-9999-4999-8999-999999999999"
+
+
+def _commit_repository(repo_root: Path, message: str) -> None:
+    if not (repo_root / ".git").exists():
+        subprocess.run(["git", "init", "-q"], cwd=repo_root, check=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Synthetic Fixture"],
+            cwd=repo_root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "fixture@example.invalid"],
+            cwd=repo_root,
+            check=True,
+        )
+    subprocess.run(
+        ["git", "add", ".agent-memory/repo.json"], cwd=repo_root, check=True
+    )
+    subprocess.run(
+        ["git", "commit", "-q", "-m", message], cwd=repo_root, check=True
+    )
 
 
 def _records(fixtures: Path) -> list[dict[str, Any]]:
@@ -76,6 +98,8 @@ def run(fixtures: Path, fixture: Path) -> dict[str, Any]:
         repo_root = Path(temporary).resolve() / "repositories"
         shutil.copytree(fixture / "repositories", repo_root)
         repo_roots = [repo_root / "alpha", repo_root / "beta"]
+        for root in repo_roots:
+            _commit_repository(root, "Add synthetic repository identity")
 
         registry = load_repo_identity_registry(repo_roots)
         result = validate_repo_bound_coordination_records(records, repo_roots)
@@ -101,6 +125,7 @@ def run(fixtures: Path, fixture: Path) -> dict[str, Any]:
             json.dumps(renamed, sort_keys=True, indent=2) + "\n",
             encoding="utf-8",
         )
+        _commit_repository(repo_roots[0], "Rename synthetic repository")
         validate_repo_bound_coordination_records(records, repo_roots)
         record_digests_after = sorted(revision_digest(record) for record in records)
 

@@ -32,6 +32,10 @@ no-follow opens, it walks through held descriptors; the portable fallback
 compares every component before and after reading one stable regular file.
 Caller-supplied parent-directory (`..`) components fail closed before lexical
 normalization so normalization cannot change traversal through an earlier link.
+The supplied root must also be the exact top level of a Git worktree, and the
+safely read manifest bytes must equal a regular blob at the same path in a
+pinned `HEAD` commit. Untracked or modified working-tree manifests cannot
+establish a verified repository UUID.
 
 ## Security consequences
 

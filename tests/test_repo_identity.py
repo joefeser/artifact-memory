@@ -1,6 +1,7 @@
 import copy
 import json
 import stat
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,6 +30,39 @@ class RepoIdentityTests(unittest.TestCase):
             json.dumps(candidate), encoding="utf-8"
         )
 
+    def commit_repository(
+        self, root: Path, message: str = "Synthetic identity"
+    ) -> None:
+        if not (root / ".git").exists():
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.name", "Synthetic Fixture"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "fixture@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+        subprocess.run(
+            ["git", "add", ".agent-memory/repo.json"], cwd=root, check=True
+        )
+        subprocess.run(
+            ["git", "commit", "-q", "-m", message], cwd=root, check=True
+        )
+
+    def write_committed_manifest(self, root: Path, candidate: dict) -> None:
+        self.write_manifest(root, candidate)
+        self.commit_repository(root)
+
+    def fixture_repository(self, root: Path, name: str) -> Path:
+        candidate = load_json(
+            FIXTURE / "repositories" / name / ".agent-memory" / "repo.json"
+        )
+        self.write_committed_manifest(root, candidate)
+        return root
+
     def test_repository_manifest_is_strict_and_public(self):
         identity = load_repo_identity(ROOT)
         self.assertEqual(identity["humanName"], "artifact-memory")
@@ -37,11 +71,13 @@ class RepoIdentityTests(unittest.TestCase):
         )
 
     def test_same_human_name_with_different_uuids_is_unambiguous(self):
-        roots = [
-            FIXTURE / "repositories" / "alpha",
-            FIXTURE / "repositories" / "beta",
-        ]
-        registry = load_repo_identity_registry(roots)
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            roots = [
+                self.fixture_repository(base / "alpha", "alpha"),
+                self.fixture_repository(base / "beta", "beta"),
+            ]
+            registry = load_repo_identity_registry(roots)
         self.assertEqual(len(registry["known_project_ids"]), 2)
         self.assertEqual(len(set(registry["human_names"])), 1)
 
@@ -55,10 +91,12 @@ class RepoIdentityTests(unittest.TestCase):
         label["mayNot"]["readProjects"] = []
         task["projectId"] = unknown
         task["accessLabelRef"]["revision_digest"] = revision_digest(label)
-        with self.assertRaises(ValidationFailure) as caught:
-            validate_repo_bound_coordination_records(
-                [label, task], [FIXTURE / "repositories" / "beta"]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.fixture_repository(
+                Path(temporary).resolve() / "beta", "beta"
             )
+            with self.assertRaises(ValidationFailure) as caught:
+                validate_repo_bound_coordination_records([label, task], [root])
         self.assertEqual(caught.exception.code, "coordination-project-unknown")
         self.assertEqual(caught.exception.path, "$.records[0].projectNames[0].projectId")
 
@@ -67,20 +105,19 @@ class RepoIdentityTests(unittest.TestCase):
         before = revision_digest(task)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            manifest_dir = root / ".agent-memory"
-            manifest_dir.mkdir()
             manifest = {
                 "uuid": task["projectId"],
                 "humanName": task["projectName"],
             }
-            (manifest_dir / "repo.json").write_text(
-                json.dumps(manifest), encoding="utf-8"
-            )
+            self.write_committed_manifest(root, manifest)
+            manifest_path = root / ".agent-memory" / "repo.json"
             first = load_repo_identity(root)
             manifest["humanName"] = "renamed-display-only"
-            (manifest_dir / "repo.json").write_text(
-                json.dumps(manifest), encoding="utf-8"
-            )
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaises(ValidationFailure) as caught:
+                load_repo_identity(root)
+            self.assertEqual(caught.exception.code, "repo-identity-uncommitted")
+            self.commit_repository(root, "Rename synthetic identity")
             second = load_repo_identity(root)
         self.assertEqual(first["uuid"], second["uuid"])
         self.assertNotEqual(first["humanName"], second["humanName"])
@@ -112,6 +149,7 @@ class RepoIdentityTests(unittest.TestCase):
             (manifest_dir / "repo.json").write_text(
                 json.dumps(invalid), encoding="utf-8"
             )
+            self.commit_repository(root)
             with self.assertRaises(ValidationFailure) as caught:
                 load_repo_identity(root)
             self.assertEqual(caught.exception.code, "unknown-field")
@@ -146,7 +184,7 @@ class RepoIdentityTests(unittest.TestCase):
                 tempfile.TemporaryDirectory() as temporary,
             ):
                 root = Path(temporary).resolve()
-                self.write_manifest(root, candidate)
+                self.write_committed_manifest(root, candidate)
                 with self.assertRaises(ValidationFailure) as caught:
                     load_repo_identity(root)
                 self.assertEqual(caught.exception.code, code)
@@ -237,6 +275,35 @@ class RepoIdentityTests(unittest.TestCase):
             st_file_attributes=0x400,
         )
         self.assertTrue(_is_link_or_reparse(reparse))
+
+    def test_manifest_requires_exact_git_root_and_committed_bytes(self):
+        candidate = {
+            "uuid": "11111111-1111-4111-8111-111111111111",
+            "humanName": "synthetic",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            arbitrary = base / "arbitrary"
+            self.write_manifest(arbitrary, candidate)
+            with self.assertRaises(ValidationFailure) as caught:
+                load_repo_identity(arbitrary)
+            self.assertEqual(caught.exception.code, "repo-identity-not-repository")
+
+            repository = base / "repository"
+            self.write_committed_manifest(repository, candidate)
+            nested = repository / "nested"
+            nested.mkdir()
+            self.write_manifest(nested, candidate)
+            with self.assertRaises(ValidationFailure) as caught:
+                load_repo_identity(nested)
+            self.assertEqual(caught.exception.code, "repo-identity-not-repository")
+
+            manifest_path = repository / ".agent-memory" / "repo.json"
+            changed = {**candidate, "uuid": "22222222-2222-4222-8222-222222222222"}
+            manifest_path.write_text(json.dumps(changed), encoding="utf-8")
+            with self.assertRaises(ValidationFailure) as caught:
+                load_repo_identity(repository)
+            self.assertEqual(caught.exception.code, "repo-identity-uncommitted")
 
 
 if __name__ == "__main__":
