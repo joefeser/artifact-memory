@@ -1,11 +1,13 @@
 import copy
 import json
+import os
 import stat
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from artifact_memory.coordination import revision_digest
 from artifact_memory.repo_identity import (
@@ -303,6 +305,83 @@ class RepoIdentityTests(unittest.TestCase):
             manifest_path.write_text(json.dumps(changed), encoding="utf-8")
             with self.assertRaises(ValidationFailure) as caught:
                 load_repo_identity(repository)
+            self.assertEqual(caught.exception.code, "repo-identity-uncommitted")
+
+    def test_git_verification_ignores_repository_selection_environment(self):
+        candidate = {
+            "uuid": "11111111-1111-4111-8111-111111111111",
+            "humanName": "synthetic",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            external = base / "external"
+            self.write_committed_manifest(external, candidate)
+            arbitrary = base / "arbitrary"
+            self.write_manifest(arbitrary, candidate)
+            environment = {
+                "GIT_DIR": str(external / ".git"),
+                "GIT_WORK_TREE": str(arbitrary),
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "core.worktree",
+                "GIT_CONFIG_VALUE_0": str(arbitrary),
+            }
+            with mock.patch.dict(os.environ, environment, clear=False):
+                with self.assertRaises(ValidationFailure) as caught:
+                    load_repo_identity(arbitrary)
+                self.assertEqual(
+                    caught.exception.code, "repo-identity-not-repository"
+                )
+                self.assertEqual(load_repo_identity(external), candidate)
+
+    def test_git_replace_refs_cannot_supply_a_machine_local_manifest(self):
+        candidate = {
+            "uuid": "11111111-1111-4111-8111-111111111111",
+            "humanName": "synthetic",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            root.mkdir(exist_ok=True)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.name", "Synthetic Fixture"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "fixture@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            placeholder = root / "placeholder.txt"
+            placeholder.write_text("synthetic\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "add", "placeholder.txt"], cwd=root, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "Synthetic base"],
+                cwd=root,
+                check=True,
+            )
+            original = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True
+            ).strip()
+            self.write_manifest(root, candidate)
+            self.commit_repository(root, "Add replacement identity")
+            replacement = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True
+            ).strip()
+            subprocess.run(
+                ["git", "replace", original, replacement], cwd=root, check=True
+            )
+            subprocess.run(
+                ["git", "--no-replace-objects", "reset", "--hard", original],
+                cwd=root,
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            self.write_manifest(root, candidate)
+            with self.assertRaises(ValidationFailure) as caught:
+                load_repo_identity(root)
             self.assertEqual(caught.exception.code, "repo-identity-uncommitted")
 
 

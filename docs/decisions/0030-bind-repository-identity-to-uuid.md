@@ -35,7 +35,11 @@ normalization so normalization cannot change traversal through an earlier link.
 The supplied root must also be the exact top level of a Git worktree, and the
 safely read manifest bytes must equal a regular blob at the same path in a
 pinned `HEAD` commit. Untracked or modified working-tree manifests cannot
-establish a verified repository UUID.
+establish a verified repository UUID. Git verification clears inherited
+repository-selection and object-indirection environment variables and disables
+replace objects, so unrelated machine-local Git state cannot supply the proof.
+The platform matrix emits a v2 receipt whose Windows job must prove that an
+actual junction-backed repository path is rejected.
 
 ## Security consequences
 

@@ -29,6 +29,32 @@ _LABEL_PERMISSION_FIELDS = (
     "syncTaskPackets",
     "syncWorkReceipts",
 )
+_GIT_REPOSITORY_ENVIRONMENT = frozenset(
+    {
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CEILING_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_CONFIG",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_NOSYSTEM",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_DIR",
+        "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+        "GIT_GRAFT_FILE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_INTERNAL_SUPER_PREFIX",
+        "GIT_NAMESPACE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_PREFIX",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_SHALLOW_FILE",
+        "GIT_SUPER_PREFIX",
+        "GIT_WORK_TREE",
+    }
+)
 
 
 def _is_link_or_reparse(entry: os.stat_result) -> bool:
@@ -192,10 +218,23 @@ def _read_manifest_bytes(repo_root: Path) -> bytes:
 
 
 def _git_output(repo_root: Path, *args: str) -> bytes:
+    environment = os.environ.copy()
+    for name in tuple(environment):
+        if (
+            name in _GIT_REPOSITORY_ENVIRONMENT
+            or name.startswith("GIT_CONFIG_KEY_")
+            or name.startswith("GIT_CONFIG_VALUE_")
+        ):
+            environment.pop(name)
+    environment["GIT_NO_REPLACE_OBJECTS"] = "1"
+    environment["GIT_CONFIG_NOSYSTEM"] = "1"
+    environment["GIT_CONFIG_SYSTEM"] = os.devnull
+    environment["GIT_CONFIG_GLOBAL"] = os.devnull
     try:
         completed = subprocess.run(
-            ["git", "-C", os.fspath(repo_root), *args],
+            ["git", "--no-replace-objects", "-C", os.fspath(repo_root), *args],
             check=False,
+            env=environment,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
