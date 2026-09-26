@@ -25,6 +25,7 @@ from .coordination import (
     WORK_RECEIPT_SCHEMA_ID,
     revision_digest,
     validate_coordination_record_body,
+    validate_coordination_records,
 )
 from .schema_resources import core_schemas
 from .validator import ValidationFailure, load_json, load_json_bytes, validate
@@ -416,9 +417,15 @@ def configure_local_hub(
         prior_principals: set[str] = set()
         config_path = hub / "hub-config.json"
         if config_path.exists() or config_path.is_symlink():
+            prior_config = _load_hub_config(hub)
+            if prior_config["hub_id"] != config["hub_id"]:
+                raise SyncFailure(
+                    "hub-identity-mismatch",
+                    "an existing local hub cannot change its logical hub_id",
+                )
             prior_principals = {
                 binding["principal_id"]
-                for binding in _load_hub_config(hub)["bindings"]
+                for binding in prior_config["bindings"]
             }
         next_principals = {
             binding["principal_id"] for binding in config["bindings"]
@@ -666,30 +673,34 @@ def _submission_code(
     if schema_id == WORK_RECEIPT_SCHEMA_ID:
         if materialized["writer"] != principal_id:
             return "principal-mismatch"
-        task_key = _pair_key(materialized["taskRef"])
-        task_entry = hub_by_pair.get(task_key)
-        if task_entry is None:
-            return "schema-invalid"
-        try:
-            task, task_digest = validate_coordination_record_body(task_entry.record)
-        except ValidationFailure:
-            return "schema-invalid"
-        if (
-            task_digest != task_entry.record_ref["revision_digest"]
-            or task["schema_id"] != TASK_PACKET_SCHEMA_ID
-            or task["status"] != "claimed"
-            or task["projectId"] != project_id
-            or task["accessLabelRef"] != materialized["accessLabelRef"]
-            or task["assignedWriter"] != principal_id
-        ):
-            return "schema-invalid"
-        if any(
-            candidate.record.get("schema_id") == TASK_PACKET_SCHEMA_ID
-            and candidate.record.get("predecessor") == materialized["taskRef"]
-            for candidate in hub_by_pair.values()
-        ):
+        if not _work_receipt_binding_valid(materialized, hub_by_pair, label):
             return "schema-invalid"
     return "admitted"
+
+
+def _work_receipt_binding_valid(
+    receipt: dict[str, Any],
+    hub_by_pair: dict[tuple[str, str], StoredRecord],
+    label: dict[str, Any],
+) -> bool:
+    """Validate one WorkReceipt with its complete exact TaskPacket chain."""
+    task_record_id = receipt["taskRef"]["record_id"]
+    task_revisions: list[dict[str, Any]] = []
+    try:
+        for candidate in hub_by_pair.values():
+            if candidate.record.get("record_id") != task_record_id:
+                continue
+            task, task_digest = validate_coordination_record_body(candidate.record)
+            if (
+                task["schema_id"] != TASK_PACKET_SCHEMA_ID
+                or task_digest != candidate.record_ref["revision_digest"]
+            ):
+                return False
+            task_revisions.append(task)
+        validate_coordination_records([label, *task_revisions, receipt])
+    except ValidationFailure:
+        return False
+    return True
 
 
 def _expected_outcome(code: str) -> str:
@@ -1080,6 +1091,7 @@ def _authorized_records(
     authorized: list[StoredRecord] = []
     policy_labels: dict[tuple[str, str], dict[str, Any]] = {}
     all_records = _scan_records(hub)
+    hub_by_pair = {_pair_key(item.record_ref): item for item in all_records}
     for stored in all_records:
         try:
             record, digest = validate_coordination_record_body(stored.record)
@@ -1106,6 +1118,14 @@ def _authorized_records(
             raise SyncFailure(
                 "hub-record-invalid",
                 "hub record AccessLabel lacks matching project provenance",
+            )
+        if (
+            record["schema_id"] == WORK_RECEIPT_SCHEMA_ID
+            and not _work_receipt_binding_valid(record, hub_by_pair, bound_label)
+        ):
+            raise SyncFailure(
+                "hub-record-invalid",
+                "hub WorkReceipt does not resolve to its exact current claimed TaskPacket",
             )
         bound_allowed = set(bound_label["may"]["readProjects"])
         bound_denied = set(bound_label["mayNot"]["readProjects"])

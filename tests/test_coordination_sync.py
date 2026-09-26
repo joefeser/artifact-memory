@@ -84,8 +84,8 @@ def task_for(label: dict, *, other_origin: bool = False, project_id: str = PROJE
 
 def claimed_task_for(label: dict) -> tuple[dict, dict]:
     opened = task_for(label)
+    opened["assignedWriter"] = PRINCIPAL
     claimed = copy.deepcopy(opened)
-    claimed["assignedWriter"] = PRINCIPAL
     claimed["status"] = "claimed"
     claimed["predecessor"] = {
         "record_id": opened["record_id"],
@@ -395,6 +395,56 @@ class CoordinationSyncTests(unittest.TestCase):
             store_coordination_record(other, wrong_writer)
             rejected = push(other, hub, session_id=SESSION)
             self.assertEqual(rejected[0]["code"], "principal-mismatch")
+
+    def test_work_receipt_egress_requires_exact_current_claimed_task(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "valid-hub", root / "valid-vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            opened, claimed = claimed_task_for(label)
+            receipt = work_receipt_for(label, claimed)
+            for record in (opened, claimed, receipt):
+                store_coordination_record(hub, record)
+            result = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            self.assertEqual(len(result["authorized_pairs"]), 3)
+
+        for case in ("missing", "open", "writer-mismatch"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                hub, vault = root / "hub", root / "vault"
+                label = label_for([PROJECT_A])
+                configure(hub, label)
+                opened, claimed = claimed_task_for(label)
+                receipt = work_receipt_for(label, claimed)
+                if case == "open":
+                    store_coordination_record(hub, opened)
+                    receipt["taskRef"] = {
+                        "record_id": opened["record_id"],
+                        "revision_digest": revision_digest(opened),
+                    }
+                elif case == "writer-mismatch":
+                    store_coordination_record(hub, opened)
+                    store_coordination_record(hub, claimed)
+                    receipt["writer"] = (
+                        "coordination-principal://synthetic/different-writer"
+                    )
+                store_coordination_record(hub, receipt)
+
+                with self.assertRaises(SyncFailure) as raised:
+                    pull(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+                self.assertEqual(raised.exception.code, "hub-record-invalid")
+                self.assertFalse((vault / "generated").exists())
 
     def test_sync_intake_requires_bound_label_project_provenance(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1236,6 +1286,52 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(thread_error, [])
             configure(hub, narrow, generation=2)
             self.assertEqual(load_json(hub / "hub-config.json")["scope_generation"], 2)
+
+    def test_configuration_cannot_relabel_an_existing_logical_hub(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(hub, task_for(label))
+            config_path = hub / "hub-config.json"
+            before_config = config_path.read_bytes()
+            before_labels = {
+                path.relative_to(hub): path.read_bytes()
+                for path in (hub / "policy" / "labels").glob("*/*.json")
+            }
+
+            replacement = label_identity(label, "label-other-hub")
+            with self.assertRaises(SyncFailure) as raised:
+                configure_local_hub(
+                    hub,
+                    hub_id="coordination-hub://synthetic/hub-b",
+                    scope_generation=2,
+                    bindings=[
+                        {
+                            "session_id": SESSION,
+                            "principal_id": PRINCIPAL,
+                            "access_label": replacement,
+                        }
+                    ],
+                )
+            self.assertEqual(raised.exception.code, "hub-identity-mismatch")
+            self.assertEqual(config_path.read_bytes(), before_config)
+            self.assertEqual(
+                {
+                    path.relative_to(hub): path.read_bytes()
+                    for path in (hub / "policy" / "labels").glob("*/*.json")
+                },
+                before_labels,
+            )
+            result = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            self.assertEqual(result["receipt"]["hub_id"], HUB_ID)
+            self.assertEqual(len(result["authorized_pairs"]), 1)
 
     def test_pending_outcomes_reconcile_across_label_rotation_before_new_push(self):
         with tempfile.TemporaryDirectory() as temporary:

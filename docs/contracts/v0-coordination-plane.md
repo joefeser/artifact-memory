@@ -181,7 +181,10 @@ outcome evidence binds to the logical hub and stable principal, not an
 ephemeral session handle, so an authenticated replacement session for that
 same principal can acknowledge it. A different principal cannot. Hub binding
 replacement is coordinated with the affected principal locks, so revocation or
-scope rotation cannot race an already authenticated request.
+scope rotation cannot race an already authenticated request. The logical
+`hub_id` is immutable for one local hub directory; reconfiguration may rotate
+bindings and scope but cannot relabel retained records as belonging to another
+hub identity.
 
 Response pages are at most 4 MiB and 500 records. A larger authorized delta or
 membership manifest is paginated with opaque, principal- and
