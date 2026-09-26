@@ -38,6 +38,20 @@
     {"code": "schema-invalid", "outcome": "admitted"},
     {"code": "same-pair-different-bytes", "outcome": "rejected"}
   ],
+  "task_chain_vectors": [
+    {
+      "name": "competing-open-genesis",
+      "expected_codes": ["admitted", "schema-invalid"],
+      "expected_authorized_pair_count": 1
+    }
+  ],
+  "record_bound_egress_vectors": [
+    {
+      "name": "caller-allows-record-label-denies",
+      "expected_authorized_pair_count": 0,
+      "expected_excluded_count": 3
+    }
+  ],
   "pagination": {
     "pair_count": 501,
     "expected_page_count": 2,

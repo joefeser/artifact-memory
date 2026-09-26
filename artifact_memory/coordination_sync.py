@@ -104,6 +104,37 @@ def _policy_label_path(root: Path, label_ref: dict[str, str]) -> Path:
     return root / "policy" / "labels" / identity_hash / f"{digest_hex}.json"
 
 
+def _retained_policy_label(
+    hub: Path,
+    label_ref: dict[str, str],
+    *,
+    failure_code: str,
+    failure_message: str,
+) -> dict[str, Any]:
+    """Resolve one exact immutable AccessLabel revision from hub policy history."""
+    path = _policy_label_path(hub, label_ref)
+    try:
+        relative = path.relative_to(hub)
+        current = hub
+        for part in relative.parts[:-1]:
+            current = current / part
+            if current.is_symlink() or not current.is_dir():
+                raise SyncFailure(failure_code, failure_message)
+        if path.is_symlink() or not path.is_file():
+            raise SyncFailure(failure_code, failure_message)
+        raw = path.read_bytes()
+        _check_raw_depth(raw)
+        materialized, digest = validate_coordination_record_body(load_json_bytes(raw))
+    except (OSError, RecursionError, ValidationFailure) as exc:
+        raise SyncFailure(failure_code, failure_message) from exc
+    if (
+        materialized["schema_id"] != ACCESS_LABEL_SCHEMA_ID
+        or _pair(materialized, digest) != label_ref
+    ):
+        raise SyncFailure(failure_code, failure_message)
+    return materialized
+
+
 def _validate_storage_root(boundary: Path, *, create: bool) -> None:
     """Reject a storage root that is itself a symlink or non-directory."""
     if boundary.is_symlink():
@@ -288,6 +319,26 @@ def _load_record_paths(root: Path, paths: list[Path]) -> list[StoredRecord]:
 
 def _scan_records(root: Path) -> list[StoredRecord]:
     return _load_record_paths(root, _record_files(root))
+
+
+def _scan_record_identity(root: Path, record_id: str) -> list[StoredRecord]:
+    """Read one record identity without traversing unrelated hub revisions."""
+    _validate_storage_root(root, create=False)
+    base = root / "canonical" / "coordination"
+    if not base.exists():
+        return []
+    if base.is_symlink() or not base.is_dir():
+        raise SyncFailure("sync-storage-unsafe", "canonical coordination storage is unsafe")
+    identity_hash = hashlib.sha256(record_id.encode("utf-8")).hexdigest()
+    directory = base / identity_hash
+    if not directory.exists():
+        return []
+    if directory.is_symlink() or not directory.is_dir():
+        raise SyncFailure("sync-storage-unsafe", "canonical coordination storage is unsafe")
+    paths = sorted(directory.glob("*.json"))
+    if any(path.is_symlink() or not path.is_file() for path in paths):
+        raise SyncFailure("sync-storage-unsafe", "canonical coordination storage is unsafe")
+    return _load_record_paths(root, paths)
 
 
 def _validate_hub_config(config: Any) -> dict[str, Any]:
@@ -487,6 +538,18 @@ def _principal_lock(hub: Path, principal_id: str) -> Iterator[None]:
 
 
 @contextmanager
+def _task_admission_lock(hub: Path, record_id: str) -> Iterator[None]:
+    """Serialize competing revisions of one TaskPacket identity across principals."""
+    with _advisory_lock(
+        hub,
+        f"task-admission:{record_id}",
+        busy_code="sync-task-admission-busy",
+        busy_message="one task identity is already being admitted",
+    ):
+        yield
+
+
+@contextmanager
 def _projection_apply_lock(vault: Path) -> Iterator[None]:
     with _advisory_lock(
         vault,
@@ -528,8 +591,15 @@ def _submission_code(
     )
     if project_id not in label["may"][permission]:
         return "unauthorized-project"
-    if schema_id == TASK_PACKET_SCHEMA_ID and materialized["status"] != "open":
-        return "principal-mismatch"
+    if schema_id == TASK_PACKET_SCHEMA_ID:
+        if materialized["status"] != "open":
+            return "principal-mismatch"
+        key = _pair_key(stored.record_ref)
+        if key not in hub_by_pair and any(
+            candidate.record_ref["record_id"] == materialized["record_id"]
+            for candidate in hub_by_pair.values()
+        ):
+            return "schema-invalid"
     if schema_id == WORK_RECEIPT_SCHEMA_ID:
         if materialized["writer"] != principal_id:
             return "principal-mismatch"
@@ -624,6 +694,37 @@ def _quarantine_collision(
         hub / "quarantine" / "coordination" / name,
         canonical_bytes(report),
     )
+
+
+def _admit_submission(
+    hub: Path,
+    stored: StoredRecord,
+    label: dict[str, Any],
+    principal_id: str,
+    hub_by_pair: dict[tuple[str, str], StoredRecord],
+) -> dict[str, Any]:
+    key = _pair_key(stored.record_ref)
+    existing = hub_by_pair.get(key)
+    if (
+        existing is not None
+        and _canonical_record_bytes(existing) != _canonical_record_bytes(stored)
+    ):
+        _quarantine_collision(hub, existing, stored)
+        return _outcome(stored.record_ref, "same-pair-different-bytes")
+    code = _submission_code(stored, label, principal_id, hub_by_pair)
+    if code != "admitted" or existing is not None:
+        return _outcome(stored.record_ref, code)
+    materialized, _ = validate_coordination_record_body(stored.record)
+    canonical_raw = canonical_bytes(materialized)
+    path = _record_path(hub, stored.record_ref)
+    _write_immutable(hub, path, canonical_raw)
+    hub_by_pair[key] = StoredRecord(
+        stored.record_ref,
+        materialized,
+        canonical_raw,
+        path,
+    )
+    return _outcome(stored.record_ref, code)
 
 
 def _known_hub_pairs(
@@ -769,27 +870,14 @@ def _load_pending_outcomes(
                 "sync-pending-binding-mismatch",
                 "pending submission outcomes belong to another AccessLabel identity",
             )
-        prior_label_path = _policy_label_path(hub, pending_label_ref)
-        if prior_label_path.is_symlink() or not prior_label_path.is_file():
-            raise SyncFailure(
-                "sync-pending-binding-mismatch",
-                "pending submission outcomes name an unavailable prior AccessLabel revision",
-            )
-        try:
-            prior_label = load_json(prior_label_path)
-            materialized, digest = validate_coordination_record_body(prior_label)
-        except ValidationFailure as exc:
-            raise SyncFailure(
-                "sync-pending-binding-mismatch",
-                "pending submission outcomes name an invalid prior AccessLabel revision",
-            ) from exc
-        if materialized["schema_id"] != ACCESS_LABEL_SCHEMA_ID or _pair(
-            materialized, digest
-        ) != pending_label_ref:
-            raise SyncFailure(
-                "sync-pending-binding-mismatch",
-                "pending submission outcomes do not match retained AccessLabel history",
-            )
+        _retained_policy_label(
+            hub,
+            pending_label_ref,
+            failure_code="sync-pending-binding-mismatch",
+            failure_message=(
+                "pending submission outcomes do not match retained AccessLabel history"
+            ),
+        )
     outcomes = value["submission_outcomes"]
     _validate_submission_outcomes(outcomes, require_order=True)
     return PendingOutcomes(
@@ -847,28 +935,23 @@ def push(
         _request_bounds(submissions)
         hub_by_pair = {_pair_key(item.record_ref): item for item in _scan_records(hub)}
         for stored in submissions:
-            key = _pair_key(stored.record_ref)
-            existing = hub_by_pair.get(key)
             if (
-                existing is not None
-                and _canonical_record_bytes(existing) != _canonical_record_bytes(stored)
+                stored.record.get("schema_id") == TASK_PACKET_SCHEMA_ID
+                and isinstance(stored.record.get("record_id"), str)
             ):
-                _quarantine_collision(hub, existing, stored)
-                outcomes.append(_outcome(stored.record_ref, "same-pair-different-bytes"))
-                continue
-            code = _submission_code(stored, label, principal_id, hub_by_pair)
-            outcomes.append(_outcome(stored.record_ref, code))
-            if code != "admitted" or existing is not None:
-                continue
-            materialized, _ = validate_coordination_record_body(stored.record)
-            canonical_raw = canonical_bytes(materialized)
-            _write_immutable(hub, _record_path(hub, stored.record_ref), canonical_raw)
-            hub_by_pair[key] = StoredRecord(
-                stored.record_ref,
-                materialized,
-                canonical_raw,
-                _record_path(hub, stored.record_ref),
-            )
+                record_id = stored.record["record_id"]
+                with _task_admission_lock(hub, record_id):
+                    for existing in _scan_record_identity(hub, record_id):
+                        hub_by_pair[_pair_key(existing.record_ref)] = existing
+                    outcomes.append(
+                        _admit_submission(
+                            hub, stored, label, principal_id, hub_by_pair
+                        )
+                    )
+            else:
+                outcomes.append(
+                    _admit_submission(hub, stored, label, principal_id, hub_by_pair)
+                )
     outcomes.sort(key=lambda item: _pair_key(item["record_ref"]))
     _write_atomic(
         vault,
@@ -892,6 +975,7 @@ def _authorized_records(
     allowed = set(label["may"]["readProjects"])
     denied = set(label["mayNot"]["readProjects"])
     authorized: list[StoredRecord] = []
+    policy_labels: dict[tuple[str, str], dict[str, Any]] = {}
     all_records = _scan_records(hub)
     for stored in all_records:
         try:
@@ -903,12 +987,33 @@ def _authorized_records(
         if record.get("schema_id") == ACCESS_LABEL_SCHEMA_ID:
             continue
         project_id = record.get("projectId")
-        if project_id in allowed and project_id not in denied:
+        bound_ref = record["accessLabelRef"]
+        bound_key = _pair_key(bound_ref)
+        if bound_key not in policy_labels:
+            policy_labels[bound_key] = _retained_policy_label(
+                hub,
+                bound_ref,
+                failure_code="hub-record-invalid",
+                failure_message=(
+                    "hub record names an unavailable or invalid AccessLabel revision"
+                ),
+            )
+        bound_label = policy_labels[bound_key]
+        bound_allowed = set(bound_label["may"]["readProjects"])
+        bound_denied = set(bound_label["mayNot"]["readProjects"])
+        if (
+            project_id in allowed
+            and project_id not in denied
+            and project_id in bound_allowed
+            and project_id not in bound_denied
+        ):
             authorized.append(stored)
     authorized.sort(key=lambda item: _pair_key(item.record_ref))
-    policy_labels = hub / "policy" / "labels"
+    policy_label_root = hub / "policy" / "labels"
     protected_label_count = (
-        len(list(policy_labels.glob("*/*.json"))) if policy_labels.exists() else 0
+        len(list(policy_label_root.glob("*/*.json")))
+        if policy_label_root.exists()
+        else 0
     )
     return authorized, len(all_records) - len(authorized) + protected_label_count
 

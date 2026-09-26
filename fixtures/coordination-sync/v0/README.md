@@ -1,8 +1,9 @@
 # Synthetic coordination sync vectors
 
 These wholly synthetic vectors pin the v0 pair-set digest, typed admission
-outcomes, rejected outcome/code contradictions, and pagination boundary. They
-contain no vault data, credentials, private topology, customer material, or raw
+outcomes, rejected outcome/code contradictions, unique TaskPacket genesis,
+record-bound AccessLabel egress, and the pagination boundary. They contain no
+vault data, credentials, private topology, customer material, or raw
 conversations.
 
 Run the bounded acceptance proof with:

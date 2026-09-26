@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -59,6 +60,15 @@ def label_for(read_projects: list[str]) -> dict:
     label["may"]["syncWorkReceipts"] = list(read_projects)
     label["may"]["postReceipts"] = list(read_projects)
     return label
+
+
+def label_identity(label: dict, label_id: str) -> dict:
+    changed = copy.deepcopy(label)
+    changed["labelId"] = label_id
+    changed["record_id"] = (
+        f"record://coordination/{changed['originId']}/label/{label_id}"
+    )
+    return changed
 
 
 def task_for(label: dict, *, other_origin: bool = False, project_id: str = PROJECT_A) -> dict:
@@ -222,6 +232,143 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(len(pairs), 2)
             self.assertEqual({item["record_id"] for item in pairs}, {opened["record_id"]})
             self.assertEqual(len({item["revision_digest"] for item in pairs}), 2)
+
+    def test_competing_open_task_genesis_is_rejected_without_forking_hub(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            first = task_for(label)
+            competing = copy.deepcopy(first)
+            competing["title"] = "Competing synthetic genesis"
+            first_ref = store_coordination_record(vault, first)
+            competing_ref = store_coordination_record(vault, competing)
+
+            outcomes = push(vault, hub, session_id=SESSION)
+            self.assertEqual(
+                sorted(item["code"] for item in outcomes),
+                ["admitted", "schema-invalid"],
+            )
+            admitted = {
+                (
+                    item["record_ref"]["record_id"],
+                    item["record_ref"]["revision_digest"],
+                )
+                for item in outcomes
+                if item["code"] == "admitted"
+            }
+            rejected = {
+                (
+                    item["record_ref"]["record_id"],
+                    item["record_ref"]["revision_digest"],
+                )
+                for item in outcomes
+                if item["code"] == "schema-invalid"
+            }
+            self.assertEqual(admitted | rejected, {
+                (first_ref["record_id"], first_ref["revision_digest"]),
+                (competing_ref["record_id"], competing_ref["revision_digest"]),
+            })
+            self.assertEqual(len(list((hub / "canonical" / "coordination").glob("*/*.json"))), 1)
+
+            result = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            self.assertEqual(len(result["authorized_pairs"]), 1)
+            self.assertEqual(
+                {
+                    (item["record_id"], item["revision_digest"])
+                    for item in result["authorized_pairs"]
+                },
+                admitted,
+            )
+
+    def test_exact_open_replay_remains_admitted_after_claim_successor_exists(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            opened, claimed = claimed_task_for(label)
+            store_coordination_record(hub, opened)
+            store_coordination_record(hub, claimed)
+            store_coordination_record(vault, opened)
+
+            outcomes = push(vault, hub, session_id=SESSION)
+            self.assertEqual([item["code"] for item in outcomes], ["admitted"])
+            self.assertEqual(len(list((hub / "canonical" / "coordination").glob("*/*.json"))), 2)
+
+    def test_task_identity_lock_prevents_cross_principal_admission_race(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, first_vault, second_vault = root / "hub", root / "first", root / "second"
+            label = label_for([PROJECT_A])
+            second_session = "coordination-session://synthetic/session-2"
+            second_principal = "coordination-principal://synthetic/agent-2"
+            configure_local_hub(
+                hub,
+                hub_id=HUB_ID,
+                scope_generation=1,
+                bindings=[
+                    {
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": label,
+                    },
+                    {
+                        "session_id": second_session,
+                        "principal_id": second_principal,
+                        "access_label": label,
+                    },
+                ],
+            )
+            first = task_for(label)
+            competing = copy.deepcopy(first)
+            competing["title"] = "Concurrent synthetic genesis"
+            store_coordination_record(first_vault, first)
+            store_coordination_record(second_vault, competing)
+
+            entered = threading.Event()
+            release = threading.Event()
+            original = __import__(
+                "artifact_memory.coordination_sync", fromlist=["_admit_submission"]
+            )._admit_submission
+
+            def blocked_admission(*args, **kwargs):
+                entered.set()
+                if not release.wait(timeout=5):
+                    raise AssertionError("synthetic admission barrier timed out")
+                return original(*args, **kwargs)
+
+            thread_error: list[BaseException] = []
+
+            def first_push() -> None:
+                try:
+                    push(first_vault, hub, session_id=SESSION)
+                except BaseException as exc:  # pragma: no cover - asserted below
+                    thread_error.append(exc)
+
+            with patch(
+                "artifact_memory.coordination_sync._admit_submission",
+                side_effect=blocked_admission,
+            ):
+                worker = threading.Thread(target=first_push)
+                worker.start()
+                self.assertTrue(entered.wait(timeout=5))
+                with self.assertRaises(SyncFailure) as busy:
+                    push(second_vault, hub, session_id=second_session)
+                self.assertEqual(busy.exception.code, "sync-task-admission-busy")
+                release.set()
+                worker.join(timeout=5)
+                self.assertFalse(worker.is_alive())
+            self.assertEqual(thread_error, [])
+            retry = push(second_vault, hub, session_id=second_session)
+            self.assertEqual([item["code"] for item in retry], ["schema-invalid"])
+            self.assertEqual(len(list((hub / "canonical" / "coordination").glob("*/*.json"))), 1)
 
     def test_work_receipt_requires_server_bound_writer_and_exact_claimed_task(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -630,6 +777,65 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(exported["records"][0]["projectId"], PROJECT_A)
             self.assertNotIn(task_b["record_id"], json.dumps(exported))
             self.assertEqual(len(list((hub / "policy" / "labels").glob("*/*.json"))), 2)
+
+    def test_egress_intersects_caller_and_record_bound_access_labels(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, source, reader = root / "hub", root / "source", root / "reader"
+            record_label = label_identity(label_for([]), "label-sync-only")
+            record_label["may"]["syncTaskPackets"] = [PROJECT_A]
+            reader_label = label_identity(label_for([PROJECT_A]), "label-reader")
+            reader_session = "coordination-session://synthetic/reader"
+            configure_local_hub(
+                hub,
+                hub_id=HUB_ID,
+                scope_generation=1,
+                bindings=[
+                    {
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": record_label,
+                    },
+                    {
+                        "session_id": reader_session,
+                        "principal_id": "coordination-principal://synthetic/reader",
+                        "access_label": reader_label,
+                    },
+                ],
+            )
+            task = task_for(record_label)
+            store_coordination_record(source, task)
+            self.assertEqual(push(source, hub, session_id=SESSION)[0]["code"], "admitted")
+
+            result = pull(
+                reader,
+                hub,
+                session_id=reader_session,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            self.assertEqual(result["authorized_pairs"], [])
+            self.assertEqual(result["receipt"]["excluded_count"], 3)
+            self.assertNotIn(task["record_id"], json.dumps(result))
+
+    def test_missing_record_bound_access_label_fails_egress_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(hub, task_for(label))
+            policy_path = next((hub / "policy" / "labels").glob("*/*.json"))
+            policy_path.unlink()
+
+            with self.assertRaises(SyncFailure) as raised:
+                pull(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:00Z",
+                )
+            self.assertEqual(raised.exception.code, "hub-record-invalid")
+            self.assertFalse((vault / "generated").exists())
 
     def test_local_authorized_set_tampering_fails_typed(self):
         with tempfile.TemporaryDirectory() as temporary:

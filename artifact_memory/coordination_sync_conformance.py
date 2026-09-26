@@ -29,6 +29,7 @@ PROJECT_A = "11111111-1111-4111-8111-111111111111"
 PROJECT_B = "22222222-2222-4222-8222-222222222222"
 PRINCIPAL = "coordination-principal://synthetic/agent-1"
 SESSION = "coordination-session://synthetic/session-1"
+READER_SESSION = "coordination-session://synthetic/session-reader"
 HUB_ID = "coordination-hub://synthetic/hub-a"
 
 
@@ -51,6 +52,15 @@ def _task(fixtures: Path, label: dict[str, Any], other: bool) -> dict[str, Any]:
         "revision_digest": revision_digest(label),
     }
     return task
+
+
+def _label_identity(label: dict[str, Any], label_id: str) -> dict[str, Any]:
+    changed = deepcopy(label)
+    changed["labelId"] = label_id
+    changed["record_id"] = (
+        f"record://coordination/{changed['originId']}/label/{label_id}"
+    )
+    return changed
 
 
 def _vector_receipt(pairs: list[dict[str, str]], page_count: int, label: dict[str, Any]) -> dict[str, Any]:
@@ -152,6 +162,89 @@ def run(fixtures: Path) -> dict[str, Any]:
         raise RuntimeError("pagination vector failed")
     validate_membership_pages(receipt, deepcopy(pages))
 
+    for vector in vectors["task_chain_vectors"]:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            configure_local_hub(
+                hub,
+                hub_id=HUB_ID,
+                scope_generation=1,
+                bindings=[
+                    {
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": label,
+                    }
+                ],
+            )
+            first = _task(fixtures, label, False)
+            competing = deepcopy(first)
+            competing["title"] = "Competing synthetic genesis"
+            store_coordination_record(vault, first)
+            store_coordination_record(vault, competing)
+            outcomes = push(vault, hub, session_id=SESSION)
+            if sorted(item["code"] for item in outcomes) != sorted(
+                vector["expected_codes"]
+            ):
+                raise RuntimeError(f"task-chain vector failed: {vector['name']}")
+            result = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            if (
+                len(result["authorized_pairs"])
+                != vector["expected_authorized_pair_count"]
+            ):
+                raise RuntimeError(
+                    f"task-chain authorized-set vector failed: {vector['name']}"
+                )
+
+    for vector in vectors["record_bound_egress_vectors"]:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, source, reader = root / "hub", root / "source", root / "reader"
+            record_label = _label_identity(label, "label-sync-only")
+            record_label["may"]["readProjects"] = []
+            record_label["mayNot"]["readProjects"] = [PROJECT_A, PROJECT_B]
+            reader_label = _label_identity(label, "label-reader")
+            configure_local_hub(
+                hub,
+                hub_id=HUB_ID,
+                scope_generation=1,
+                bindings=[
+                    {
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": record_label,
+                    },
+                    {
+                        "session_id": READER_SESSION,
+                        "principal_id": "coordination-principal://synthetic/reader",
+                        "access_label": reader_label,
+                    },
+                ],
+            )
+            store_coordination_record(source, _task(fixtures, record_label, False))
+            push(source, hub, session_id=SESSION)
+            result = pull(
+                reader,
+                hub,
+                session_id=READER_SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            if (
+                len(result["authorized_pairs"])
+                != vector["expected_authorized_pair_count"]
+                or result["receipt"]["excluded_count"]
+                != vector["expected_excluded_count"]
+            ):
+                raise RuntimeError(
+                    f"record-bound egress vector failed: {vector['name']}"
+                )
+
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         hub, first, second = root / "hub", root / "first", root / "second"
@@ -188,6 +281,10 @@ def run(fixtures: Path) -> dict[str, Any]:
         "outcome": "passed",
         "pair_set_vector_count": len(vectors["pair_set_vectors"]),
         "typed_outcome_count": len(vectors["submission_outcomes"]),
+        "task_chain_vector_count": len(vectors["task_chain_vectors"]),
+        "record_bound_egress_vector_count": len(
+            vectors["record_bound_egress_vectors"]
+        ),
         "pagination_page_count": len(pages),
         "replica_count": 2,
         "authorized_union_pair_count": first_pull["receipt"]["authorized_membership"]["pair_count"],
