@@ -233,6 +233,32 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual({item["record_id"] for item in pairs}, {opened["record_id"]})
             self.assertEqual(len({item["revision_digest"] for item in pairs}), 2)
 
+    def test_direct_hub_forked_or_incomplete_task_history_fails_egress_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            label = label_for([PROJECT_A])
+            for scenario in ("competing-genesis", "orphan-successor"):
+                with self.subTest(scenario=scenario):
+                    hub, vault = root / scenario / "hub", root / scenario / "vault"
+                    configure(hub, label)
+                    opened, claimed = claimed_task_for(label)
+                    if scenario == "competing-genesis":
+                        competing = copy.deepcopy(opened)
+                        competing["title"] = "Competing synthetic genesis"
+                        store_coordination_record(hub, opened)
+                        store_coordination_record(hub, competing)
+                    else:
+                        store_coordination_record(hub, claimed)
+                    with self.assertRaises(SyncFailure) as raised:
+                        pull(
+                            vault,
+                            hub,
+                            session_id=SESSION,
+                            completed_at="2026-09-25T20:00:00Z",
+                        )
+                    self.assertEqual(raised.exception.code, "hub-record-invalid")
+                    self.assertFalse((vault / "generated").exists())
+
     def test_competing_open_task_genesis_is_rejected_without_forking_hub(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -782,6 +808,24 @@ class CoordinationSyncTests(unittest.TestCase):
         with self.assertRaises(SyncFailure) as duplicate:
             validate_membership_pages(receipt, [pages[0], pages[0]])
         self.assertEqual(duplicate.exception.code, "sync-page-duplicate")
+
+    def test_oversized_singleton_hub_record_is_rejected_before_response_emission(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub = root / "hub"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            task = task_for(label)
+            task["title"] = "oversized synthetic task"
+            store_coordination_record(hub, task)
+            with patch("artifact_memory.coordination_sync.MAX_PAGE_BYTES", 512):
+                with self.assertRaises(SyncFailure) as raised:
+                    build_pull_response(
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+            self.assertEqual(raised.exception.code, "sync-page-too-large")
 
     def test_tampered_receipt_or_membership_does_not_advance_marker(self):
         with tempfile.TemporaryDirectory() as temporary:

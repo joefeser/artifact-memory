@@ -1,9 +1,10 @@
 # Synthetic coordination sync vectors
 
 These wholly synthetic vectors pin the v0 pair-set digest, typed admission
-outcomes, rejected outcome/code contradictions, unique TaskPacket genesis,
+outcomes, rejected outcome/code contradictions, complete TaskPacket histories,
 record-bound AccessLabel egress, project-name provenance at intake,
-same-generation AccessLabel revision recovery, and the pagination boundary.
+same-generation AccessLabel revision recovery, and both count and byte
+pagination boundaries.
 They contain no vault data, credentials, private topology, customer material,
 or raw conversations.
 

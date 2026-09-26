@@ -703,6 +703,41 @@ def _work_receipt_binding_valid(
     return True
 
 
+def _validate_hub_task_histories(
+    hub: Path,
+    records: list[dict[str, Any]],
+    policy_labels: dict[tuple[str, str], dict[str, Any]],
+) -> None:
+    """Fail egress closed unless every retained TaskPacket history is complete."""
+    tasks = [
+        record for record in records if record["schema_id"] == TASK_PACKET_SCHEMA_ID
+    ]
+    if not tasks:
+        return
+    labels: dict[tuple[str, str], dict[str, Any]] = {}
+    try:
+        for task in tasks:
+            bound_ref = task["accessLabelRef"]
+            bound_key = _pair_key(bound_ref)
+            if bound_key not in policy_labels:
+                policy_labels[bound_key] = _retained_policy_label(
+                    hub,
+                    bound_ref,
+                    failure_code="hub-record-invalid",
+                    failure_message=(
+                        "hub TaskPacket names an unavailable or invalid "
+                        "AccessLabel revision"
+                    ),
+                )
+            labels[bound_key] = policy_labels[bound_key]
+        validate_coordination_records([*labels.values(), *tasks])
+    except ValidationFailure as exc:
+        raise SyncFailure(
+            "hub-record-invalid",
+            "hub contains an incomplete or forked TaskPacket history",
+        ) from exc
+
+
 def _expected_outcome(code: str) -> str:
     if code == "admitted":
         return "admitted"
@@ -1087,6 +1122,7 @@ def _authorized_records(
     policy_labels: dict[tuple[str, str], dict[str, Any]] = {}
     all_records = _scan_records(hub)
     hub_by_pair = {_pair_key(item.record_ref): item for item in all_records}
+    materialized_records: list[tuple[StoredRecord, dict[str, Any]]] = []
     for stored in all_records:
         try:
             record, digest = validate_coordination_record_body(stored.record)
@@ -1094,6 +1130,13 @@ def _authorized_records(
             raise SyncFailure("hub-record-invalid", "hub contains an invalid record") from exc
         if digest != stored.record_ref["revision_digest"]:
             raise SyncFailure("hub-record-invalid", "hub record digest does not match its pair")
+        materialized_records.append((stored, record))
+    _validate_hub_task_histories(
+        hub,
+        [record for _, record in materialized_records],
+        policy_labels,
+    )
+    for stored, record in materialized_records:
         if record.get("schema_id") == ACCESS_LABEL_SCHEMA_ID:
             continue
         project_id = record.get("projectId")
@@ -1168,6 +1211,15 @@ def _record_page_groups(records: list[StoredRecord]) -> list[list[StoredRecord]]
     groups: list[list[StoredRecord]] = []
     current: list[StoredRecord] = []
     for record in records:
+        singleton_body = {
+            "pairs": [record.record_ref],
+            "records": [record.record],
+        }
+        if len(canonical_bytes(singleton_body)) + 1024 > MAX_PAGE_BYTES:
+            raise SyncFailure(
+                "sync-page-too-large",
+                "one authorized hub record cannot fit in a bounded response page",
+            )
         candidate = current + [record]
         candidate_body = {
             "pairs": [item.record_ref for item in candidate],

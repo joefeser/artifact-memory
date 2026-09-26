@@ -172,6 +172,38 @@ def run(
         raise RuntimeError("pagination vector failed")
     validate_membership_pages(receipt, deepcopy(pages))
 
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        oversized_hub = root / "hub"
+        configure_local_hub(
+            oversized_hub,
+            hub_id=HUB_ID,
+            scope_generation=1,
+            bindings=[
+                {
+                    "session_id": SESSION,
+                    "principal_id": PRINCIPAL,
+                    "access_label": label,
+                }
+            ],
+        )
+        oversized = _task(fixtures, label, False)
+        oversized["title"] = "x" * pagination["oversized_record_bytes"]
+        store_coordination_record(oversized_hub, oversized)
+        try:
+            build_pull_response(
+                oversized_hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+        except SyncFailure as exc:
+            if exc.code != pagination["expected_oversized_record_code"]:
+                raise RuntimeError(
+                    "oversized response-page vector returned the wrong diagnostic"
+                ) from exc
+        else:
+            raise RuntimeError("oversized response-page vector escaped egress")
+
     for vector in vectors["task_chain_vectors"]:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -211,6 +243,36 @@ def run(
                 raise RuntimeError(
                     f"task-chain authorized-set vector failed: {vector['name']}"
                 )
+            direct_hub = root / "direct-hub"
+            direct_vault = root / "direct-vault"
+            configure_local_hub(
+                direct_hub,
+                hub_id=HUB_ID,
+                scope_generation=1,
+                bindings=[
+                    {
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": label,
+                    }
+                ],
+            )
+            store_coordination_record(direct_hub, first)
+            store_coordination_record(direct_hub, competing)
+            try:
+                pull(
+                    direct_vault,
+                    direct_hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:00Z",
+                )
+            except SyncFailure as exc:
+                if exc.code != vector["expected_direct_egress_code"]:
+                    raise RuntimeError(
+                        "direct-hub task-chain vector returned the wrong diagnostic"
+                    ) from exc
+            else:
+                raise RuntimeError("direct-hub task-chain vector escaped egress")
 
     for vector in vectors["record_bound_egress_vectors"]:
         with tempfile.TemporaryDirectory() as temporary:

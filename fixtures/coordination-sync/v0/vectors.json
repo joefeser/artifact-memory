@@ -42,7 +42,8 @@
     {
       "name": "competing-open-genesis",
       "expected_codes": ["admitted", "schema-invalid"],
-      "expected_authorized_pair_count": 1
+      "expected_authorized_pair_count": 1,
+      "expected_direct_egress_code": "hub-record-invalid"
     }
   ],
   "record_bound_egress_vectors": [
@@ -68,7 +69,9 @@
   "pagination": {
     "pair_count": 501,
     "expected_page_count": 2,
-    "max_pairs_per_page": 500
+    "max_pairs_per_page": 500,
+    "oversized_record_bytes": 4194304,
+    "expected_oversized_record_code": "sync-page-too-large"
   },
   "authority_boundary": "sync vectors are synthetic and grant no execution, disclosure, authorization, or trust"
 }
