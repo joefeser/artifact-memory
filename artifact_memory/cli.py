@@ -42,6 +42,7 @@ from .release_preparation import (
     validate_release_preparation_receipt,
     validate_release_candidate_preparation_receipt,
 )
+from .repo_identity import validate_repo_bound_coordination_files
 from .scan import diff_manifests, scan_path, verify_path
 from .schema_resources import core_schemas
 from .validator import ValidationFailure, load_json, validate
@@ -88,6 +89,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     records_validate.add_argument("records", type=Path, nargs="+")
     records_validate.add_argument("--json", action="store_true", dest="as_json")
+    repo = subparsers.add_parser(
+        "repo", help="validate repository identities and project-bound records"
+    )
+    repo_commands = repo.add_subparsers(dest="repo_command", required=True)
+    repo_validate = repo_commands.add_parser(
+        "validate",
+        help="validate strict repo manifests and coordination project UUID references",
+    )
+    repo_validate.add_argument("roots", type=Path, nargs="+")
+    repo_validate.add_argument(
+        "--records", type=Path, nargs="+", required=True
+    )
+    repo_validate.add_argument("--json", action="store_true", dest="as_json")
     record = subparsers.add_parser(
         "record", help="append one coordination record to a local vault"
     )
@@ -240,6 +254,26 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "records" and args.records_command == "validate":
         try:
             result = validate_coordination_files(args.records)
+        except ValidationFailure as exc:
+            _receipt(
+                {
+                    "valid": False,
+                    "outcome": "rejected",
+                    "diagnostics": [
+                        {"code": exc.code, "path": exc.path, "message": exc.message}
+                    ],
+                },
+                args.as_json,
+            )
+            return EXIT_INVALID
+        _receipt(result, args.as_json)
+        return EXIT_OK
+
+    if args.command == "repo" and args.repo_command == "validate":
+        try:
+            result = validate_repo_bound_coordination_files(
+                args.records, args.roots
+            )
         except ValidationFailure as exc:
             _receipt(
                 {

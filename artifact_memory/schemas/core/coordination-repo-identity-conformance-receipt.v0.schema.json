@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/coordination-repo-identity-conformance-receipt/v0",
+  "title": "Artifact Memory coordination repository identity conformance receipt v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "receipt_id",
+    "outcome",
+    "manifest_count",
+    "unique_project_count",
+    "same_human_name_coexists",
+    "unknown_project_code",
+    "record_digest_count",
+    "record_digests_unchanged_after_human_name_rename",
+    "authority_boundary"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/coordination-repo-identity-conformance-receipt/v0"},
+    "receipt_id": {"type": "string", "pattern": "^coordination-repo-identity-conformance-receipt://sha-256/[0-9a-f]{64}$"},
+    "outcome": {"const": "passed"},
+    "manifest_count": {"const": 2},
+    "unique_project_count": {"const": 2},
+    "same_human_name_coexists": {"const": true},
+    "unknown_project_code": {"const": "coordination-project-unknown"},
+    "record_digest_count": {"const": 3},
+    "record_digests_unchanged_after_human_name_rename": {"const": true},
+    "authority_boundary": {"const": "repository identity is informational provenance and grants no execution, disclosure, authorization, or trust"}
+  }
+}

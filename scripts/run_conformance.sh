@@ -10,6 +10,7 @@ python3 scripts/run_search_ranking_slice.py --check >/dev/null
 python3 scripts/run_private_vault_onboarding_slice.py --check >/dev/null
 python3 scripts/run_coordination_sync_conformance.py --check >/dev/null
 python3 scripts/run_coordination_outbox_conformance.py --check >/dev/null
+python3 scripts/run_coordination_repo_identity_conformance.py --check >/dev/null
 python3 scripts/run_context_export_slice.py --check >/dev/null
 python3 scripts/run_retention_lifecycle_slice.py --check >/dev/null
 python3 scripts/run_authenticity_conformance.py --check >/dev/null
