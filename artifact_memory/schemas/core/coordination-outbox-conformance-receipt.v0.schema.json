@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/coordination-outbox-conformance-receipt/v0",
+  "title": "Artifact Memory coordination outbox conformance receipt v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "receipt_id",
+    "outcome",
+    "append_count",
+    "failed_delivery_code",
+    "local_pair_count_before_recovery",
+    "admitted_pair_count_after_recovery",
+    "hub_pair_count_after_recovery",
+    "authorized_pair_count_after_recovery",
+    "loss_count",
+    "duplicate_count",
+    "exact_local_replay",
+    "unchanged_sync_retry",
+    "authority_boundary"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/coordination-outbox-conformance-receipt/v0"},
+    "receipt_id": {"type": "string", "pattern": "^coordination-outbox-conformance-receipt://sha-256/[0-9a-f]{64}$"},
+    "outcome": {"const": "passed"},
+    "append_count": {"const": 100},
+    "failed_delivery_code": {"const": "sync-storage-unsafe"},
+    "local_pair_count_before_recovery": {"const": 100},
+    "admitted_pair_count_after_recovery": {"const": 100},
+    "hub_pair_count_after_recovery": {"const": 100},
+    "authorized_pair_count_after_recovery": {"const": 100},
+    "loss_count": {"const": 0},
+    "duplicate_count": {"const": 0},
+    "exact_local_replay": {"const": "duplicate-no-op"},
+    "unchanged_sync_retry": {"const": "byte-identical-no-op"},
+    "authority_boundary": {"const": "synthetic outbox proof grants no execution, disclosure, authorization, or delivery authority"}
+  }
+}

@@ -33,17 +33,26 @@ from .coordination import (
     validate_coordination_record_body,
     validate_coordination_records,
 )
-from .schema_resources import core_schemas
+from .schema_resources import core_schemas, load_schema
 from .validator import ValidationFailure, load_json, load_json_bytes, validate
 
 
 SYNC_RECEIPT_SCHEMA_ID = "artifact-memory/coordination-sync-receipt/v0"
+LOCAL_APPEND_RECEIPT_SCHEMA_ID = (
+    "artifact-memory/coordination-local-append-receipt/v0"
+)
 MEMBERSHIP_PAGE_SCHEMA_ID = (
     "artifact-memory/coordination-authorized-membership-page/v0"
 )
 LOCAL_HUB_SCHEMA_ID = "artifact-memory/local-coordination-hub/v0"
 AUTHORITY_BOUNDARY = (
     "sync receipt grants no execution, disclosure, authorization, or trust"
+)
+LOCAL_APPEND_AUTHORITY_BOUNDARY = (
+    "local append receipt grants no execution, disclosure, authorization, or delivery guarantee"
+)
+_LOCAL_APPEND_RECEIPT_SCHEMA = load_schema(
+    "core", "coordination-local-append-receipt.v0.schema.json"
 )
 PENDING_OUTCOMES_SCHEMA_ID = "artifact-memory/local-coordination-pending-outcomes/v0"
 
@@ -326,12 +335,43 @@ def _write_atomic(boundary: Path, path: Path, data: bytes) -> None:
             pass
 
 
-def store_coordination_record(root: Path, record: dict[str, Any]) -> dict[str, str]:
-    """Append one validated canonical revision to a local vault or hub."""
+def _store_coordination_record(
+    root: Path, record: dict[str, Any]
+) -> tuple[dict[str, str], str]:
     materialized, digest = validate_coordination_record_body(record)
     reference = _pair(materialized, digest)
-    _write_immutable(root, _record_path(root, reference), canonical_bytes(materialized))
+    outcome = _write_immutable(
+        root,
+        _record_path(root, reference),
+        canonical_bytes(materialized),
+    )
+    return reference, outcome
+
+
+def store_coordination_record(root: Path, record: dict[str, Any]) -> dict[str, str]:
+    """Append one validated canonical revision to a local vault or hub."""
+    reference, _ = _store_coordination_record(root, record)
     return reference
+
+
+def append_local_coordination_record(
+    vault: Path, record: dict[str, Any]
+) -> dict[str, Any]:
+    """Append locally without consulting a hub; canonical pairs are the outbox."""
+    reference, write_outcome = _store_coordination_record(vault, record)
+    receipt = receipt_with_digest(
+        LOCAL_APPEND_RECEIPT_SCHEMA_ID,
+        "coordination-local-append-receipt://sha-256/",
+        {
+            "outcome": "appended" if write_outcome == "created" else "duplicate",
+            "record_ref": reference,
+            "storage_state": "local-stored",
+            "delivery_state": "not-attempted",
+            "authority_boundary": LOCAL_APPEND_AUTHORITY_BOUNDARY,
+        },
+    )
+    validate(receipt, _LOCAL_APPEND_RECEIPT_SCHEMA)
+    return receipt
 
 
 def _record_files(root: Path) -> list[Path]:

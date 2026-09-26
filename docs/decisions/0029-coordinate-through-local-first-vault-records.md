@@ -40,6 +40,10 @@ Choose option 4.
 
 - Writers append immutable revisions to a local vault first and retry delivery
   through an outbox.
+- In the reference runtime, the outbox is the local canonical pair set minus
+  exact pairs evidenced by a successful authenticated sync. It is not a second
+  mutable queue: failed delivery leaves canonical local pairs untouched, and
+  exact replay remains idempotent.
 - Sync is set union over exact `(record_id, revision_digest)` pairs. Record IDs
   include a stable origin UUID so independent vaults cannot mint colliding
   logical records.

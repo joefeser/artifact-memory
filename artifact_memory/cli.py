@@ -25,6 +25,7 @@ from .coordination import validate_coordination_files
 from .coordination_sync import (
     SYNC_RECEIPT_SCHEMA_ID,
     SyncFailure,
+    append_local_coordination_record,
     sync as sync_coordination,
     validate_sync_receipt,
 )
@@ -86,6 +87,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     records_validate.add_argument("records", type=Path, nargs="+")
     records_validate.add_argument("--json", action="store_true", dest="as_json")
+    record = subparsers.add_parser(
+        "record", help="append one coordination record to a local vault"
+    )
+    record_commands = record.add_subparsers(dest="record_command", required=True)
+    record_append = record_commands.add_parser(
+        "append",
+        help="append locally without contacting a coordination hub",
+    )
+    record_append.add_argument("record", type=Path)
+    record_append.add_argument("--vault", required=True, type=Path)
+    record_append.add_argument("--json", action="store_true", dest="as_json")
     sync_parser = subparsers.add_parser(
         "sync",
         help="run the provider-free local coordination sync adapter",
@@ -198,6 +210,35 @@ def main(argv: list[str] | None = None) -> int:
     preparation_receipt.add_argument("receipt", type=Path)
     preparation_receipt.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args(argv)
+
+    if args.command == "record" and args.record_command == "append":
+        try:
+            candidate = load_json(args.record)
+            if not isinstance(candidate, dict):
+                raise ValidationFailure(
+                    "invalid-input", "coordination record must be a JSON object"
+                )
+            result = append_local_coordination_record(args.vault, candidate)
+        except (SyncFailure, ValidationFailure, OSError) as exc:
+            _receipt(
+                {
+                    "outcome": "rejected",
+                    "diagnostics": [
+                        {
+                            "code": getattr(exc, "code", "local-append-storage-unavailable"),
+                            "message": getattr(
+                                exc,
+                                "message",
+                                "local coordination storage is unavailable",
+                            ),
+                        }
+                    ],
+                },
+                args.as_json,
+            )
+            return EXIT_INVALID
+        _receipt(result, args.as_json)
+        return EXIT_OK
 
     if args.command == "records" and args.records_command == "validate":
         try:
