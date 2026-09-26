@@ -26,6 +26,7 @@ from .coordination_sync import (
     SYNC_RECEIPT_SCHEMA_ID,
     SyncFailure,
     append_local_coordination_record,
+    load_local_coordination_record,
     sync as sync_coordination,
     validate_sync_receipt,
 )
@@ -213,13 +214,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "record" and args.record_command == "append":
         try:
-            candidate = load_json(args.record)
-            if not isinstance(candidate, dict):
-                raise ValidationFailure(
-                    "invalid-input", "coordination record must be a JSON object"
-                )
+            candidate = load_local_coordination_record(args.record)
             result = append_local_coordination_record(args.vault, candidate)
-        except (SyncFailure, ValidationFailure, OSError) as exc:
+        except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
             _receipt(
                 {
                     "outcome": "rejected",

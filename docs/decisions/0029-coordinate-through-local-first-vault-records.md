@@ -44,6 +44,9 @@ Choose option 4.
   exact pairs evidenced by a successful authenticated sync. It is not a second
   mutable queue: failed delivery leaves canonical local pairs untouched, and
   exact replay remains idempotent.
+- "Versioned text" means immutable canonical JSON revisions in a governed
+  vault; it does not require private operational records to be committed to the
+  public software repository.
 - Sync is set union over exact `(record_id, revision_digest)` pairs. Record IDs
   include a stable origin UUID so independent vaults cannot mint colliding
   logical records.

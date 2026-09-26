@@ -90,6 +90,43 @@ class CliTests(unittest.TestCase):
         )
         self.assertFalse(vault_created)
 
+    def test_record_append_rejects_deep_input_without_a_traceback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate = json.loads(
+                (COORDINATION_FIXTURES / "task-open.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            value = {}
+            cursor = value
+            for _ in range(70):
+                cursor["nested"] = {}
+                cursor = cursor["nested"]
+            candidate["extensions"][
+                "https://synthetic.example/extensions/deep/v1"
+            ] = {"version": "v1", "required": False, "value": value}
+            record = root / "deep.json"
+            record.write_text(json.dumps(candidate), encoding="utf-8")
+            vault = root / "vault"
+            result = self.run_cli(
+                "record",
+                "append",
+                str(record),
+                "--vault",
+                str(vault),
+                "--json",
+            )
+            vault_created = vault.exists()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            json.loads(result.stdout)["diagnostics"][0]["code"],
+            "sync-depth-limit",
+        )
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertFalse(vault_created)
+
     def test_valid_record(self):
         result = self.run_cli("validate", str(FIXTURES / "v0-valid-record.json"), "--json")
         self.assertEqual(result.returncode, 0)
