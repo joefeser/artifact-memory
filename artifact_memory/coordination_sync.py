@@ -11,7 +11,7 @@ import hashlib
 import os
 import stat
 import tempfile
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
@@ -412,27 +412,50 @@ def configure_local_hub(
             "bindings": bindings,
         }
     )
-    for binding in config["bindings"]:
-        label = binding["access_label"]
-        reference = _pair(label)
-        _write_immutable(
-            hub,
-            _policy_label_path(hub, reference),
-            canonical_bytes(label),
-        )
-    _write_atomic(hub, hub / "hub-config.json", canonical_bytes(config))
+    with _configuration_lock(hub):
+        prior_principals: set[str] = set()
+        config_path = hub / "hub-config.json"
+        if config_path.exists() or config_path.is_symlink():
+            prior_principals = {
+                binding["principal_id"]
+                for binding in _load_hub_config(hub)["bindings"]
+            }
+        next_principals = {
+            binding["principal_id"] for binding in config["bindings"]
+        }
+        with ExitStack() as locks:
+            for principal_id in sorted(prior_principals | next_principals):
+                locks.enter_context(_principal_lock(hub, principal_id))
+            for binding in config["bindings"]:
+                label = binding["access_label"]
+                reference = _pair(label)
+                _write_immutable(
+                    hub,
+                    _policy_label_path(hub, reference),
+                    canonical_bytes(label),
+                )
+            _write_atomic(hub, config_path, canonical_bytes(config))
+
+
+def _load_hub_config(hub: Path) -> dict[str, Any]:
+    _validate_storage_root(hub, create=False)
+    path = hub / "hub-config.json"
+    if path.is_symlink() or not path.is_file():
+        raise SyncFailure("hub-config-invalid", "local hub configuration is unavailable")
+    try:
+        raw = path.read_bytes()
+        _check_raw_depth(raw)
+        return _validate_hub_config(load_json_bytes(raw))
+    except (OSError, RecursionError, ValidationFailure) as exc:
+        if isinstance(exc, SyncFailure):
+            raise
+        raise SyncFailure("hub-config-invalid", "local hub configuration is unavailable") from exc
 
 
 def _binding(
     hub: Path, session_id: str
 ) -> tuple[dict[str, Any], dict[str, Any], str]:
-    _validate_storage_root(hub, create=False)
-    try:
-        config = _validate_hub_config(load_json(hub / "hub-config.json"))
-    except ValidationFailure as exc:
-        if isinstance(exc, SyncFailure):
-            raise
-        raise SyncFailure("hub-config-invalid", "local hub configuration is unavailable") from exc
+    config = _load_hub_config(hub)
     matches = [item for item in config["bindings"] if item["session_id"] == session_id]
     if len(matches) != 1:
         raise SyncFailure(
@@ -536,6 +559,38 @@ def _principal_lock(hub: Path, principal_id: str) -> Iterator[None]:
         busy_message="one sync request is already in flight for this principal",
     ):
         yield
+
+
+@contextmanager
+def _configuration_lock(hub: Path) -> Iterator[None]:
+    with _advisory_lock(
+        hub,
+        "hub-configuration",
+        busy_code="sync-config-busy",
+        busy_message="hub configuration is being replaced or bound",
+    ):
+        yield
+
+
+@contextmanager
+def _bound_principal_lock(
+    hub: Path, session_id: str
+) -> Iterator[tuple[dict[str, Any], dict[str, Any], str]]:
+    """Bind a session atomically with acquiring its stable principal lock."""
+    principal_guard = ExitStack()
+    try:
+        with _configuration_lock(hub):
+            config, label, principal_id = _binding(hub, session_id)
+            principal_guard.enter_context(_principal_lock(hub, principal_id))
+            rebound = _binding(hub, session_id)
+            if rebound != (config, label, principal_id):
+                raise SyncFailure(
+                    "principal-binding-changed",
+                    "authenticated binding changed while acquiring its principal lock",
+                )
+        yield config, label, principal_id
+    finally:
+        principal_guard.close()
 
 
 @contextmanager
@@ -787,14 +842,12 @@ def _pending_outcomes_envelope(
     config: dict[str, Any],
     label: dict[str, Any],
     principal_id: str,
-    session_id: str,
     outcomes: list[dict[str, Any]],
 ) -> dict[str, Any]:
     return {
         "schema_id": PENDING_OUTCOMES_SCHEMA_ID,
         "hub_id": config["hub_id"],
         "principal_id": principal_id,
-        "session_id": session_id,
         "access_label_ref": _pair(label),
         "scope_generation": config["scope_generation"],
         "submission_outcomes": deepcopy(outcomes),
@@ -808,7 +861,6 @@ def _load_pending_outcomes(
     config: dict[str, Any],
     label: dict[str, Any],
     principal_id: str,
-    session_id: str,
 ) -> PendingOutcomes:
     _validate_storage_root(vault, create=False)
     path = _pending_outcomes_path(vault)
@@ -828,7 +880,6 @@ def _load_pending_outcomes(
         "schema_id",
         "hub_id",
         "principal_id",
-        "session_id",
         "access_label_ref",
         "scope_generation",
         "submission_outcomes",
@@ -839,7 +890,6 @@ def _load_pending_outcomes(
         "schema_id": PENDING_OUTCOMES_SCHEMA_ID,
         "hub_id": config["hub_id"],
         "principal_id": principal_id,
-        "session_id": session_id,
     }
     if any(value[field] != expected for field, expected in expected_binding.items()):
         raise SyncFailure(
@@ -935,7 +985,6 @@ def _push_bound(
     config: dict[str, Any],
     label: dict[str, Any],
     principal_id: str,
-    session_id: str,
 ) -> list[dict[str, Any]]:
     """Push while the caller holds the authenticated principal lock."""
     known = _known_hub_pairs(vault, config["hub_id"], principal_id)
@@ -945,7 +994,6 @@ def _push_bound(
         config=config,
         label=label,
         principal_id=principal_id,
-        session_id=session_id,
     )
     if pending.outcomes:
         raise SyncFailure(
@@ -1000,7 +1048,6 @@ def _push_bound(
                 config=config,
                 label=label,
                 principal_id=principal_id,
-                session_id=session_id,
                 outcomes=outcomes,
             )
         ),
@@ -1015,15 +1062,13 @@ def push(
     session_id: str,
 ) -> list[dict[str, Any]]:
     """Push every local pair through server-owned policy as an idempotent union."""
-    config, label, principal_id = _binding(hub, session_id)
-    with _principal_lock(hub, principal_id):
+    with _bound_principal_lock(hub, session_id) as (config, label, principal_id):
         return _push_bound(
             vault,
             hub,
             config=config,
             label=label,
             principal_id=principal_id,
-            session_id=session_id,
         )
 
 
@@ -1057,6 +1102,11 @@ def _authorized_records(
                 ),
             )
         bound_label = policy_labels[bound_key]
+        if not _label_declares_project(bound_label, project_id):
+            raise SyncFailure(
+                "hub-record-invalid",
+                "hub record AccessLabel lacks matching project provenance",
+            )
         bound_allowed = set(bound_label["may"]["readProjects"])
         bound_denied = set(bound_label["mayNot"]["readProjects"])
         if (
@@ -1284,8 +1334,7 @@ def build_pull_response(
     completed_at: str,
     submission_outcomes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    config, label, principal_id = _binding(hub, session_id)
-    with _principal_lock(hub, principal_id):
+    with _bound_principal_lock(hub, session_id) as (config, label, principal_id):
         return _build_pull_response_bound(
             hub,
             config=config,
@@ -1523,7 +1572,6 @@ def _pull_bound(
     config: dict[str, Any],
     label: dict[str, Any],
     principal_id: str,
-    session_id: str,
     completed_at: str,
 ) -> dict[str, Any]:
     """Pull and consume pending evidence under one principal lock."""
@@ -1533,7 +1581,6 @@ def _pull_bound(
         config=config,
         label=label,
         principal_id=principal_id,
-        session_id=session_id,
     )
     response = _build_pull_response_bound(
         hub,
@@ -1555,15 +1602,13 @@ def pull(
     session_id: str,
     completed_at: str,
 ) -> dict[str, Any]:
-    config, label, principal_id = _binding(hub, session_id)
-    with _principal_lock(hub, principal_id):
+    with _bound_principal_lock(hub, session_id) as (config, label, principal_id):
         return _pull_bound(
             vault,
             hub,
             config=config,
             label=label,
             principal_id=principal_id,
-            session_id=session_id,
             completed_at=completed_at,
         )
 
@@ -1579,8 +1624,7 @@ def sync(
     if phase not in {"push", "pull", "both"}:
         raise SyncFailure("sync-phase-invalid", "sync phase must be push, pull, or both")
     result: dict[str, Any] = {"outcome": "complete", "phase": phase}
-    config, label, principal_id = _binding(hub, session_id)
-    with _principal_lock(hub, principal_id):
+    with _bound_principal_lock(hub, session_id) as (config, label, principal_id):
         if phase in {"push", "both"}:
             result["submission_outcomes"] = _push_bound(
                 vault,
@@ -1588,7 +1632,6 @@ def sync(
                 config=config,
                 label=label,
                 principal_id=principal_id,
-                session_id=session_id,
             )
         if phase in {"pull", "both"}:
             pulled = _pull_bound(
@@ -1597,7 +1640,6 @@ def sync(
                 config=config,
                 label=label,
                 principal_id=principal_id,
-                session_id=session_id,
                 completed_at=completed_at,
             )
             result.update(pulled)

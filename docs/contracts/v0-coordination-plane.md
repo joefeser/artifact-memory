@@ -176,7 +176,12 @@ admitted from the rejected request.
 The one-in-flight boundary spans pending-outcome loading, response construction,
 local projection application, and deletion of the exact pending envelope named
 by that response. A non-empty pending envelope must be acknowledged by pull
-before another push; it cannot be overwritten by a later request.
+before another push; it cannot be overwritten by a later request. Pending
+outcome evidence binds to the logical hub and stable principal, not an
+ephemeral session handle, so an authenticated replacement session for that
+same principal can acknowledge it. A different principal cannot. Hub binding
+replacement is coordinated with the affected principal locks, so revocation or
+scope rotation cannot race an already authenticated request.
 
 Response pages are at most 4 MiB and 500 records. A larger authorized delta or
 membership manifest is paginated with opaque, principal- and

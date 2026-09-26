@@ -993,6 +993,31 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "hub-record-invalid")
             self.assertFalse((vault / "generated").exists())
 
+    def test_record_bound_label_without_project_provenance_fails_egress_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            malformed = label_identity(label_for([PROJECT_A]), "label-incomplete")
+            malformed["projectNames"] = [
+                item
+                for item in malformed["projectNames"]
+                if item["projectId"] != PROJECT_A
+            ]
+            configure(hub, malformed)
+            store_coordination_record(hub, task_for(malformed))
+
+            reader = label_identity(label_for([PROJECT_A]), "label-reader")
+            configure(hub, reader, generation=2)
+            with self.assertRaises(SyncFailure) as raised:
+                pull(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:00Z",
+                )
+            self.assertEqual(raised.exception.code, "hub-record-invalid")
+            self.assertFalse((vault / "generated").exists())
+
     def test_local_authorized_set_tampering_fails_typed(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1081,7 +1106,7 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "sync-record-too-large")
             self.assertEqual(list((hub / "canonical" / "coordination").glob("*/*.json")), [])
 
-    def test_pending_outcomes_are_bound_to_the_authenticated_session(self):
+    def test_pending_outcomes_reject_a_different_authenticated_principal(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             hub, vault = root / "hub", root / "vault"
@@ -1118,6 +1143,99 @@ class CoordinationSyncTests(unittest.TestCase):
                 )
             self.assertEqual(raised.exception.code, "sync-pending-binding-mismatch")
             self.assertEqual(pending.read_bytes(), before)
+
+    def test_pending_outcomes_follow_stable_principal_across_session_rotation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(vault, task_for(label))
+            outcomes = push(vault, hub, session_id=SESSION)
+            pending_path = (
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "pending-submission-outcomes.json"
+            )
+            self.assertNotIn("session_id", load_json(pending_path))
+
+            replacement_session = "coordination-session://synthetic/replacement"
+            configure_local_hub(
+                hub,
+                hub_id=HUB_ID,
+                scope_generation=1,
+                bindings=[
+                    {
+                        "session_id": replacement_session,
+                        "principal_id": PRINCIPAL,
+                        "access_label": label,
+                    }
+                ],
+            )
+            result = pull(
+                vault,
+                hub,
+                session_id=replacement_session,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            self.assertEqual(result["receipt"]["submission_outcomes"], outcomes)
+            self.assertFalse(pending_path.exists())
+            with self.assertRaises(SyncFailure) as revoked:
+                pull(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:01:00Z",
+                )
+            self.assertEqual(revoked.exception.code, "principal-binding-invalid")
+
+    def test_configuration_rotation_cannot_race_an_in_flight_principal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            broad = label_for([PROJECT_A, PROJECT_B])
+            configure(hub, broad)
+            store_coordination_record(vault, task_for(broad))
+            entered = threading.Event()
+            release = threading.Event()
+            module = __import__(
+                "artifact_memory.coordination_sync",
+                fromlist=["_push_bound"],
+            )
+            original = module._push_bound
+            thread_error: list[BaseException] = []
+
+            def blocked_push(*args, **kwargs):
+                entered.set()
+                if not release.wait(timeout=5):
+                    raise AssertionError("synthetic configuration barrier timed out")
+                return original(*args, **kwargs)
+
+            def run_push() -> None:
+                try:
+                    push(vault, hub, session_id=SESSION)
+                except BaseException as exc:  # pragma: no cover - asserted below
+                    thread_error.append(exc)
+
+            with patch(
+                "artifact_memory.coordination_sync._push_bound",
+                side_effect=blocked_push,
+            ):
+                worker = threading.Thread(target=run_push)
+                worker.start()
+                self.assertTrue(entered.wait(timeout=5))
+                narrow = label_for([PROJECT_A])
+                with self.assertRaises(SyncFailure) as busy:
+                    configure(hub, narrow, generation=2)
+                self.assertEqual(busy.exception.code, "sync-principal-busy")
+                release.set()
+                worker.join(timeout=5)
+                self.assertFalse(worker.is_alive())
+
+            self.assertEqual(thread_error, [])
+            configure(hub, narrow, generation=2)
+            self.assertEqual(load_json(hub / "hub-config.json")["scope_generation"], 2)
 
     def test_pending_outcomes_reconcile_across_label_rotation_before_new_push(self):
         with tempfile.TemporaryDirectory() as temporary:
