@@ -342,6 +342,12 @@ class CoordinationSyncTests(unittest.TestCase):
                     session_id=SESSION,
                     completed_at="2026-09-25T20:00:01Z",
                 )
+                third = sync(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:02Z",
+                )
 
             self.assertEqual(
                 [item["outcome"] for item in first["submission_outcomes"]],
@@ -352,11 +358,19 @@ class CoordinationSyncTests(unittest.TestCase):
                     "record_id": admitted["record_id"],
                     "revision_digest": revision_digest(admitted),
                 },
-                [item["record_ref"] for item in second["submission_outcomes"]],
+                [
+                    item["record_ref"]
+                    for result in (second, third)
+                    for item in result["submission_outcomes"]
+                ],
             )
             self.assertIn(
                 "admitted",
-                [item["outcome"] for item in second["submission_outcomes"]],
+                [
+                    item["outcome"]
+                    for result in (second, third)
+                    for item in result["submission_outcomes"]
+                ],
             )
             self.assertEqual(
                 [record["record_id"] for record in load_authorized_projection(vault)],
@@ -410,12 +424,16 @@ class CoordinationSyncTests(unittest.TestCase):
                 store_coordination_record(hub, opened)
                 store_coordination_record(hub, claimed)
                 retried = []
-                for ordinal in range(3, 6):
+                for ordinal in range(3, 9):
+                    append_local_coordination_record(
+                        vault,
+                        unique_task_for(label, ordinal + 100),
+                    )
                     result = sync(
                         vault,
                         hub,
                         session_id=SESSION,
-                        completed_at=f"2026-09-25T20:00:0{ordinal}Z",
+                        completed_at=f"2026-09-25T20:00:{ordinal:02d}Z",
                     )
                     retried.extend(result["submission_outcomes"])
 

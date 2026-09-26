@@ -1103,20 +1103,27 @@ def _acknowledged_hub_state(
     set[tuple[str, str]],
     set[tuple[str, str]],
     tuple[str, str] | None,
+    tuple[str, str] | None,
+    bool,
 ]:
-    """Recover admitted pairs, attempts, and the latest retry cursor."""
+    """Recover admitted pairs and durable fair-scheduling state."""
     _validate_storage_root(vault, create=False)
     roots = vault / "generated" / "coordination-sync" / "projections"
     known: set[tuple[str, str]] = set()
     attempted: set[tuple[str, str]] = set()
-    latest_attempt: tuple[datetime, str, tuple[str, str]] | None = None
+    fresh_cursor: tuple[str, str] | None = None
+    retry_cursor: tuple[str, str] | None = None
+    retry_first = False
     if not roots.exists():
-        return known, attempted, None
+        return known, attempted, fresh_cursor, retry_cursor, retry_first
     if roots.is_symlink() or not roots.is_dir():
         raise SyncFailure("sync-storage-unsafe", "sync projection storage is unsafe")
     projections = sorted(roots.iterdir())
     if any(item.is_symlink() or not item.is_dir() for item in projections):
         raise SyncFailure("sync-storage-unsafe", "sync projection storage is unsafe")
+    verified: list[
+        tuple[datetime, str, dict[str, Any], list[dict[str, str]]]
+    ] = []
     for projection in projections:
         try:
             receipt = load_json(projection / "receipt.json")
@@ -1139,24 +1146,49 @@ def _acknowledged_hub_state(
                 continue
         except ValidationFailure:
             continue
+        verified.append(
+            (
+                _parse_receipt_time(receipt["completed_at"]),
+                receipt["receipt_id"],
+                receipt,
+                pairs,
+            )
+        )
+
+    for _, _, receipt, pairs in sorted(verified, key=lambda item: item[:2]):
         known.update(_pair_key(pair) for pair in pairs)
         outcome_keys = [
             _pair_key(item["record_ref"])
             for item in receipt["submission_outcomes"]
         ]
+        fresh_keys = [key for key in outcome_keys if key not in attempted]
+        retry_keys = [key for key in outcome_keys if key in attempted]
+        if fresh_keys:
+            fresh_cursor = max(
+                fresh_keys,
+                key=lambda key: _record_path(
+                    vault,
+                    {"record_id": key[0], "revision_digest": key[1]},
+                ),
+            )
+        if retry_keys:
+            retry_cursor = max(
+                retry_keys,
+                key=lambda key: _record_path(
+                    vault,
+                    {"record_id": key[0], "revision_digest": key[1]},
+                ),
+            )
+        if outcome_keys:
+            # Alternate classes when both remain. A batch that serviced any
+            # retry yields first position to fresh work next; an all-fresh
+            # batch yields it to retries.
+            retry_first = not retry_keys
         for item, key in zip(receipt["submission_outcomes"], outcome_keys):
             attempted.add(key)
             if item["outcome"] == "admitted":
                 known.add(key)
-        if outcome_keys:
-            candidate = (
-                _parse_receipt_time(receipt["completed_at"]),
-                receipt["receipt_id"],
-                outcome_keys[-1],
-            )
-            if latest_attempt is None or candidate[:2] > latest_attempt[:2]:
-                latest_attempt = candidate
-    return known, attempted, latest_attempt[2] if latest_attempt else None
+    return known, attempted, fresh_cursor, retry_cursor, retry_first
 
 
 def _pending_outcomes_path(vault: Path) -> Path:
@@ -1308,9 +1340,13 @@ def _push_bound(
     principal_id: str,
 ) -> list[dict[str, Any]]:
     """Push while the caller holds the authenticated principal lock."""
-    known, attempted, retry_cursor = _acknowledged_hub_state(
-        vault, config["hub_id"], principal_id
-    )
+    (
+        known,
+        attempted,
+        fresh_cursor,
+        retry_cursor,
+        retry_first,
+    ) = _acknowledged_hub_state(vault, config["hub_id"], principal_id)
     pending = _load_pending_outcomes(
         vault,
         hub=hub,
@@ -1341,13 +1377,23 @@ def _push_bound(
     candidates = [
         path for path in _record_files(vault) if path not in known_paths
     ]
-    # Never-before-attempted pairs go first. Rotate the retry tail after the
-    # latest acknowledged outcome so a bounded terminal prefix cannot starve
-    # another previously attempted pair forever.
+    # Keep independent cyclic cursors for first attempts and retries. When both
+    # classes remain, alternate which class leads the bounded batch so neither
+    # sustained fresh ingestion nor a terminal retry prefix can starve the
+    # other class forever, including when the deployment limit is one record.
     never_attempted_paths = [
         path for path in candidates if path not in attempted_paths
     ]
     retry_paths = [path for path in candidates if path in attempted_paths]
+    if fresh_cursor is not None and never_attempted_paths:
+        cursor_path = _record_path(
+            vault,
+            {"record_id": fresh_cursor[0], "revision_digest": fresh_cursor[1]},
+        )
+        split = bisect_right(never_attempted_paths, cursor_path)
+        never_attempted_paths = (
+            never_attempted_paths[split:] + never_attempted_paths[:split]
+        )
     if retry_cursor is not None and retry_paths:
         cursor_path = _record_path(
             vault,
@@ -1355,7 +1401,11 @@ def _push_bound(
         )
         split = bisect_right(retry_paths, cursor_path)
         retry_paths = retry_paths[split:] + retry_paths[:split]
-    submission_paths = never_attempted_paths + retry_paths
+    submission_paths = (
+        retry_paths + never_attempted_paths
+        if retry_first and retry_paths and never_attempted_paths
+        else never_attempted_paths + retry_paths
+    )
     bounded_paths: list[Path] = []
     bounded_bytes = 0
     for path in submission_paths:
