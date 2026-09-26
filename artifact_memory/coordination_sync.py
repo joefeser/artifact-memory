@@ -18,7 +18,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
-from .canonical import canonical_bytes, expected_receipt_id, receipt_with_digest, sha256_bytes
+from .canonical import (
+    CanonicalizationFailure,
+    canonical_bytes,
+    expected_receipt_id,
+    receipt_with_digest,
+    sha256_bytes,
+)
 from .coordination import (
     ACCESS_LABEL_SCHEMA_ID,
     TASK_PACKET_SCHEMA_ID,
@@ -88,6 +94,43 @@ def sorted_pairs(pairs: list[dict[str, str]]) -> list[dict[str, str]]:
         ({"record_id": item["record_id"], "revision_digest": item["revision_digest"]} for item in pairs),
         key=lambda item: (item["record_id"], item["revision_digest"]),
     )
+
+
+def _validated_pair_manifest(value: Any) -> list[dict[str, str]]:
+    """Validate a durable full-membership manifest before identity operations."""
+    if not isinstance(value, list):
+        raise ValidationFailure(
+            "sync-membership-invalid",
+            "authorized membership must be an array of exact record pairs",
+            "$.pairs",
+        )
+    pair_schema = core_schemas()[MEMBERSHIP_PAGE_SCHEMA_ID]["properties"]["pairs"][
+        "items"
+    ]
+    for index, pair in enumerate(value):
+        try:
+            validate(pair, pair_schema)
+            canonical_bytes(pair)
+        except CanonicalizationFailure as exc:
+            raise ValidationFailure(
+                "canonicalization-failed",
+                str(exc),
+                f"$.pairs[{index}]",
+            ) from exc
+        except ValidationFailure as exc:
+            raise ValidationFailure(
+                exc.code,
+                exc.message,
+                f"$.pairs[{index}]",
+            ) from exc
+    keys = [_pair_key(pair) for pair in value]
+    if len(keys) != len(set(keys)):
+        raise ValidationFailure(
+            "sync-membership-duplicate",
+            "authorized membership contains a duplicate pair",
+            "$.pairs",
+        )
+    return sorted_pairs(value)
 
 
 def pair_set_digest(pairs: list[dict[str, str]]) -> str:
@@ -853,10 +896,12 @@ def _known_hub_pairs(
     for projection in projections:
         try:
             receipt = load_json(projection / "receipt.json")
-            pairs = load_json(projection / "authorized-membership.json")
+            pairs = _validated_pair_manifest(
+                load_json(projection / "authorized-membership.json")
+            )
         except (KeyError, TypeError, ValueError, ValidationFailure):
             continue
-        if not isinstance(receipt, dict) or not isinstance(pairs, list):
+        if not isinstance(receipt, dict):
             continue
         try:
             validate_sync_receipt(receipt)
@@ -1460,10 +1505,10 @@ def _load_current_projection(
         raise SyncFailure("sync-storage-unsafe", "sync projection storage is unsafe")
     try:
         receipt = load_json(receipt_path)
-        pairs = load_json(manifest_path)
+        pairs = _validated_pair_manifest(load_json(manifest_path))
     except ValidationFailure as exc:
         raise SyncFailure("sync-projection-invalid", "authorized projection is invalid") from exc
-    if not isinstance(receipt, dict) or not isinstance(pairs, list):
+    if not isinstance(receipt, dict):
         raise SyncFailure("sync-projection-invalid", "authorized projection is invalid")
     validate_sync_receipt(receipt)
     membership = receipt["authorized_membership"]
@@ -1557,11 +1602,6 @@ def _apply_verified_pull(
                 "authorized_pairs": prior_manifest,
             }
 
-    # Canonical history is append-only and is never pruned by label rotation.
-    for pair in pairs:
-        record = by_pair[_pair_key(pair)]
-        _write_immutable(vault, _record_path(vault, pair), canonical_bytes(record))
-
     projection = _projection_root(vault, receipt["receipt_id"])
     _write_immutable(vault, projection / "receipt.json", canonical_bytes(receipt))
     _write_immutable(
@@ -1569,6 +1609,14 @@ def _apply_verified_pull(
         projection / "authorized-membership.json",
         canonical_bytes(pairs),
     )
+
+    # Persist exact response provenance before exposing received records in the
+    # append-only canonical namespace. A projection without the success marker
+    # is durable retry evidence, not a claim that the pull completed.
+    for pair in pairs:
+        record = by_pair[_pair_key(pair)]
+        _write_immutable(vault, _record_path(vault, pair), canonical_bytes(record))
+
     marker = {
         "receipt_ref": receipt["receipt_id"],
         "pair_count": len(pairs),

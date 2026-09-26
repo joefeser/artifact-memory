@@ -852,6 +852,81 @@ class CoordinationSyncTests(unittest.TestCase):
                 apply_pull_response(vault, tampered)
             self.assertFalse((vault / "generated" / "coordination-sync" / "last-successful.json").exists())
 
+    def test_projection_collision_precedes_canonical_record_exposure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            label = label_for([PROJECT_A])
+            for target_name in ("receipt.json", "authorized-membership.json"):
+                with self.subTest(target=target_name):
+                    hub, vault = root / target_name / "hub", root / target_name / "vault"
+                    configure(hub, label)
+                    store_coordination_record(hub, task_for(label))
+                    response = build_pull_response(
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+                    projection = (
+                        vault
+                        / "generated"
+                        / "coordination-sync"
+                        / "projections"
+                        / response["receipt"]["receipt_id"].rsplit("/", 1)[-1]
+                    )
+                    projection.mkdir(parents=True)
+                    (projection / target_name).write_bytes(b"{}")
+                    with self.assertRaises(SyncFailure) as raised:
+                        apply_pull_response(vault, response)
+                    self.assertEqual(
+                        raised.exception.code,
+                        "immutable-record-collision",
+                    )
+                    self.assertEqual(
+                        list(
+                            (vault / "canonical" / "coordination").glob("*/*.json")
+                        ),
+                        [],
+                    )
+                    self.assertFalse(
+                        (
+                            vault
+                            / "generated"
+                            / "coordination-sync"
+                            / "last-successful.json"
+                        ).exists()
+                    )
+
+    def test_push_ignores_malformed_historical_membership_without_crashing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A, PROJECT_B])
+            configure(hub, label)
+            store_coordination_record(hub, task_for(label))
+            first = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            projection = (
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "projections"
+                / first["receipt"]["receipt_id"].rsplit("/", 1)[-1]
+            )
+            (projection / "authorized-membership.json").write_bytes(b"[{}]\n")
+            store_coordination_record(
+                vault,
+                task_for(label, other_origin=True, project_id=PROJECT_B),
+            )
+            outcomes = push(vault, hub, session_id=SESSION)
+            self.assertEqual(
+                sorted(item["code"] for item in outcomes),
+                ["admitted", "admitted"],
+            )
+
     def test_tampered_existing_marker_and_prior_generation_cannot_advance_state(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
