@@ -284,6 +284,36 @@ class CliTests(unittest.TestCase):
         self.assertEqual(diagnostic["code"], "invalid-json")
         self.assertEqual(diagnostic["path"], "$.files[0]")
 
+    def test_repo_validate_rejects_recursive_record_validation(self):
+        fixture = ROOT / "fixtures" / "coordination-repo-identity" / "v0"
+        candidate = json.loads(
+            (COORDINATION_FIXTURES / "task-open.json").read_text(encoding="utf-8")
+        )
+        value = {}
+        cursor = value
+        for _ in range(500):
+            cursor["nested"] = {}
+            cursor = cursor["nested"]
+        candidate["extensions"][
+            "https://synthetic.example/extensions/deep-validation/v1"
+        ] = {"version": "v1", "required": False, "value": value}
+        with tempfile.TemporaryDirectory() as temporary:
+            record_path = Path(temporary) / "deep-validation-record.json"
+            record_path.write_text(json.dumps(candidate), encoding="utf-8")
+            result = self.run_cli(
+                "repo",
+                "validate",
+                str(fixture / "repositories" / "alpha"),
+                "--records",
+                str(record_path),
+                "--json",
+            )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        diagnostic = json.loads(result.stdout)["diagnostics"][0]
+        self.assertEqual(diagnostic["code"], "invalid-json")
+        self.assertEqual(diagnostic["path"], "$.records")
+
     def test_project_reports_projection_creation_failure_as_json(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = io.StringIO()

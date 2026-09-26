@@ -315,4 +315,11 @@ def validate_repo_bound_coordination_files(
                 f"$.files[{index}]",
             )
         records.append(value)
-    return validate_repo_bound_coordination_records(records, repo_roots)
+    try:
+        return validate_repo_bound_coordination_records(records, repo_roots)
+    except RecursionError as exc:
+        raise ValidationFailure(
+            "invalid-json",
+            "coordination record exceeds supported validation nesting",
+            "$.records",
+        ) from exc
