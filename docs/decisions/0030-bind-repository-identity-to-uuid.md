@@ -30,6 +30,8 @@ traversed component from the filesystem anchor through the repository root,
 identity directory, and manifest. On platforms with directory-relative
 no-follow opens, it walks through held descriptors; the portable fallback
 compares every component before and after reading one stable regular file.
+Caller-supplied parent-directory (`..`) components fail closed before lexical
+normalization so normalization cannot change traversal through an earlier link.
 
 ## Security consequences
 

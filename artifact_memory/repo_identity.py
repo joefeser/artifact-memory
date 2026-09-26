@@ -51,6 +51,12 @@ def _file_observation(entry: os.stat_result) -> tuple[int, int, int, int, int, i
 
 
 def _absolute_without_resolution(path: Path) -> Path:
+    if ".." in path.parts:
+        raise ValidationFailure(
+            "repo-identity-unsafe",
+            "repository identity path must not contain parent-directory traversal",
+            "$",
+        )
     return Path(os.path.abspath(os.fspath(path)))
 
 

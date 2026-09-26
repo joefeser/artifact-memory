@@ -207,6 +207,30 @@ class RepoIdentityTests(unittest.TestCase):
                 load_repo_identity(ancestor_alias / "repository")
             self.assertEqual(caught.exception.code, "repo-identity-unsafe")
 
+    def test_manifest_rejects_parent_traversal_before_normalization(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            safe_root = base / "safe" / "repository"
+            external_root = base / "external" / "repository"
+            for root, project_id in (
+                (safe_root, "11111111-1111-4111-8111-111111111111"),
+                (external_root, "22222222-2222-4222-8222-222222222222"),
+            ):
+                self.write_manifest(
+                    root,
+                    {"uuid": project_id, "humanName": "synthetic"},
+                )
+            external_subdirectory = base / "external" / "subdirectory"
+            external_subdirectory.mkdir()
+            (base / "safe" / "redirect").symlink_to(
+                external_subdirectory,
+                target_is_directory=True,
+            )
+            ambiguous_root = base / "safe" / "redirect" / ".." / "repository"
+            with self.assertRaises(ValidationFailure) as caught:
+                load_repo_identity(ambiguous_root)
+            self.assertEqual(caught.exception.code, "repo-identity-unsafe")
+
     def test_windows_reparse_attribute_is_treated_as_redirect(self):
         reparse = SimpleNamespace(
             st_mode=stat.S_IFDIR,
