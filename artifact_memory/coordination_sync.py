@@ -67,6 +67,7 @@ class PendingOutcomes:
     outcomes: list[dict[str, Any]]
     access_label_ref: dict[str, str]
     scope_generation: int
+    source_digest: str | None
 
 
 def _pair_key(reference: dict[str, str]) -> tuple[str, str]:
@@ -812,12 +813,16 @@ def _load_pending_outcomes(
     _validate_storage_root(vault, create=False)
     path = _pending_outcomes_path(vault)
     if not path.exists():
-        return PendingOutcomes([], _pair(label), config["scope_generation"])
+        return PendingOutcomes(
+            [], _pair(label), config["scope_generation"], None
+        )
     if path.is_symlink() or not path.is_file():
         raise SyncFailure("sync-storage-unsafe", "pending sync outcome storage is unsafe")
     try:
-        value = load_json(path)
-    except ValidationFailure as exc:
+        raw = path.read_bytes()
+        _check_raw_depth(raw)
+        value = load_json_bytes(raw)
+    except (OSError, RecursionError, ValidationFailure) as exc:
         raise SyncFailure("sync-outcomes-invalid", "pending submission outcomes are invalid") from exc
     required = {
         "schema_id",
@@ -885,21 +890,55 @@ def _load_pending_outcomes(
     outcomes = value["submission_outcomes"]
     _validate_submission_outcomes(outcomes, require_order=True)
     return PendingOutcomes(
-        deepcopy(outcomes), deepcopy(pending_label_ref), pending_generation
+        deepcopy(outcomes),
+        deepcopy(pending_label_ref),
+        pending_generation,
+        sha256_bytes(raw),
     )
 
 
-def push(
+def _consume_pending_outcomes(vault: Path, pending: PendingOutcomes) -> None:
+    """Remove only the exact pending envelope included in a successful pull."""
+    if pending.source_digest is None:
+        return
+    path = _pending_outcomes_path(vault)
+    if path.is_symlink() or not path.is_file():
+        raise SyncFailure(
+            "sync-pending-changed",
+            "pending submission outcomes changed before acknowledgement",
+        )
+    try:
+        current_digest = sha256_bytes(path.read_bytes())
+    except OSError as exc:
+        raise SyncFailure(
+            "sync-pending-changed",
+            "pending submission outcomes changed before acknowledgement",
+        ) from exc
+    if current_digest != pending.source_digest:
+        raise SyncFailure(
+            "sync-pending-changed",
+            "pending submission outcomes changed before acknowledgement",
+        )
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise SyncFailure(
+            "sync-pending-consumption-failed",
+            "acknowledged pending submission outcomes could not be removed",
+        ) from exc
+
+
+def _push_bound(
     vault: Path,
     hub: Path,
     *,
+    config: dict[str, Any],
+    label: dict[str, Any],
+    principal_id: str,
     session_id: str,
 ) -> list[dict[str, Any]]:
-    """Push every local pair through server-owned policy as an idempotent union."""
-    config, label, principal_id = _binding(hub, session_id)
+    """Push while the caller holds the authenticated principal lock."""
     known = _known_hub_pairs(vault, config["hub_id"], principal_id)
-    # A pending receipt is binding-specific. Refuse to overwrite another
-    # authenticated session's unacknowledged evidence.
     pending = _load_pending_outcomes(
         vault,
         hub=hub,
@@ -908,54 +947,50 @@ def push(
         principal_id=principal_id,
         session_id=session_id,
     )
-    if pending.outcomes and (
-        pending.access_label_ref != _pair(label)
-        or pending.scope_generation != config["scope_generation"]
-    ):
+    if pending.outcomes:
         raise SyncFailure(
             "sync-pending-reconciliation-required",
-            "pull must acknowledge pending submission outcomes before pushing under a rotated scope",
+            "pull must acknowledge pending submission outcomes before another push",
         )
     outcomes: list[dict[str, Any]] = []
-    with _principal_lock(hub, principal_id):
-        known_paths = {
-            _record_path(
-                vault,
-                {"record_id": record_id, "revision_digest": revision_digest},
-            )
-            for record_id, revision_digest in known
-        }
-        submission_paths = [
-            path for path in _record_files(vault) if path not in known_paths
-        ]
-        if len(submission_paths) > MAX_SUBMITTED_RECORDS:
-            raise SyncFailure("sync-record-limit", "sync request exceeds the v0 record limit")
-        sizes = [path.stat().st_size for path in submission_paths]
-        if any(size > MAX_RECORD_BYTES for size in sizes):
-            raise SyncFailure("sync-record-too-large", "sync record exceeds the v0 byte limit")
-        if sum(sizes) > MAX_REQUEST_BYTES:
-            raise SyncFailure("sync-request-too-large", "sync request exceeds the v0 byte limit")
-        submissions = _load_record_paths(vault, submission_paths)
-        _request_bounds(submissions)
-        hub_by_pair = {_pair_key(item.record_ref): item for item in _scan_records(hub)}
-        for stored in submissions:
-            if (
-                stored.record.get("schema_id") == TASK_PACKET_SCHEMA_ID
-                and isinstance(stored.record.get("record_id"), str)
-            ):
-                record_id = stored.record["record_id"]
-                with _task_admission_lock(hub, record_id):
-                    for existing in _scan_record_identity(hub, record_id):
-                        hub_by_pair[_pair_key(existing.record_ref)] = existing
-                    outcomes.append(
-                        _admit_submission(
-                            hub, stored, label, principal_id, hub_by_pair
-                        )
-                    )
-            else:
+    known_paths = {
+        _record_path(
+            vault,
+            {"record_id": record_id, "revision_digest": revision_digest},
+        )
+        for record_id, revision_digest in known
+    }
+    submission_paths = [
+        path for path in _record_files(vault) if path not in known_paths
+    ]
+    if len(submission_paths) > MAX_SUBMITTED_RECORDS:
+        raise SyncFailure("sync-record-limit", "sync request exceeds the v0 record limit")
+    sizes = [path.stat().st_size for path in submission_paths]
+    if any(size > MAX_RECORD_BYTES for size in sizes):
+        raise SyncFailure("sync-record-too-large", "sync record exceeds the v0 byte limit")
+    if sum(sizes) > MAX_REQUEST_BYTES:
+        raise SyncFailure("sync-request-too-large", "sync request exceeds the v0 byte limit")
+    submissions = _load_record_paths(vault, submission_paths)
+    _request_bounds(submissions)
+    hub_by_pair = {_pair_key(item.record_ref): item for item in _scan_records(hub)}
+    for stored in submissions:
+        if (
+            stored.record.get("schema_id") == TASK_PACKET_SCHEMA_ID
+            and isinstance(stored.record.get("record_id"), str)
+        ):
+            record_id = stored.record["record_id"]
+            with _task_admission_lock(hub, record_id):
+                for existing in _scan_record_identity(hub, record_id):
+                    hub_by_pair[_pair_key(existing.record_ref)] = existing
                 outcomes.append(
-                    _admit_submission(hub, stored, label, principal_id, hub_by_pair)
+                    _admit_submission(
+                        hub, stored, label, principal_id, hub_by_pair
+                    )
                 )
+        else:
+            outcomes.append(
+                _admit_submission(hub, stored, label, principal_id, hub_by_pair)
+            )
     outcomes.sort(key=lambda item: _pair_key(item["record_ref"]))
     _write_atomic(
         vault,
@@ -971,6 +1006,25 @@ def push(
         ),
     )
     return outcomes
+
+
+def push(
+    vault: Path,
+    hub: Path,
+    *,
+    session_id: str,
+) -> list[dict[str, Any]]:
+    """Push every local pair through server-owned policy as an idempotent union."""
+    config, label, principal_id = _binding(hub, session_id)
+    with _principal_lock(hub, principal_id):
+        return _push_bound(
+            vault,
+            hub,
+            config=config,
+            label=label,
+            principal_id=principal_id,
+            session_id=session_id,
+        )
 
 
 def _authorized_records(
@@ -1169,16 +1223,17 @@ def validate_membership_pages(
     return canonical
 
 
-def build_pull_response(
+def _build_pull_response_bound(
     hub: Path,
     *,
-    session_id: str,
+    config: dict[str, Any],
+    label: dict[str, Any],
+    principal_id: str,
     completed_at: str,
     submission_outcomes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    config, label, principal_id = _binding(hub, session_id)
-    with _principal_lock(hub, principal_id):
-        records, excluded_count = _authorized_records(hub, label)
+    """Build one response while the caller holds the principal lock."""
+    records, excluded_count = _authorized_records(hub, label)
     pairs = [item.record_ref for item in records]
     record_groups = _record_page_groups(records)
     pair_groups = [[item.record_ref for item in group] for group in record_groups]
@@ -1220,6 +1275,25 @@ def build_pull_response(
             [deepcopy(item.record) for item in group] for group in record_groups
         ],
     }
+
+
+def build_pull_response(
+    hub: Path,
+    *,
+    session_id: str,
+    completed_at: str,
+    submission_outcomes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    config, label, principal_id = _binding(hub, session_id)
+    with _principal_lock(hub, principal_id):
+        return _build_pull_response_bound(
+            hub,
+            config=config,
+            label=label,
+            principal_id=principal_id,
+            completed_at=completed_at,
+            submission_outcomes=submission_outcomes,
+        )
 
 
 def _projection_root(vault: Path, receipt_id: str) -> Path:
@@ -1331,6 +1405,14 @@ def _apply_verified_pull(
                 "sync-receipt-stale",
                 "pull response predates the last successful sync receipt",
             )
+        if (
+            current_completed == prior_completed
+            and receipt["receipt_id"] != prior_receipt["receipt_id"]
+        ):
+            raise SyncFailure(
+                "sync-receipt-order-conflict",
+                "distinct pull responses cannot share a completion time",
+            )
         same_scope = (
             prior_receipt["access_label_ref"] == receipt["access_label_ref"]
             and prior_receipt["scope_generation"] == receipt["scope_generation"]
@@ -1352,10 +1434,6 @@ def _apply_verified_pull(
             # A no-op is valid only if the local authorized material still
             # matches the previously verified marker and projection.
             load_authorized_projection(vault)
-            try:
-                _pending_outcomes_path(vault).unlink()
-            except FileNotFoundError:
-                pass
             return {
                 "outcome": "no-op",
                 "receipt": prior_receipt,
@@ -1382,10 +1460,6 @@ def _apply_verified_pull(
         "access_label_ref": receipt["access_label_ref"],
     }
     _write_atomic(vault, marker_path, canonical_bytes(marker))
-    try:
-        _pending_outcomes_path(vault).unlink()
-    except FileNotFoundError:
-        pass
     return {"outcome": "complete", "receipt": receipt, "authorized_pairs": pairs}
 
 
@@ -1442,14 +1516,17 @@ def apply_pull_response(vault: Path, response: dict[str, Any]) -> dict[str, Any]
         return _apply_verified_pull(vault, receipt, pairs, by_pair)
 
 
-def pull(
+def _pull_bound(
     vault: Path,
     hub: Path,
     *,
+    config: dict[str, Any],
+    label: dict[str, Any],
+    principal_id: str,
     session_id: str,
     completed_at: str,
 ) -> dict[str, Any]:
-    config, label, principal_id = _binding(hub, session_id)
+    """Pull and consume pending evidence under one principal lock."""
     pending = _load_pending_outcomes(
         vault,
         hub=hub,
@@ -1458,13 +1535,37 @@ def pull(
         principal_id=principal_id,
         session_id=session_id,
     )
-    response = build_pull_response(
+    response = _build_pull_response_bound(
         hub,
-        session_id=session_id,
+        config=config,
+        label=label,
+        principal_id=principal_id,
         completed_at=completed_at,
         submission_outcomes=pending.outcomes,
     )
-    return apply_pull_response(vault, response)
+    result = apply_pull_response(vault, response)
+    _consume_pending_outcomes(vault, pending)
+    return result
+
+
+def pull(
+    vault: Path,
+    hub: Path,
+    *,
+    session_id: str,
+    completed_at: str,
+) -> dict[str, Any]:
+    config, label, principal_id = _binding(hub, session_id)
+    with _principal_lock(hub, principal_id):
+        return _pull_bound(
+            vault,
+            hub,
+            config=config,
+            label=label,
+            principal_id=principal_id,
+            session_id=session_id,
+            completed_at=completed_at,
+        )
 
 
 def sync(
@@ -1478,17 +1579,29 @@ def sync(
     if phase not in {"push", "pull", "both"}:
         raise SyncFailure("sync-phase-invalid", "sync phase must be push, pull, or both")
     result: dict[str, Any] = {"outcome": "complete", "phase": phase}
-    if phase in {"push", "both"}:
-        result["submission_outcomes"] = push(vault, hub, session_id=session_id)
-    if phase in {"pull", "both"}:
-        pulled = pull(
-            vault,
-            hub,
-            session_id=session_id,
-            completed_at=completed_at,
-        )
-        result.update(pulled)
-        result["phase"] = phase
+    config, label, principal_id = _binding(hub, session_id)
+    with _principal_lock(hub, principal_id):
+        if phase in {"push", "both"}:
+            result["submission_outcomes"] = _push_bound(
+                vault,
+                hub,
+                config=config,
+                label=label,
+                principal_id=principal_id,
+                session_id=session_id,
+            )
+        if phase in {"pull", "both"}:
+            pulled = _pull_bound(
+                vault,
+                hub,
+                config=config,
+                label=label,
+                principal_id=principal_id,
+                session_id=session_id,
+                completed_at=completed_at,
+            )
+            result.update(pulled)
+            result["phase"] = phase
     return result
 
 

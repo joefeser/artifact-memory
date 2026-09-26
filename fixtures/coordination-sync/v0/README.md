@@ -7,6 +7,10 @@ same-generation AccessLabel revision recovery, and the pagination boundary.
 They contain no vault data, credentials, private topology, customer material,
 or raw conversations.
 
+`expected-receipt.json` is the machine-readable checked evidence and
+`receipt.md` is its human-readable rendering. The runner validates the receipt
+against the packaged strict conformance schema before comparing either view.
+
 Run the bounded acceptance proof with:
 
 ```sh

@@ -148,6 +148,12 @@ plus the previously verified manifest may be used. Missing pages, duplicate or
 conflicting pairs, count/digest mismatch, or use of a prior-generation manifest
 fails typed and cannot advance the last-successful-sync marker.
 
+Successful receipts are ordered by `completed_at`. Exact `receipt_id` replay is
+idempotent. A receipt earlier than the last successful receipt fails
+`sync-receipt-stale`; a distinct receipt with the same `completed_at` fails
+`sync-receipt-order-conflict`. V0 therefore never guesses an order between two
+different scope or membership observations at the same timestamp.
+
 Submitted pairs receive typed `admitted`, `rejected`, or `quarantined`
 outcomes; rejected and quarantined submissions never enter the authorized set.
 The receipt and manifest never name excluded records, projects, labels, or
@@ -166,6 +172,11 @@ may have only one sync request in flight. Violations return respectively
 `sync-request-too-large`, `sync-record-limit`, `sync-record-too-large`,
 `sync-depth-limit`, `sync-field-too-large`, or `sync-principal-busy`; no pair is
 admitted from the rejected request.
+
+The one-in-flight boundary spans pending-outcome loading, response construction,
+local projection application, and deletion of the exact pending envelope named
+by that response. A non-empty pending envelope must be acknowledged by pull
+before another push; it cannot be overwritten by a later request.
 
 Response pages are at most 4 MiB and 500 records. A larger authorized delta or
 membership manifest is paginated with opaque, principal- and

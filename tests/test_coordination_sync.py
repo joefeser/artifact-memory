@@ -465,13 +465,70 @@ class CoordinationSyncTests(unittest.TestCase):
             first = push(vault, hub, session_id=SESSION)
             self.assertEqual(first[0]["code"], "admitted")
             self.assertEqual(claimed_path(hub, task).read_bytes(), canonical_bytes(task))
+            path.write_bytes(canonical_bytes(task))
+            pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
 
             # Replaying alternate formatting for the same canonical pair is a
             # duplicate admission, never a same-pair collision.
+            replay_vault = root / "replay-vault"
+            path = claimed_path(replay_vault, task)
+            path.parent.mkdir(parents=True)
             path.write_text(json.dumps(task, indent=4), encoding="utf-8")
-            second = push(vault, hub, session_id=SESSION)
+            second = push(replay_vault, hub, session_id=SESSION)
             self.assertEqual(second[0]["code"], "admitted")
             self.assertEqual(list((hub / "quarantine").glob("**/*.json")), [])
+
+    def test_push_cannot_overwrite_unacknowledged_outcomes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A, PROJECT_B])
+            configure(hub, label)
+            first_task = task_for(label)
+            store_coordination_record(vault, first_task)
+            first_outcomes = push(vault, hub, session_id=SESSION)
+            pending_path = (
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "pending-submission-outcomes.json"
+            )
+            before = pending_path.read_bytes()
+
+            second_task = task_for(
+                label,
+                other_origin=True,
+                project_id=PROJECT_B,
+            )
+            store_coordination_record(vault, second_task)
+            with self.assertRaises(SyncFailure) as blocked:
+                push(vault, hub, session_id=SESSION)
+            self.assertEqual(
+                blocked.exception.code,
+                "sync-pending-reconciliation-required",
+            )
+            self.assertEqual(pending_path.read_bytes(), before)
+            self.assertEqual(len(list((hub / "canonical" / "coordination").glob("*/*.json"))), 1)
+
+            acknowledged = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            self.assertEqual(
+                acknowledged["receipt"]["submission_outcomes"],
+                first_outcomes,
+            )
+            self.assertEqual(
+                [item["code"] for item in push(vault, hub, session_id=SESSION)],
+                ["admitted"],
+            )
 
     def test_receipt_manifest_and_submission_outcomes_bind_generated_projection(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -742,6 +799,45 @@ class CoordinationSyncTests(unittest.TestCase):
                 apply_pull_response(vault, stale)
             self.assertEqual(replayed.exception.code, "sync-generation-stale")
             self.assertEqual(marker_path.read_bytes(), generation_two)
+
+    def test_equal_time_conflicting_scope_receipt_cannot_restore_broader_view(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            broad = label_for([PROJECT_A, PROJECT_B])
+            configure(hub, broad, generation=1)
+            store_coordination_record(hub, task_for(broad))
+            task_b = task_for(broad, other_origin=True, project_id=PROJECT_B)
+            store_coordination_record(hub, task_b)
+            pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            stale_broad = build_pull_response(
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T21:00:00Z",
+            )
+
+            narrow = label_for([PROJECT_A])
+            configure(hub, narrow, generation=1)
+            pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T21:00:00Z",
+            )
+            marker_path = vault / "generated" / "coordination-sync" / "last-successful.json"
+            before = marker_path.read_bytes()
+            self.assertNotIn(task_b["record_id"], json.dumps(load_authorized_projection(vault)))
+
+            with self.assertRaises(SyncFailure) as conflict:
+                apply_pull_response(vault, stale_broad)
+            self.assertEqual(conflict.exception.code, "sync-receipt-order-conflict")
+            self.assertEqual(marker_path.read_bytes(), before)
+            self.assertNotIn(task_b["record_id"], json.dumps(load_authorized_projection(vault)))
 
     def test_lowercase_z_timestamp_is_compared_without_untyped_crash(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1153,6 +1249,69 @@ class CoordinationSyncTests(unittest.TestCase):
             lock = hub / "locks" / f"{lock_name}.lock"
             lock.write_text("stale", encoding="utf-8")
             self.assertEqual(push(vault, hub, session_id=SESSION)[0]["code"], "admitted")
+
+    def test_pull_holds_principal_lock_through_pending_outcome_consumption(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(vault, task_for(label))
+            outcomes = push(vault, hub, session_id=SESSION)
+            pending_path = (
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "pending-submission-outcomes.json"
+            )
+            before = pending_path.read_bytes()
+            entered = threading.Event()
+            release = threading.Event()
+            module = __import__(
+                "artifact_memory.coordination_sync",
+                fromlist=["apply_pull_response"],
+            )
+            original = module.apply_pull_response
+            result: list[dict] = []
+            thread_error: list[BaseException] = []
+
+            def blocked_apply(*args, **kwargs):
+                entered.set()
+                if not release.wait(timeout=5):
+                    raise AssertionError("synthetic pull barrier timed out")
+                return original(*args, **kwargs)
+
+            def run_pull() -> None:
+                try:
+                    result.append(
+                        pull(
+                            vault,
+                            hub,
+                            session_id=SESSION,
+                            completed_at="2026-09-25T20:00:00Z",
+                        )
+                    )
+                except BaseException as exc:  # pragma: no cover - asserted below
+                    thread_error.append(exc)
+
+            with patch(
+                "artifact_memory.coordination_sync.apply_pull_response",
+                side_effect=blocked_apply,
+            ):
+                worker = threading.Thread(target=run_pull)
+                worker.start()
+                self.assertTrue(entered.wait(timeout=5))
+                with self.assertRaises(SyncFailure) as busy:
+                    push(vault, hub, session_id=SESSION)
+                self.assertEqual(busy.exception.code, "sync-principal-busy")
+                self.assertEqual(pending_path.read_bytes(), before)
+                release.set()
+                worker.join(timeout=5)
+                self.assertFalse(worker.is_alive())
+
+            self.assertEqual(thread_error, [])
+            self.assertEqual(result[0]["receipt"]["submission_outcomes"], outcomes)
+            self.assertFalse(pending_path.exists())
 
     def test_internal_symlink_cannot_redirect_canonical_storage(self):
         with tempfile.TemporaryDirectory() as temporary:

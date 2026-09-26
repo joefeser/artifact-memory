@@ -11,6 +11,8 @@ from .canonical import receipt_with_digest
 from .coordination import revision_digest
 from .coordination_sync import (
     SyncFailure,
+    apply_pull_response,
+    build_pull_response,
     build_membership_pages,
     configure_local_hub,
     directory_digest,
@@ -22,7 +24,8 @@ from .coordination_sync import (
     validate_membership_pages,
     validate_sync_receipt,
 )
-from .validator import load_json
+from .schema_resources import load_schema
+from .validator import load_json, validate
 
 
 PROJECT_A = "11111111-1111-4111-8111-111111111111"
@@ -31,6 +34,9 @@ PRINCIPAL = "coordination-principal://synthetic/agent-1"
 SESSION = "coordination-session://synthetic/session-1"
 READER_SESSION = "coordination-session://synthetic/session-reader"
 HUB_ID = "coordination-hub://synthetic/hub-a"
+CONFORMANCE_SCHEMA_ID = (
+    "artifact-memory/coordination-sync-conformance-receipt/v0"
+)
 
 
 def _label(fixtures: Path) -> dict[str, Any]:
@@ -90,8 +96,12 @@ def _vector_receipt(pairs: list[dict[str, str]], page_count: int, label: dict[st
     )
 
 
-def run(fixtures: Path) -> dict[str, Any]:
-    vectors = load_json(fixtures / "coordination-sync" / "v0" / "vectors.json")
+def run(
+    fixtures: Path,
+    coordination_fixture: Path | None = None,
+) -> dict[str, Any]:
+    fixture = coordination_fixture or fixtures / "coordination-sync" / "v0"
+    vectors = load_json(fixture / "vectors.json")
     if not isinstance(vectors, dict):
         raise RuntimeError("coordination sync vectors must be an object")
     for vector in vectors["pair_set_vectors"]:
@@ -296,6 +306,23 @@ def run(fixtures: Path) -> dict[str, Any]:
             )
             store_coordination_record(vault, _task(fixtures, broad, True))
             outcomes = push(vault, hub, session_id=SESSION)
+            try:
+                push(vault, hub, session_id=SESSION)
+            except SyncFailure as exc:
+                if exc.code != "sync-pending-reconciliation-required":
+                    raise RuntimeError(
+                        "pending outcome replay returned the wrong diagnostic"
+                    ) from exc
+            else:
+                raise RuntimeError(
+                    "a second push overwrote unacknowledged outcomes"
+                )
+            stale_broad = build_pull_response(
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+                submission_outcomes=outcomes,
+            )
             narrow = deepcopy(broad)
             narrow["may"]["readProjects"] = [PROJECT_A]
             narrow["mayNot"]["readProjects"] = [PROJECT_B]
@@ -326,6 +353,17 @@ def run(fixtures: Path) -> dict[str, Any]:
             ):
                 raise RuntimeError(
                     f"label-rotation vector failed: {vector['name']}"
+                )
+            try:
+                apply_pull_response(vault, stale_broad)
+            except SyncFailure as exc:
+                if exc.code != "sync-receipt-order-conflict":
+                    raise RuntimeError(
+                        "equal-time scope replay returned the wrong diagnostic"
+                    ) from exc
+            else:
+                raise RuntimeError(
+                    "equal-time broader scope replay restored suppressed membership"
                 )
 
     with tempfile.TemporaryDirectory() as temporary:
@@ -377,10 +415,43 @@ def run(fixtures: Path) -> dict[str, Any]:
         "authorized_union_pair_count": first_pull["receipt"]["authorized_membership"]["pair_count"],
         "second_replica_pair_count": second_pull["receipt"]["authorized_membership"]["pair_count"],
         "second_round": "byte-identical-no-op",
+        "pending_outcome_recovery": "protected-and-consumed",
+        "equal_time_scope_replay": "rejected",
         "authority_boundary": "synthetic sync proof grants no execution, disclosure, authorization, or trust",
     }
-    return receipt_with_digest(
-        "artifact-memory/coordination-sync-conformance-receipt/v0",
+    receipt = receipt_with_digest(
+        CONFORMANCE_SCHEMA_ID,
         "coordination-sync-conformance-receipt://sha-256/",
         body,
+    )
+    validate(
+        receipt,
+        load_schema(
+            "core",
+            "coordination-sync-conformance-receipt.v0.schema.json",
+        ),
+    )
+    return receipt
+
+
+def render_coordination_sync_conformance_receipt(
+    receipt: dict[str, Any],
+) -> str:
+    return (
+        "# Coordination sync conformance receipt\n\n"
+        f"- Outcome: `{receipt['outcome']}`\n"
+        f"- Replicas: `{receipt['replica_count']}`\n"
+        f"- Authorized union pairs: `{receipt['authorized_union_pair_count']}`\n"
+        f"- Pair-set vectors: `{receipt['pair_set_vector_count']}`\n"
+        f"- Typed outcomes: `{receipt['typed_outcome_count']}`\n"
+        f"- Task-chain vectors: `{receipt['task_chain_vector_count']}`\n"
+        f"- Record-bound egress vectors: `{receipt['record_bound_egress_vector_count']}`\n"
+        f"- Project-provenance vectors: `{receipt['project_provenance_vector_count']}`\n"
+        f"- Label-rotation vectors: `{receipt['label_rotation_vector_count']}`\n"
+        f"- Pagination pages: `{receipt['pagination_page_count']}`\n"
+        f"- Second round: `{receipt['second_round']}`\n"
+        f"- Pending outcome recovery: `{receipt['pending_outcome_recovery']}`\n"
+        f"- Equal-time scope replay: `{receipt['equal_time_scope_replay']}`\n"
+        f"- Receipt: `{receipt['receipt_id']}`\n\n"
+        f"Authority boundary: {receipt['authority_boundary']}.\n"
     )

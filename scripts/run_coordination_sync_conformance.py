@@ -3,24 +3,34 @@
 
 from __future__ import annotations
 
-import argparse
-import json
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from artifact_memory.coordination_sync_conformance import run
+from artifact_memory.conformance_cli import run_conformance_cli
+from artifact_memory.coordination_sync_conformance import (
+    render_coordination_sync_conformance_receipt,
+    run,
+)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true")
-    args = parser.parse_args()
-    result = run(ROOT / "fixtures")
-    print(json.dumps(result, sort_keys=True, indent=None if args.check else 2))
-    return 0
+DEFAULT_FIXTURE = ROOT / "fixtures" / "coordination-sync" / "v0"
+
+
+def main(argv: list[str] | None = None) -> int:
+    return run_conformance_cli(
+        argv,
+        default_fixture=DEFAULT_FIXTURE,
+        run_fixture=lambda fixture: run(ROOT / "fixtures", fixture),
+        expected_receipt=Path("expected-receipt.json"),
+        mismatch_message=(
+            "coordination sync conformance receipt does not match checked evidence"
+        ),
+        render_receipt=render_coordination_sync_conformance_receipt,
+        expected_markdown=Path("receipt.md"),
+    )
 
 
 if __name__ == "__main__":
