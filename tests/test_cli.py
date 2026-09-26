@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "fixtures" / "synthetic" / "contracts"
 RELEASE_FIXTURES = ROOT / "fixtures" / "synthetic" / "release"
 ARCHIVE_FIXTURES = ROOT / "fixtures" / "synthetic" / "archives" / "v1"
+COORDINATION_FIXTURES = ROOT / "fixtures" / "coordination"
 
 
 class CliTests(unittest.TestCase):
@@ -31,6 +32,130 @@ class CliTests(unittest.TestCase):
         result = self.run_cli("version", "--json")
         self.assertEqual(result.returncode, 0)
         self.assertEqual(json.loads(result.stdout)["contract_version"], "v0")
+
+    def test_record_append_is_local_idempotent_and_does_not_require_a_hub(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary) / "vault"
+            first = self.run_cli(
+                "record",
+                "append",
+                str(COORDINATION_FIXTURES / "task-open.json"),
+                "--vault",
+                str(vault),
+                "--json",
+            )
+            second = self.run_cli(
+                "record",
+                "append",
+                str(COORDINATION_FIXTURES / "task-open.json"),
+                "--vault",
+                str(vault),
+                "--json",
+            )
+            stored_count = len(
+                list((vault / "canonical" / "coordination").glob("*/*.json"))
+            )
+
+        self.assertEqual(first.returncode, 0)
+        self.assertEqual(second.returncode, 0)
+        first_receipt = json.loads(first.stdout)
+        second_receipt = json.loads(second.stdout)
+        self.assertEqual(first_receipt["outcome"], "appended")
+        self.assertEqual(second_receipt["outcome"], "duplicate")
+        self.assertEqual(first_receipt["record_ref"], second_receipt["record_ref"])
+        self.assertEqual(first_receipt["delivery_state"], "not-attempted")
+        self.assertEqual(second_receipt["delivery_state"], "not-attempted")
+        self.assertEqual(stored_count, 1)
+
+    def test_record_append_rejects_invalid_coordination_input_without_writing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            invalid = root / "invalid.json"
+            invalid.write_text("{}", encoding="utf-8")
+            vault = root / "vault"
+            result = self.run_cli(
+                "record",
+                "append",
+                str(invalid),
+                "--vault",
+                str(vault),
+                "--json",
+            )
+            vault_created = vault.exists()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            json.loads(result.stdout)["diagnostics"][0]["code"],
+            "schema-unsupported",
+        )
+        self.assertFalse(vault_created)
+
+    def test_record_append_rejects_deep_input_without_a_traceback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate = json.loads(
+                (COORDINATION_FIXTURES / "task-open.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            value = {}
+            cursor = value
+            for _ in range(70):
+                cursor["nested"] = {}
+                cursor = cursor["nested"]
+            candidate["extensions"][
+                "https://synthetic.example/extensions/deep/v1"
+            ] = {"version": "v1", "required": False, "value": value}
+            record = root / "deep.json"
+            record.write_text(json.dumps(candidate), encoding="utf-8")
+            vault = root / "vault"
+            result = self.run_cli(
+                "record",
+                "append",
+                str(record),
+                "--vault",
+                str(vault),
+                "--json",
+            )
+            vault_created = vault.exists()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            json.loads(result.stdout)["diagnostics"][0]["code"],
+            "sync-depth-limit",
+        )
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertFalse(vault_created)
+
+    def test_record_append_rejects_unpaired_surrogate_without_a_traceback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate = json.loads(
+                (COORDINATION_FIXTURES / "task-open.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            candidate["title"] = "\ud800"
+            record = root / "surrogate.json"
+            record.write_text(json.dumps(candidate), encoding="utf-8")
+            vault = root / "vault"
+            result = self.run_cli(
+                "record",
+                "append",
+                str(record),
+                "--vault",
+                str(vault),
+                "--json",
+            )
+            vault_created = vault.exists()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            json.loads(result.stdout)["diagnostics"][0]["code"],
+            "canonicalization-failed",
+        )
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertFalse(vault_created)
 
     def test_valid_record(self):
         result = self.run_cli("validate", str(FIXTURES / "v0-valid-record.json"), "--json")

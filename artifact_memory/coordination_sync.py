@@ -11,6 +11,7 @@ import hashlib
 import os
 import stat
 import tempfile
+from bisect import bisect_right
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
@@ -33,17 +34,26 @@ from .coordination import (
     validate_coordination_record_body,
     validate_coordination_records,
 )
-from .schema_resources import core_schemas
+from .schema_resources import core_schemas, load_schema
 from .validator import ValidationFailure, load_json, load_json_bytes, validate
 
 
 SYNC_RECEIPT_SCHEMA_ID = "artifact-memory/coordination-sync-receipt/v0"
+LOCAL_APPEND_RECEIPT_SCHEMA_ID = (
+    "artifact-memory/coordination-local-append-receipt/v0"
+)
 MEMBERSHIP_PAGE_SCHEMA_ID = (
     "artifact-memory/coordination-authorized-membership-page/v0"
 )
 LOCAL_HUB_SCHEMA_ID = "artifact-memory/local-coordination-hub/v0"
 AUTHORITY_BOUNDARY = (
     "sync receipt grants no execution, disclosure, authorization, or trust"
+)
+LOCAL_APPEND_AUTHORITY_BOUNDARY = (
+    "local append receipt grants no execution, disclosure, authorization, or delivery guarantee"
+)
+_LOCAL_APPEND_RECEIPT_SCHEMA = load_schema(
+    "core", "coordination-local-append-receipt.v0.schema.json"
 )
 PENDING_OUTCOMES_SCHEMA_ID = "artifact-memory/local-coordination-pending-outcomes/v0"
 
@@ -239,9 +249,26 @@ def _validate_storage_root(boundary: Path, *, create: bool) -> None:
     else:
         if not create:
             return
-        boundary.mkdir(parents=True, exist_ok=True)
-        if boundary.is_symlink() or not boundary.is_dir():
+        missing: list[Path] = []
+        current = boundary
+        while not current.exists() and not current.is_symlink():
+            missing.append(current)
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        if current.is_symlink() or not current.is_dir():
             raise SyncFailure("sync-storage-unsafe", "sync storage root is unsafe")
+        for candidate in reversed(missing):
+            parent = candidate.parent
+            try:
+                candidate.mkdir()
+            except FileExistsError:
+                pass
+            if candidate.is_symlink() or not candidate.is_dir():
+                raise SyncFailure("sync-storage-unsafe", "sync storage root is unsafe")
+            _sync_directory(candidate)
+            _sync_directory(parent)
     flags = os.O_RDONLY
     if hasattr(os, "O_DIRECTORY"):
         flags |= os.O_DIRECTORY
@@ -258,6 +285,46 @@ def _validate_storage_root(boundary: Path, *, create: bool) -> None:
         os.close(descriptor)
 
 
+def _sync_directory(path: Path) -> None:
+    """Persist POSIX directory metadata; Windows installs use write-through moves."""
+    if os.name == "nt":
+        return
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError as exc:
+        raise SyncFailure(
+            "sync-storage-durability-unavailable",
+            "sync storage directory metadata could not be made durable",
+        ) from exc
+
+
+def _move_file_write_through(
+    source: str, destination: Path, *, replace: bool
+) -> None:
+    """Install one Windows file with metadata write-through semantics."""
+    import ctypes
+
+    move = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
+    move.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+    move.restype = ctypes.c_int
+    flags = 0x8 | (0x1 if replace else 0)  # WRITE_THROUGH | REPLACE_EXISTING
+    if move(source, str(destination), flags):
+        return
+    error = ctypes.get_last_error()
+    if not replace and error in {80, 183}:
+        raise FileExistsError(error, ctypes.FormatError(error), str(destination))
+    raise OSError(error, ctypes.FormatError(error), str(destination))
+
+
 def _prepare_parent(boundary: Path, path: Path) -> None:
     """Create only real directories beneath a caller-selected storage root."""
     try:
@@ -267,15 +334,19 @@ def _prepare_parent(boundary: Path, path: Path) -> None:
     _validate_storage_root(boundary, create=True)
     current = boundary
     for part in relative.parts[:-1]:
-        current = current / part
-        if current.exists() or current.is_symlink():
-            if current.is_symlink() or not current.is_dir():
+        parent = current
+        candidate = parent / part
+        if candidate.exists() or candidate.is_symlink():
+            if candidate.is_symlink() or not candidate.is_dir():
                 raise SyncFailure(
                     "sync-storage-unsafe",
                     "sync storage contains a symlink or non-directory parent",
                 )
         else:
-            current.mkdir()
+            candidate.mkdir()
+            _sync_directory(candidate)
+            _sync_directory(parent)
+        current = candidate
 
 
 def _write_immutable(boundary: Path, path: Path, data: bytes) -> str:
@@ -294,9 +365,13 @@ def _write_immutable(boundary: Path, path: Path, data: bytes) -> str:
             stream.flush()
             os.fsync(stream.fileno())
         try:
-            os.link(temporary, path)
+            if os.name == "nt":
+                _move_file_write_through(temporary, path, replace=False)
+            else:
+                os.link(temporary, path)
+                _sync_directory(path.parent)
         except FileExistsError:
-            if path.read_bytes() != data:
+            if path.is_symlink() or not path.is_file() or path.read_bytes() != data:
                 raise SyncFailure(
                     "immutable-record-collision",
                     "an immutable coordination path contains different bytes",
@@ -308,6 +383,8 @@ def _write_immutable(boundary: Path, path: Path, data: bytes) -> str:
             os.unlink(temporary)
         except FileNotFoundError:
             pass
+        else:
+            _sync_directory(path.parent)
 
 
 def _write_atomic(boundary: Path, path: Path, data: bytes) -> None:
@@ -318,7 +395,11 @@ def _write_atomic(boundary: Path, path: Path, data: bytes) -> None:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        if os.name == "nt":
+            _move_file_write_through(temporary, path, replace=True)
+        else:
+            os.replace(temporary, path)
+            _sync_directory(path.parent)
     finally:
         try:
             os.unlink(temporary)
@@ -326,12 +407,87 @@ def _write_atomic(boundary: Path, path: Path, data: bytes) -> None:
             pass
 
 
-def store_coordination_record(root: Path, record: dict[str, Any]) -> dict[str, str]:
-    """Append one validated canonical revision to a local vault or hub."""
+def _store_coordination_record(
+    root: Path, record: dict[str, Any]
+) -> tuple[dict[str, str], str]:
     materialized, digest = validate_coordination_record_body(record)
     reference = _pair(materialized, digest)
-    _write_immutable(root, _record_path(root, reference), canonical_bytes(materialized))
+    outcome = _write_immutable(
+        root,
+        _record_path(root, reference),
+        canonical_bytes(materialized),
+    )
+    return reference, outcome
+
+
+def load_local_coordination_record(path: Path) -> dict[str, Any]:
+    """Load one bounded append candidate before recursive schema validation."""
+    try:
+        if path.stat().st_size > MAX_REQUEST_BYTES:
+            raise SyncFailure(
+                "sync-request-too-large",
+                "local append input exceeds the v0 request byte limit",
+            )
+        raw = path.read_bytes()
+        if len(raw) > MAX_REQUEST_BYTES:
+            raise SyncFailure(
+                "sync-request-too-large",
+                "local append input exceeds the v0 request byte limit",
+            )
+        _check_raw_depth(raw)
+        candidate = load_json_bytes(raw)
+    except RecursionError as exc:
+        raise SyncFailure(
+            "sync-depth-limit",
+            "local append input exceeds the v0 nesting limit",
+        ) from exc
+    if not isinstance(candidate, dict):
+        raise ValidationFailure(
+            "invalid-input", "coordination record must be a JSON object"
+        )
+    _walk_bounds(candidate)
+    return candidate
+
+
+def store_coordination_record(root: Path, record: dict[str, Any]) -> dict[str, str]:
+    """Append one validated canonical revision to a local vault or hub."""
+    reference, _ = _store_coordination_record(root, record)
     return reference
+
+
+def append_local_coordination_record(
+    vault: Path, record: dict[str, Any]
+) -> dict[str, Any]:
+    """Append locally without consulting a hub; canonical pairs are the outbox."""
+    try:
+        _walk_bounds(record)
+    except RecursionError as exc:
+        raise SyncFailure(
+            "sync-depth-limit",
+            "local coordination record exceeds the v0 nesting limit",
+        ) from exc
+    materialized, digest = validate_coordination_record_body(record)
+    raw = canonical_bytes(materialized)
+    if len(raw) > MAX_RECORD_BYTES:
+        raise SyncFailure(
+            "sync-record-too-large",
+            "local coordination record exceeds the v0 record byte limit",
+        )
+    reference = _pair(materialized, digest)
+    write_outcome = _write_immutable(vault, _record_path(vault, reference), raw)
+    receipt = receipt_with_digest(
+        LOCAL_APPEND_RECEIPT_SCHEMA_ID,
+        "coordination-local-append-receipt://sha-256/",
+        {
+            "outcome": "appended" if write_outcome == "created" else "duplicate",
+            "record_ref": reference,
+            "storage_state": "local-stored",
+            "delivery_state": "not-attempted",
+            "authority_boundary": LOCAL_APPEND_AUTHORITY_BOUNDARY,
+        },
+    )
+    validate(receipt, _LOCAL_APPEND_RECEIPT_SCHEMA)
+    return receipt
 
 
 def _record_files(root: Path) -> list[Path]:
@@ -572,8 +728,16 @@ def _binding(
 def _walk_bounds(value: Any, depth: int = 0) -> None:
     if depth > MAX_NESTING_DEPTH:
         raise SyncFailure("sync-depth-limit", "sync record nesting exceeds the v0 limit")
-    if isinstance(value, str) and len(value.encode("utf-8")) > MAX_STRING_BYTES:
-        raise SyncFailure("sync-field-too-large", "sync string field exceeds the v0 limit")
+    if isinstance(value, str):
+        try:
+            encoded = value.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise SyncFailure(
+                "canonicalization-failed",
+                "unpaired Unicode surrogate is unsupported in a sync record",
+            ) from exc
+        if len(encoded) > MAX_STRING_BYTES:
+            raise SyncFailure("sync-field-too-large", "sync string field exceeds the v0 limit")
     if isinstance(value, list):
         for item in value:
             _walk_bounds(item, depth + 1)
@@ -933,20 +1097,33 @@ def _admit_submission(
     return _outcome(stored.record_ref, code)
 
 
-def _known_hub_pairs(
+def _acknowledged_hub_state(
     vault: Path, hub_id: str, principal_id: str
-) -> set[tuple[str, str]]:
-    """Recover acknowledged hub membership only from verified prior projections."""
+) -> tuple[
+    set[tuple[str, str]],
+    set[tuple[str, str]],
+    tuple[str, str] | None,
+    tuple[str, str] | None,
+    bool,
+]:
+    """Recover admitted pairs and durable fair-scheduling state."""
     _validate_storage_root(vault, create=False)
     roots = vault / "generated" / "coordination-sync" / "projections"
     known: set[tuple[str, str]] = set()
+    attempted: set[tuple[str, str]] = set()
+    fresh_cursor: tuple[str, str] | None = None
+    retry_cursor: tuple[str, str] | None = None
+    retry_first = False
     if not roots.exists():
-        return known
+        return known, attempted, fresh_cursor, retry_cursor, retry_first
     if roots.is_symlink() or not roots.is_dir():
         raise SyncFailure("sync-storage-unsafe", "sync projection storage is unsafe")
     projections = sorted(roots.iterdir())
     if any(item.is_symlink() or not item.is_dir() for item in projections):
         raise SyncFailure("sync-storage-unsafe", "sync projection storage is unsafe")
+    verified: list[
+        tuple[datetime, str, dict[str, Any], list[dict[str, str]]]
+    ] = []
     for projection in projections:
         try:
             receipt = load_json(projection / "receipt.json")
@@ -969,13 +1146,49 @@ def _known_hub_pairs(
                 continue
         except ValidationFailure:
             continue
+        verified.append(
+            (
+                _parse_receipt_time(receipt["completed_at"]),
+                receipt["receipt_id"],
+                receipt,
+                pairs,
+            )
+        )
+
+    for _, _, receipt, pairs in sorted(verified, key=lambda item: item[:2]):
         known.update(_pair_key(pair) for pair in pairs)
-        known.update(
+        outcome_keys = [
             _pair_key(item["record_ref"])
             for item in receipt["submission_outcomes"]
-            if item["outcome"] == "admitted"
-        )
-    return known
+        ]
+        fresh_keys = [key for key in outcome_keys if key not in attempted]
+        retry_keys = [key for key in outcome_keys if key in attempted]
+        if fresh_keys:
+            fresh_cursor = max(
+                fresh_keys,
+                key=lambda key: _record_path(
+                    vault,
+                    {"record_id": key[0], "revision_digest": key[1]},
+                ),
+            )
+        if retry_keys:
+            retry_cursor = max(
+                retry_keys,
+                key=lambda key: _record_path(
+                    vault,
+                    {"record_id": key[0], "revision_digest": key[1]},
+                ),
+            )
+        if outcome_keys:
+            # Alternate classes when both remain. A batch that serviced any
+            # retry yields first position to fresh work next; an all-fresh
+            # batch yields it to retries.
+            retry_first = not retry_keys
+        for item, key in zip(receipt["submission_outcomes"], outcome_keys):
+            attempted.add(key)
+            if item["outcome"] == "admitted":
+                known.add(key)
+    return known, attempted, fresh_cursor, retry_cursor, retry_first
 
 
 def _pending_outcomes_path(vault: Path) -> Path:
@@ -1127,7 +1340,13 @@ def _push_bound(
     principal_id: str,
 ) -> list[dict[str, Any]]:
     """Push while the caller holds the authenticated principal lock."""
-    known = _known_hub_pairs(vault, config["hub_id"], principal_id)
+    (
+        known,
+        attempted,
+        fresh_cursor,
+        retry_cursor,
+        retry_first,
+    ) = _acknowledged_hub_state(vault, config["hub_id"], principal_id)
     pending = _load_pending_outcomes(
         vault,
         hub=hub,
@@ -1148,16 +1367,70 @@ def _push_bound(
         )
         for record_id, revision_digest in known
     }
-    submission_paths = [
+    attempted_paths = {
+        _record_path(
+            vault,
+            {"record_id": record_id, "revision_digest": revision_digest},
+        )
+        for record_id, revision_digest in attempted
+    }
+    candidates = [
         path for path in _record_files(vault) if path not in known_paths
     ]
-    if len(submission_paths) > MAX_SUBMITTED_RECORDS:
-        raise SyncFailure("sync-record-limit", "sync request exceeds the v0 record limit")
-    sizes = [path.stat().st_size for path in submission_paths]
-    if any(size > MAX_RECORD_BYTES for size in sizes):
-        raise SyncFailure("sync-record-too-large", "sync record exceeds the v0 byte limit")
-    if sum(sizes) > MAX_REQUEST_BYTES:
-        raise SyncFailure("sync-request-too-large", "sync request exceeds the v0 byte limit")
+    # Keep independent cyclic cursors for first attempts and retries. When both
+    # classes remain, alternate which class leads the bounded batch so neither
+    # sustained fresh ingestion nor a terminal retry prefix can starve the
+    # other class forever, including when the deployment limit is one record.
+    never_attempted_paths = [
+        path for path in candidates if path not in attempted_paths
+    ]
+    retry_paths = [path for path in candidates if path in attempted_paths]
+    if fresh_cursor is not None and never_attempted_paths:
+        cursor_path = _record_path(
+            vault,
+            {"record_id": fresh_cursor[0], "revision_digest": fresh_cursor[1]},
+        )
+        split = bisect_right(never_attempted_paths, cursor_path)
+        never_attempted_paths = (
+            never_attempted_paths[split:] + never_attempted_paths[:split]
+        )
+    if retry_cursor is not None and retry_paths:
+        cursor_path = _record_path(
+            vault,
+            {"record_id": retry_cursor[0], "revision_digest": retry_cursor[1]},
+        )
+        split = bisect_right(retry_paths, cursor_path)
+        retry_paths = retry_paths[split:] + retry_paths[:split]
+    submission_paths = (
+        retry_paths + never_attempted_paths
+        if retry_first and retry_paths and never_attempted_paths
+        else never_attempted_paths + retry_paths
+    )
+    bounded_paths: list[Path] = []
+    bounded_bytes = 0
+    for path in submission_paths:
+        try:
+            size = path.stat().st_size
+        except OSError as exc:
+            raise SyncFailure(
+                "local-record-invalid",
+                "canonical coordination storage is unreadable",
+            ) from exc
+        if size > MAX_RECORD_BYTES:
+            raise SyncFailure(
+                "sync-record-too-large", "sync record exceeds the v0 byte limit"
+            )
+        if size > MAX_REQUEST_BYTES:
+            raise SyncFailure(
+                "sync-request-too-large", "sync request exceeds the v0 byte limit"
+            )
+        if len(bounded_paths) >= MAX_SUBMITTED_RECORDS:
+            break
+        if bounded_paths and bounded_bytes + size > MAX_REQUEST_BYTES:
+            break
+        bounded_paths.append(path)
+        bounded_bytes += size
+    submission_paths = bounded_paths
     submissions = _load_record_paths(vault, submission_paths)
     _request_bounds(submissions)
     hub_by_pair = {_pair_key(item.record_ref): item for item in _scan_records(hub)}

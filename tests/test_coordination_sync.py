@@ -17,6 +17,7 @@ from artifact_memory.coordination_sync import (
     MEMBERSHIP_PAGE_SCHEMA_ID,
     SYNC_RECEIPT_SCHEMA_ID,
     SyncFailure,
+    append_local_coordination_record,
     apply_pull_response,
     build_membership_pages,
     build_pull_response,
@@ -79,6 +80,17 @@ def task_for(label: dict, *, other_origin: bool = False, project_id: str = PROJE
         "record_id": label["record_id"],
         "revision_digest": revision_digest(label),
     }
+    return task
+
+
+def unique_task_for(label: dict, ordinal: int) -> dict:
+    task = task_for(label)
+    task_id = "task_" + f"{ordinal:026d}"
+    task["taskId"] = task_id
+    task["record_id"] = (
+        f"record://coordination/{task['originId']}/task/{task_id}"
+    )
+    task["title"] = f"Synthetic bounded-batch task {ordinal}"
     return task
 
 
@@ -217,6 +229,293 @@ class CoordinationSyncTests(unittest.TestCase):
                 (directory_digest(hub), directory_digest(first), directory_digest(second)),
                 before,
             )
+
+    def test_outbox_larger_than_record_limit_drains_in_bounded_batches(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            for ordinal in range(3):
+                append_local_coordination_record(
+                    vault, unique_task_for(label, ordinal)
+                )
+
+            with patch(
+                "artifact_memory.coordination_sync.MAX_SUBMITTED_RECORDS", 2
+            ):
+                first = sync(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:00Z",
+                )
+                second = sync(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:01Z",
+                )
+                third = sync(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:02Z",
+                )
+
+            self.assertEqual(len(first["submission_outcomes"]), 2)
+            self.assertEqual(len(second["submission_outcomes"]), 1)
+            self.assertEqual(third["submission_outcomes"], [])
+            self.assertEqual(len(load_authorized_projection(vault)), 3)
+            self.assertEqual(
+                len(list((hub / "canonical" / "coordination").glob("*/*.json"))),
+                3,
+            )
+
+    def test_outbox_larger_than_byte_limit_drains_in_bounded_batches(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            tasks = [unique_task_for(label, ordinal) for ordinal in range(2)]
+            for task in tasks:
+                append_local_coordination_record(vault, task)
+            one_record_limit = max(len(canonical_bytes(task)) for task in tasks) + 1
+
+            with patch(
+                "artifact_memory.coordination_sync.MAX_REQUEST_BYTES",
+                one_record_limit,
+            ):
+                first = sync(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:00Z",
+                )
+                second = sync(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:01Z",
+                )
+
+            self.assertEqual(len(first["submission_outcomes"]), 1)
+            self.assertEqual(len(second["submission_outcomes"]), 1)
+            self.assertEqual(len(load_authorized_projection(vault)), 2)
+
+    def test_rejected_and_quarantined_prefix_cannot_starve_later_append(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+
+            rejected = unique_task_for(label, 0)
+            rejected["projectId"] = PROJECT_B
+            rejected["projectName"] = "sample-analytics"
+            append_local_coordination_record(vault, rejected)
+
+            original = unique_task_for(label, 1)
+            original["projectId"] = PROJECT_B
+            original["projectName"] = "sample-analytics"
+            store_coordination_record(hub, original)
+            collision = copy.deepcopy(original)
+            collision["title"] = "Synthetic same-pair collision"
+            write_claimed(vault, collision, revision_digest(original))
+
+            admitted = unique_task_for(label, 2)
+            append_local_coordination_record(vault, admitted)
+
+            with patch(
+                "artifact_memory.coordination_sync.MAX_SUBMITTED_RECORDS", 2
+            ):
+                first = sync(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:00Z",
+                )
+                second = sync(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:01Z",
+                )
+                third = sync(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:02Z",
+                )
+
+            self.assertEqual(
+                [item["outcome"] for item in first["submission_outcomes"]],
+                ["rejected", "quarantined"],
+            )
+            self.assertIn(
+                {
+                    "record_id": admitted["record_id"],
+                    "revision_digest": revision_digest(admitted),
+                },
+                [
+                    item["record_ref"]
+                    for result in (second, third)
+                    for item in result["submission_outcomes"]
+                ],
+            )
+            self.assertIn(
+                "admitted",
+                [
+                    item["outcome"]
+                    for result in (second, third)
+                    for item in result["submission_outcomes"]
+                ],
+            )
+            self.assertEqual(
+                [record["record_id"] for record in load_authorized_projection(vault)],
+                [admitted["record_id"]],
+            )
+
+    def test_previously_attempted_receipt_retries_after_terminal_prefix(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            opened, claimed = claimed_task_for(label)
+
+            receipts = []
+            for ordinal in range(1, 4):
+                receipt = work_receipt_for(label, claimed)
+                receipt_id = receipt["receiptId"][:-2] + f"{ordinal:02d}"
+                receipt["receiptId"] = receipt_id
+                receipt["record_id"] = (
+                    f"record://coordination/{receipt['originId']}/receipt/{receipt_id}"
+                )
+                receipt["writer"] = "coordination-principal://synthetic/not-bound"
+                receipts.append(receipt)
+
+            receipts.sort(key=lambda item: claimed_path(vault, item))
+            retriable = receipts[-1]
+            retriable["writer"] = PRINCIPAL
+            retriable_ref = {
+                "record_id": retriable["record_id"],
+                "revision_digest": revision_digest(retriable),
+            }
+            for receipt in receipts:
+                append_local_coordination_record(vault, receipt)
+
+            with patch(
+                "artifact_memory.coordination_sync.MAX_SUBMITTED_RECORDS", 1
+            ):
+                for ordinal in range(3):
+                    initial = sync(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at=f"2026-09-25T20:00:0{ordinal}Z",
+                    )
+                    self.assertEqual(
+                        initial["submission_outcomes"][0]["outcome"],
+                        "rejected",
+                    )
+
+                store_coordination_record(hub, opened)
+                store_coordination_record(hub, claimed)
+                retried = []
+                for ordinal in range(3, 9):
+                    append_local_coordination_record(
+                        vault,
+                        unique_task_for(label, ordinal + 100),
+                    )
+                    result = sync(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at=f"2026-09-25T20:00:{ordinal:02d}Z",
+                    )
+                    retried.extend(result["submission_outcomes"])
+
+            self.assertIn(
+                {
+                    "record_ref": retriable_ref,
+                    "outcome": "admitted",
+                    "code": "admitted",
+                },
+                retried,
+            )
+
+    def test_local_append_rejects_undeliverable_record_bounds_before_write(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            label = label_for([PROJECT_A])
+            oversized = unique_task_for(label, 1)
+            limit = len(canonical_bytes(oversized)) + 1
+            oversized["title"] += "x" * 100
+            with patch(
+                "artifact_memory.coordination_sync.MAX_RECORD_BYTES", limit
+            ):
+                with self.assertRaises(SyncFailure) as raised:
+                    append_local_coordination_record(root / "oversized", oversized)
+            self.assertEqual(raised.exception.code, "sync-record-too-large")
+            self.assertFalse((root / "oversized").exists())
+
+            long_field = unique_task_for(label, 2)
+            long_field["title"] = "x" * 300
+            with patch(
+                "artifact_memory.coordination_sync.MAX_STRING_BYTES", 256
+            ):
+                with self.assertRaises(SyncFailure) as raised:
+                    append_local_coordination_record(root / "long-field", long_field)
+            self.assertEqual(raised.exception.code, "sync-field-too-large")
+            self.assertFalse((root / "long-field").exists())
+
+            too_deep = unique_task_for(label, 3)
+            value: dict[str, object] = {}
+            cursor = value
+            for _ in range(70):
+                nested: dict[str, object] = {}
+                cursor["nested"] = nested
+                cursor = nested
+            too_deep["extensions"][
+                "https://synthetic.example/extensions/deep/v1"
+            ] = {"version": "v1", "required": False, "value": value}
+            with self.assertRaises(SyncFailure) as raised:
+                append_local_coordination_record(root / "too-deep", too_deep)
+            self.assertEqual(raised.exception.code, "sync-depth-limit")
+            self.assertFalse((root / "too-deep").exists())
+
+            surrogate = unique_task_for(label, 4)
+            surrogate["title"] = "\ud800"
+            with self.assertRaises(SyncFailure) as raised:
+                append_local_coordination_record(root / "surrogate", surrogate)
+            self.assertEqual(raised.exception.code, "canonicalization-failed")
+            self.assertFalse((root / "surrogate").exists())
+
+    def test_local_append_syncs_created_directory_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = root / "first"
+            second = first / "second"
+            vault = second / "vault"
+            label = label_for([PROJECT_A])
+            import artifact_memory.coordination_sync as coordination_sync
+
+            with patch.object(
+                coordination_sync,
+                "_sync_directory",
+                wraps=coordination_sync._sync_directory,
+            ) as sync_directory:
+                append_local_coordination_record(vault, unique_task_for(label, 1))
+
+            synced = {call.args[0] for call in sync_directory.call_args_list}
+            record_directories = list(
+                (vault / "canonical" / "coordination").iterdir()
+            )
+            self.assertEqual(len(record_directories), 1)
+            self.assertIn(record_directories[0], synced)
+            self.assertTrue({root, first, second, vault}.issubset(synced))
 
     def test_distinct_authoritative_revisions_of_one_record_merge_by_exact_pair(self):
         with tempfile.TemporaryDirectory() as temporary:
