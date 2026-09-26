@@ -245,6 +245,89 @@ def run(fixtures: Path) -> dict[str, Any]:
                     f"record-bound egress vector failed: {vector['name']}"
                 )
 
+    for vector in vectors["project_provenance_vectors"]:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            provenance_label = deepcopy(label)
+            provenance_label["projectNames"] = [
+                item
+                for item in provenance_label["projectNames"]
+                if item["projectId"] == PROJECT_B
+            ]
+            configure_local_hub(
+                hub,
+                hub_id=HUB_ID,
+                scope_generation=1,
+                bindings=[
+                    {
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": provenance_label,
+                    }
+                ],
+            )
+            store_coordination_record(
+                vault,
+                _task(fixtures, provenance_label, False),
+            )
+            outcomes = push(vault, hub, session_id=SESSION)
+            if [item["code"] for item in outcomes] != [vector["expected_code"]]:
+                raise RuntimeError(
+                    f"project-provenance vector failed: {vector['name']}"
+                )
+
+    for vector in vectors["label_rotation_vectors"]:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            broad = deepcopy(label)
+            configure_local_hub(
+                hub,
+                hub_id=HUB_ID,
+                scope_generation=vector["scope_generation"],
+                bindings=[
+                    {
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": broad,
+                    }
+                ],
+            )
+            store_coordination_record(vault, _task(fixtures, broad, True))
+            outcomes = push(vault, hub, session_id=SESSION)
+            narrow = deepcopy(broad)
+            narrow["may"]["readProjects"] = [PROJECT_A]
+            narrow["mayNot"]["readProjects"] = [PROJECT_B]
+            configure_local_hub(
+                hub,
+                hub_id=HUB_ID,
+                scope_generation=vector["scope_generation"],
+                bindings=[
+                    {
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": narrow,
+                    }
+                ],
+            )
+            result = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            if (
+                result["receipt"]["submission_outcomes"] != outcomes
+                or result["receipt"]["scope_generation"]
+                != vector["scope_generation"]
+                or len(result["authorized_pairs"])
+                != vector["expected_authorized_pair_count"]
+            ):
+                raise RuntimeError(
+                    f"label-rotation vector failed: {vector['name']}"
+                )
+
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         hub, first, second = root / "hub", root / "first", root / "second"
@@ -285,6 +368,10 @@ def run(fixtures: Path) -> dict[str, Any]:
         "record_bound_egress_vector_count": len(
             vectors["record_bound_egress_vectors"]
         ),
+        "project_provenance_vector_count": len(
+            vectors["project_provenance_vectors"]
+        ),
+        "label_rotation_vector_count": len(vectors["label_rotation_vectors"]),
         "pagination_page_count": len(pages),
         "replica_count": 2,
         "authorized_union_pair_count": first_pull["receipt"]["authorized_membership"]["pair_count"],

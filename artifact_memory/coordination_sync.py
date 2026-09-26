@@ -549,6 +549,11 @@ def _task_admission_lock(hub: Path, record_id: str) -> Iterator[None]:
         yield
 
 
+def _label_declares_project(label: dict[str, Any], project_id: str) -> bool:
+    """Match record projects to UUID provenance carried by the bound label."""
+    return any(item["projectId"] == project_id for item in label["projectNames"])
+
+
 @contextmanager
 def _projection_apply_lock(vault: Path) -> Iterator[None]:
     with _advisory_lock(
@@ -591,6 +596,8 @@ def _submission_code(
     )
     if project_id not in label["may"][permission]:
         return "unauthorized-project"
+    if not _label_declares_project(label, project_id):
+        return "schema-invalid"
     if schema_id == TASK_PACKET_SCHEMA_ID:
         if materialized["status"] != "open":
             return "principal-mismatch"
@@ -862,10 +869,7 @@ def _load_pending_outcomes(
             "pending submission outcomes have an invalid AccessLabel reference",
         ) from exc
     if pending_label_ref != current_label_ref:
-        if (
-            pending_label_ref["record_id"] != current_label_ref["record_id"]
-            or pending_generation >= config["scope_generation"]
-        ):
+        if pending_label_ref["record_id"] != current_label_ref["record_id"]:
             raise SyncFailure(
                 "sync-pending-binding-mismatch",
                 "pending submission outcomes belong to another AccessLabel identity",

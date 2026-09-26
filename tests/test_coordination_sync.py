@@ -396,6 +396,37 @@ class CoordinationSyncTests(unittest.TestCase):
             rejected = push(other, hub, session_id=SESSION)
             self.assertEqual(rejected[0]["code"], "principal-mismatch")
 
+    def test_sync_intake_requires_bound_label_project_provenance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub = root / "hub"
+            label = label_for([PROJECT_A, PROJECT_B])
+            label["projectNames"] = [
+                item
+                for item in label["projectNames"]
+                if item["projectId"] == PROJECT_B
+            ]
+            configure(hub, label)
+
+            task_vault = root / "task-vault"
+            store_coordination_record(task_vault, task_for(label))
+            task_outcomes = push(task_vault, hub, session_id=SESSION)
+            self.assertEqual([item["code"] for item in task_outcomes], ["schema-invalid"])
+
+            opened, claimed = claimed_task_for(label)
+            store_coordination_record(hub, opened)
+            store_coordination_record(hub, claimed)
+            receipt_vault = root / "receipt-vault"
+            store_coordination_record(
+                receipt_vault,
+                work_receipt_for(label, claimed),
+            )
+            receipt_outcomes = push(receipt_vault, hub, session_id=SESSION)
+            self.assertEqual(
+                [item["code"] for item in receipt_outcomes],
+                ["schema-invalid"],
+            )
+
     def test_same_pair_different_bytes_quarantines_and_names_both_observed_digests(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -778,6 +809,35 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertNotIn(task_b["record_id"], json.dumps(exported))
             self.assertEqual(len(list((hub / "policy" / "labels").glob("*/*.json"))), 2)
 
+    def test_same_generation_label_revision_rebuilds_projection(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            broad = label_for([PROJECT_A, PROJECT_B])
+            configure(hub, broad, generation=1)
+            store_coordination_record(hub, task_for(broad))
+            task_b = task_for(broad, other_origin=True, project_id=PROJECT_B)
+            store_coordination_record(hub, task_b)
+            first = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            self.assertEqual(len(first["authorized_pairs"]), 2)
+
+            narrow = label_for([PROJECT_A])
+            configure(hub, narrow, generation=1)
+            second = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T21:00:00Z",
+            )
+            self.assertEqual(second["receipt"]["scope_generation"], 1)
+            self.assertEqual(len(second["authorized_pairs"]), 1)
+            self.assertNotIn(task_b["record_id"], json.dumps(second))
+
     def test_egress_intersects_caller_and_record_bound_access_labels(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1010,6 +1070,44 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(result["receipt"]["scope_generation"], 2)
             self.assertFalse(pending_path.exists())
             self.assertEqual(len(load_authorized_projection(vault)), 1)
+
+    def test_pending_outcomes_reconcile_across_same_generation_label_revision(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            broad = label_for([PROJECT_A, PROJECT_B])
+            configure(hub, broad, generation=1)
+            task = task_for(broad, other_origin=True, project_id=PROJECT_B)
+            store_coordination_record(vault, task)
+            outcomes = push(vault, hub, session_id=SESSION)
+            pending_path = (
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "pending-submission-outcomes.json"
+            )
+
+            narrow = label_for([PROJECT_A])
+            configure(hub, narrow, generation=1)
+            before = pending_path.read_bytes()
+            with self.assertRaises(SyncFailure) as push_blocked:
+                push(vault, hub, session_id=SESSION)
+            self.assertEqual(
+                push_blocked.exception.code,
+                "sync-pending-reconciliation-required",
+            )
+            self.assertEqual(pending_path.read_bytes(), before)
+
+            result = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            self.assertEqual(result["receipt"]["submission_outcomes"], outcomes)
+            self.assertEqual(result["receipt"]["scope_generation"], 1)
+            self.assertEqual(result["authorized_pairs"], [])
+            self.assertFalse(pending_path.exists())
 
     def test_acknowledged_pairs_are_filtered_by_hub_and_principal(self):
         with tempfile.TemporaryDirectory() as temporary:

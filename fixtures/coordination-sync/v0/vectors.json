@@ -52,6 +52,19 @@
       "expected_excluded_count": 3
     }
   ],
+  "project_provenance_vectors": [
+    {
+      "name": "permission-without-project-name-provenance",
+      "expected_code": "schema-invalid"
+    }
+  ],
+  "label_rotation_vectors": [
+    {
+      "name": "same-generation-revision-reconciles-pending-outcomes",
+      "scope_generation": 1,
+      "expected_authorized_pair_count": 0
+    }
+  ],
   "pagination": {
     "pair_count": 501,
     "expected_page_count": 2,
