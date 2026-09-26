@@ -192,8 +192,15 @@ def _read_manifest_bytes(repo_root: Path) -> bytes:
 
 def load_repo_identity(repo_root: Path) -> dict[str, str]:
     """Load one strict, committed repository identity manifest."""
-    candidate = load_json_bytes(_read_manifest_bytes(repo_root))
-    validate(candidate, REPO_IDENTITY_SCHEMA)
+    try:
+        candidate = load_json_bytes(_read_manifest_bytes(repo_root))
+        validate(candidate, REPO_IDENTITY_SCHEMA)
+    except RecursionError as exc:
+        raise ValidationFailure(
+            "invalid-json",
+            "repository identity manifest exceeds supported JSON nesting",
+            "$",
+        ) from exc
     return {"uuid": candidate["uuid"], "humanName": candidate["humanName"]}
 
 

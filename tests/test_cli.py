@@ -236,6 +236,32 @@ class CliTests(unittest.TestCase):
         self.assertEqual(diagnostic["code"], "constraint-failed")
         self.assertEqual(diagnostic["path"], "$.roots[1].uuid")
 
+    def test_repo_validate_rejects_recursive_manifest_with_typed_receipt(self):
+        fixture = ROOT / "fixtures" / "coordination-repo-identity" / "v0"
+        with tempfile.TemporaryDirectory() as temporary:
+            invalid_root = Path(temporary).resolve() / "recursive"
+            identity = invalid_root / ".agent-memory"
+            identity.mkdir(parents=True)
+            (identity / "repo.json").write_text(
+                ("[" * 100_000) + ("]" * 100_000),
+                encoding="utf-8",
+            )
+            result = self.run_cli(
+                "repo",
+                "validate",
+                str(fixture / "repositories" / "alpha"),
+                str(invalid_root),
+                "--records",
+                str(COORDINATION_FIXTURES / "access-label.json"),
+                str(COORDINATION_FIXTURES / "task-open.json"),
+                "--json",
+            )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        diagnostic = json.loads(result.stdout)["diagnostics"][0]
+        self.assertEqual(diagnostic["code"], "invalid-json")
+        self.assertEqual(diagnostic["path"], "$.roots[1]")
+
     def test_project_reports_projection_creation_failure_as_json(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = io.StringIO()
