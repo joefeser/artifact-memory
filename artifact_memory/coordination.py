@@ -171,6 +171,42 @@ def _validate_label_sets(label: dict[str, Any]) -> None:
         )
 
 
+def validate_coordination_record_body(
+    candidate: dict[str, Any],
+) -> tuple[dict[str, Any], str]:
+    """Validate one coordination body without claiming cross-record admission.
+
+    Sync intake uses this boundary before it evaluates server-owned principal,
+    label, and project policy. Exact predecessor and receipt bindings still
+    require :func:`validate_coordination_records` over a complete record set.
+    """
+    if not isinstance(candidate, dict):
+        raise ValidationFailure(
+            "invalid-input", "coordination record must be a JSON object"
+        )
+    schema_id = candidate.get("schema_id")
+    if schema_id not in COORDINATION_SCHEMA_IDS:
+        raise ValidationFailure(
+            "schema-unsupported",
+            "coordination intake accepts only coordination v0 record schemas",
+            "$.schema_id",
+        )
+    try:
+        validate(candidate, core_schemas()[schema_id])
+        _validate_identity(candidate)
+        _validate_extensions(candidate)
+        if schema_id == ACCESS_LABEL_SCHEMA_ID:
+            _validate_label_sets(candidate)
+        elif schema_id == WORK_RECEIPT_SCHEMA_ID:
+            _validate_portable_locations(candidate)
+        digest = revision_digest(candidate)
+    except CanonicalizationFailure as exc:
+        raise ValidationFailure(
+            "canonicalization-failed", str(exc), "$"
+        ) from exc
+    return deepcopy(candidate), digest
+
+
 def _label_declares_project(label: dict[str, Any], project_id: str) -> bool:
     """Match only the authoritative UUID; projectName is immutable provenance."""
     return any(item["projectId"] == project_id for item in label["projectNames"])
@@ -289,42 +325,15 @@ def validate_coordination_records(records: list[dict[str, Any]]) -> dict[str, An
     """
     if not records:
         raise ValidationFailure("invalid-input", "at least one coordination record is required")
-    schemas = core_schemas()
     materialized: list[dict[str, Any]] = []
     materialized_digests: list[str] = []
     pairs: dict[tuple[str, str], dict[str, Any]] = {}
     for index, candidate in enumerate(records):
-        if not isinstance(candidate, dict):
-            raise ValidationFailure(
-                "invalid-input",
-                "coordination record must be a JSON object",
-                f"$.records[{index}]",
-            )
-        schema_id = candidate.get("schema_id")
-        if schema_id not in COORDINATION_SCHEMA_IDS:
-            raise ValidationFailure(
-                "schema-unsupported",
-                "records validate accepts only coordination v0 record schemas",
-                f"$.records[{index}].schema_id",
-            )
         try:
-            validate(candidate, schemas[schema_id])
-            _validate_identity(candidate)
-            _validate_extensions(candidate)
-            if schema_id == ACCESS_LABEL_SCHEMA_ID:
-                _validate_label_sets(candidate)
-            elif schema_id == WORK_RECEIPT_SCHEMA_ID:
-                _validate_portable_locations(candidate)
-            digest = revision_digest(candidate)
-        except CanonicalizationFailure as exc:
-            raise ValidationFailure(
-                "canonicalization-failed",
-                str(exc),
-                f"$.records[{index}]",
-            ) from exc
+            record, digest = validate_coordination_record_body(candidate)
         except ValidationFailure as exc:
             raise _with_record_path(exc, index) from exc
-        record = deepcopy(candidate)
+        schema_id = record["schema_id"]
         key = record["record_id"], digest
         if key in pairs:
             raise ValidationFailure(

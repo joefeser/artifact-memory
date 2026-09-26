@@ -1,0 +1,79 @@
+{
+  "schema_id": "artifact-memory/coordination-sync-golden-vectors/v0",
+  "pair_set_vectors": [
+    {
+      "name": "empty",
+      "pairs": [],
+      "expected_digest": "sha-256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "name": "unicode-reordered",
+      "pairs": [
+        {
+          "record_id": "record://synthetic/β",
+          "revision_digest": "sha-256:2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        {
+          "record_id": "record://synthetic/ä",
+          "revision_digest": "sha-256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "expected_digest": "sha-256:93a432b84c2df2a02c29c658ce0da66ab4238e829d0c01ff531f401f56d00495"
+    }
+  ],
+  "submission_outcomes": [
+    {"code": "admitted", "outcome": "admitted"},
+    {"code": "schema-invalid", "outcome": "rejected"},
+    {"code": "digest-mismatch", "outcome": "rejected"},
+    {"code": "unauthorized-project", "outcome": "rejected"},
+    {"code": "unauthorized-record-type", "outcome": "rejected"},
+    {"code": "label-mismatch", "outcome": "rejected"},
+    {"code": "principal-mismatch", "outcome": "rejected"},
+    {"code": "same-pair-different-bytes", "outcome": "quarantined"},
+    {"code": "resource-limit", "outcome": "rejected"},
+    {"code": "unsupported-required-extension", "outcome": "rejected"}
+  ],
+  "invalid_submission_outcomes": [
+    {"code": "admitted", "outcome": "rejected"},
+    {"code": "schema-invalid", "outcome": "admitted"},
+    {"code": "same-pair-different-bytes", "outcome": "rejected"}
+  ],
+  "task_chain_vectors": [
+    {
+      "name": "competing-open-genesis",
+      "expected_codes": ["admitted", "schema-invalid"],
+      "expected_authorized_pair_count": 1,
+      "expected_direct_egress_code": "hub-record-invalid"
+    }
+  ],
+  "record_bound_egress_vectors": [
+    {
+      "name": "caller-allows-record-label-denies",
+      "expected_authorized_pair_count": 0,
+      "expected_excluded_count": 3
+    }
+  ],
+  "project_provenance_vectors": [
+    {
+      "name": "permission-without-project-name-provenance",
+      "expected_code": "schema-invalid"
+    }
+  ],
+  "label_rotation_vectors": [
+    {
+      "name": "same-generation-revision-reconciles-pending-outcomes",
+      "scope_generation": 1,
+      "rollback_generation": 0,
+      "expected_rollback_code": "scope-generation-rollback",
+      "expected_authorized_pair_count": 0
+    }
+  ],
+  "pagination": {
+    "pair_count": 501,
+    "expected_page_count": 2,
+    "max_pairs_per_page": 500,
+    "oversized_record_bytes": 4194304,
+    "expected_oversized_record_code": "sync-page-too-large"
+  },
+  "authority_boundary": "sync vectors are synthetic and grant no execution, disclosure, authorization, or trust"
+}

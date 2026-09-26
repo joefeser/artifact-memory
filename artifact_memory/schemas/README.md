@@ -66,6 +66,11 @@ matrix. Provider schemas remain TraceMap-owned contracts.
 `vault-intake-conformance-receipt.v1.schema.json` define the issue #18 private
 filesystem intake outcomes and checked public-safe synthetic evidence.
 
+The `coordination-*.v0.schema.json` contracts define the strict coordination
+record, sync receipt, authorized-membership page, and checked AM-3 conformance
+receipt surfaces. Their fixtures are synthetic, and their receipts grant no
+execution, disclosure, authorization, or trust.
+
 `release-manifest.v2.schema.json`, `release-manifest.v3.schema.json`, the three
 versions of `release-candidate-preparation-receipt`, and the three versions of
 `release-candidate-verification-receipt` separate deterministic asset
