@@ -716,8 +716,16 @@ def _binding(
 def _walk_bounds(value: Any, depth: int = 0) -> None:
     if depth > MAX_NESTING_DEPTH:
         raise SyncFailure("sync-depth-limit", "sync record nesting exceeds the v0 limit")
-    if isinstance(value, str) and len(value.encode("utf-8")) > MAX_STRING_BYTES:
-        raise SyncFailure("sync-field-too-large", "sync string field exceeds the v0 limit")
+    if isinstance(value, str):
+        try:
+            encoded = value.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise SyncFailure(
+                "canonicalization-failed",
+                "unpaired Unicode surrogate is unsupported in a sync record",
+            ) from exc
+        if len(encoded) > MAX_STRING_BYTES:
+            raise SyncFailure("sync-field-too-large", "sync string field exceeds the v0 limit")
     if isinstance(value, list):
         for item in value:
             _walk_bounds(item, depth + 1)
@@ -1077,15 +1085,16 @@ def _admit_submission(
     return _outcome(stored.record_ref, code)
 
 
-def _known_hub_pairs(
+def _acknowledged_hub_state(
     vault: Path, hub_id: str, principal_id: str
-) -> set[tuple[str, str]]:
-    """Recover acknowledged hub membership only from verified prior projections."""
+) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
+    """Recover admitted and previously attempted pairs from verified projections."""
     _validate_storage_root(vault, create=False)
     roots = vault / "generated" / "coordination-sync" / "projections"
     known: set[tuple[str, str]] = set()
+    attempted: set[tuple[str, str]] = set()
     if not roots.exists():
-        return known
+        return known, attempted
     if roots.is_symlink() or not roots.is_dir():
         raise SyncFailure("sync-storage-unsafe", "sync projection storage is unsafe")
     projections = sorted(roots.iterdir())
@@ -1114,12 +1123,12 @@ def _known_hub_pairs(
         except ValidationFailure:
             continue
         known.update(_pair_key(pair) for pair in pairs)
-        known.update(
-            _pair_key(item["record_ref"])
-            for item in receipt["submission_outcomes"]
-            if item["outcome"] == "admitted"
-        )
-    return known
+        for item in receipt["submission_outcomes"]:
+            key = _pair_key(item["record_ref"])
+            attempted.add(key)
+            if item["outcome"] == "admitted":
+                known.add(key)
+    return known, attempted
 
 
 def _pending_outcomes_path(vault: Path) -> Path:
@@ -1271,7 +1280,9 @@ def _push_bound(
     principal_id: str,
 ) -> list[dict[str, Any]]:
     """Push while the caller holds the authenticated principal lock."""
-    known = _known_hub_pairs(vault, config["hub_id"], principal_id)
+    known, attempted = _acknowledged_hub_state(
+        vault, config["hub_id"], principal_id
+    )
     pending = _load_pending_outcomes(
         vault,
         hub=hub,
@@ -1292,9 +1303,21 @@ def _push_bound(
         )
         for record_id, revision_digest in known
     }
-    submission_paths = [
+    attempted_paths = {
+        _record_path(
+            vault,
+            {"record_id": record_id, "revision_digest": revision_digest},
+        )
+        for record_id, revision_digest in attempted
+    }
+    candidates = [
         path for path in _record_files(vault) if path not in known_paths
     ]
+    # Never-before-attempted pairs go first. Rejected and quarantined pairs
+    # remain retryable, but a full terminal prefix cannot starve later appends.
+    submission_paths = [
+        path for path in candidates if path not in attempted_paths
+    ] + [path for path in candidates if path in attempted_paths]
     bounded_paths: list[Path] = []
     bounded_bytes = 0
     for path in submission_paths:

@@ -304,6 +304,65 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(len(second["submission_outcomes"]), 1)
             self.assertEqual(len(load_authorized_projection(vault)), 2)
 
+    def test_rejected_and_quarantined_prefix_cannot_starve_later_append(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+
+            rejected = unique_task_for(label, 0)
+            rejected["projectId"] = PROJECT_B
+            rejected["projectName"] = "sample-analytics"
+            append_local_coordination_record(vault, rejected)
+
+            original = unique_task_for(label, 1)
+            original["projectId"] = PROJECT_B
+            original["projectName"] = "sample-analytics"
+            store_coordination_record(hub, original)
+            collision = copy.deepcopy(original)
+            collision["title"] = "Synthetic same-pair collision"
+            write_claimed(vault, collision, revision_digest(original))
+
+            admitted = unique_task_for(label, 2)
+            append_local_coordination_record(vault, admitted)
+
+            with patch(
+                "artifact_memory.coordination_sync.MAX_SUBMITTED_RECORDS", 2
+            ):
+                first = sync(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:00Z",
+                )
+                second = sync(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:01Z",
+                )
+
+            self.assertEqual(
+                [item["outcome"] for item in first["submission_outcomes"]],
+                ["rejected", "quarantined"],
+            )
+            self.assertIn(
+                {
+                    "record_id": admitted["record_id"],
+                    "revision_digest": revision_digest(admitted),
+                },
+                [item["record_ref"] for item in second["submission_outcomes"]],
+            )
+            self.assertIn(
+                "admitted",
+                [item["outcome"] for item in second["submission_outcomes"]],
+            )
+            self.assertEqual(
+                [record["record_id"] for record in load_authorized_projection(vault)],
+                [admitted["record_id"]],
+            )
+
     def test_local_append_rejects_undeliverable_record_bounds_before_write(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -343,6 +402,13 @@ class CoordinationSyncTests(unittest.TestCase):
                 append_local_coordination_record(root / "too-deep", too_deep)
             self.assertEqual(raised.exception.code, "sync-depth-limit")
             self.assertFalse((root / "too-deep").exists())
+
+            surrogate = unique_task_for(label, 4)
+            surrogate["title"] = "\ud800"
+            with self.assertRaises(SyncFailure) as raised:
+                append_local_coordination_record(root / "surrogate", surrogate)
+            self.assertEqual(raised.exception.code, "canonicalization-failed")
+            self.assertFalse((root / "surrogate").exists())
 
     def test_local_append_syncs_created_directory_metadata(self):
         with tempfile.TemporaryDirectory() as temporary:

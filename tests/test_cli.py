@@ -127,6 +127,36 @@ class CliTests(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
         self.assertFalse(vault_created)
 
+    def test_record_append_rejects_unpaired_surrogate_without_a_traceback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate = json.loads(
+                (COORDINATION_FIXTURES / "task-open.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            candidate["title"] = "\ud800"
+            record = root / "surrogate.json"
+            record.write_text(json.dumps(candidate), encoding="utf-8")
+            vault = root / "vault"
+            result = self.run_cli(
+                "record",
+                "append",
+                str(record),
+                "--vault",
+                str(vault),
+                "--json",
+            )
+            vault_created = vault.exists()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            json.loads(result.stdout)["diagnostics"][0]["code"],
+            "canonicalization-failed",
+        )
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertFalse(vault_created)
+
     def test_valid_record(self):
         result = self.run_cli("validate", str(FIXTURES / "v0-valid-record.json"), "--json")
         self.assertEqual(result.returncode, 0)
