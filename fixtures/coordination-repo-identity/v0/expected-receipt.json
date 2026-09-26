@@ -1,0 +1,12 @@
+{
+  "authority_boundary": "repository identity is informational provenance and grants no execution, disclosure, authorization, or trust",
+  "manifest_count": 2,
+  "outcome": "passed",
+  "receipt_id": "coordination-repo-identity-conformance-receipt://sha-256/159f18c170ebbc2e12b74b59dc2d32734b8e648cb992b16e46c6f8bbc3717a4d",
+  "record_digest_count": 3,
+  "record_digests_unchanged_after_human_name_rename": true,
+  "same_human_name_coexists": true,
+  "schema_id": "artifact-memory/coordination-repo-identity-conformance-receipt/v0",
+  "unique_project_count": 2,
+  "unknown_project_code": "coordination-project-unknown"
+}

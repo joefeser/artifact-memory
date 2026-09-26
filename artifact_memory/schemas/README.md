@@ -71,6 +71,12 @@ record, sync receipt, authorized-membership page, and checked AM-3 conformance
 receipt surfaces. Their fixtures are synthetic, and their receipts grant no
 execution, disclosure, authorization, or trust.
 
+`coordination/repo-identity.v0.schema.json` defines the strict committed
+`.agent-memory/repo.json` shape without adding a canonical-record `schema_id`.
+The UUID is authoritative; `humanName` is display-only provenance. The checked
+AM-8 receipt proves same-name coexistence, typed unknown-UUID rejection, and
+record-digest stability across a display-name rename.
+
 `release-manifest.v2.schema.json`, `release-manifest.v3.schema.json`, the three
 versions of `release-candidate-preparation-receipt`, and the three versions of
 `release-candidate-verification-receipt` separate deterministic asset
