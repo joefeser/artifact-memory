@@ -10,6 +10,7 @@ from typing import Any
 from .canonical import receipt_with_digest
 from .coordination import revision_digest
 from .coordination_sync import (
+    SyncFailure,
     build_membership_pages,
     configure_local_hub,
     directory_digest,
@@ -19,6 +20,7 @@ from .coordination_sync import (
     push,
     store_coordination_record,
     validate_membership_pages,
+    validate_sync_receipt,
 )
 from .validator import load_json
 
@@ -103,6 +105,39 @@ def run(fixtures: Path) -> dict[str, Any]:
         raise RuntimeError("typed submission-outcome vector failed")
 
     label = _label(fixtures)
+    invalid_reference = {
+        "record_id": "record://synthetic/invalid-outcome",
+        "revision_digest": "sha-256:" + "f" * 64,
+    }
+    for vector in vectors["invalid_submission_outcomes"]:
+        invalid_receipt = _vector_receipt([], 1, label)
+        invalid_body = {
+            key: deepcopy(value)
+            for key, value in invalid_receipt.items()
+            if key not in {"schema_id", "receipt_id"}
+        }
+        invalid_body["submission_outcomes"] = [
+            {
+                "record_ref": invalid_reference,
+                "code": vector["code"],
+                "outcome": vector["outcome"],
+            }
+        ]
+        digest_consistent_receipt = receipt_with_digest(
+            "artifact-memory/coordination-sync-receipt/v0",
+            "coordination-sync-receipt://sha-256/",
+            invalid_body,
+        )
+        try:
+            validate_sync_receipt(digest_consistent_receipt)
+        except SyncFailure as exc:
+            if exc.code != "sync-outcome-code-mismatch":
+                raise RuntimeError(
+                    "invalid submission-outcome vector returned the wrong diagnostic"
+                ) from exc
+        else:
+            raise RuntimeError("invalid submission-outcome vector was accepted")
+
     pagination = vectors["pagination"]
     pairs = [
         {

@@ -439,6 +439,36 @@ class CoordinationSyncTests(unittest.TestCase):
                 with self.assertRaises(ValidationFailure):
                     validate_sync_receipt(changed)
 
+    def test_sync_receipt_rejects_digest_consistent_outcome_code_mismatches(self):
+        valid = receipt_for_pairs([], 1)
+        reference = {
+            "record_id": "record://synthetic/one",
+            "revision_digest": "sha-256:" + "a" * 64,
+        }
+        mismatches = (
+            ("admitted", "rejected"),
+            ("schema-invalid", "admitted"),
+            ("same-pair-different-bytes", "rejected"),
+        )
+        for code, outcome in mismatches:
+            with self.subTest(code=code, outcome=outcome):
+                body = {
+                    key: copy.deepcopy(value)
+                    for key, value in valid.items()
+                    if key not in {"schema_id", "receipt_id"}
+                }
+                body["submission_outcomes"] = [
+                    {"record_ref": reference, "outcome": outcome, "code": code}
+                ]
+                forged = receipt_with_digest(
+                    SYNC_RECEIPT_SCHEMA_ID,
+                    "coordination-sync-receipt://sha-256/",
+                    body,
+                )
+                with self.assertRaises(SyncFailure) as raised:
+                    validate_sync_receipt(forged)
+                self.assertEqual(raised.exception.code, "sync-outcome-code-mismatch")
+
     def test_pair_set_digest_vectors_cover_empty_reordered_and_unicode(self):
         empty = pair_set_digest([])
         self.assertEqual(empty, sha256_bytes(b"[]"))
@@ -726,6 +756,54 @@ class CoordinationSyncTests(unittest.TestCase):
                 )
             self.assertEqual(raised.exception.code, "sync-pending-binding-mismatch")
             self.assertEqual(pending.read_bytes(), before)
+
+    def test_pending_outcomes_reconcile_across_label_rotation_before_new_push(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            broad = label_for([PROJECT_A, PROJECT_B])
+            configure(hub, broad, generation=1)
+            task = task_for(broad)
+            store_coordination_record(vault, task)
+            outcomes = push(vault, hub, session_id=SESSION)
+            pending_path = (
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "pending-submission-outcomes.json"
+            )
+            pending = load_json(pending_path)
+            self.assertEqual(pending["access_label_ref"], {
+                "record_id": broad["record_id"],
+                "revision_digest": revision_digest(broad),
+            })
+            self.assertEqual(pending["scope_generation"], 1)
+
+            narrow = label_for([PROJECT_A])
+            configure(hub, narrow, generation=2)
+            before = pending_path.read_bytes()
+            with self.assertRaises(SyncFailure) as push_blocked:
+                push(vault, hub, session_id=SESSION)
+            self.assertEqual(
+                push_blocked.exception.code,
+                "sync-pending-reconciliation-required",
+            )
+            self.assertEqual(pending_path.read_bytes(), before)
+
+            result = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            self.assertEqual(result["receipt"]["submission_outcomes"], outcomes)
+            self.assertEqual(result["receipt"]["access_label_ref"], {
+                "record_id": narrow["record_id"],
+                "revision_digest": revision_digest(narrow),
+            })
+            self.assertEqual(result["receipt"]["scope_generation"], 2)
+            self.assertFalse(pending_path.exists())
+            self.assertEqual(len(load_authorized_projection(vault)), 1)
 
     def test_acknowledged_pairs_are_filtered_by_hub_and_principal(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -33,6 +33,11 @@
     {"code": "resource-limit", "outcome": "rejected"},
     {"code": "unsupported-required-extension", "outcome": "rejected"}
   ],
+  "invalid_submission_outcomes": [
+    {"code": "admitted", "outcome": "rejected"},
+    {"code": "schema-invalid", "outcome": "admitted"},
+    {"code": "same-pair-different-bytes", "outcome": "rejected"}
+  ],
   "pagination": {
     "pair_count": 501,
     "expected_page_count": 2,

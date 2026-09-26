@@ -62,6 +62,13 @@ class StoredRecord:
     path: Path
 
 
+@dataclass(frozen=True)
+class PendingOutcomes:
+    outcomes: list[dict[str, Any]]
+    access_label_ref: dict[str, str]
+    scope_generation: int
+
+
 def _pair_key(reference: dict[str, str]) -> tuple[str, str]:
     return reference["record_id"], reference["revision_digest"]
 
@@ -89,6 +96,12 @@ def _record_path(root: Path, record_ref: dict[str, str]) -> Path:
     identity_hash = hashlib.sha256(record_ref["record_id"].encode("utf-8")).hexdigest()
     digest_hex = record_ref["revision_digest"].removeprefix("sha-256:")
     return root / "canonical" / "coordination" / identity_hash / f"{digest_hex}.json"
+
+
+def _policy_label_path(root: Path, label_ref: dict[str, str]) -> Path:
+    identity_hash = hashlib.sha256(label_ref["record_id"].encode("utf-8")).hexdigest()
+    digest_hex = label_ref["revision_digest"].removeprefix("sha-256:")
+    return root / "policy" / "labels" / identity_hash / f"{digest_hex}.json"
 
 
 def _validate_storage_root(boundary: Path, *, create: bool) -> None:
@@ -352,11 +365,7 @@ def configure_local_hub(
         reference = _pair(label)
         _write_immutable(
             hub,
-            hub
-            / "policy"
-            / "labels"
-            / hashlib.sha256(reference["record_id"].encode("utf-8")).hexdigest()
-            / f"{reference['revision_digest'].removeprefix('sha-256:')}.json",
+            _policy_label_path(hub, reference),
             canonical_bytes(label),
         )
     _write_atomic(hub, hub / "hub-config.json", canonical_bytes(config))
@@ -550,16 +559,43 @@ def _submission_code(
     return "admitted"
 
 
+def _expected_outcome(code: str) -> str:
+    if code == "admitted":
+        return "admitted"
+    if code == "same-pair-different-bytes":
+        return "quarantined"
+    return "rejected"
+
+
+def _validate_submission_outcomes(
+    outcomes: Any, *, require_order: bool
+) -> None:
+    outcome_schema = core_schemas()[SYNC_RECEIPT_SCHEMA_ID]["properties"][
+        "submission_outcomes"
+    ]
+    try:
+        validate(outcomes, outcome_schema)
+    except ValidationFailure as exc:
+        raise SyncFailure(
+            "sync-outcomes-invalid", "submission outcomes are invalid"
+        ) from exc
+    if require_order and outcomes != sorted(
+        outcomes, key=lambda item: _pair_key(item["record_ref"])
+    ):
+        raise SyncFailure("sync-outcomes-order-invalid", "submission outcomes are not canonical")
+    if len({_pair_key(item["record_ref"]) for item in outcomes}) != len(outcomes):
+        raise SyncFailure("sync-outcomes-duplicate", "submission outcomes contain a duplicate pair")
+    if any(item["outcome"] != _expected_outcome(item["code"]) for item in outcomes):
+        raise SyncFailure(
+            "sync-outcome-code-mismatch",
+            "submission outcome does not match its typed outcome code",
+        )
+
+
 def _outcome(reference: dict[str, str], code: str) -> dict[str, Any]:
     return {
         "record_ref": deepcopy(reference),
-        "outcome": (
-            "admitted"
-            if code == "admitted"
-            else "quarantined"
-            if code == "same-pair-different-bytes"
-            else "rejected"
-        ),
+        "outcome": _expected_outcome(code),
         "code": code,
     }
 
@@ -651,6 +687,7 @@ def _pending_outcomes_envelope(
         "principal_id": principal_id,
         "session_id": session_id,
         "access_label_ref": _pair(label),
+        "scope_generation": config["scope_generation"],
         "submission_outcomes": deepcopy(outcomes),
     }
 
@@ -658,15 +695,16 @@ def _pending_outcomes_envelope(
 def _load_pending_outcomes(
     vault: Path,
     *,
+    hub: Path,
     config: dict[str, Any],
     label: dict[str, Any],
     principal_id: str,
     session_id: str,
-) -> list[dict[str, Any]]:
+) -> PendingOutcomes:
     _validate_storage_root(vault, create=False)
     path = _pending_outcomes_path(vault)
     if not path.exists():
-        return []
+        return PendingOutcomes([], _pair(label), config["scope_generation"])
     if path.is_symlink() or not path.is_file():
         raise SyncFailure("sync-storage-unsafe", "pending sync outcome storage is unsafe")
     try:
@@ -679,6 +717,7 @@ def _load_pending_outcomes(
         "principal_id",
         "session_id",
         "access_label_ref",
+        "scope_generation",
         "submission_outcomes",
     }
     if not isinstance(value, dict) or set(value) != required:
@@ -688,17 +727,74 @@ def _load_pending_outcomes(
         "hub_id": config["hub_id"],
         "principal_id": principal_id,
         "session_id": session_id,
-        "access_label_ref": _pair(label),
     }
     if any(value[field] != expected for field, expected in expected_binding.items()):
         raise SyncFailure(
             "sync-pending-binding-mismatch",
             "pending submission outcomes belong to another authenticated binding",
         )
+    pending_label_ref = value["access_label_ref"]
+    pending_generation = value["scope_generation"]
+    current_label_ref = _pair(label)
+    if (
+        not isinstance(pending_label_ref, dict)
+        or set(pending_label_ref) != {"record_id", "revision_digest"}
+        or not isinstance(pending_label_ref.get("record_id"), str)
+        or not isinstance(pending_label_ref.get("revision_digest"), str)
+        or not isinstance(pending_generation, int)
+        or isinstance(pending_generation, bool)
+        or pending_generation < 0
+        or pending_generation > config["scope_generation"]
+    ):
+        raise SyncFailure(
+            "sync-pending-binding-mismatch",
+            "pending submission outcomes have an invalid label generation binding",
+        )
+    try:
+        validate(
+            pending_label_ref,
+            core_schemas()[SYNC_RECEIPT_SCHEMA_ID]["properties"]["access_label_ref"],
+        )
+    except ValidationFailure as exc:
+        raise SyncFailure(
+            "sync-pending-binding-mismatch",
+            "pending submission outcomes have an invalid AccessLabel reference",
+        ) from exc
+    if pending_label_ref != current_label_ref:
+        if (
+            pending_label_ref["record_id"] != current_label_ref["record_id"]
+            or pending_generation >= config["scope_generation"]
+        ):
+            raise SyncFailure(
+                "sync-pending-binding-mismatch",
+                "pending submission outcomes belong to another AccessLabel identity",
+            )
+        prior_label_path = _policy_label_path(hub, pending_label_ref)
+        if prior_label_path.is_symlink() or not prior_label_path.is_file():
+            raise SyncFailure(
+                "sync-pending-binding-mismatch",
+                "pending submission outcomes name an unavailable prior AccessLabel revision",
+            )
+        try:
+            prior_label = load_json(prior_label_path)
+            materialized, digest = validate_coordination_record_body(prior_label)
+        except ValidationFailure as exc:
+            raise SyncFailure(
+                "sync-pending-binding-mismatch",
+                "pending submission outcomes name an invalid prior AccessLabel revision",
+            ) from exc
+        if materialized["schema_id"] != ACCESS_LABEL_SCHEMA_ID or _pair(
+            materialized, digest
+        ) != pending_label_ref:
+            raise SyncFailure(
+                "sync-pending-binding-mismatch",
+                "pending submission outcomes do not match retained AccessLabel history",
+            )
     outcomes = value["submission_outcomes"]
-    if not isinstance(outcomes, list):
-        raise SyncFailure("sync-outcomes-invalid", "pending submission outcomes are invalid")
-    return deepcopy(outcomes)
+    _validate_submission_outcomes(outcomes, require_order=True)
+    return PendingOutcomes(
+        deepcopy(outcomes), deepcopy(pending_label_ref), pending_generation
+    )
 
 
 def push(
@@ -712,13 +808,22 @@ def push(
     known = _known_hub_pairs(vault, config["hub_id"], principal_id)
     # A pending receipt is binding-specific. Refuse to overwrite another
     # authenticated session's unacknowledged evidence.
-    _load_pending_outcomes(
+    pending = _load_pending_outcomes(
         vault,
+        hub=hub,
         config=config,
         label=label,
         principal_id=principal_id,
         session_id=session_id,
     )
+    if pending.outcomes and (
+        pending.access_label_ref != _pair(label)
+        or pending.scope_generation != config["scope_generation"]
+    ):
+        raise SyncFailure(
+            "sync-pending-reconciliation-required",
+            "pull must acknowledge pending submission outcomes before pushing under a rotated scope",
+        )
     outcomes: list[dict[str, Any]] = []
     with _principal_lock(hub, principal_id):
         known_paths = {
@@ -905,11 +1010,7 @@ def validate_sync_receipt(receipt: dict[str, Any]) -> None:
     expected = expected_receipt_id(receipt, "coordination-sync-receipt://sha-256/")
     if receipt["receipt_id"] != expected:
         raise SyncFailure("sync-receipt-identity-mismatch", "sync receipt identity is invalid")
-    outcomes = receipt["submission_outcomes"]
-    if outcomes != sorted(outcomes, key=lambda item: _pair_key(item["record_ref"])):
-        raise SyncFailure("sync-outcomes-order-invalid", "submission outcomes are not canonical")
-    if len({_pair_key(item["record_ref"]) for item in outcomes}) != len(outcomes):
-        raise SyncFailure("sync-outcomes-duplicate", "submission outcomes contain a duplicate pair")
+    _validate_submission_outcomes(receipt["submission_outcomes"], require_order=True)
 
 
 def validate_membership_pages(
@@ -973,14 +1074,7 @@ def build_pull_response(
     record_groups = _record_page_groups(records)
     pair_groups = [[item.record_ref for item in group] for group in record_groups]
     outcomes = deepcopy(submission_outcomes or [])
-    if not isinstance(outcomes, list) or any(
-        not isinstance(item, dict)
-        or not isinstance(item.get("record_ref"), dict)
-        or not isinstance(item["record_ref"].get("record_id"), str)
-        or not isinstance(item["record_ref"].get("revision_digest"), str)
-        for item in outcomes
-    ):
-        raise SyncFailure("sync-outcomes-invalid", "submission outcomes are invalid")
+    _validate_submission_outcomes(outcomes, require_order=False)
     body = {
         "hub_id": config["hub_id"],
         "principal_id": principal_id,
@@ -1249,6 +1343,7 @@ def pull(
     config, label, principal_id = _binding(hub, session_id)
     pending = _load_pending_outcomes(
         vault,
+        hub=hub,
         config=config,
         label=label,
         principal_id=principal_id,
@@ -1258,7 +1353,7 @@ def pull(
         hub,
         session_id=session_id,
         completed_at=completed_at,
-        submission_outcomes=pending,
+        submission_outcomes=pending.outcomes,
     )
     return apply_pull_response(vault, response)
 
