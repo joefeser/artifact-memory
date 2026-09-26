@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import secrets
 import stat
 import subprocess
 from pathlib import Path
@@ -129,6 +131,36 @@ def _observe_manifest_path(manifest_path: Path) -> list[os.stat_result]:
     return observations
 
 
+def _observe_directory_path(directory_path: Path) -> list[os.stat_result]:
+    observations: list[os.stat_result] = []
+    for component in _path_components(directory_path):
+        try:
+            entry = os.lstat(component)
+        except OSError as exc:
+            raise ValidationFailure(
+                "repo-identity-unavailable",
+                "repository root could not be inspected safely",
+                "$",
+            ) from exc
+        if _is_link_or_reparse(entry) or not stat.S_ISDIR(entry.st_mode):
+            raise ValidationFailure(
+                "repo-identity-unsafe",
+                "repository root must not traverse links, reparse points, or non-directories",
+                "$",
+            )
+        observations.append(entry)
+    return observations
+
+
+def _same_entry_chain(
+    before: list[os.stat_result], after: list[os.stat_result]
+) -> bool:
+    return len(before) == len(after) and all(
+        _entry_identity(left) == _entry_identity(right)
+        for left, right in zip(before, after)
+    )
+
+
 def _read_with_held_directories(
     manifest_path: Path,
 ) -> tuple[bytes, os.stat_result, os.stat_result]:
@@ -251,6 +283,211 @@ def _git_output(repo_root: Path, *args: str) -> bytes:
             "$",
         )
     return completed.stdout
+
+
+def verify_repo_worktree_root(repo_root: Path) -> Path:
+    """Return an exact, link-free Git worktree root without requiring HEAD."""
+    absolute_root = _absolute_without_resolution(repo_root)
+    before = _observe_directory_path(absolute_root)
+    try:
+        prefix = _git_output(absolute_root, "rev-parse", "--show-prefix")
+    except ValidationFailure as exc:
+        if exc.code == "repo-identity-unavailable":
+            raise
+        raise ValidationFailure(
+            "repo-identity-not-repository",
+            "repository identity root must be the exact top level of a Git worktree",
+            "$",
+        ) from exc
+    if prefix.strip():
+        raise ValidationFailure(
+            "repo-identity-not-repository",
+            "repository identity root must be the exact top level of a Git worktree",
+            "$",
+        )
+    after = _observe_directory_path(absolute_root)
+    if not _same_entry_chain(before, after):
+        raise ValidationFailure(
+            "repo-identity-unsafe",
+            "repository root changed while its identity boundary was verified",
+            "$",
+        )
+    return absolute_root
+
+
+def load_repo_identity_candidate(repo_root: Path) -> dict[str, str]:
+    """Load a strict manifest without claiming that it is committed yet."""
+    verify_repo_worktree_root(repo_root)
+    try:
+        candidate = load_json_bytes(_read_manifest_bytes(repo_root))
+        validate(candidate, REPO_IDENTITY_SCHEMA)
+    except RecursionError as exc:
+        raise ValidationFailure(
+            "invalid-json",
+            "repository identity manifest exceeds supported JSON nesting",
+            "$",
+        ) from exc
+    return {"uuid": candidate["uuid"], "humanName": candidate["humanName"]}
+
+
+def _write_all(descriptor: int, data: bytes) -> None:
+    offset = 0
+    while offset < len(data):
+        written = os.write(descriptor, data[offset:])
+        if written <= 0:
+            raise OSError("repository identity write made no progress")
+        offset += written
+
+
+def _create_manifest_with_directory_descriptors(
+    absolute_root: Path, data: bytes
+) -> None:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    descriptor = os.open(absolute_root.anchor, flags)
+    try:
+        for part in absolute_root.relative_to(absolute_root.anchor).parts:
+            child = os.open(part, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        try:
+            os.mkdir(REPO_IDENTITY_RELATIVE_PATH.parent.name, 0o755, dir_fd=descriptor)
+            os.fsync(descriptor)
+        except FileExistsError:
+            pass
+        identity_directory = os.open(
+            REPO_IDENTITY_RELATIVE_PATH.parent.name,
+            flags,
+            dir_fd=descriptor,
+        )
+        try:
+            temporary_name = f".repo.json.{secrets.token_hex(8)}.tmp"
+            temporary_descriptor = os.open(
+                temporary_name,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | os.O_NOFOLLOW
+                | getattr(os, "O_CLOEXEC", 0),
+                0o644,
+                dir_fd=identity_directory,
+            )
+            try:
+                _write_all(temporary_descriptor, data)
+                os.fsync(temporary_descriptor)
+            finally:
+                os.close(temporary_descriptor)
+            try:
+                os.link(
+                    temporary_name,
+                    REPO_IDENTITY_RELATIVE_PATH.name,
+                    src_dir_fd=identity_directory,
+                    dst_dir_fd=identity_directory,
+                    follow_symlinks=False,
+                )
+                os.fsync(identity_directory)
+            finally:
+                os.unlink(temporary_name, dir_fd=identity_directory)
+        finally:
+            os.close(identity_directory)
+    finally:
+        os.close(descriptor)
+
+
+def _create_manifest_portable(absolute_root: Path, data: bytes) -> None:
+    root_before = _observe_directory_path(absolute_root)
+    identity_directory = absolute_root / REPO_IDENTITY_RELATIVE_PATH.parent
+    try:
+        identity_directory.mkdir(mode=0o755)
+    except FileExistsError:
+        pass
+    directory_entry = os.lstat(identity_directory)
+    if _is_link_or_reparse(directory_entry) or not stat.S_ISDIR(directory_entry.st_mode):
+        raise ValidationFailure(
+            "repo-identity-unsafe",
+            "repository identity directory must be a real directory",
+            "$",
+        )
+    identity_before = _observe_directory_path(identity_directory)
+    manifest_path = absolute_root / REPO_IDENTITY_RELATIVE_PATH
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    descriptor = os.open(manifest_path, flags, 0o644)
+    try:
+        _write_all(descriptor, data)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    identity_after = _observe_directory_path(identity_directory)
+    root_after = _observe_directory_path(absolute_root)
+    if (
+        not _same_entry_chain(root_before, root_after)
+        or not _same_entry_chain(identity_before, identity_after)
+    ):
+        raise ValidationFailure(
+            "repo-identity-unsafe",
+            "repository identity path changed while its manifest was created",
+            "$",
+        )
+
+
+def create_repo_identity_manifest(
+    repo_root: Path, identity: dict[str, str]
+) -> str:
+    """Create one strict manifest without overwriting any existing path.
+
+    The caller supplies the UUID selected by separately administered project
+    registration. This function does not mint authorization or commit Git
+    history. It returns ``created`` or ``existing``.
+    """
+    validate(identity, REPO_IDENTITY_SCHEMA)
+    absolute_root = verify_repo_worktree_root(repo_root)
+    manifest_path = absolute_root / REPO_IDENTITY_RELATIVE_PATH
+    if manifest_path.exists() or manifest_path.is_symlink():
+        existing = load_repo_identity_candidate(absolute_root)
+        if existing != identity:
+            raise ValidationFailure(
+                "repo-identity-collision",
+                "repository identity manifest already contains a different identity",
+                "$",
+            )
+        return "existing"
+    data = (json.dumps(identity, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    secure_directory_create = (
+        os.open in os.supports_dir_fd
+        and os.mkdir in os.supports_dir_fd
+        and os.link in os.supports_dir_fd
+        and os.unlink in os.supports_dir_fd
+        and all(hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW"))
+    )
+    try:
+        if secure_directory_create:
+            _create_manifest_with_directory_descriptors(absolute_root, data)
+        else:
+            _create_manifest_portable(absolute_root, data)
+    except FileExistsError as exc:
+        raise ValidationFailure(
+            "repo-identity-collision",
+            "repository identity path appeared while the manifest was created",
+            "$",
+        ) from exc
+    except OSError as exc:
+        raise ValidationFailure(
+            "repo-identity-unavailable",
+            "repository identity manifest could not be created safely",
+            "$",
+        ) from exc
+    if _read_manifest_bytes(absolute_root) != data:
+        raise ValidationFailure(
+            "repo-identity-unsafe",
+            "repository identity manifest changed while it was created",
+            "$",
+        )
+    return "created"
 
 
 def _verify_committed_manifest(repo_root: Path, manifest_bytes: bytes) -> None:

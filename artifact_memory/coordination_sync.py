@@ -725,6 +725,62 @@ def _binding(
     return config, matches[0]["access_label"], matches[0]["principal_id"]
 
 
+def _project_registration(
+    config: dict[str, Any],
+    label: dict[str, Any],
+    *,
+    project_id: str | None,
+) -> dict[str, Any]:
+    names: dict[str, str] = {}
+    for item in label["projectNames"]:
+        if item["projectId"] in names:
+            raise SyncFailure(
+                "onboard-project-provenance-ambiguous",
+                "the server-bound AccessLabel repeats a project UUID in display provenance",
+            )
+        names[item["projectId"]] = item["projectName"]
+    denied = set(label["mayNot"]["readProjects"])
+    readable = sorted(
+        project
+        for project in label["may"]["readProjects"]
+        if project in names and project not in denied
+    )
+    if project_id is not None and project_id not in readable:
+        raise SyncFailure(
+            "onboard-project-not-authorized",
+            "the authenticated hub binding does not grant read access to the requested onboarding project",
+        )
+    selected = readable if project_id is None else [project_id]
+    return {
+        "hub_id": config["hub_id"],
+        "scope_generation": config["scope_generation"],
+        "access_label_ref": _pair(label),
+        "projects": [
+            {"project_id": item, "project_name": names[item]}
+            for item in selected
+        ],
+    }
+
+
+def describe_local_hub_registration(
+    hub: Path,
+    *,
+    session_id: str,
+    project_id: str | None = None,
+) -> dict[str, Any]:
+    """Return only project identities the authenticated binding may read.
+
+    The full AccessLabel remains hub-side policy state. This description is
+    onboarding evidence, not a credential, grant, or administrative mutation.
+    """
+    with _bound_principal_lock(hub, session_id) as (config, label, _principal_id):
+        return _project_registration(
+            config,
+            label,
+            project_id=project_id,
+        )
+
+
 def _walk_bounds(value: Any, depth: int = 0) -> None:
     if depth > MAX_NESTING_DEPTH:
         raise SyncFailure("sync-depth-limit", "sync record nesting exceeds the v0 limit")
@@ -2061,11 +2117,33 @@ def sync(
     session_id: str,
     completed_at: str,
     phase: str = "both",
+    required_project_id: str | None = None,
+    expected_hub_id: str | None = None,
+    expected_access_label_ref: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if phase not in {"push", "pull", "both"}:
         raise SyncFailure("sync-phase-invalid", "sync phase must be push, pull, or both")
     result: dict[str, Any] = {"outcome": "complete", "phase": phase}
     with _bound_principal_lock(hub, session_id) as (config, label, principal_id):
+        if required_project_id is not None:
+            result["project_registration"] = _project_registration(
+                config,
+                label,
+                project_id=required_project_id,
+            )
+        if expected_hub_id is not None and config["hub_id"] != expected_hub_id:
+            raise SyncFailure(
+                "onboard-hub-mismatch",
+                "repo-bound sync selected a different logical hub than its onboarding link",
+            )
+        if (
+            expected_access_label_ref is not None
+            and _pair(label) != expected_access_label_ref
+        ):
+            raise SyncFailure(
+                "onboard-label-mismatch",
+                "repo-bound sync selected a different AccessLabel revision than its onboarding link",
+            )
         if phase in {"push", "both"}:
             result["submission_outcomes"] = _push_bound(
                 vault,
@@ -2140,3 +2218,8 @@ def directory_digest(root: Path) -> str:
                 }
             )
     return sha256_bytes(canonical_bytes(entries))
+
+
+def coordination_pair_count(root: Path) -> int:
+    """Count validated immutable coordination pairs in one storage root."""
+    return len(_scan_records(root))

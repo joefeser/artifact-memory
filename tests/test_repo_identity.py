@@ -12,7 +12,9 @@ from unittest import mock
 from artifact_memory.coordination import revision_digest
 from artifact_memory.repo_identity import (
     _is_link_or_reparse,
+    create_repo_identity_manifest,
     load_repo_identity,
+    load_repo_identity_candidate,
     load_repo_identity_registry,
     validate_repo_bound_coordination_records,
 )
@@ -71,6 +73,50 @@ class RepoIdentityTests(unittest.TestCase):
         self.assertEqual(
             identity["uuid"], "6f2d78a4-c0e5-4fa2-a9ce-2c4f760c5a31"
         )
+
+    def test_manifest_creation_is_no_overwrite_and_commit_separate(self):
+        candidate = {
+            "uuid": "11111111-1111-4111-8111-111111111111",
+            "humanName": "synthetic",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve() / "repository"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            self.assertEqual(create_repo_identity_manifest(root, candidate), "created")
+            self.assertEqual(load_repo_identity_candidate(root), candidate)
+            with self.assertRaises(ValidationFailure) as uncommitted:
+                load_repo_identity(root)
+            self.assertEqual(uncommitted.exception.code, "repo-identity-uncommitted")
+            self.assertEqual(create_repo_identity_manifest(root, candidate), "existing")
+            with self.assertRaises(ValidationFailure) as collision:
+                create_repo_identity_manifest(
+                    root,
+                    {**candidate, "uuid": "22222222-2222-4222-8222-222222222222"},
+                )
+            self.assertEqual(collision.exception.code, "repo-identity-collision")
+
+    def test_manifest_creation_portable_fallback_writes_one_valid_candidate(self):
+        candidate = {
+            "uuid": "11111111-1111-4111-8111-111111111111",
+            "humanName": "synthetic",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve() / "repository"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            with mock.patch.object(os, "supports_dir_fd", set()):
+                self.assertEqual(
+                    create_repo_identity_manifest(root, candidate), "created"
+                )
+                self.assertEqual(load_repo_identity_candidate(root), candidate)
+            expected = json.dumps(candidate, sort_keys=True, indent=2) + "\n"
+            self.assertEqual(
+                (root / ".agent-memory" / "repo.json").read_text(
+                    encoding="utf-8"
+                ),
+                expected,
+            )
 
     def test_same_human_name_with_different_uuids_is_unambiguous(self):
         with tempfile.TemporaryDirectory() as temporary:

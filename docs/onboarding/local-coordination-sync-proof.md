@@ -13,6 +13,13 @@ The adapter requires three distinct roots or inputs:
 - an opaque session handle. The client cannot select the effective principal
   or AccessLabel carried by the receipt.
 
+These commands are the low-level provider-free adapter. A repository-bound
+operator flow should first run
+[coordination project onboarding](coordination-project-onboarding.md), commit
+the generated public `repo.json` through normal Git governance, and add
+`--repo /path/to/repository` so sync fails closed if that onboarding link is
+absent.
+
 After synthetic hub configuration and local record creation through the Python
 API, the explicit convergence phases are:
 

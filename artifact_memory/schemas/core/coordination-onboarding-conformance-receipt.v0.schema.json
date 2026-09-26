@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/coordination-onboarding-conformance-receipt/v0",
+  "title": "Artifact Memory coordination onboarding conformance receipt v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "receipt_id",
+    "outcome",
+    "fresh_repo",
+    "existing_repo",
+    "idempotency",
+    "unonboarded_precondition",
+    "privacy",
+    "authority_boundary"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/coordination-onboarding-conformance-receipt/v0"},
+    "receipt_id": {
+      "type": "string",
+      "pattern": "^coordination-onboarding-conformance-receipt://sha-256/[0-9a-f]{64}$"
+    },
+    "outcome": {"const": "passed"},
+    "fresh_repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id", "identity_state", "bootstrap_receipt_valid", "kickoff_pack_valid"],
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "identity_state": {"const": "created-pending-commit"},
+        "bootstrap_receipt_valid": {"const": true},
+        "kickoff_pack_valid": {"const": true}
+      }
+    },
+    "existing_repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pair_count_before", "pair_count_after", "duplicate_pair_count", "history_import_state"],
+      "properties": {
+        "pair_count_before": {"const": 1},
+        "pair_count_after": {"const": 1},
+        "duplicate_pair_count": {"const": 0},
+        "history_import_state": {"const": "deferred-to-am-1"}
+      }
+    },
+    "idempotency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipt_replayed", "vault_byte_identical"],
+      "properties": {
+        "receipt_replayed": {"const": true},
+        "vault_byte_identical": {"const": true}
+      }
+    },
+    "unonboarded_precondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sync_code", "append_code", "names_onboard_fix"],
+      "properties": {
+        "sync_code": {"const": "coordination-onboarding-required"},
+        "append_code": {"const": "coordination-onboarding-required"},
+        "names_onboard_fix": {"const": true}
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["full_access_label_body_count", "machine_path_match_count"],
+      "properties": {
+        "full_access_label_body_count": {"const": 0},
+        "machine_path_match_count": {"const": 0}
+      }
+    },
+    "authority_boundary": {
+      "const": "onboarding proof grants no execution, mutation, routing, disclosure, credential, spending, deployment, approval, or merge authority"
+    }
+  }
+}

@@ -67,3 +67,9 @@ follow [Using Artifact Memory for a private project vault](onboarding/private-pr
 Its synthetic proof exercises validation, projection, literal search, bounded
 context-pack v4 export, and independent informational recall without loading a
 real vault.
+
+For the local coordination plane, first read the
+[provider-free sync proof](onboarding/local-coordination-sync-proof.md), then
+use [coordination project onboarding](onboarding/coordination-project-onboarding.md)
+to bind a committed repository UUID to an externally administered AccessLabel
+without storing the full label or claiming operational authority.

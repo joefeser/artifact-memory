@@ -22,6 +22,15 @@ from .context import (
     validate_context_pack,
 )
 from .coordination import validate_coordination_files
+from .coordination_onboarding import (
+    BOOTSTRAP_PACK_SCHEMA_ID,
+    BOOTSTRAP_RECEIPT_SCHEMA_ID,
+    onboard_project,
+    require_repo_onboarding,
+    validate_bootstrap_pack,
+    validate_bootstrap_receipt,
+    validate_repo_bound_append,
+)
 from .coordination_sync import (
     SYNC_RECEIPT_SCHEMA_ID,
     SyncFailure,
@@ -112,6 +121,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     record_append.add_argument("record", type=Path)
     record_append.add_argument("--vault", required=True, type=Path)
+    record_append.add_argument(
+        "--repo",
+        type=Path,
+        help="require committed AM-9 onboarding for this repo-bound append",
+    )
     record_append.add_argument("--json", action="store_true", dest="as_json")
     sync_parser = subparsers.add_parser(
         "sync",
@@ -120,6 +134,11 @@ def main(argv: list[str] | None = None) -> int:
     sync_parser.add_argument("--vault", required=True, type=Path)
     sync_parser.add_argument("--hub", required=True, type=Path)
     sync_parser.add_argument(
+        "--repo",
+        type=Path,
+        help="require committed AM-9 onboarding for this repo-bound sync",
+    )
+    sync_parser.add_argument(
         "--session-id",
         required=True,
         help="opaque authenticated-session handle resolved by the hub",
@@ -127,6 +146,18 @@ def main(argv: list[str] | None = None) -> int:
     sync_parser.add_argument("--phase", choices=["push", "pull", "both"], default="both")
     sync_parser.add_argument("--completed-at", required=True)
     sync_parser.add_argument("--json", action="store_true", dest="as_json")
+    onboard = subparsers.add_parser(
+        "onboard",
+        help="bind one Git repo to an externally administered coordination project",
+    )
+    onboard.add_argument("repo", type=Path)
+    onboard.add_argument("--vault", required=True, type=Path)
+    onboard.add_argument("--hub", required=True, type=Path)
+    onboard.add_argument("--session-id", required=True)
+    onboard.add_argument("--completed-at", required=True)
+    onboard.add_argument("--project-id")
+    onboard.add_argument("--human-name")
+    onboard.add_argument("--json", action="store_true", dest="as_json")
     scan = subparsers.add_parser("scan")
     scan.add_argument("root", type=Path)
     scan.add_argument("--out", type=Path)
@@ -228,7 +259,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "record" and args.record_command == "append":
         try:
+            link = None
+            if args.repo is not None:
+                link = require_repo_onboarding(args.repo, args.vault)
             candidate = load_local_coordination_record(args.record)
+            if link is not None:
+                candidate = validate_repo_bound_append(link, candidate)
             result = append_local_coordination_record(args.vault, candidate)
         except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
             _receipt(
@@ -291,12 +327,20 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "sync":
         try:
+            link = None
+            if args.repo is not None:
+                link = require_repo_onboarding(args.repo, args.vault)
             result = sync_coordination(
                 args.vault,
                 args.hub,
                 session_id=args.session_id,
                 completed_at=args.completed_at,
                 phase=args.phase,
+                required_project_id=(link["project_id"] if link else None),
+                expected_hub_id=(link["hub_id"] if link else None),
+                expected_access_label_ref=(
+                    link["access_label_ref"] if link else None
+                ),
             )
         except (SyncFailure, ValidationFailure, OSError) as exc:
             _receipt(
@@ -306,6 +350,38 @@ def main(argv: list[str] | None = None) -> int:
                         {
                             "code": getattr(exc, "code", "sync-storage-unavailable"),
                             "message": getattr(exc, "message", "sync storage is unavailable"),
+                        }
+                    ],
+                },
+                args.as_json,
+            )
+            return EXIT_INVALID
+        _receipt(result, args.as_json)
+        return EXIT_OK
+
+    if args.command == "onboard":
+        try:
+            result = onboard_project(
+                args.repo,
+                args.vault,
+                args.hub,
+                session_id=args.session_id,
+                completed_at=args.completed_at,
+                project_id=args.project_id,
+                human_name=args.human_name,
+            )
+        except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
+            _receipt(
+                {
+                    "outcome": "rejected",
+                    "diagnostics": [
+                        {
+                            "code": getattr(exc, "code", "onboard-storage-unavailable"),
+                            "message": getattr(
+                                exc,
+                                "message",
+                                "coordination onboarding storage is unavailable",
+                            ),
                         }
                     ],
                 },
@@ -609,6 +685,10 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValidationFailure(exc.code, exc.message) from exc
         if schema_id == SYNC_RECEIPT_SCHEMA_ID:
             validate_sync_receipt(record)
+        if schema_id == BOOTSTRAP_PACK_SCHEMA_ID:
+            validate_bootstrap_pack(record)
+        if schema_id == BOOTSTRAP_RECEIPT_SCHEMA_ID:
+            validate_bootstrap_receipt(record)
     except ValidationFailure as exc:
         result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}
     else:
