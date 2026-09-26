@@ -301,6 +301,7 @@ def run(
             )
             store_coordination_record(source, _task(fixtures, record_label, False))
             push(source, hub, session_id=SESSION)
+            store_coordination_record(hub, record_label)
             result = pull(
                 reader,
                 hub,
@@ -366,6 +367,29 @@ def run(
                     }
                 ],
             )
+            before_config = (hub / "hub-config.json").read_bytes()
+            try:
+                configure_local_hub(
+                    hub,
+                    hub_id=HUB_ID,
+                    scope_generation=vector["rollback_generation"],
+                    bindings=[
+                        {
+                            "session_id": SESSION,
+                            "principal_id": PRINCIPAL,
+                            "access_label": broad,
+                        }
+                    ],
+                )
+            except SyncFailure as exc:
+                if exc.code != vector["expected_rollback_code"]:
+                    raise RuntimeError(
+                        "scope-generation rollback returned the wrong diagnostic"
+                    ) from exc
+            else:
+                raise RuntimeError("scope-generation rollback was accepted")
+            if (hub / "hub-config.json").read_bytes() != before_config:
+                raise RuntimeError("scope-generation rollback mutated hub configuration")
             store_coordination_record(vault, _task(fixtures, broad, True))
             outcomes = push(vault, hub, session_id=SESSION)
             try:

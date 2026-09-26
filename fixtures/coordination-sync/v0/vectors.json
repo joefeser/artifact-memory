@@ -63,6 +63,8 @@
     {
       "name": "same-generation-revision-reconciles-pending-outcomes",
       "scope_generation": 1,
+      "rollback_generation": 0,
+      "expected_rollback_code": "scope-generation-rollback",
       "expected_authorized_pair_count": 0
     }
   ],

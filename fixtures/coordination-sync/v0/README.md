@@ -3,8 +3,9 @@
 These wholly synthetic vectors pin the v0 pair-set digest, typed admission
 outcomes, rejected outcome/code contradictions, complete TaskPacket histories,
 record-bound AccessLabel egress, project-name provenance at intake,
-same-generation AccessLabel revision recovery, and both count and byte
-pagination boundaries.
+same-generation AccessLabel revision recovery, monotonic scope generations,
+exact-pair label-count deduplication, and both count and byte pagination
+boundaries.
 They contain no vault data, credentials, private topology, customer material,
 or raw conversations.
 

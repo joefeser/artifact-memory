@@ -954,16 +954,15 @@ class CoordinationSyncTests(unittest.TestCase):
             # then prove a later-timestamped generation-1 replay cannot win.
             marker["pair_count"] -= 1
             marker_path.write_bytes(canonical_bytes(marker))
-            narrow = label_for([PROJECT_A])
-            configure(hub, narrow, generation=2)
-            pull(vault, hub, session_id=SESSION, completed_at="2026-09-25T21:00:00Z")
-            generation_two = marker_path.read_bytes()
-            configure(hub, broad, generation=1)
             stale = build_pull_response(
                 hub,
                 session_id=SESSION,
                 completed_at="2026-09-25T22:00:00Z",
             )
+            narrow = label_for([PROJECT_A])
+            configure(hub, narrow, generation=2)
+            pull(vault, hub, session_id=SESSION, completed_at="2026-09-25T21:00:00Z")
+            generation_two = marker_path.read_bytes()
             with self.assertRaises(SyncFailure) as replayed:
                 apply_pull_response(vault, stale)
             self.assertEqual(replayed.exception.code, "sync-generation-stale")
@@ -1141,6 +1140,49 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(result["authorized_pairs"], [])
             self.assertEqual(result["receipt"]["excluded_count"], 3)
             self.assertNotIn(task["record_id"], json.dumps(result))
+
+    def test_excluded_count_deduplicates_canonical_and_policy_label_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(hub, label)
+            store_coordination_record(hub, task_for(label))
+            result = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            self.assertEqual(len(result["authorized_pairs"]), 1)
+            self.assertEqual(result["receipt"]["excluded_count"], 1)
+
+    def test_malformed_unreferenced_policy_label_fails_egress_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(hub, task_for(label))
+            malformed = (
+                hub
+                / "policy"
+                / "labels"
+                / ("f" * 64)
+                / f"{'e' * 64}.json"
+            )
+            malformed.parent.mkdir()
+            malformed.write_bytes(b"{}")
+            with self.assertRaises(SyncFailure) as raised:
+                pull(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:00Z",
+                )
+            self.assertEqual(raised.exception.code, "hub-record-invalid")
+            self.assertFalse((vault / "generated").exists())
 
     def test_egress_requires_project_provenance_in_the_caller_label(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1514,6 +1556,49 @@ class CoordinationSyncTests(unittest.TestCase):
             )
             self.assertEqual(result["receipt"]["hub_id"], HUB_ID)
             self.assertEqual(len(result["authorized_pairs"]), 1)
+
+    def test_configuration_rejects_scope_generation_rollback_without_mutation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            broad = label_for([PROJECT_A, PROJECT_B])
+            configure(hub, broad, generation=2)
+            store_coordination_record(vault, task_for(broad))
+            push(vault, hub, session_id=SESSION)
+            config_path = hub / "hub-config.json"
+            pending_path = (
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "pending-submission-outcomes.json"
+            )
+            before_config = config_path.read_bytes()
+            before_pending = pending_path.read_bytes()
+            before_labels = {
+                path.relative_to(hub): path.read_bytes()
+                for path in (hub / "policy" / "labels").glob("*/*.json")
+            }
+
+            with self.assertRaises(SyncFailure) as raised:
+                configure(hub, label_for([PROJECT_A]), generation=1)
+            self.assertEqual(raised.exception.code, "scope-generation-rollback")
+            self.assertEqual(config_path.read_bytes(), before_config)
+            self.assertEqual(pending_path.read_bytes(), before_pending)
+            self.assertEqual(
+                {
+                    path.relative_to(hub): path.read_bytes()
+                    for path in (hub / "policy" / "labels").glob("*/*.json")
+                },
+                before_labels,
+            )
+            result = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            self.assertEqual(result["receipt"]["scope_generation"], 2)
+            self.assertFalse(pending_path.exists())
 
     def test_pending_outcomes_reconcile_across_label_rotation_before_new_push(self):
         with tempfile.TemporaryDirectory() as temporary:

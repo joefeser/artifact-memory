@@ -180,6 +180,55 @@ def _retained_policy_label(
     return materialized
 
 
+def _scan_retained_policy_labels(
+    hub: Path,
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Validate retained policy history and key it by exact portable identity."""
+    _validate_storage_root(hub, create=False)
+    root = hub / "policy" / "labels"
+    if not root.exists():
+        return {}
+    if root.is_symlink() or not root.is_dir():
+        raise SyncFailure("sync-storage-unsafe", "hub policy label storage is unsafe")
+    identity_directories = sorted(root.iterdir())
+    if any(path.is_symlink() or not path.is_dir() for path in identity_directories):
+        raise SyncFailure("sync-storage-unsafe", "hub policy label storage is unsafe")
+    paths = sorted(
+        item for directory in identity_directories for item in directory.glob("*.json")
+    )
+    if any(path.is_symlink() or not path.is_file() for path in paths):
+        raise SyncFailure("sync-storage-unsafe", "hub policy label storage is unsafe")
+    labels: dict[tuple[str, str], dict[str, Any]] = {}
+    for path in paths:
+        if len(path.stem) != 64 or any(
+            character not in "0123456789abcdef" for character in path.stem
+        ):
+            raise SyncFailure(
+                "hub-record-invalid",
+                "hub policy contains an invalid AccessLabel revision",
+            )
+        try:
+            raw = path.read_bytes()
+            _check_raw_depth(raw)
+            label, digest = validate_coordination_record_body(load_json_bytes(raw))
+        except (OSError, RecursionError, ValidationFailure) as exc:
+            raise SyncFailure(
+                "hub-record-invalid",
+                "hub policy contains an invalid AccessLabel revision",
+            ) from exc
+        reference = _pair(label, digest)
+        if (
+            label["schema_id"] != ACCESS_LABEL_SCHEMA_ID
+            or _policy_label_path(hub, reference) != path
+        ):
+            raise SyncFailure(
+                "hub-record-invalid",
+                "hub policy contains an invalid AccessLabel revision",
+            )
+        labels[_pair_key(reference)] = label
+    return labels
+
+
 def _validate_storage_root(boundary: Path, *, create: bool) -> None:
     """Reject a storage root that is itself a symlink or non-directory."""
     if boundary.is_symlink():
@@ -465,6 +514,11 @@ def configure_local_hub(
                 raise SyncFailure(
                     "hub-identity-mismatch",
                     "an existing local hub cannot change its logical hub_id",
+                )
+            if config["scope_generation"] < prior_config["scope_generation"]:
+                raise SyncFailure(
+                    "scope-generation-rollback",
+                    "an existing local hub cannot decrease scope_generation",
                 )
             prior_principals = {
                 binding["principal_id"]
@@ -1164,7 +1218,7 @@ def _authorized_records(
     allowed = set(label["may"]["readProjects"])
     denied = set(label["mayNot"]["readProjects"])
     authorized: list[StoredRecord] = []
-    policy_labels: dict[tuple[str, str], dict[str, Any]] = {}
+    policy_labels = _scan_retained_policy_labels(hub)
     all_records = _scan_records(hub)
     hub_by_pair = {_pair_key(item.record_ref): item for item in all_records}
     materialized_records: list[tuple[StoredRecord, dict[str, Any]]] = []
@@ -1221,13 +1275,11 @@ def _authorized_records(
         ):
             authorized.append(stored)
     authorized.sort(key=lambda item: _pair_key(item.record_ref))
-    policy_label_root = hub / "policy" / "labels"
-    protected_label_count = (
-        len(list(policy_label_root.glob("*/*.json")))
-        if policy_label_root.exists()
-        else 0
-    )
-    return authorized, len(all_records) - len(authorized) + protected_label_count
+    authorized_pairs = {_pair_key(item.record_ref) for item in authorized}
+    excluded_pairs = (
+        set(hub_by_pair) - authorized_pairs
+    ) | set(policy_labels)
+    return authorized, len(excluded_pairs)
 
 
 def _page_pair_groups(pairs: list[dict[str, str]]) -> list[list[dict[str, str]]]:
