@@ -1,11 +1,14 @@
 import copy
 import json
+import stat
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from artifact_memory.coordination import revision_digest
 from artifact_memory.repo_identity import (
+    _is_link_or_reparse,
     load_repo_identity,
     load_repo_identity_registry,
     validate_repo_bound_coordination_records,
@@ -63,7 +66,7 @@ class RepoIdentityTests(unittest.TestCase):
         task = load_json(COORDINATION / "task-open.json")
         before = revision_digest(task)
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             manifest_dir = root / ".agent-memory"
             manifest_dir.mkdir()
             manifest = {
@@ -85,7 +88,7 @@ class RepoIdentityTests(unittest.TestCase):
 
     def test_manifest_rejects_extra_fields_and_symlinks(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             manifest_dir = root / ".agent-memory"
             manifest_dir.mkdir()
             target = root / "identity.json"
@@ -142,7 +145,7 @@ class RepoIdentityTests(unittest.TestCase):
                 self.subTest(code=code, path=path),
                 tempfile.TemporaryDirectory() as temporary,
             ):
-                root = Path(temporary)
+                root = Path(temporary).resolve()
                 self.write_manifest(root, candidate)
                 with self.assertRaises(ValidationFailure) as caught:
                     load_repo_identity(root)
@@ -151,7 +154,7 @@ class RepoIdentityTests(unittest.TestCase):
 
     def test_manifest_rejects_symlinked_root_and_identity_directory(self):
         with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary)
+            base = Path(temporary).resolve()
             real_root = base / "real-root"
             self.write_manifest(
                 real_root,
@@ -185,6 +188,31 @@ class RepoIdentityTests(unittest.TestCase):
             with self.assertRaises(ValidationFailure) as caught:
                 load_repo_identity(local_root)
             self.assertEqual(caught.exception.code, "repo-identity-unsafe")
+
+    def test_manifest_rejects_symlinked_ancestor_component(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            target_parent = base / "target-parent"
+            real_root = target_parent / "repository"
+            self.write_manifest(
+                real_root,
+                {
+                    "uuid": "11111111-1111-4111-8111-111111111111",
+                    "humanName": "synthetic",
+                },
+            )
+            ancestor_alias = base / "ancestor-alias"
+            ancestor_alias.symlink_to(target_parent, target_is_directory=True)
+            with self.assertRaises(ValidationFailure) as caught:
+                load_repo_identity(ancestor_alias / "repository")
+            self.assertEqual(caught.exception.code, "repo-identity-unsafe")
+
+    def test_windows_reparse_attribute_is_treated_as_redirect(self):
+        reparse = SimpleNamespace(
+            st_mode=stat.S_IFDIR,
+            st_file_attributes=0x400,
+        )
+        self.assertTrue(_is_link_or_reparse(reparse))
 
 
 if __name__ == "__main__":

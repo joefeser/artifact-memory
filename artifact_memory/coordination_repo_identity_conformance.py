@@ -73,7 +73,7 @@ def run(fixtures: Path, fixture: Path) -> dict[str, Any]:
     records = _records(fixtures)
     record_digests_before = sorted(revision_digest(record) for record in records)
     with tempfile.TemporaryDirectory() as temporary:
-        repo_root = Path(temporary) / "repositories"
+        repo_root = Path(temporary).resolve() / "repositories"
         shutil.copytree(fixture / "repositories", repo_root)
         repo_roots = [repo_root / "alpha", repo_root / "beta"]
 

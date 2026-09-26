@@ -25,10 +25,11 @@ display-name rename; those observations identify one project. Distinct UUIDs
 remain distinct even when their human names are identical. An unknown UUID
 fails repository-bound coordination validation with a typed diagnostic.
 
-Identity loading rejects redirected repository roots, identity directories,
-and manifest files. It reads a stable regular file without following the final
-link where the platform supports that flag, then rechecks each inspected entry
-to detect substitution during the read.
+Identity loading rejects symbolic links and Windows reparse points in every
+traversed component from the filesystem anchor through the repository root,
+identity directory, and manifest. On platforms with directory-relative
+no-follow opens, it walks through held descriptors; the portable fallback
+compares every component before and after reading one stable regular file.
 
 ## Security consequences
 
@@ -37,8 +38,9 @@ to detect substitution during the read.
 - A UUID proves only which repository identity a record names. It does not
   prove authorship, authenticity, trust, disclosure permission, or execution
   authority.
-- Symlinked identity paths fail closed so external machine-local state cannot
-  silently define a repository identity.
+- Linked, junction-backed, or otherwise reparse-point identity paths fail
+  closed so external machine-local state cannot silently define a repository
+  identity.
 - An operator must supply the intended repository roots explicitly; discovery
   and onboarding remain separate behavior.
 

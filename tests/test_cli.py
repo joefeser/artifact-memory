@@ -214,7 +214,7 @@ class CliTests(unittest.TestCase):
     def test_repo_validate_identifies_invalid_root_index(self):
         fixture = ROOT / "fixtures" / "coordination-repo-identity" / "v0"
         with tempfile.TemporaryDirectory() as temporary:
-            invalid_root = Path(temporary) / "invalid"
+            invalid_root = Path(temporary).resolve() / "invalid"
             identity = invalid_root / ".agent-memory"
             identity.mkdir(parents=True)
             (identity / "repo.json").write_text(

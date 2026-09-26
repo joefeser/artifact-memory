@@ -30,88 +30,151 @@ _LABEL_PERMISSION_FIELDS = (
 )
 
 
-def _required_entry(path: Path, *, kind: str) -> os.stat_result:
-    try:
-        entry = path.stat(follow_symlinks=False)
-    except FileNotFoundError as exc:
-        raise ValidationFailure(
-            "repo-identity-missing",
-            "repository root has no .agent-memory/repo.json identity manifest",
-            "$",
-        ) from exc
-    except OSError as exc:
-        raise ValidationFailure(
-            "repo-identity-unavailable",
-            "repository identity path could not be inspected",
-            "$",
-        ) from exc
-    expected = (
-        stat.S_ISDIR(entry.st_mode)
-        if kind == "directory"
-        else stat.S_ISREG(entry.st_mode)
+def _is_link_or_reparse(entry: os.stat_result) -> bool:
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return stat.S_ISLNK(entry.st_mode) or bool(
+        getattr(entry, "st_file_attributes", 0) & reparse_flag
     )
-    if stat.S_ISLNK(entry.st_mode) or not expected:
-        raise ValidationFailure(
-            "repo-identity-unsafe",
-            "repository root, identity directory, and manifest must be real entries of the expected type",
-            "$",
-        )
-    return entry
 
 
 def _entry_identity(entry: os.stat_result) -> tuple[int, int, int]:
     return entry.st_dev, entry.st_ino, stat.S_IFMT(entry.st_mode)
 
 
-def _read_manifest_bytes(repo_root: Path) -> bytes:
-    identity_directory = repo_root / REPO_IDENTITY_RELATIVE_PATH.parent
-    manifest_path = repo_root / REPO_IDENTITY_RELATIVE_PATH
-    root_entry = _required_entry(repo_root, kind="directory")
-    identity_entry = _required_entry(identity_directory, kind="directory")
-    manifest_entry = _required_entry(manifest_path, kind="file")
+def _file_observation(entry: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    return (
+        *_entry_identity(entry),
+        entry.st_size,
+        entry.st_mtime_ns,
+        entry.st_ctime_ns,
+    )
 
+
+def _absolute_without_resolution(path: Path) -> Path:
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def _path_components(path: Path) -> list[Path]:
+    anchor = Path(path.anchor)
+    current = anchor
+    components: list[Path] = []
+    for part in path.relative_to(anchor).parts:
+        current /= part
+        components.append(current)
+    return components
+
+
+def _observe_manifest_path(manifest_path: Path) -> list[os.stat_result]:
+    components = _path_components(manifest_path)
+    observations: list[os.stat_result] = []
+    for index, component in enumerate(components):
+        try:
+            entry = os.lstat(component)
+        except FileNotFoundError as exc:
+            raise ValidationFailure(
+                "repo-identity-missing",
+                "repository root has no .agent-memory/repo.json identity manifest",
+                "$",
+            ) from exc
+        except OSError as exc:
+            raise ValidationFailure(
+                "repo-identity-unavailable",
+                "repository identity path could not be inspected",
+                "$",
+            ) from exc
+        final = index == len(components) - 1
+        expected_type = (
+            stat.S_ISREG(entry.st_mode) if final else stat.S_ISDIR(entry.st_mode)
+        )
+        if _is_link_or_reparse(entry) or not expected_type:
+            raise ValidationFailure(
+                "repo-identity-unsafe",
+                "repository identity path must not traverse links, reparse points, or unexpected entry types",
+                "$",
+            )
+        observations.append(entry)
+    return observations
+
+
+def _read_with_held_directories(
+    manifest_path: Path,
+) -> tuple[bytes, os.stat_result, os.stat_result]:
+    anchor = Path(manifest_path.anchor)
+    descriptor = os.open(
+        anchor,
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0),
+    )
+    try:
+        relative_parts = manifest_path.relative_to(anchor).parts
+        for index, part in enumerate(relative_parts):
+            final = index == len(relative_parts) - 1
+            flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+            flags |= getattr(os, "O_BINARY", 0) if final else os.O_DIRECTORY
+            child = os.open(part, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode):
+            raise OSError("repository identity manifest is not a regular file")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            data = stream.read()
+        return data, opened, os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _read_with_identity_checks(
+    manifest_path: Path,
+) -> tuple[bytes, os.stat_result, os.stat_result]:
     flags = (
         os.O_RDONLY
         | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_CLOEXEC", 0)
         | getattr(os, "O_NOFOLLOW", 0)
     )
+    descriptor = os.open(manifest_path, flags)
     try:
-        descriptor = os.open(manifest_path, flags)
-        try:
-            opened_entry = os.fstat(descriptor)
-            if (
-                not stat.S_ISREG(opened_entry.st_mode)
-                or _entry_identity(opened_entry) != _entry_identity(manifest_entry)
-            ):
-                raise ValidationFailure(
-                    "repo-identity-unsafe",
-                    "repository identity manifest changed while it was opened",
-                    "$",
-                )
-            with os.fdopen(descriptor, "rb", closefd=True) as stream:
-                descriptor = -1
-                data = stream.read()
-        finally:
-            if descriptor >= 0:
-                os.close(descriptor)
-    except ValidationFailure:
-        raise
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode):
+            raise OSError("repository identity manifest is not a regular file")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            data = stream.read()
+        return data, opened, os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _read_manifest_bytes(repo_root: Path) -> bytes:
+    absolute_root = _absolute_without_resolution(repo_root)
+    manifest_path = absolute_root / REPO_IDENTITY_RELATIVE_PATH
+    before = _observe_manifest_path(manifest_path)
+    secure_directory_open = os.open in os.supports_dir_fd and all(
+        hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")
+    )
+    try:
+        if secure_directory_open:
+            data, opened, opened_after = _read_with_held_directories(manifest_path)
+        else:
+            data, opened, opened_after = _read_with_identity_checks(manifest_path)
     except OSError as exc:
         raise ValidationFailure(
             "repo-identity-unsafe",
             "repository identity manifest could not be opened without following links",
             "$",
         ) from exc
-
-    stable_entries = (
-        (repo_root, "directory", root_entry),
-        (identity_directory, "directory", identity_entry),
-        (manifest_path, "file", manifest_entry),
-    )
-    if any(
-        _entry_identity(_required_entry(path, kind=kind))
-        != _entry_identity(expected)
-        for path, kind, expected in stable_entries
+    after = _observe_manifest_path(manifest_path)
+    if (
+        len(before) != len(after)
+        or any(
+            _entry_identity(left) != _entry_identity(right)
+            for left, right in zip(before, after)
+        )
+        or _file_observation(before[-1]) != _file_observation(opened)
+        or _file_observation(opened) != _file_observation(opened_after)
+        or _file_observation(opened_after) != _file_observation(after[-1])
     ):
         raise ValidationFailure(
             "repo-identity-unsafe",
