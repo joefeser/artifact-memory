@@ -32,7 +32,8 @@ from artifact_memory.coordination_sync import (
     validate_membership_pages,
     validate_sync_receipt,
 )
-from artifact_memory.validator import load_json
+from artifact_memory.schema_resources import core_schemas
+from artifact_memory.validator import ValidationFailure, load_json
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -272,6 +273,28 @@ class CoordinationSyncTests(unittest.TestCase):
             )
             self.assertEqual(claimed_path(hub, original).read_bytes(), canonical_bytes(original))
 
+    def test_equivalent_noncanonical_json_is_not_quarantined_and_hub_stores_canonical_bytes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            task = task_for(label)
+            path = claimed_path(vault, task)
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(task, indent=2), encoding="utf-8")
+
+            first = push(vault, hub, session_id=SESSION)
+            self.assertEqual(first[0]["code"], "admitted")
+            self.assertEqual(claimed_path(hub, task).read_bytes(), canonical_bytes(task))
+
+            # Replaying alternate formatting for the same canonical pair is a
+            # duplicate admission, never a same-pair collision.
+            path.write_text(json.dumps(task, indent=4), encoding="utf-8")
+            second = push(vault, hub, session_id=SESSION)
+            self.assertEqual(second[0]["code"], "admitted")
+            self.assertEqual(list((hub / "quarantine").glob("**/*.json")), [])
+
     def test_receipt_manifest_and_submission_outcomes_bind_generated_projection(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -313,6 +336,108 @@ class CoordinationSyncTests(unittest.TestCase):
                 json.loads(completed.stdout)["diagnostics"][0]["code"],
                 "sync-receipt-identity-mismatch",
             )
+
+    def test_sync_receipt_schema_rejects_missing_unknown_nested_and_constant_mutations(self):
+        receipt = receipt_for_pairs([], 1)
+        for field in core_schemas()[SYNC_RECEIPT_SCHEMA_ID]["required"]:
+            with self.subTest(missing=field):
+                changed = copy.deepcopy(receipt)
+                del changed[field]
+                with self.assertRaises(ValidationFailure):
+                    validate_sync_receipt(changed)
+
+        mutations = []
+        unknown = copy.deepcopy(receipt)
+        unknown["unexpected"] = True
+        mutations.append(unknown)
+        for field, value in (
+            ("schema_id", "artifact-memory/coordination-sync-receipt/v99"),
+            ("receipt_id", "coordination-sync-receipt://sha-256/not-a-digest"),
+            ("transport_state", "anonymous"),
+            ("issuer_state", "verified"),
+            ("authority_boundary", "grants authority"),
+        ):
+            changed = copy.deepcopy(receipt)
+            changed[field] = value
+            mutations.append(changed)
+        missing_ref = copy.deepcopy(receipt)
+        del missing_ref["access_label_ref"]["record_id"]
+        mutations.append(missing_ref)
+        unknown_membership = copy.deepcopy(receipt)
+        unknown_membership["authorized_membership"]["unexpected"] = 1
+        mutations.append(unknown_membership)
+        invalid_outcome = copy.deepcopy(receipt)
+        invalid_outcome["submission_outcomes"] = [
+            {
+                "record_ref": {
+                    "record_id": "record://synthetic/one",
+                    "revision_digest": "sha-256:" + "a" * 64,
+                },
+                "outcome": "admitted",
+                "code": "admitted",
+            }
+        ]
+        nested_required_paths = (
+            ("access_label_ref", "record_id"),
+            ("access_label_ref", "revision_digest"),
+            ("authorized_membership", "pair_count"),
+            ("authorized_membership", "pair_set_digest"),
+            ("authorized_membership", "page_count"),
+            ("submission_outcomes", 0, "record_ref"),
+            ("submission_outcomes", 0, "outcome"),
+            ("submission_outcomes", 0, "code"),
+            ("submission_outcomes", 0, "record_ref", "record_id"),
+            ("submission_outcomes", 0, "record_ref", "revision_digest"),
+        )
+        for path in nested_required_paths:
+            changed = copy.deepcopy(invalid_outcome)
+            target = changed
+            for part in path[:-1]:
+                target = target[part]
+            del target[path[-1]]
+            mutations.append(changed)
+
+        nested_closed_paths = (
+            ("access_label_ref",),
+            ("authorized_membership",),
+            ("submission_outcomes", 0),
+            ("submission_outcomes", 0, "record_ref"),
+        )
+        for path in nested_closed_paths:
+            changed = copy.deepcopy(invalid_outcome)
+            target = changed
+            for part in path:
+                target = target[part]
+            target["unexpected"] = True
+            mutations.append(changed)
+
+        invalid_values = (
+            (("hub_id",), "https://synthetic.invalid/hub"),
+            (("principal_id",), "synthetic-agent"),
+            (("access_label_ref", "record_id"), "record://synthetic/not-a-label"),
+            (("access_label_ref", "revision_digest"), "sha-256:not-a-digest"),
+            (("scope_generation",), -1),
+            (("completed_at",), "not-a-time"),
+            (("authorized_membership", "pair_count"), -1),
+            (("authorized_membership", "pair_set_digest"), "sha-256:bad"),
+            (("authorized_membership", "page_count"), 0),
+            (("excluded_count",), -1),
+            (("submission_outcomes", 0, "record_ref", "record_id"), ""),
+            (("submission_outcomes", 0, "record_ref", "revision_digest"), "bad"),
+            (("submission_outcomes", 0, "outcome"), "accepted"),
+            (("submission_outcomes", 0, "code"), "unknown-code"),
+        )
+        for path, value in invalid_values:
+            changed = copy.deepcopy(invalid_outcome)
+            target = changed
+            for part in path[:-1]:
+                target = target[part]
+            target[path[-1]] = value
+            mutations.append(changed)
+        for index, changed in enumerate(mutations):
+            with self.subTest(mutation=index):
+                with self.assertRaises(ValidationFailure):
+                    validate_sync_receipt(changed)
 
     def test_pair_set_digest_vectors_cover_empty_reordered_and_unicode(self):
         empty = pair_set_digest([])
@@ -409,6 +534,47 @@ class CoordinationSyncTests(unittest.TestCase):
                 apply_pull_response(vault, stale)
             self.assertEqual(replayed.exception.code, "sync-generation-stale")
             self.assertEqual(marker_path.read_bytes(), generation_two)
+
+    def test_lowercase_z_timestamp_is_compared_without_untyped_crash(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(hub, task_for(label))
+            pull(vault, hub, session_id=SESSION, completed_at="2026-09-25T20:00:00z")
+            result = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:01:00Z",
+            )
+            self.assertEqual(result["outcome"], "no-op")
+
+    def test_same_generation_membership_cannot_shrink_or_advance_marker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A, PROJECT_B])
+            configure(hub, label)
+            task_a = task_for(label)
+            task_b = task_for(label, other_origin=True, project_id=PROJECT_B)
+            store_coordination_record(hub, task_a)
+            store_coordination_record(hub, task_b)
+            pull(vault, hub, session_id=SESSION, completed_at="2026-09-25T20:00:00Z")
+            marker_path = vault / "generated" / "coordination-sync" / "last-successful.json"
+            before = marker_path.read_bytes()
+
+            claimed_path(hub, task_b).unlink()
+            with self.assertRaises(SyncFailure) as raised:
+                pull(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:01:00Z",
+                )
+            self.assertEqual(raised.exception.code, "sync-membership-regression")
+            self.assertEqual(marker_path.read_bytes(), before)
 
     def test_label_rotation_rebuilds_projection_retains_history_and_suppresses_context(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -523,6 +689,89 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "sync-record-too-large")
             self.assertEqual(list((hub / "canonical" / "coordination").glob("*/*.json")), [])
 
+    def test_pending_outcomes_are_bound_to_the_authenticated_session(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            other_session = "coordination-session://synthetic/session-2"
+            other_principal = "coordination-principal://synthetic/agent-2"
+            configure_local_hub(
+                hub,
+                hub_id=HUB_ID,
+                scope_generation=1,
+                bindings=[
+                    {
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": label,
+                    },
+                    {
+                        "session_id": other_session,
+                        "principal_id": other_principal,
+                        "access_label": label,
+                    },
+                ],
+            )
+            store_coordination_record(vault, task_for(label))
+            push(vault, hub, session_id=SESSION)
+            pending = vault / "generated" / "coordination-sync" / "pending-submission-outcomes.json"
+            before = pending.read_bytes()
+            with self.assertRaises(SyncFailure) as raised:
+                pull(
+                    vault,
+                    hub,
+                    session_id=other_session,
+                    completed_at="2026-09-25T20:00:00Z",
+                )
+            self.assertEqual(raised.exception.code, "sync-pending-binding-mismatch")
+            self.assertEqual(pending.read_bytes(), before)
+
+    def test_acknowledged_pairs_are_filtered_by_hub_and_principal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first_hub, second_hub, vault = root / "first", root / "second", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(first_hub, label)
+            configure_local_hub(
+                second_hub,
+                hub_id="coordination-hub://synthetic/hub-b",
+                scope_generation=1,
+                bindings=[
+                    {
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": label,
+                    }
+                ],
+            )
+            store_coordination_record(vault, task_for(label))
+            push(vault, first_hub, session_id=SESSION)
+            pull(
+                vault,
+                first_hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+            outcomes = push(vault, second_hub, session_id=SESSION)
+            self.assertEqual([item["code"] for item in outcomes], ["admitted"])
+
+    def test_stale_lock_file_does_not_block_sync(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(vault, task_for(label))
+            legacy_lock_name = hashlib.sha256(PRINCIPAL.encode("utf-8")).hexdigest()
+            lock_name = hashlib.sha256(f"principal:{PRINCIPAL}".encode("utf-8")).hexdigest()
+            # A crash from the prior directory-sentinel implementation and a
+            # stale file from the advisory implementation are both inert.
+            (hub / "locks" / legacy_lock_name).mkdir(parents=True)
+            lock = hub / "locks" / f"{lock_name}.lock"
+            lock.write_text("stale", encoding="utf-8")
+            self.assertEqual(push(vault, hub, session_id=SESSION)[0]["code"], "admitted")
+
     def test_internal_symlink_cannot_redirect_canonical_storage(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -537,6 +786,32 @@ class CoordinationSyncTests(unittest.TestCase):
                 store_coordination_record(vault, task)
             self.assertEqual(raised.exception.code, "sync-storage-unsafe")
             self.assertEqual(list(outside.iterdir()), [])
+
+    def test_storage_root_symlink_cannot_redirect_writes_or_reads(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            outside = root / "outside"
+            outside.mkdir()
+            alias = root / "vault-alias"
+            os.symlink(outside, alias)
+            label = label_for([PROJECT_A])
+            with self.assertRaises(SyncFailure) as write_raised:
+                store_coordination_record(alias, task_for(label))
+            self.assertEqual(write_raised.exception.code, "sync-storage-unsafe")
+            self.assertEqual(list(outside.iterdir()), [])
+
+            real_hub = root / "hub"
+            configure(real_hub, label)
+            hub_alias = root / "hub-alias"
+            os.symlink(real_hub, hub_alias)
+            with self.assertRaises(SyncFailure) as read_raised:
+                pull(
+                    root / "other-vault",
+                    hub_alias,
+                    session_id=SESSION,
+                    completed_at="2026-09-25T20:00:00Z",
+                )
+            self.assertEqual(read_raised.exception.code, "sync-storage-unsafe")
 
     def test_continuation_tokens_are_not_persisted(self):
         with tempfile.TemporaryDirectory() as temporary:

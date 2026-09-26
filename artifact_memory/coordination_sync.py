@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import stat
 import tempfile
 from contextlib import contextmanager
 from copy import deepcopy
@@ -37,7 +38,9 @@ LOCAL_HUB_SCHEMA_ID = "artifact-memory/local-coordination-hub/v0"
 AUTHORITY_BOUNDARY = (
     "sync receipt grants no execution, disclosure, authorization, or trust"
 )
+PENDING_OUTCOMES_SCHEMA_ID = "artifact-memory/local-coordination-pending-outcomes/v0"
 
+# Normative source: docs/contracts/v0-coordination-plane.md, "V0 sync resource bounds".
 MAX_REQUEST_BYTES = 8 * 1024 * 1024
 MAX_SUBMITTED_RECORDS = 1_000
 MAX_RECORD_BYTES = 1024 * 1024
@@ -88,13 +91,42 @@ def _record_path(root: Path, record_ref: dict[str, str]) -> Path:
     return root / "canonical" / "coordination" / identity_hash / f"{digest_hex}.json"
 
 
+def _validate_storage_root(boundary: Path, *, create: bool) -> None:
+    """Reject a storage root that is itself a symlink or non-directory."""
+    if boundary.is_symlink():
+        raise SyncFailure("sync-storage-unsafe", "sync storage root is a symlink")
+    if boundary.exists():
+        if not boundary.is_dir():
+            raise SyncFailure("sync-storage-unsafe", "sync storage root is not a directory")
+    else:
+        if not create:
+            return
+        boundary.mkdir(parents=True, exist_ok=True)
+        if boundary.is_symlink() or not boundary.is_dir():
+            raise SyncFailure("sync-storage-unsafe", "sync storage root is unsafe")
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(boundary, flags)
+    except OSError as exc:
+        raise SyncFailure("sync-storage-unsafe", "sync storage root is unsafe") from exc
+    try:
+        if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            raise SyncFailure("sync-storage-unsafe", "sync storage root is not a directory")
+    finally:
+        os.close(descriptor)
+
+
 def _prepare_parent(boundary: Path, path: Path) -> None:
     """Create only real directories beneath a caller-selected storage root."""
     try:
         relative = path.relative_to(boundary)
     except ValueError as exc:
         raise SyncFailure("sync-storage-escape", "sync storage path escapes its root") from exc
-    boundary.mkdir(parents=True, exist_ok=True)
+    _validate_storage_root(boundary, create=True)
     current = boundary
     for part in relative.parts[:-1]:
         current = current / part
@@ -165,6 +197,7 @@ def store_coordination_record(root: Path, record: dict[str, Any]) -> dict[str, s
 
 
 def _record_files(root: Path) -> list[Path]:
+    _validate_storage_root(root, create=False)
     base = root / "canonical" / "coordination"
     if not base.exists():
         return []
@@ -332,6 +365,7 @@ def configure_local_hub(
 def _binding(
     hub: Path, session_id: str
 ) -> tuple[dict[str, Any], dict[str, Any], str]:
+    _validate_storage_root(hub, create=False)
     try:
         config = _validate_hub_config(load_json(hub / "hub-config.json"))
     except ValidationFailure as exc:
@@ -373,22 +407,85 @@ def _request_bounds(records: list[StoredRecord]) -> None:
 
 
 @contextmanager
-def _principal_lock(hub: Path, principal_id: str) -> Iterator[None]:
-    lock = hub / "locks" / hashlib.sha256(principal_id.encode("utf-8")).hexdigest()
-    _prepare_parent(hub, lock)
+def _advisory_lock(
+    root: Path,
+    identity: str,
+    *,
+    busy_code: str,
+    busy_message: str,
+) -> Iterator[None]:
+    """Hold a crash-released OS lock; the persistent lock file is not state."""
+    lock = (
+        root
+        / "locks"
+        / f"{hashlib.sha256(identity.encode('utf-8')).hexdigest()}.lock"
+    )
+    _prepare_parent(root, lock)
+    if lock.is_symlink() or (lock.exists() and not lock.is_file()):
+        raise SyncFailure("sync-storage-unsafe", "sync lock storage is unsafe")
+    flags = os.O_CREAT | os.O_RDWR
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
     try:
-        lock.mkdir()
-    except FileExistsError as exc:
-        raise SyncFailure(
-            "sync-principal-busy", "one sync request is already in flight for this principal"
-        ) from exc
+        descriptor = os.open(lock, flags, 0o600)
+    except OSError as exc:
+        raise SyncFailure("sync-storage-unsafe", "sync lock storage is unavailable") from exc
+    locked = False
     try:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                if os.fstat(descriptor).st_size == 0:
+                    os.write(descriptor, b"\0")
+                    os.fsync(descriptor)
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locked = True
+        except (BlockingIOError, OSError) as exc:
+            raise SyncFailure(busy_code, busy_message) from exc
         yield
     finally:
-        try:
-            lock.rmdir()
-        except OSError:
-            pass
+        if locked:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+            except OSError:
+                pass
+        os.close(descriptor)
+
+
+@contextmanager
+def _principal_lock(hub: Path, principal_id: str) -> Iterator[None]:
+    with _advisory_lock(
+        hub,
+        f"principal:{principal_id}",
+        busy_code="sync-principal-busy",
+        busy_message="one sync request is already in flight for this principal",
+    ):
+        yield
+
+
+@contextmanager
+def _projection_apply_lock(vault: Path) -> Iterator[None]:
+    with _advisory_lock(
+        vault,
+        "projection-apply",
+        busy_code="sync-local-apply-busy",
+        busy_message="one pull response is already being applied to this vault",
+    ):
+        yield
 
 
 def _submission_code(
@@ -467,13 +564,20 @@ def _outcome(reference: dict[str, str], code: str) -> dict[str, Any]:
     }
 
 
+def _canonical_record_bytes(stored: StoredRecord) -> bytes:
+    return canonical_bytes(stored.record)
+
+
 def _quarantine_collision(
     hub: Path, existing: StoredRecord, incoming: StoredRecord
 ) -> None:
     report = {
         "claimed_pair": deepcopy(incoming.record_ref),
         "observed_content_digests": sorted(
-            {sha256_bytes(existing.raw), sha256_bytes(incoming.raw)}
+            {
+                sha256_bytes(_canonical_record_bytes(existing)),
+                sha256_bytes(_canonical_record_bytes(incoming)),
+            }
         ),
         "outcome": "quarantined",
         "code": "same-pair-different-bytes",
@@ -486,8 +590,11 @@ def _quarantine_collision(
     )
 
 
-def _known_hub_pairs(vault: Path) -> set[tuple[str, str]]:
+def _known_hub_pairs(
+    vault: Path, hub_id: str, principal_id: str
+) -> set[tuple[str, str]]:
     """Recover acknowledged hub membership only from verified prior projections."""
+    _validate_storage_root(vault, create=False)
     roots = vault / "generated" / "coordination-sync" / "projections"
     known: set[tuple[str, str]] = set()
     if not roots.exists():
@@ -508,7 +615,9 @@ def _known_hub_pairs(vault: Path) -> set[tuple[str, str]]:
         try:
             validate_sync_receipt(receipt)
             if (
-                len(pairs) != receipt["authorized_membership"]["pair_count"]
+                receipt["hub_id"] != hub_id
+                or receipt["principal_id"] != principal_id
+                or len(pairs) != receipt["authorized_membership"]["pair_count"]
                 or pair_set_digest(pairs)
                 != receipt["authorized_membership"]["pair_set_digest"]
             ):
@@ -524,6 +633,74 @@ def _known_hub_pairs(vault: Path) -> set[tuple[str, str]]:
     return known
 
 
+def _pending_outcomes_path(vault: Path) -> Path:
+    return vault / "generated" / "coordination-sync" / "pending-submission-outcomes.json"
+
+
+def _pending_outcomes_envelope(
+    *,
+    config: dict[str, Any],
+    label: dict[str, Any],
+    principal_id: str,
+    session_id: str,
+    outcomes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "schema_id": PENDING_OUTCOMES_SCHEMA_ID,
+        "hub_id": config["hub_id"],
+        "principal_id": principal_id,
+        "session_id": session_id,
+        "access_label_ref": _pair(label),
+        "submission_outcomes": deepcopy(outcomes),
+    }
+
+
+def _load_pending_outcomes(
+    vault: Path,
+    *,
+    config: dict[str, Any],
+    label: dict[str, Any],
+    principal_id: str,
+    session_id: str,
+) -> list[dict[str, Any]]:
+    _validate_storage_root(vault, create=False)
+    path = _pending_outcomes_path(vault)
+    if not path.exists():
+        return []
+    if path.is_symlink() or not path.is_file():
+        raise SyncFailure("sync-storage-unsafe", "pending sync outcome storage is unsafe")
+    try:
+        value = load_json(path)
+    except ValidationFailure as exc:
+        raise SyncFailure("sync-outcomes-invalid", "pending submission outcomes are invalid") from exc
+    required = {
+        "schema_id",
+        "hub_id",
+        "principal_id",
+        "session_id",
+        "access_label_ref",
+        "submission_outcomes",
+    }
+    if not isinstance(value, dict) or set(value) != required:
+        raise SyncFailure("sync-outcomes-invalid", "pending submission outcomes are invalid")
+    expected_binding = {
+        "schema_id": PENDING_OUTCOMES_SCHEMA_ID,
+        "hub_id": config["hub_id"],
+        "principal_id": principal_id,
+        "session_id": session_id,
+        "access_label_ref": _pair(label),
+    }
+    if any(value[field] != expected for field, expected in expected_binding.items()):
+        raise SyncFailure(
+            "sync-pending-binding-mismatch",
+            "pending submission outcomes belong to another authenticated binding",
+        )
+    outcomes = value["submission_outcomes"]
+    if not isinstance(outcomes, list):
+        raise SyncFailure("sync-outcomes-invalid", "pending submission outcomes are invalid")
+    return deepcopy(outcomes)
+
+
 def push(
     vault: Path,
     hub: Path,
@@ -532,8 +709,16 @@ def push(
 ) -> list[dict[str, Any]]:
     """Push every local pair through server-owned policy as an idempotent union."""
     config, label, principal_id = _binding(hub, session_id)
-    del config
-    known = _known_hub_pairs(vault)
+    known = _known_hub_pairs(vault, config["hub_id"], principal_id)
+    # A pending receipt is binding-specific. Refuse to overwrite another
+    # authenticated session's unacknowledged evidence.
+    _load_pending_outcomes(
+        vault,
+        config=config,
+        label=label,
+        principal_id=principal_id,
+        session_id=session_id,
+    )
     outcomes: list[dict[str, Any]] = []
     with _principal_lock(hub, principal_id):
         known_paths = {
@@ -559,7 +744,10 @@ def push(
         for stored in submissions:
             key = _pair_key(stored.record_ref)
             existing = hub_by_pair.get(key)
-            if existing is not None and existing.raw != stored.raw:
+            if (
+                existing is not None
+                and _canonical_record_bytes(existing) != _canonical_record_bytes(stored)
+            ):
                 _quarantine_collision(hub, existing, stored)
                 outcomes.append(_outcome(stored.record_ref, "same-pair-different-bytes"))
                 continue
@@ -567,11 +755,29 @@ def push(
             outcomes.append(_outcome(stored.record_ref, code))
             if code != "admitted" or existing is not None:
                 continue
-            _write_immutable(hub, _record_path(hub, stored.record_ref), stored.raw)
-            hub_by_pair[key] = stored
+            materialized, _ = validate_coordination_record_body(stored.record)
+            canonical_raw = canonical_bytes(materialized)
+            _write_immutable(hub, _record_path(hub, stored.record_ref), canonical_raw)
+            hub_by_pair[key] = StoredRecord(
+                stored.record_ref,
+                materialized,
+                canonical_raw,
+                _record_path(hub, stored.record_ref),
+            )
     outcomes.sort(key=lambda item: _pair_key(item["record_ref"]))
-    pending = vault / "generated" / "coordination-sync" / "pending-submission-outcomes.json"
-    _write_atomic(vault, pending, canonical_bytes(outcomes))
+    _write_atomic(
+        vault,
+        _pending_outcomes_path(vault),
+        canonical_bytes(
+            _pending_outcomes_envelope(
+                config=config,
+                label=label,
+                principal_id=principal_id,
+                session_id=session_id,
+                outcomes=outcomes,
+            )
+        ),
+    )
     return outcomes
 
 
@@ -826,6 +1032,7 @@ def _projection_root(vault: Path, receipt_id: str) -> Path:
 def _load_current_projection(
     vault: Path,
 ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, str]]]:
+    _validate_storage_root(vault, create=False)
     marker_path = vault / "generated" / "coordination-sync" / "last-successful.json"
     try:
         marker = load_json(marker_path)
@@ -882,6 +1089,103 @@ def _load_current_projection(
     return marker, receipt, sorted_pairs(pairs)
 
 
+def _parse_receipt_time(value: str) -> datetime:
+    try:
+        normalized = value[:-1] + "+00:00" if value.endswith(("Z", "z")) else value
+        return datetime.fromisoformat(normalized)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise SyncFailure(
+            "sync-receipt-time-invalid", "sync receipt completed_at is invalid"
+        ) from exc
+
+
+def _apply_verified_pull(
+    vault: Path,
+    receipt: dict[str, Any],
+    pairs: list[dict[str, str]],
+    by_pair: dict[tuple[str, str], dict[str, Any]],
+) -> dict[str, Any]:
+    marker_path = vault / "generated" / "coordination-sync" / "last-successful.json"
+    if marker_path.exists():
+        _, prior_receipt, prior_manifest = _load_current_projection(vault)
+        if (
+            prior_receipt["hub_id"] != receipt["hub_id"]
+            or prior_receipt["principal_id"] != receipt["principal_id"]
+        ):
+            raise SyncFailure(
+                "sync-binding-mismatch",
+                "pull response does not match the vault's successful hub and principal binding",
+            )
+        if receipt["scope_generation"] < prior_receipt["scope_generation"]:
+            raise SyncFailure(
+                "sync-generation-stale",
+                "pull response uses a prior scope generation",
+            )
+        prior_completed = _parse_receipt_time(prior_receipt["completed_at"])
+        current_completed = _parse_receipt_time(receipt["completed_at"])
+        if current_completed < prior_completed:
+            raise SyncFailure(
+                "sync-receipt-stale",
+                "pull response predates the last successful sync receipt",
+            )
+        same_scope = (
+            prior_receipt["access_label_ref"] == receipt["access_label_ref"]
+            and prior_receipt["scope_generation"] == receipt["scope_generation"]
+        )
+        if same_scope and not {
+            _pair_key(pair) for pair in prior_manifest
+        }.issubset({_pair_key(pair) for pair in pairs}):
+            raise SyncFailure(
+                "sync-membership-regression",
+                "an unchanged scope generation cannot remove authorized membership",
+            )
+        if (
+            same_scope
+            and prior_receipt["authorized_membership"]
+            == receipt["authorized_membership"]
+            and prior_receipt["excluded_count"] == receipt["excluded_count"]
+            and not receipt["submission_outcomes"]
+        ):
+            # A no-op is valid only if the local authorized material still
+            # matches the previously verified marker and projection.
+            load_authorized_projection(vault)
+            try:
+                _pending_outcomes_path(vault).unlink()
+            except FileNotFoundError:
+                pass
+            return {
+                "outcome": "no-op",
+                "receipt": prior_receipt,
+                "authorized_pairs": prior_manifest,
+            }
+
+    # Canonical history is append-only and is never pruned by label rotation.
+    for pair in pairs:
+        record = by_pair[_pair_key(pair)]
+        _write_immutable(vault, _record_path(vault, pair), canonical_bytes(record))
+
+    projection = _projection_root(vault, receipt["receipt_id"])
+    _write_immutable(vault, projection / "receipt.json", canonical_bytes(receipt))
+    _write_immutable(
+        vault,
+        projection / "authorized-membership.json",
+        canonical_bytes(pairs),
+    )
+    marker = {
+        "receipt_ref": receipt["receipt_id"],
+        "pair_count": len(pairs),
+        "pair_set_digest": pair_set_digest(pairs),
+        "scope_generation": receipt["scope_generation"],
+        "access_label_ref": receipt["access_label_ref"],
+    }
+    _write_atomic(vault, marker_path, canonical_bytes(marker))
+    try:
+        _pending_outcomes_path(vault).unlink()
+    except FileNotFoundError:
+        pass
+    return {"outcome": "complete", "receipt": receipt, "authorized_pairs": pairs}
+
+
 def apply_pull_response(vault: Path, response: dict[str, Any]) -> dict[str, Any]:
     """Verify a complete pull before appending records and advancing the marker."""
     if not isinstance(response, dict) or set(response) != {
@@ -931,83 +1235,8 @@ def apply_pull_response(vault: Path, response: dict[str, Any]) -> dict[str, Any]
             )
     if set(by_pair) != {_pair_key(item) for item in pairs}:
         raise SyncFailure("sync-record-set-mismatch", "pull records do not match authorized membership")
-
-    marker_path = vault / "generated" / "coordination-sync" / "last-successful.json"
-    if marker_path.exists():
-        _, prior_receipt, prior_manifest = _load_current_projection(vault)
-        if (
-            prior_receipt["hub_id"] != receipt["hub_id"]
-            or prior_receipt["principal_id"] != receipt["principal_id"]
-        ):
-            raise SyncFailure(
-                "sync-binding-mismatch",
-                "pull response does not match the vault's successful hub and principal binding",
-            )
-        if receipt["scope_generation"] < prior_receipt["scope_generation"]:
-            raise SyncFailure(
-                "sync-generation-stale",
-                "pull response uses a prior scope generation",
-            )
-        prior_completed = datetime.fromisoformat(
-            prior_receipt["completed_at"].replace("Z", "+00:00")
-        )
-        current_completed = datetime.fromisoformat(
-            receipt["completed_at"].replace("Z", "+00:00")
-        )
-        if current_completed < prior_completed:
-            raise SyncFailure(
-                "sync-receipt-stale",
-                "pull response predates the last successful sync receipt",
-            )
-        if (
-            prior_receipt["access_label_ref"] == receipt["access_label_ref"]
-            and prior_receipt["scope_generation"] == receipt["scope_generation"]
-            and prior_receipt["hub_id"] == receipt["hub_id"]
-            and prior_receipt["principal_id"] == receipt["principal_id"]
-            and prior_receipt["authorized_membership"] == receipt["authorized_membership"]
-            and prior_receipt["excluded_count"] == receipt["excluded_count"]
-            and not receipt["submission_outcomes"]
-        ):
-            # A no-op is valid only if the local authorized material still
-            # matches the previously verified marker and projection.
-            load_authorized_projection(vault)
-            pending = vault / "generated" / "coordination-sync" / "pending-submission-outcomes.json"
-            try:
-                pending.unlink()
-            except FileNotFoundError:
-                pass
-            return {
-                "outcome": "no-op",
-                "receipt": prior_receipt,
-                "authorized_pairs": prior_manifest,
-            }
-
-    # Canonical history is append-only and is never pruned by label rotation.
-    for pair in pairs:
-        record = by_pair[_pair_key(pair)]
-        _write_immutable(vault, _record_path(vault, pair), canonical_bytes(record))
-
-    projection = _projection_root(vault, receipt["receipt_id"])
-    _write_immutable(vault, projection / "receipt.json", canonical_bytes(receipt))
-    _write_immutable(
-        vault,
-        projection / "authorized-membership.json",
-        canonical_bytes(pairs),
-    )
-    marker = {
-        "receipt_ref": receipt["receipt_id"],
-        "pair_count": len(pairs),
-        "pair_set_digest": pair_set_digest(pairs),
-        "scope_generation": receipt["scope_generation"],
-        "access_label_ref": receipt["access_label_ref"],
-    }
-    _write_atomic(vault, marker_path, canonical_bytes(marker))
-    pending = vault / "generated" / "coordination-sync" / "pending-submission-outcomes.json"
-    try:
-        pending.unlink()
-    except FileNotFoundError:
-        pass
-    return {"outcome": "complete", "receipt": receipt, "authorized_pairs": pairs}
+    with _projection_apply_lock(vault):
+        return _apply_verified_pull(vault, receipt, pairs, by_pair)
 
 
 def pull(
@@ -1017,13 +1246,14 @@ def pull(
     session_id: str,
     completed_at: str,
 ) -> dict[str, Any]:
-    pending_path = vault / "generated" / "coordination-sync" / "pending-submission-outcomes.json"
-    pending: list[dict[str, Any]] = []
-    if pending_path.exists():
-        value = load_json(pending_path)
-        if not isinstance(value, list):
-            raise SyncFailure("sync-outcomes-invalid", "pending submission outcomes are invalid")
-        pending = value
+    config, label, principal_id = _binding(hub, session_id)
+    pending = _load_pending_outcomes(
+        vault,
+        config=config,
+        label=label,
+        principal_id=principal_id,
+        session_id=session_id,
+    )
     response = build_pull_response(
         hub,
         session_id=session_id,
@@ -1060,6 +1290,7 @@ def sync(
 
 def load_authorized_projection(vault: Path) -> list[dict[str, Any]]:
     """Load only the verified generated authorization view for context consumers."""
+    _validate_storage_root(vault, create=False)
     if not (vault / "generated" / "coordination-sync" / "last-successful.json").exists():
         raise SyncFailure("sync-marker-missing", "no successful authorized sync projection exists")
     _, _, pairs = _load_current_projection(vault)
