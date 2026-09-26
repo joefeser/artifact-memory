@@ -162,6 +162,55 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertTrue(json.loads(result.stdout)["valid"])
 
+    def test_repo_validate_binds_coordination_records_to_known_uuid(self):
+        result = self.run_cli(
+            "repo",
+            "validate",
+            str(ROOT),
+            "--records",
+            str(COORDINATION_FIXTURES / "access-label.json"),
+            str(COORDINATION_FIXTURES / "task-open.json"),
+            "--json",
+        )
+        self.assertEqual(result.returncode, 2)
+        receipt = json.loads(result.stdout)
+        self.assertEqual(
+            receipt["diagnostics"][0]["code"], "coordination-project-unknown"
+        )
+
+    def test_repo_validate_accepts_same_name_distinct_project_uuids(self):
+        fixture = ROOT / "fixtures" / "coordination-repo-identity" / "v0"
+        with tempfile.TemporaryDirectory() as temporary:
+            record_root = Path(temporary)
+            label = json.loads(
+                (COORDINATION_FIXTURES / "access-label.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            task = json.loads(
+                (COORDINATION_FIXTURES / "task-open.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            label_path = record_root / "label.json"
+            task_path = record_root / "task.json"
+            label_path.write_text(json.dumps(label), encoding="utf-8")
+            task_path.write_text(json.dumps(task), encoding="utf-8")
+            result = self.run_cli(
+                "repo",
+                "validate",
+                str(fixture / "repositories" / "alpha"),
+                str(fixture / "repositories" / "beta"),
+                "--records",
+                str(label_path),
+                str(task_path),
+                "--json",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(result.stdout)
+        self.assertTrue(receipt["repo_identity_verified"])
+        self.assertEqual(receipt["known_project_count"], 2)
+
     def test_project_reports_projection_creation_failure_as_json(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = io.StringIO()
