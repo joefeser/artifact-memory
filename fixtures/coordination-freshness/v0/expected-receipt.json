@@ -1,0 +1,21 @@
+{
+  "authority_boundary": "freshness conformance evidence is informational only and grants no execution, mutation, routing, disclosure, credential, spending, deployment, approval, or merge authority",
+  "current_observation": {
+    "observed_head": "c82a4dd03a77d86df04e8c1cf0b51b992153fcaf",
+    "status": "current",
+    "true_as_of_commit": "c82a4dd03a77d86df04e8c1cf0b51b992153fcaf"
+  },
+  "negative_codes": {
+    "top_level_freshness": "unknown-field",
+    "unknown_required": "required-extension-unsupported"
+  },
+  "outcome": "passed",
+  "receipt_id": "coordination-freshness-conformance-receipt://sha-256/3b811063bc3c44af414684f97c37a1686767ce740c430ae00833a0752d2a056c",
+  "schema_id": "artifact-memory/coordination-freshness-conformance-receipt/v0",
+  "stale_observation": {
+    "observed_head": "c82a4dd03a77d86df04e8c1cf0b51b992153fcaf",
+    "status": "stale-verify",
+    "true_as_of_commit": "8948c4f9a9f1bcd1d07b9ac8a5d0edc125dd754f"
+  },
+  "unknown_optional_preserved": true
+}

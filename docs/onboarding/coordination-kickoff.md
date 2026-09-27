@@ -24,6 +24,35 @@ selects the unique current open leaf with the lexicographically greatest
 ULID-bearing `taskId`. Its observation time and hub scope generation qualify
 the result; it is not a freshness or global-state claim beyond that receipt.
 
+## Evaluate repository-linked freshness
+
+Freshness support is explicit and repo-bound. Add `--repo` to compare the
+selected TaskPacket's optional coordination freshness extension with the
+current commit of the exact onboarded repository:
+
+```sh
+artifact-memory kickoff \
+  --project 11111111-1111-4111-8111-111111111111 \
+  --vault /path/to/private-coordination-vault \
+  --repo /path/to/onboarded-repository \
+  --json
+```
+
+When the selected record declares
+`https://artifact-memory.dev/extensions/coordination-freshness/v1`, the
+generator emits `artifact-memory/coordination-kickoff-pack/v1`. It marks an
+ancestor of the observed repository HEAD as `current` and a valid divergent
+commit as `stale-verify`, binding both object IDs into the pack. An unavailable
+object, changed HEAD, mismatched onboarding binding, or unsafe repository root
+fails typed. Git replacement objects and ambient Git repository/configuration
+overrides are disabled for the comparison.
+
+Without `--repo`, the optional extension remains opaque and output stays on
+the AM-5 v0 pack contract. Unknown optional extensions are never interpreted.
+Unknown required extensions and a top-level `trueAsOfCommit` fail closed during
+coordination-record validation. The generic knowledge context-pack v2-v4
+contracts are unchanged.
+
 Any local coordination revision for the project that is absent from current
 authorized membership causes `kickoff-record-not-admitted`. This includes
 pending, rejected, quarantined, or suppressed revisions: mere local presence
@@ -41,8 +70,13 @@ Run the public synthetic proof with:
 
 ```sh
 python3 scripts/run_coordination_kickoff_conformance.py --check
+python3 scripts/run_coordination_freshness_conformance.py --check
 ```
 
 The fixture includes newlines, shell substitutions, metacharacters, HTML, and
 instruction-like prose. It proves that these bytes remain inert rendered data
 and that no synthetic marker is created.
+
+The AM-6 fixture also creates deterministic divergent and ancestor-only Git
+histories and proves the `stale-verify`/`current` distinction without using a
+real repository or vault.
