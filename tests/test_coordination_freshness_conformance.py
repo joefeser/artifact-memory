@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -82,6 +83,23 @@ class CoordinationFreshnessConformanceTests(unittest.TestCase):
             run(ROOT / "fixtures", FIXTURE),
             load_json(FIXTURE / "expected-receipt.json"),
         )
+
+    def test_script_check_ignores_ambient_default_hash_format(self):
+        environment = os.environ.copy()
+        environment["GIT_DEFAULT_HASH"] = "sha256"
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "scripts/run_coordination_freshness_conformance.py",
+                "--check",
+            ],
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
 
 if __name__ == "__main__":

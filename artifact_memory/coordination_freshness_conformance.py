@@ -110,7 +110,7 @@ def exercise(fixtures: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, 
         root = Path(temporary).resolve()
         repo, vault, hub = root / "repo", root / "vault", root / "hub"
         repo.mkdir()
-        _git(repo, "init", "-q", "-b", "main")
+        _git(repo, "init", "-q", "-b", "main", "--object-format=sha1")
         _git(repo, "config", "user.name", "Synthetic Fixture")
         _git(repo, "config", "user.email", "fixture@example.invalid")
         label = _label(fixtures)
