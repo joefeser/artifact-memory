@@ -262,18 +262,19 @@ class CoordinationAccessScopeConformanceTests(unittest.TestCase):
 
             entered = threading.Event()
             release = threading.Event()
-            stdout = io.StringIO()
             exit_codes: list[int] = []
             thread_error: list[BaseException] = []
-            from artifact_memory import cli as cli_module
 
-            original_receipt = cli_module._receipt
+            class BlockingOutput(io.StringIO):
+                def flush(self) -> None:
+                    entered.set()
+                    if not release.wait(timeout=5):
+                        raise AssertionError(
+                            "synthetic context flush barrier timed out"
+                        )
+                    super().flush()
 
-            def blocked_receipt(payload, as_json):
-                entered.set()
-                if not release.wait(timeout=5):
-                    raise AssertionError("synthetic context emission barrier timed out")
-                original_receipt(payload, as_json)
+            stdout = BlockingOutput()
 
             def run_cli() -> None:
                 try:
@@ -291,16 +292,15 @@ class CoordinationAccessScopeConformanceTests(unittest.TestCase):
                 except BaseException as exc:  # pragma: no cover - asserted below
                     thread_error.append(exc)
 
-            with patch("artifact_memory.cli._receipt", side_effect=blocked_receipt):
-                worker = threading.Thread(target=run_cli)
-                worker.start()
-                self.assertTrue(entered.wait(timeout=5))
-                with self.assertRaises(SyncFailure) as busy:
-                    apply_pull_response(vault, narrowed_response)
-                self.assertEqual(busy.exception.code, "sync-local-apply-busy")
-                release.set()
-                worker.join(timeout=5)
-                self.assertFalse(worker.is_alive())
+            worker = threading.Thread(target=run_cli)
+            worker.start()
+            self.assertTrue(entered.wait(timeout=5))
+            with self.assertRaises(SyncFailure) as busy:
+                apply_pull_response(vault, narrowed_response)
+            self.assertEqual(busy.exception.code, "sync-local-apply-busy")
+            release.set()
+            worker.join(timeout=5)
+            self.assertFalse(worker.is_alive())
 
             self.assertEqual(thread_error, [])
             self.assertEqual(exit_codes, [0])

@@ -465,6 +465,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             with open_coordination_context_pack(args.vault) as result:
                 _receipt(result, args.as_json)
+                sys.stdout.flush()
         except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
             _receipt(
                 {
