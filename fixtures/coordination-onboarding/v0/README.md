@@ -20,3 +20,7 @@ Focused unit regressions additionally prove serialized concurrent onboarding,
 recovery after interruption at every publication output, strict persisted-link
 loading, bare-repository rejection, and fail-closed unsupported identity
 creation when safe parent-directory primitives are unavailable.
+The transaction-boundary regression additionally submits one unsynced
+synthetic record, interrupts immediately after its successful sync, and proves
+retry reuses the exact authenticated receipt rather than losing its admission
+outcome or colliding on the observation timestamp.

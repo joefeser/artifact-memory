@@ -60,6 +60,7 @@ generated/coordination-onboarding/<project-uuid>/bootstrap-kickoff.json
 generated/coordination-onboarding/<project-uuid>/bootstrap-kickoff.md
 receipts/coordination-onboarding/<project-uuid>.json
 transactions/coordination-onboarding/<project-uuid>.json
+transactions/coordination-onboarding/<project-uuid>.attempt.json
 ```
 
 The project link stores logical IDs and the exact opaque AccessLabel reference,
@@ -69,10 +70,14 @@ untrusted acceptance commands; AM-9 explicitly does neither. AM-1 will add
 session-ledger ingestion; onboarding preserves existing history without
 claiming it was imported.
 
-The transaction is an immutable, digest-bound publication journal. It lets a
-retry complete missing matching outputs after interruption without deleting or
-rewriting durable evidence. Project onboarding is serialized so concurrent
-calls replay the first completed receipt instead of creating divergent packs.
+The attempt is immutable pre-sync evidence. If sync succeeds but publication
+is interrupted, a retry reuses its receipt only when the current authenticated
+principal, hub, label revision, policy generation, and timestamp all match the
+attempt. The publication transaction is an immutable, digest-bound journal. It
+lets a retry complete missing matching outputs after interruption without
+deleting or rewriting durable evidence. Project onboarding is serialized so
+concurrent calls replay the first completed receipt instead of creating
+divergent packs.
 
 ## Repo-bound commands
 

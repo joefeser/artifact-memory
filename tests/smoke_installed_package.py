@@ -119,7 +119,10 @@ def main() -> None:
                 "'artifact-memory/local-coordination-project-link/v0'; "
                 "assert load_schema('coordination', 'onboarding-publication.v0.schema.json')"
                 "['properties']['schema_id']['const'] == "
-                "'artifact-memory/local-coordination-onboarding-publication/v0'",
+                "'artifact-memory/local-coordination-onboarding-publication/v0'; "
+                "assert load_schema('coordination', 'onboarding-attempt.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/local-coordination-onboarding-attempt/v0'",
             ],
             cwd=root,
             text=True,

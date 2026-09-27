@@ -23,6 +23,7 @@ from artifact_memory.coordination_onboarding import (
 )
 from artifact_memory.coordination_sync import (
     SyncFailure,
+    append_local_coordination_record,
     configure_local_hub,
     describe_local_hub_registration,
     directory_digest,
@@ -242,7 +243,7 @@ class CoordinationOnboardingTests(unittest.TestCase):
             self.assertEqual(require_repo_onboarding(repo, vault)["project_id"], PROJECT_A)
 
     def test_interrupted_publication_resumes_from_immutable_transaction(self):
-        for fail_at in range(2, 6):
+        for fail_at in range(2, 7):
             with (
                 self.subTest(fail_at=fail_at),
                 tempfile.TemporaryDirectory() as temporary,
@@ -290,7 +291,7 @@ class CoordinationOnboardingTests(unittest.TestCase):
                     / "coordination-onboarding"
                     / f"{PROJECT_A}.json"
                 )
-                self.assertTrue(publication.is_file())
+                self.assertEqual(publication.is_file(), fail_at > 2)
 
                 receipt = onboard_project(
                     repo,
@@ -314,6 +315,87 @@ class CoordinationOnboardingTests(unittest.TestCase):
                     require_repo_onboarding(repo, vault)["project_id"],
                     PROJECT_A,
                 )
+
+    def test_transaction_write_interruption_reuses_exact_sync_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repo, vault, hub = root / "repo", root / "vault", root / "hub"
+            self.init_repo(repo)
+            label = self.label()
+            self.configure(hub, label)
+            append_local_coordination_record(vault, self.task(label))
+            publication_path = (
+                vault
+                / "transactions"
+                / "coordination-onboarding"
+                / f"{PROJECT_A}.json"
+            )
+            original_write = onboarding_module._write_immutable
+
+            def interrupt_transaction(boundary, path, data):
+                if path == publication_path:
+                    raise SyncFailure(
+                        "synthetic-transaction-interrupted",
+                        "synthetic transaction interruption",
+                    )
+                return original_write(boundary, path, data)
+
+            with (
+                mock.patch.object(
+                    onboarding_module,
+                    "_write_immutable",
+                    side_effect=interrupt_transaction,
+                ),
+                self.assertRaises(SyncFailure) as interrupted,
+            ):
+                onboard_project(
+                    repo,
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at=COMPLETED_AT,
+                    human_name="synthetic-public",
+                )
+            self.assertEqual(
+                interrupted.exception.code,
+                "synthetic-transaction-interrupted",
+            )
+            attempt_path = publication_path.with_name(f"{PROJECT_A}.attempt.json")
+            self.assertTrue(attempt_path.is_file())
+            self.assertFalse(publication_path.exists())
+            marker = load_json(
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "last-successful.json"
+            )
+            receipt_id = marker["receipt_ref"]
+            sync_receipt = load_json(
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "projections"
+                / receipt_id.rsplit("/", 1)[-1]
+                / "receipt.json"
+            )
+            self.assertEqual(
+                [
+                    outcome["outcome"]
+                    for outcome in sync_receipt["submission_outcomes"]
+                ],
+                ["admitted"],
+            )
+
+            receipt = onboard_project(
+                repo,
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at=COMPLETED_AT,
+                human_name="synthetic-public",
+            )
+            self.assertEqual(receipt["sync_receipt_ref"]["receipt_id"], receipt_id)
+            self.assertTrue(publication_path.is_file())
 
     def test_concurrent_onboarding_serializes_and_replays_first_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -775,6 +857,13 @@ class CoordinationOnboardingTests(unittest.TestCase):
         self.assertEqual(
             publication["properties"]["schema_id"]["const"],
             "artifact-memory/local-coordination-onboarding-publication/v0",
+        )
+        attempt = load_schema(
+            "coordination", "onboarding-attempt.v0.schema.json"
+        )
+        self.assertEqual(
+            attempt["properties"]["schema_id"]["const"],
+            "artifact-memory/local-coordination-onboarding-attempt/v0",
         )
 
 

@@ -21,6 +21,7 @@ from .coordination_sync import (
     coordination_pair_count,
     describe_local_hub_registration,
     load_authorized_projection,
+    recover_matching_sync_result,
     sync,
 )
 from .repo_identity import (
@@ -39,6 +40,7 @@ BOOTSTRAP_RECEIPT_SCHEMA_ID = (
 )
 BOOTSTRAP_PACK_SCHEMA_ID = "artifact-memory/coordination-onboarding-kickoff-pack/v0"
 PROJECT_LINK_SCHEMA_ID = "artifact-memory/local-coordination-project-link/v0"
+ATTEMPT_SCHEMA_ID = "artifact-memory/local-coordination-onboarding-attempt/v0"
 PUBLICATION_SCHEMA_ID = (
     "artifact-memory/local-coordination-onboarding-publication/v0"
 )
@@ -64,6 +66,9 @@ _BOOTSTRAP_PACK_SCHEMA = load_schema(
 )
 _PROJECT_LINK_SCHEMA = load_schema(
     "coordination", "project-link.v0.schema.json"
+)
+_ATTEMPT_SCHEMA = load_schema(
+    "coordination", "onboarding-attempt.v0.schema.json"
 )
 _PUBLICATION_SCHEMA = load_schema(
     "coordination", "onboarding-publication.v0.schema.json"
@@ -128,6 +133,15 @@ def _publication_path(vault: Path, project_id: str) -> Path:
         / "transactions"
         / "coordination-onboarding"
         / f"{project_id}.json"
+    )
+
+
+def _attempt_path(vault: Path, project_id: str) -> Path:
+    return (
+        vault
+        / "transactions"
+        / "coordination-onboarding"
+        / f"{project_id}.attempt.json"
     )
 
 
@@ -267,6 +281,99 @@ def _publication_body(publication: dict[str, Any]) -> dict[str, Any]:
         for key, value in publication.items()
         if key not in {"schema_id", "publication_id"}
     }
+
+
+def _attempt_body(attempt: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in attempt.items()
+        if key not in {"schema_id", "attempt_id"}
+    }
+
+
+def _validate_attempt(
+    attempt: dict[str, Any],
+    identity: dict[str, str],
+    registration: dict[str, Any],
+) -> None:
+    validate(attempt, _ATTEMPT_SCHEMA)
+    expected = (
+        "coordination-onboarding-attempt://sha-256/"
+        + sha256_bytes(canonical_bytes(_attempt_body(attempt))).removeprefix(
+            "sha-256:"
+        )
+    )
+    if attempt["attempt_id"] != expected:
+        raise ValidationFailure(
+            "onboard-attempt-id-mismatch",
+            "onboarding attempt identity does not match its canonical body",
+            "$.attempt_id",
+        )
+    if (
+        attempt["project"]["project_id"] != identity["uuid"]
+        or attempt["project"]["project_name"] != identity["humanName"]
+        or attempt["hub_id"] != registration["hub_id"]
+        or attempt["access_label_ref"] != registration["access_label_ref"]
+    ):
+        raise ValidationFailure(
+            "onboard-state-conflict",
+            "onboarding attempt conflicts with the repository identity or hub binding",
+        )
+
+
+def _load_attempt(
+    vault: Path,
+    identity: dict[str, str],
+    registration: dict[str, Any],
+) -> dict[str, Any] | None:
+    path = _attempt_path(vault, identity["uuid"])
+    if not path.exists() and not path.is_symlink():
+        return None
+    attempt = _load_vault_object(
+        vault,
+        path,
+        _ATTEMPT_SCHEMA,
+        missing_code="onboard-state-incomplete",
+    )
+    _validate_attempt(attempt, identity, registration)
+    return attempt
+
+
+def _create_attempt(
+    vault: Path,
+    identity: dict[str, str],
+    registration: dict[str, Any],
+    *,
+    identity_state: str,
+    vault_state: str,
+    completed_at: str,
+    pair_count_before: int,
+) -> dict[str, Any]:
+    path = _attempt_path(vault, identity["uuid"])
+    body = {
+        "project": {
+            "project_id": identity["uuid"],
+            "project_name": identity["humanName"],
+        },
+        "repo_identity_state": identity_state,
+        "vault_state": vault_state,
+        "hub_id": registration["hub_id"],
+        "access_label_ref": registration["access_label_ref"],
+        "completed_at": completed_at,
+        "pair_count_before": pair_count_before,
+        "authority_boundary": AUTHORITY_BOUNDARY,
+    }
+    attempt = {
+        "schema_id": ATTEMPT_SCHEMA_ID,
+        "attempt_id": (
+            "coordination-onboarding-attempt://sha-256/"
+            + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:")
+        ),
+        **body,
+    }
+    _validate_attempt(attempt, identity, registration)
+    _write_immutable(vault, path, canonical_bytes(attempt))
+    return attempt
 
 
 def _validate_publication(
@@ -533,16 +640,53 @@ def _onboard_project_locked(
 
     vault_state = "linked" if vault_existed else "created"
     pair_count_before = coordination_pair_count(vault)
-    sync_result = sync(
-        vault,
-        hub,
-        session_id=session_id,
-        completed_at=completed_at,
-        phase="both",
-        required_project_id=identity["uuid"],
-        expected_hub_id=registration["hub_id"],
-        expected_access_label_ref=registration["access_label_ref"],
-    )
+    attempt = _load_attempt(vault, identity, registration)
+    sync_result = None
+    if attempt is not None:
+        sync_result = recover_matching_sync_result(
+            vault,
+            hub,
+            session_id=session_id,
+            completed_at=attempt["completed_at"],
+            required_project_id=identity["uuid"],
+            expected_hub_id=registration["hub_id"],
+            expected_access_label_ref=registration["access_label_ref"],
+        )
+
+    def prepare_attempt() -> None:
+        nonlocal attempt
+        if attempt is None:
+            attempt = _create_attempt(
+                vault,
+                identity,
+                registration,
+                identity_state=identity_state,
+                vault_state=vault_state,
+                completed_at=completed_at,
+                pair_count_before=pair_count_before,
+            )
+
+    if sync_result is None:
+        sync_result = sync(
+            vault,
+            hub,
+            session_id=session_id,
+            completed_at=(
+                attempt["completed_at"]
+                if attempt is not None
+                else completed_at
+            ),
+            phase="both",
+            required_project_id=identity["uuid"],
+            expected_hub_id=registration["hub_id"],
+            expected_access_label_ref=registration["access_label_ref"],
+            _before_sync=prepare_attempt,
+        )
+    if attempt is None:
+        raise ValidationFailure(
+            "onboard-state-incomplete",
+            "onboarding sync completed without retained attempt evidence",
+        )
     sync_registration = sync_result["project_registration"]
     if (
         sync_registration["hub_id"] != registration["hub_id"]
@@ -613,8 +757,8 @@ def _onboard_project_locked(
                 "project_id": identity["uuid"],
                 "project_name": identity["humanName"],
             },
-            "repo_identity_state": identity_state,
-            "vault_state": vault_state,
+            "repo_identity_state": attempt["repo_identity_state"],
+            "vault_state": attempt["vault_state"],
             "access_label_registration": {
                 "state": "external-admin-binding-verified",
                 "hub_id": registration["hub_id"],
@@ -626,7 +770,7 @@ def _onboard_project_locked(
                 "content_digest": sha256_bytes(pack_bytes),
             },
             "record_state": {
-                "pair_count_before": pair_count_before,
+                "pair_count_before": attempt["pair_count_before"],
                 "pair_count_after": pair_count_after,
                 "duplicate_pair_count": 0,
             },

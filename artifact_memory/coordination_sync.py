@@ -17,7 +17,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from .canonical import (
     CanonicalizationFailure,
@@ -2147,6 +2147,7 @@ def sync(
     required_project_id: str | None = None,
     expected_hub_id: str | None = None,
     expected_access_label_ref: dict[str, str] | None = None,
+    _before_sync: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     if phase not in {"push", "pull", "both"}:
         raise SyncFailure("sync-phase-invalid", "sync phase must be push, pull, or both")
@@ -2171,6 +2172,8 @@ def sync(
                 "onboard-label-mismatch",
                 "repo-bound sync selected a different AccessLabel revision than its onboarding link",
             )
+        if _before_sync is not None:
+            _before_sync()
         if phase in {"push", "both"}:
             result["submission_outcomes"] = _push_bound(
                 vault,
@@ -2191,6 +2194,70 @@ def sync(
             result.update(pulled)
             result["phase"] = phase
     return result
+
+
+def recover_matching_sync_result(
+    vault: Path,
+    hub: Path,
+    *,
+    session_id: str,
+    completed_at: str,
+    required_project_id: str,
+    expected_hub_id: str,
+    expected_access_label_ref: dict[str, str],
+) -> dict[str, Any] | None:
+    """Recover one exact successful pull for interrupted onboarding.
+
+    The current marker is reusable only while it still names the authenticated
+    principal, current policy generation, exact label revision, and attempt
+    timestamp. No session or principal identifier is copied into onboarding
+    state.
+    """
+    with _bound_principal_lock(
+        hub, session_id, blocking=True
+    ) as (config, label, principal_id):
+        registration = _project_registration(
+            config,
+            label,
+            project_id=required_project_id,
+        )
+        if config["hub_id"] != expected_hub_id:
+            raise SyncFailure(
+                "onboard-hub-mismatch",
+                "repo-bound sync selected a different logical hub than its onboarding link",
+            )
+        if _pair(label) != expected_access_label_ref:
+            raise SyncFailure(
+                "onboard-label-mismatch",
+                "repo-bound sync selected a different AccessLabel revision than its onboarding link",
+            )
+        marker_path = (
+            vault / "generated" / "coordination-sync" / "last-successful.json"
+        )
+        if not marker_path.exists() and not marker_path.is_symlink():
+            return None
+        if marker_path.is_symlink():
+            raise SyncFailure(
+                "sync-storage-unsafe",
+                "successful sync marker is a symlink",
+            )
+        _, receipt, pairs = _load_current_projection(vault)
+        if (
+            receipt["hub_id"] != config["hub_id"]
+            or receipt["principal_id"] != principal_id
+            or receipt["access_label_ref"] != _pair(label)
+            or receipt["scope_generation"] != config["scope_generation"]
+            or receipt["completed_at"] != completed_at
+        ):
+            return None
+        return {
+            "outcome": "recovered",
+            "phase": "both",
+            "project_registration": registration,
+            "submission_outcomes": deepcopy(receipt["submission_outcomes"]),
+            "receipt": receipt,
+            "authorized_pairs": pairs,
+        }
 
 
 def load_authorized_projection(vault: Path) -> list[dict[str, Any]]:
