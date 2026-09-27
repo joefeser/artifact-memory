@@ -49,6 +49,11 @@ _TOKEN_PREFIXES = "|".join(
         "g" + "hs_",
         "github" + "_pat_",
         "s" + "k-",
+        "xox" + "a-",
+        "xox" + "b-",
+        "xox" + "p-",
+        "xox" + "r-",
+        "xapp" + "-",
     )
 )
 _NAME_GAP = r"[ _-]*"
@@ -62,6 +67,8 @@ _CREDENTIAL_NAMES = "|".join(
         "client" + _NAME_GAP + "secret",
         "private" + _NAME_GAP + "key",
         "github" + _NAME_GAP + "token",
+        "slack" + _NAME_GAP + "app" + _NAME_GAP + "token",
+        "slack" + _NAME_GAP + "bot" + _NAME_GAP + "token",
         "aws" + _NAME_GAP + "secret" + _NAME_GAP + "access" + _NAME_GAP + "key",
         "secret" + _NAME_GAP + "access" + _NAME_GAP + "key",
     )
@@ -349,6 +356,8 @@ def exercise_session_ledger_fixture(fixture: Path) -> dict[str, Any]:
             "ssh" + "_private_key" + "=" + synthetic_value,
             "aws" + "_secret_access_key" + "=" + synthetic_value,
             "github" + "_token" + "=" + synthetic_value,
+            "slack" + "_bot_token" + "=" + synthetic_value,
+            "session=" + "xox" + "b-syntheticvalue1234",
             "session=" + "g" + "hs_" + "syntheticvalue1234",
         )
         sensitive_rejections = 0

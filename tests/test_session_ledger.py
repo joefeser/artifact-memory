@@ -106,6 +106,10 @@ class SessionLedgerTests(unittest.TestCase):
                 "ssh" + "_private_key" + "=" + synthetic_value,
                 "aws" + "_secret_access_key" + "=" + synthetic_value,
                 "github" + "_token" + "=" + synthetic_value,
+                "slack" + "_bot_token" + "=" + synthetic_value,
+                "slack" + "_app_token" + "=" + synthetic_value,
+                "session=" + "xox" + "b-syntheticvalue1234",
+                "session=" + "xapp" + "-syntheticvalue1234",
                 "session=" + "g" + "hs_" + "syntheticvalue1234",
             )
             for index, fragment in enumerate(cases):
@@ -129,7 +133,7 @@ class SessionLedgerTests(unittest.TestCase):
             root = Path(temporary).resolve()
             source = root / "ordinary.md"
             source.write_text(
-                "2026-09-27 Reviewed passwordless client-secret and private-key rotation.\n",
+                "2026-09-27 Reviewed passwordless client-secret, private-key, and Slack bot-token rotation.\n",
                 encoding="utf-8",
             )
             result = import_session_ledger(source, root / "vault", dry_run=True)
