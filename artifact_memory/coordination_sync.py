@@ -2271,7 +2271,7 @@ def _apply_verified_pull(
         ):
             # A no-op is valid only if the local authorized material still
             # matches the previously verified marker and projection.
-            load_authorized_projection(vault)
+            _load_authorized_coordination_snapshot_unlocked(vault)
             return {
                 "outcome": "no-op",
                 "receipt": prior_receipt,
@@ -2604,8 +2604,8 @@ def recover_matching_sync_result(
         }
 
 
-def load_authorized_coordination_snapshot(vault: Path) -> dict[str, Any]:
-    """Load the verified receipt, membership, and exact authorized records."""
+def _load_authorized_coordination_snapshot_unlocked(vault: Path) -> dict[str, Any]:
+    """Load one snapshot while the caller owns the projection apply lock."""
     _validate_storage_root(vault, create=False)
     _, receipt, pairs = _load_current_projection(vault)
     records: list[dict[str, Any]] = []
@@ -2638,6 +2638,13 @@ def load_authorized_coordination_snapshot(vault: Path) -> dict[str, Any]:
         "authorized_pairs": deepcopy(pairs),
         "records": records,
     }
+
+
+def load_authorized_coordination_snapshot(vault: Path) -> dict[str, Any]:
+    """Load one coherent verified authorization snapshot."""
+    _validate_storage_root(vault, create=False)
+    with _projection_apply_lock(vault):
+        return _load_authorized_coordination_snapshot_unlocked(vault)
 
 
 def load_authorized_projection(vault: Path) -> list[dict[str, Any]]:
