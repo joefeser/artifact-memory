@@ -2,11 +2,14 @@ import json
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from pathlib import Path
 from unittest import mock
 
+import artifact_memory.coordination_onboarding as onboarding_module
 from artifact_memory.coordination import revision_digest
 from artifact_memory.coordination_onboarding import (
     BOOTSTRAP_PACK_SCHEMA_ID,
@@ -238,6 +241,133 @@ class CoordinationOnboardingTests(unittest.TestCase):
             self.assertEqual(after, before)
             self.assertEqual(require_repo_onboarding(repo, vault)["project_id"], PROJECT_A)
 
+    def test_interrupted_publication_resumes_from_immutable_transaction(self):
+        for fail_at in range(2, 6):
+            with (
+                self.subTest(fail_at=fail_at),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary).resolve()
+                repo, vault, hub = root / "repo", root / "vault", root / "hub"
+                self.init_repo(repo)
+                self.configure(hub, self.label())
+                original_write = onboarding_module._write_immutable
+                calls = 0
+
+                def interrupted_write(boundary, path, data):
+                    nonlocal calls
+                    calls += 1
+                    if calls == fail_at:
+                        raise SyncFailure(
+                            "synthetic-publication-interrupted",
+                            "synthetic publication interruption",
+                        )
+                    return original_write(boundary, path, data)
+
+                with (
+                    mock.patch.object(
+                        onboarding_module,
+                        "_write_immutable",
+                        side_effect=interrupted_write,
+                    ),
+                    self.assertRaises(SyncFailure) as interrupted,
+                ):
+                    onboard_project(
+                        repo,
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at=COMPLETED_AT,
+                        human_name="synthetic-public",
+                    )
+                self.assertEqual(
+                    interrupted.exception.code,
+                    "synthetic-publication-interrupted",
+                )
+                publication = (
+                    vault
+                    / "transactions"
+                    / "coordination-onboarding"
+                    / f"{PROJECT_A}.json"
+                )
+                self.assertTrue(publication.is_file())
+
+                receipt = onboard_project(
+                    repo,
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-26T21:00:00Z",
+                )
+                validate_bootstrap_receipt(receipt)
+                subprocess.run(
+                    ["git", "add", ".agent-memory/repo.json"],
+                    cwd=repo,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "commit", "-q", "-m", "Add project identity"],
+                    cwd=repo,
+                    check=True,
+                )
+                self.assertEqual(
+                    require_repo_onboarding(repo, vault)["project_id"],
+                    PROJECT_A,
+                )
+
+    def test_concurrent_onboarding_serializes_and_replays_first_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repo, vault, hub = root / "repo", root / "vault", root / "hub"
+            self.init_repo(repo)
+            self.configure(hub, self.label())
+            entered_sync = threading.Event()
+            release_sync = threading.Event()
+            count_guard = threading.Lock()
+            sync_calls = 0
+            original_sync = onboarding_module.sync
+
+            def delayed_sync(*args, **kwargs):
+                nonlocal sync_calls
+                with count_guard:
+                    sync_calls += 1
+                    first = sync_calls == 1
+                if first:
+                    entered_sync.set()
+                    if not release_sync.wait(timeout=10):
+                        raise RuntimeError("synthetic onboarding lock test timed out")
+                return original_sync(*args, **kwargs)
+
+            with mock.patch.object(
+                onboarding_module, "sync", side_effect=delayed_sync
+            ):
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    first = executor.submit(
+                        onboard_project,
+                        repo,
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at=COMPLETED_AT,
+                        human_name="synthetic-public",
+                    )
+                    self.assertTrue(entered_sync.wait(timeout=10))
+                    second = executor.submit(
+                        onboard_project,
+                        repo,
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-26T21:00:00Z",
+                        human_name="synthetic-public",
+                    )
+                    self.assertFalse(second.done())
+                    release_sync.set()
+                    first_receipt = first.result(timeout=10)
+                    second_receipt = second.result(timeout=10)
+            self.assertEqual(sync_calls, 1)
+            self.assertEqual(second_receipt, first_receipt)
+
     def test_project_link_alone_does_not_satisfy_onboarding_precondition(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -270,6 +400,65 @@ class CoordinationOnboardingTests(unittest.TestCase):
             with self.assertRaises(ValidationFailure) as caught:
                 require_repo_onboarding(repo, vault)
             self.assertEqual(caught.exception.code, "onboard-state-incomplete")
+
+    def test_persisted_project_link_rejects_missing_and_unknown_fields(self):
+        required = (
+            "schema_id",
+            "project_id",
+            "project_name",
+            "hub_id",
+            "access_label_ref",
+            "authority_boundary",
+        )
+        for field in (*required, "unknown"):
+            with (
+                self.subTest(field=field),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary).resolve()
+                repo, vault, hub = root / "repo", root / "vault", root / "hub"
+                self.init_repo(repo)
+                self.configure(hub, self.label())
+                onboard_project(
+                    repo,
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at=COMPLETED_AT,
+                    human_name="synthetic-public",
+                )
+                subprocess.run(
+                    ["git", "add", ".agent-memory/repo.json"],
+                    cwd=repo,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "commit", "-q", "-m", "Add project identity"],
+                    cwd=repo,
+                    check=True,
+                )
+                link_path = (
+                    vault
+                    / "config"
+                    / "coordination"
+                    / "projects"
+                    / f"{PROJECT_A}.json"
+                )
+                link = load_json(link_path)
+                if field == "unknown":
+                    link["unexpected"] = "synthetic"
+                    expected_code = "unknown-field"
+                else:
+                    del link[field]
+                    expected_code = "required-field-missing"
+                link_path.write_text(
+                    json.dumps(link, sort_keys=True, separators=(",", ":")),
+                    encoding="utf-8",
+                )
+
+                with self.assertRaises(ValidationFailure) as caught:
+                    require_repo_onboarding(repo, vault)
+                self.assertEqual(caught.exception.code, expected_code)
 
     def test_existing_repo_and_prior_pair_are_not_duplicated(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -449,7 +638,9 @@ class CoordinationOnboardingTests(unittest.TestCase):
                     human_name="synthetic-public",
                 )
             self.assertEqual(caught.exception.code, "onboard-label-mismatch")
-            self.assertFalse(vault.exists())
+            self.assertFalse((vault / "canonical").exists())
+            self.assertFalse((vault / "generated").exists())
+            self.assertFalse((vault / "transactions").exists())
 
     def test_bootstrap_identity_tampering_fails_semantic_validation(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -577,6 +768,13 @@ class CoordinationOnboardingTests(unittest.TestCase):
         self.assertEqual(
             schema["properties"]["schema_id"]["const"],
             "artifact-memory/local-coordination-project-link/v0",
+        )
+        publication = load_schema(
+            "coordination", "onboarding-publication.v0.schema.json"
+        )
+        self.assertEqual(
+            publication["properties"]["schema_id"]["const"],
+            "artifact-memory/local-coordination-onboarding-publication/v0",
         )
 
 

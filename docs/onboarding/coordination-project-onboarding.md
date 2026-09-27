@@ -45,6 +45,13 @@ If it is new, inspect and commit it through the repository's normal Git
 governance. The bootstrap receipt reports `created-pending-commit`; Artifact
 Memory never stages or commits the file for you.
 
+Safe automatic creation requires filesystem support for held parent-directory
+descriptors and no-follow traversal. If the command returns
+`repo-identity-create-unsupported`, create and commit the strict two-field
+manifest through an independently trusted workflow, then rerun onboarding.
+Artifact Memory does not use a pathname-only fallback. Bare repositories are
+not onboarding roots.
+
 The private vault receives:
 
 ```text
@@ -52,6 +59,7 @@ config/coordination/projects/<project-uuid>.json
 generated/coordination-onboarding/<project-uuid>/bootstrap-kickoff.json
 generated/coordination-onboarding/<project-uuid>/bootstrap-kickoff.md
 receipts/coordination-onboarding/<project-uuid>.json
+transactions/coordination-onboarding/<project-uuid>.json
 ```
 
 The project link stores logical IDs and the exact opaque AccessLabel reference,
@@ -60,6 +68,11 @@ pack is informational. AM-5 will add queue selection and safe rendering of
 untrusted acceptance commands; AM-9 explicitly does neither. AM-1 will add
 session-ledger ingestion; onboarding preserves existing history without
 claiming it was imported.
+
+The transaction is an immutable, digest-bound publication journal. It lets a
+retry complete missing matching outputs after interruption without deleting or
+rewriting durable evidence. Project onboarding is serialized so concurrent
+calls replay the first completed receipt instead of creating divergent packs.
 
 ## Repo-bound commands
 

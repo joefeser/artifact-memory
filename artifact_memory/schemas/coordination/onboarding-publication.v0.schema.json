@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/coordination/onboarding-publication/v0",
+  "title": "Artifact Memory local coordination onboarding publication v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "publication_id",
+    "project_id",
+    "project_link",
+    "kickoff_pack",
+    "kickoff_markdown",
+    "bootstrap_receipt"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "artifact-memory/local-coordination-onboarding-publication/v0"
+    },
+    "publication_id": {
+      "type": "string",
+      "pattern": "^coordination-onboarding-publication://sha-256/[0-9a-f]{64}$"
+    },
+    "project_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "project_link": {"type": "object"},
+    "kickoff_pack": {"type": "object"},
+    "kickoff_markdown": {"type": "string", "minLength": 1},
+    "bootstrap_receipt": {"type": "object"}
+  }
+}

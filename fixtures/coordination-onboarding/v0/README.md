@@ -15,3 +15,8 @@ The receipt proves fresh-repository bootstrap, preservation of an existing
 pair, byte-identical rerun, typed un-onboarded failure, and the informational-
 only authority boundary. Session-ledger ingestion remains AM-1; queue and
 acceptance-command rendering remain AM-5.
+
+Focused unit regressions additionally prove serialized concurrent onboarding,
+recovery after interruption at every publication output, strict persisted-link
+loading, bare-repository rejection, and fail-closed unsupported identity
+creation when safe parent-directory primitives are unavailable.

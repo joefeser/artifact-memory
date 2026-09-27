@@ -17,6 +17,7 @@ from .coordination import ACCESS_LABEL_SCHEMA_ID, validate_coordination_record_b
 from .coordination_sync import (
     _validate_storage_root,
     _write_immutable,
+    coordination_onboarding_lock,
     coordination_pair_count,
     describe_local_hub_registration,
     load_authorized_projection,
@@ -38,11 +39,16 @@ BOOTSTRAP_RECEIPT_SCHEMA_ID = (
 )
 BOOTSTRAP_PACK_SCHEMA_ID = "artifact-memory/coordination-onboarding-kickoff-pack/v0"
 PROJECT_LINK_SCHEMA_ID = "artifact-memory/local-coordination-project-link/v0"
+PUBLICATION_SCHEMA_ID = (
+    "artifact-memory/local-coordination-onboarding-publication/v0"
+)
 AUTHORITY_BOUNDARY = (
     "onboarding artifacts are informational only and grant no execution, mutation, "
     "routing, disclosure, credential, spending, deployment, approval, or merge authority"
 )
 QUEUE_STATE = "not-rendered; AM-5 kickoff semantics required"
+# Normative sources: issue #142; v0 coordination-plane contract sections
+# "Authority boundary" and "Repo identity"; decision 0031.
 STARTUP_PROTOCOL = [
     "Load repository AGENTS.md and project documentation before using memory.",
     "Validate this bootstrap pack and its referenced authenticated sync receipt.",
@@ -58,6 +64,9 @@ _BOOTSTRAP_PACK_SCHEMA = load_schema(
 )
 _PROJECT_LINK_SCHEMA = load_schema(
     "coordination", "project-link.v0.schema.json"
+)
+_PUBLICATION_SCHEMA = load_schema(
+    "coordination", "onboarding-publication.v0.schema.json"
 )
 
 
@@ -111,6 +120,15 @@ def _pack_path(vault: Path, project_id: str) -> Path:
 
 def _pack_markdown_path(vault: Path, project_id: str) -> Path:
     return _project_root(vault, project_id) / "bootstrap-kickoff.md"
+
+
+def _publication_path(vault: Path, project_id: str) -> Path:
+    return (
+        vault
+        / "transactions"
+        / "coordination-onboarding"
+        / f"{project_id}.json"
+    )
 
 
 def _load_vault_object(
@@ -205,6 +223,82 @@ def _render_bootstrap_pack(pack: dict[str, Any]) -> str:
     )
 
 
+def _validate_bootstrap_components(
+    identity: dict[str, str],
+    link: dict[str, Any],
+    receipt: dict[str, Any],
+    pack: dict[str, Any],
+    markdown: str,
+) -> None:
+    project_id = identity["uuid"]
+    validate(link, _PROJECT_LINK_SCHEMA)
+    validate_bootstrap_receipt(receipt)
+    validate_bootstrap_pack(pack)
+    if markdown != _render_bootstrap_pack(pack):
+        raise ValidationFailure(
+            "onboard-state-invalid",
+            "bootstrap kickoff rendering does not match its pack",
+        )
+    if (
+        link["project_id"] != project_id
+        or receipt["project"]["project_id"] != project_id
+        or pack["project"]["project_id"] != project_id
+        or link["project_name"] != identity["humanName"]
+        or link["project_name"] != receipt["project"]["project_name"]
+        or link["project_name"] != pack["project"]["project_name"]
+        or receipt["access_label_registration"]["access_label_ref"]
+        != link["access_label_ref"]
+        or receipt["access_label_registration"]["hub_id"] != link["hub_id"]
+        or receipt["kickoff_pack_ref"]["pack_id"] != pack["pack_id"]
+        or receipt["sync_receipt_ref"]["receipt_id"]
+        != pack["sync_observation"]["receipt_id"]
+        or receipt["kickoff_pack_ref"]["content_digest"]
+        != sha256_bytes(canonical_bytes(pack))
+    ):
+        raise ValidationFailure(
+            "onboard-state-conflict",
+            "existing onboarding state conflicts with the repository identity or retained bootstrap",
+        )
+
+
+def _publication_body(publication: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in publication.items()
+        if key not in {"schema_id", "publication_id"}
+    }
+
+
+def _validate_publication(
+    publication: dict[str, Any], identity: dict[str, str]
+) -> None:
+    validate(publication, _PUBLICATION_SCHEMA)
+    expected = (
+        "coordination-onboarding-publication://sha-256/"
+        + sha256_bytes(canonical_bytes(_publication_body(publication))).removeprefix(
+            "sha-256:"
+        )
+    )
+    if publication["publication_id"] != expected:
+        raise ValidationFailure(
+            "onboard-publication-id-mismatch",
+            "onboarding publication identity does not match its canonical body",
+            "$.publication_id",
+        )
+    if publication["project_id"] != identity["uuid"]:
+        raise ValidationFailure(
+            "onboard-state-conflict",
+            "onboarding publication names another repository identity",
+        )
+    _validate_bootstrap_components(
+        identity,
+        publication["project_link"],
+        publication["bootstrap_receipt"],
+        publication["kickoff_pack"],
+        publication["kickoff_markdown"],
+    )
+
+
 def _load_existing_bootstrap(
     vault: Path,
     identity: dict[str, str],
@@ -246,8 +340,6 @@ def _load_existing_bootstrap(
         _BOOTSTRAP_PACK_SCHEMA,
         missing_code="onboard-state-incomplete",
     )
-    validate_bootstrap_receipt(receipt)
-    validate_bootstrap_pack(pack)
     if paths[3].is_symlink() or not paths[3].is_file():
         raise ValidationFailure(
             "onboard-state-unsafe",
@@ -259,30 +351,7 @@ def _load_existing_bootstrap(
         raise ValidationFailure(
             "onboard-state-invalid", "bootstrap kickoff rendering is unreadable"
         ) from exc
-    if markdown != _render_bootstrap_pack(pack):
-        raise ValidationFailure(
-            "onboard-state-invalid", "bootstrap kickoff rendering does not match its pack"
-        )
-    if (
-        link["project_id"] != project_id
-        or receipt["project"]["project_id"] != project_id
-        or pack["project"]["project_id"] != project_id
-        or link["project_name"] != receipt["project"]["project_name"]
-        or link["project_name"] != pack["project"]["project_name"]
-        or receipt["access_label_registration"]["access_label_ref"]
-        != link["access_label_ref"]
-        or receipt["access_label_registration"]["hub_id"]
-        != link["hub_id"]
-        or receipt["kickoff_pack_ref"]["pack_id"] != pack["pack_id"]
-        or receipt["sync_receipt_ref"]["receipt_id"]
-        != pack["sync_observation"]["receipt_id"]
-        or receipt["kickoff_pack_ref"]["content_digest"]
-        != sha256_bytes(canonical_bytes(pack))
-    ):
-        raise ValidationFailure(
-            "onboard-state-conflict",
-            "existing onboarding state conflicts with the repository identity or retained bootstrap",
-        )
+    _validate_bootstrap_components(identity, link, receipt, pack, markdown)
     return link, receipt, pack
 
 
@@ -304,6 +373,73 @@ def _validate_existing_bootstrap(
             "existing onboarding state conflicts with the current repository or hub binding",
         )
     return receipt
+
+
+def _load_publication(
+    vault: Path, identity: dict[str, str]
+) -> dict[str, Any] | None:
+    path = _publication_path(vault, identity["uuid"])
+    if not path.exists() and not path.is_symlink():
+        return None
+    publication = _load_vault_object(
+        vault,
+        path,
+        _PUBLICATION_SCHEMA,
+        missing_code="onboard-state-incomplete",
+    )
+    _validate_publication(publication, identity)
+    return publication
+
+
+def _write_publication_outputs(vault: Path, publication: dict[str, Any]) -> None:
+    project_id = publication["project_id"]
+    _write_immutable(
+        vault,
+        _project_link_path(vault, project_id),
+        canonical_bytes(publication["project_link"]),
+    )
+    _write_immutable(
+        vault,
+        _pack_path(vault, project_id),
+        canonical_bytes(publication["kickoff_pack"]),
+    )
+    _write_immutable(
+        vault,
+        _pack_markdown_path(vault, project_id),
+        publication["kickoff_markdown"].encode("utf-8"),
+    )
+    _write_immutable(
+        vault,
+        _bootstrap_receipt_path(vault, project_id),
+        canonical_bytes(publication["bootstrap_receipt"]),
+    )
+
+
+def _resume_publication(
+    vault: Path,
+    identity: dict[str, str],
+    registration: dict[str, Any],
+) -> dict[str, Any] | None:
+    publication = _load_publication(vault, identity)
+    if publication is None:
+        return None
+    link = publication["project_link"]
+    if (
+        link["hub_id"] != registration["hub_id"]
+        or link["access_label_ref"] != registration["access_label_ref"]
+    ):
+        raise ValidationFailure(
+            "onboard-state-conflict",
+            "pending onboarding publication conflicts with the current hub binding",
+        )
+    _write_publication_outputs(vault, publication)
+    completed = _validate_existing_bootstrap(vault, identity, registration)
+    if completed is None:
+        raise ValidationFailure(
+            "onboard-state-incomplete",
+            "onboarding publication did not produce complete state",
+        )
+    return completed
 
 
 def onboard_project(
@@ -328,12 +464,18 @@ def onboard_project(
                 "--project-id does not match the existing repository identity",
             )
         registration = describe_local_hub_registration(
-            hub, session_id=session_id, project_id=identity["uuid"]
+            hub,
+            session_id=session_id,
+            project_id=identity["uuid"],
+            wait_for_principal=True,
         )
         _select_project(registration, identity["uuid"])
     else:
         registration = describe_local_hub_registration(
-            hub, session_id=session_id, project_id=project_id
+            hub,
+            session_id=session_id,
+            project_id=project_id,
+            wait_for_principal=True,
         )
         selected = _select_project(registration, project_id)
         if human_name is None:
@@ -356,12 +498,40 @@ def onboard_project(
             "repo-human-name-mismatch",
             "--human-name does not match the existing repository identity",
         )
+    vault_existed = vault.exists() or vault.is_symlink()
+    with coordination_onboarding_lock(vault, identity["uuid"]):
+        return _onboard_project_locked(
+            vault,
+            hub,
+            identity=identity,
+            identity_state=identity_state,
+            registration=registration,
+            session_id=session_id,
+            completed_at=completed_at,
+            vault_existed=vault_existed,
+        )
+
+
+def _onboard_project_locked(
+    vault: Path,
+    hub: Path,
+    *,
+    identity: dict[str, str],
+    identity_state: str,
+    registration: dict[str, Any],
+    session_id: str,
+    completed_at: str,
+    vault_existed: bool,
+) -> dict[str, Any]:
+    resumed = _resume_publication(vault, identity, registration)
+    if resumed is not None:
+        return resumed
 
     existing = _validate_existing_bootstrap(vault, identity, registration)
     if existing is not None:
         return existing
 
-    vault_state = "linked" if vault.exists() else "created"
+    vault_state = "linked" if vault_existed else "created"
     pair_count_before = coordination_pair_count(vault)
     sync_result = sync(
         vault,
@@ -468,23 +638,30 @@ def onboard_project(
         },
     )
     validate_bootstrap_receipt(bootstrap)
-
+    publication_body = {
+        "project_id": identity["uuid"],
+        "project_link": link,
+        "kickoff_pack": pack,
+        "kickoff_markdown": _render_bootstrap_pack(pack),
+        "bootstrap_receipt": bootstrap,
+    }
+    publication = {
+        "schema_id": PUBLICATION_SCHEMA_ID,
+        "publication_id": (
+            "coordination-onboarding-publication://sha-256/"
+            + sha256_bytes(canonical_bytes(publication_body)).removeprefix(
+                "sha-256:"
+            )
+        ),
+        **publication_body,
+    }
+    _validate_publication(publication, identity)
     _write_immutable(
         vault,
-        _project_link_path(vault, identity["uuid"]),
-        canonical_bytes(link),
+        _publication_path(vault, identity["uuid"]),
+        canonical_bytes(publication),
     )
-    _write_immutable(vault, _pack_path(vault, identity["uuid"]), pack_bytes)
-    _write_immutable(
-        vault,
-        _pack_markdown_path(vault, identity["uuid"]),
-        _render_bootstrap_pack(pack).encode("utf-8"),
-    )
-    _write_immutable(
-        vault,
-        _bootstrap_receipt_path(vault, identity["uuid"]),
-        canonical_bytes(bootstrap),
-    )
+    _write_publication_outputs(vault, publication)
     return bootstrap
 
 

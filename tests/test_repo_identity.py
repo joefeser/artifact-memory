@@ -96,7 +96,7 @@ class RepoIdentityTests(unittest.TestCase):
                 )
             self.assertEqual(collision.exception.code, "repo-identity-collision")
 
-    def test_manifest_creation_portable_fallback_writes_one_valid_candidate(self):
+    def test_manifest_creation_portable_fallback_fails_without_writing(self):
         candidate = {
             "uuid": "11111111-1111-4111-8111-111111111111",
             "humanName": "synthetic",
@@ -106,17 +106,25 @@ class RepoIdentityTests(unittest.TestCase):
             root.mkdir()
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
             with mock.patch.object(os, "supports_dir_fd", set()):
-                self.assertEqual(
-                    create_repo_identity_manifest(root, candidate), "created"
-                )
-                self.assertEqual(load_repo_identity_candidate(root), candidate)
-            expected = json.dumps(candidate, sort_keys=True, indent=2) + "\n"
+                with self.assertRaises(ValidationFailure) as caught:
+                    create_repo_identity_manifest(root, candidate)
             self.assertEqual(
-                (root / ".agent-memory" / "repo.json").read_text(
-                    encoding="utf-8"
-                ),
-                expected,
+                caught.exception.code, "repo-identity-create-unsupported"
             )
+            self.assertFalse((root / ".agent-memory").exists())
+
+    def test_manifest_creation_rejects_bare_repository(self):
+        candidate = {
+            "uuid": "11111111-1111-4111-8111-111111111111",
+            "humanName": "synthetic",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve() / "repository.git"
+            subprocess.run(["git", "init", "--bare", "-q", root], check=True)
+            with self.assertRaises(ValidationFailure) as caught:
+                create_repo_identity_manifest(root, candidate)
+            self.assertEqual(caught.exception.code, "repo-identity-not-repository")
+            self.assertFalse((root / ".agent-memory").exists())
 
     def test_same_human_name_with_different_uuids_is_unambiguous(self):
         with tempfile.TemporaryDirectory() as temporary:

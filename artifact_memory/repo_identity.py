@@ -290,7 +290,19 @@ def verify_repo_worktree_root(repo_root: Path) -> Path:
     absolute_root = _absolute_without_resolution(repo_root)
     before = _observe_directory_path(absolute_root)
     try:
+        inside = _git_output(
+            absolute_root, "rev-parse", "--is-inside-work-tree"
+        ).strip()
+        bare = _git_output(
+            absolute_root, "rev-parse", "--is-bare-repository"
+        ).strip()
         prefix = _git_output(absolute_root, "rev-parse", "--show-prefix")
+        top_level_raw = _git_output(
+            absolute_root,
+            "rev-parse",
+            "--path-format=absolute",
+            "--show-toplevel",
+        )
     except ValidationFailure as exc:
         if exc.code == "repo-identity-unavailable":
             raise
@@ -299,7 +311,21 @@ def verify_repo_worktree_root(repo_root: Path) -> Path:
             "repository identity root must be the exact top level of a Git worktree",
             "$",
         ) from exc
-    if prefix.strip():
+    top_level_bytes = top_level_raw.rstrip(b"\r\n")
+    if b"\n" in top_level_bytes or b"\r" in top_level_bytes:
+        raise ValidationFailure(
+            "repo-identity-unavailable",
+            "Git returned an ambiguous repository worktree path",
+            "$",
+        )
+    top_level = os.path.normcase(os.path.abspath(os.fsdecode(top_level_bytes)))
+    expected_root = os.path.normcase(os.fspath(absolute_root))
+    if (
+        inside != b"true"
+        or bare != b"false"
+        or prefix.strip()
+        or top_level != expected_root
+    ):
         raise ValidationFailure(
             "repo-identity-not-repository",
             "repository identity root must be the exact top level of a Git worktree",
@@ -394,45 +420,13 @@ def _create_manifest_with_directory_descriptors(
 
 
 def _create_manifest_portable(absolute_root: Path, data: bytes) -> None:
-    root_before = _observe_directory_path(absolute_root)
-    identity_directory = absolute_root / REPO_IDENTITY_RELATIVE_PATH.parent
-    try:
-        identity_directory.mkdir(mode=0o755)
-    except FileExistsError:
-        pass
-    directory_entry = os.lstat(identity_directory)
-    if _is_link_or_reparse(directory_entry) or not stat.S_ISDIR(directory_entry.st_mode):
-        raise ValidationFailure(
-            "repo-identity-unsafe",
-            "repository identity directory must be a real directory",
-            "$",
-        )
-    identity_before = _observe_directory_path(identity_directory)
-    manifest_path = absolute_root / REPO_IDENTITY_RELATIVE_PATH
-    flags = (
-        os.O_WRONLY
-        | os.O_CREAT
-        | os.O_EXCL
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_BINARY", 0)
+    del absolute_root, data
+    raise ValidationFailure(
+        "repo-identity-create-unsupported",
+        "safe repository identity creation is unsupported on this filesystem; "
+        "create and commit repo.json through an independently trusted workflow",
+        "$",
     )
-    descriptor = os.open(manifest_path, flags, 0o644)
-    try:
-        _write_all(descriptor, data)
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-    identity_after = _observe_directory_path(identity_directory)
-    root_after = _observe_directory_path(absolute_root)
-    if (
-        not _same_entry_chain(root_before, root_after)
-        or not _same_entry_chain(identity_before, identity_after)
-    ):
-        raise ValidationFailure(
-            "repo-identity-unsafe",
-            "repository identity path changed while its manifest was created",
-            "$",
-        )
 
 
 def create_repo_identity_manifest(
@@ -470,9 +464,19 @@ def create_repo_identity_manifest(
         else:
             _create_manifest_portable(absolute_root, data)
     except FileExistsError as exc:
+        try:
+            existing = load_repo_identity_candidate(absolute_root)
+        except ValidationFailure:
+            raise ValidationFailure(
+                "repo-identity-collision",
+                "repository identity path appeared while the manifest was created",
+                "$",
+            ) from exc
+        if existing == identity:
+            return "existing"
         raise ValidationFailure(
             "repo-identity-collision",
-            "repository identity path appeared while the manifest was created",
+            "repository identity path appeared with a different identity",
             "$",
         ) from exc
     except OSError as exc:
@@ -491,23 +495,7 @@ def create_repo_identity_manifest(
 
 
 def _verify_committed_manifest(repo_root: Path, manifest_bytes: bytes) -> None:
-    absolute_root = _absolute_without_resolution(repo_root)
-    try:
-        prefix = _git_output(absolute_root, "rev-parse", "--show-prefix")
-    except ValidationFailure as exc:
-        if exc.code == "repo-identity-unavailable":
-            raise
-        raise ValidationFailure(
-            "repo-identity-not-repository",
-            "repository identity root must be the exact top level of a Git worktree",
-            "$",
-        ) from exc
-    if prefix.strip():
-        raise ValidationFailure(
-            "repo-identity-not-repository",
-            "repository identity root must be the exact top level of a Git worktree",
-            "$",
-        )
+    absolute_root = verify_repo_worktree_root(repo_root)
 
     commit = _git_output(
         absolute_root, "rev-parse", "--verify", "HEAD^{commit}"

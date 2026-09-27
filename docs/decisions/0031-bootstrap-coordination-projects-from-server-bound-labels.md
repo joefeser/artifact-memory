@@ -59,7 +59,23 @@ presence-only marker.
 
 A complete existing bootstrap is replayed without syncing or rewriting. The
 vault remains byte-identical even if a later invocation supplies a different
-observation timestamp. Partial or conflicting bootstrap state fails closed.
+observation timestamp. Conflicting bootstrap state fails closed. Matching
+partial state backed by the publication transaction is resumed as described
+below; partial state without that evidence fails closed.
+
+Publication is serialized per project. Before exposing the project link,
+kickoff projections, or bootstrap receipt, onboarding retains one immutable,
+digest-bound publication transaction containing their exact bytes. A retry
+validates that transaction and installs only missing matching outputs; any
+conflicting output fails closed. This makes interruption recoverable without
+rewriting or deleting immutable evidence, and concurrent calls replay the
+first completed receipt.
+
+Automatic `repo.json` creation requires held parent-directory descriptors and
+no-follow traversal. A runtime without equivalent primitives fails typed with
+`repo-identity-create-unsupported`; it never falls back to a checked pathname
+that could be redirected after validation. An independently trusted workflow
+may create and commit the strict manifest before rerunning onboarding.
 
 ## Security consequences
 
@@ -68,7 +84,11 @@ observation timestamp. Partial or conflicting bootstrap state fails closed.
 - No full AccessLabel body, credential, session handle, machine path, hostname,
   or provider URL enters the local project link, kickoff pack, or receipt.
 - Repository identity creation refuses links and reparse points and never
-  overwrites an existing manifest.
+  overwrites an existing manifest; bare repositories are rejected.
+- Runtimes without safe parent-directory creation primitives make no identity
+  write and return an explicit unsupported outcome.
+- A crash after publication begins is recoverable from the immutable
+  transaction, while conflicting partial bytes remain a hard failure.
 - A bootstrap receipt proves local orchestration evidence only. It grants no
   execution, disclosure, mutation, spending, deployment, approval, or merge
   authority.

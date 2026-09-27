@@ -767,13 +767,16 @@ def describe_local_hub_registration(
     *,
     session_id: str,
     project_id: str | None = None,
+    wait_for_principal: bool = False,
 ) -> dict[str, Any]:
     """Return only project identities the authenticated binding may read.
 
     The full AccessLabel remains hub-side policy state. This description is
     onboarding evidence, not a credential, grant, or administrative mutation.
     """
-    with _bound_principal_lock(hub, session_id) as (config, label, _principal_id):
+    with _bound_principal_lock(
+        hub, session_id, blocking=wait_for_principal
+    ) as (config, label, _principal_id):
         return _project_registration(
             config,
             label,
@@ -821,6 +824,7 @@ def _advisory_lock(
     *,
     busy_code: str,
     busy_message: str,
+    blocking: bool = False,
 ) -> Iterator[None]:
     """Hold a crash-released OS lock; the persistent lock file is not state."""
     lock = (
@@ -848,11 +852,15 @@ def _advisory_lock(
                     os.write(descriptor, b"\0")
                     os.fsync(descriptor)
                 os.lseek(descriptor, 0, os.SEEK_SET)
-                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                mode = msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK
+                msvcrt.locking(descriptor, mode, 1)
             else:
                 import fcntl
 
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                operation = fcntl.LOCK_EX
+                if not blocking:
+                    operation |= fcntl.LOCK_NB
+                fcntl.flock(descriptor, operation)
             locked = True
         except (BlockingIOError, OSError) as exc:
             raise SyncFailure(busy_code, busy_message) from exc
@@ -875,37 +883,43 @@ def _advisory_lock(
 
 
 @contextmanager
-def _principal_lock(hub: Path, principal_id: str) -> Iterator[None]:
+def _principal_lock(
+    hub: Path, principal_id: str, *, blocking: bool = False
+) -> Iterator[None]:
     with _advisory_lock(
         hub,
         f"principal:{principal_id}",
         busy_code="sync-principal-busy",
         busy_message="one sync request is already in flight for this principal",
+        blocking=blocking,
     ):
         yield
 
 
 @contextmanager
-def _configuration_lock(hub: Path) -> Iterator[None]:
+def _configuration_lock(hub: Path, *, blocking: bool = False) -> Iterator[None]:
     with _advisory_lock(
         hub,
         "hub-configuration",
         busy_code="sync-config-busy",
         busy_message="hub configuration is being replaced or bound",
+        blocking=blocking,
     ):
         yield
 
 
 @contextmanager
 def _bound_principal_lock(
-    hub: Path, session_id: str
+    hub: Path, session_id: str, *, blocking: bool = False
 ) -> Iterator[tuple[dict[str, Any], dict[str, Any], str]]:
     """Bind a session atomically with acquiring its stable principal lock."""
     principal_guard = ExitStack()
     try:
-        with _configuration_lock(hub):
+        with _configuration_lock(hub, blocking=blocking):
             config, label, principal_id = _binding(hub, session_id)
-            principal_guard.enter_context(_principal_lock(hub, principal_id))
+            principal_guard.enter_context(
+                _principal_lock(hub, principal_id, blocking=blocking)
+            )
             rebound = _binding(hub, session_id)
             if rebound != (config, label, principal_id):
                 raise SyncFailure(
@@ -941,6 +955,19 @@ def _projection_apply_lock(vault: Path) -> Iterator[None]:
         "projection-apply",
         busy_code="sync-local-apply-busy",
         busy_message="one pull response is already being applied to this vault",
+    ):
+        yield
+
+
+@contextmanager
+def coordination_onboarding_lock(vault: Path, project_id: str) -> Iterator[None]:
+    """Serialize one project's idempotent bootstrap publication."""
+    with _advisory_lock(
+        vault,
+        f"coordination-onboarding:{project_id}",
+        busy_code="onboard-project-busy",
+        busy_message="project onboarding is already in progress",
+        blocking=True,
     ):
         yield
 
