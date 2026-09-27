@@ -34,7 +34,7 @@ class SessionLedgerTests(unittest.TestCase):
 
     def test_cli_dry_run_writes_nothing_then_apply_is_idempotent(self):
         with tempfile.TemporaryDirectory() as temporary:
-            vault = Path(temporary) / "vault"
+            vault = Path(temporary).resolve() / "vault"
             base = [
                 sys.executable,
                 "-m",
@@ -79,7 +79,7 @@ class SessionLedgerTests(unittest.TestCase):
 
     def test_rejects_undated_content_and_invalid_calendar_date(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             vault = root / "vault"
             for content, code in (
                 ("not a dated entry\n", "session-ledger-entry-invalid"),
@@ -94,12 +94,14 @@ class SessionLedgerTests(unittest.TestCase):
 
     def test_rejects_credential_like_content(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             synthetic_value = "synthetic-value"
             cases = (
                 "pass" + "word" + "=" + synthetic_value,
                 "api" + " key" + ": " + synthetic_value,
                 "client" + "_secret" + "=" + synthetic_value,
+                "azure" + "_client_secret" + "=" + synthetic_value,
+                "vendor" + "-api-key" + ":" + synthetic_value,
                 "aws" + "_secret_access_key" + "=" + synthetic_value,
                 "github" + "_token" + "=" + synthetic_value,
                 "session=" + "g" + "hs_" + "syntheticvalue1234",
@@ -120,9 +122,21 @@ class SessionLedgerTests(unittest.TestCase):
                 )
             self.assertFalse((root / "vault").exists())
 
+    def test_credential_name_substrings_without_assignments_remain_valid(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source = root / "ordinary.md"
+            source.write_text(
+                "2026-09-27 Reviewed passwordless client-secret rotation.\n",
+                encoding="utf-8",
+            )
+            result = import_session_ledger(source, root / "vault", dry_run=True)
+            self.assertEqual(result["source_entry_count"], 1)
+            self.assertFalse((root / "vault").exists())
+
     def test_source_reader_stops_after_configured_bound(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             source = root / "bounded.md"
             source.write_bytes(b"x" * 64)
             observed = _read_local_regular_file(
@@ -136,7 +150,7 @@ class SessionLedgerTests(unittest.TestCase):
 
     def test_immutable_record_collision_fails_closed(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             source = FIXTURE / "synthetic-done-log.md"
             vault = root / "vault"
             mapping = import_session_ledger(source, vault, dry_run=True)["mapping"]
@@ -177,7 +191,7 @@ class SessionLedgerTests(unittest.TestCase):
 
     def test_concurrent_first_imports_serialize_without_loss(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             vault = root / "vault"
             command = [
                 sys.executable,
@@ -215,10 +229,34 @@ class SessionLedgerTests(unittest.TestCase):
                 2,
             )
 
-    @unittest.skipUnless(os.name == "nt", "Windows junction proof runs on Windows")
-    def test_windows_junction_vault_is_rejected(self):
+    @unittest.skipIf(os.name == "nt", "POSIX symlink proof")
+    def test_linked_vault_ancestors_are_rejected_before_dry_run_or_write(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
+            target = root / "target"
+            target.mkdir()
+            alias = root / "alias"
+            alias.symlink_to(target, target_is_directory=True)
+            source = FIXTURE / "synthetic-done-log.md"
+            for existing in (False, True):
+                vault_name = "existing-vault" if existing else "missing-vault"
+                vault = target / vault_name
+                if existing:
+                    vault.mkdir()
+                apparent_vault = alias / vault_name
+                for dry_run in (True, False):
+                    with self.subTest(
+                        existing=existing,
+                        dry_run=dry_run,
+                    ), self.assertRaises(ValidationFailure) as caught:
+                        import_session_ledger(source, apparent_vault, dry_run=dry_run)
+                    self.assertEqual(caught.exception.code, "sync-storage-unsafe")
+                    self.assertFalse((vault / "records").exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows junction proof runs on Windows")
+    def test_windows_junction_vault_and_ancestor_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
             target = root / "target"
             junction = root / "junction"
             target.mkdir()
@@ -230,27 +268,31 @@ class SessionLedgerTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(linked.returncode, 0, linked.stderr or linked.stdout)
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "artifact_memory",
-                    "import-session-ledger",
-                    str(FIXTURE / "synthetic-done-log.md"),
-                    "--vault",
-                    str(junction),
-                    "--json",
-                ],
-                cwd=ROOT,
-                text=True,
-                capture_output=True,
-            )
-            self.assertEqual(completed.returncode, 2)
-            self.assertEqual(
-                json.loads(completed.stdout)["diagnostics"][0]["code"],
-                "sync-storage-unsafe",
-            )
+            (target / "existing-vault").mkdir()
+            for vault in (junction, junction / "existing-vault"):
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "artifact_memory",
+                        "import-session-ledger",
+                        str(FIXTURE / "synthetic-done-log.md"),
+                        "--vault",
+                        str(vault),
+                        "--json",
+                    ],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                )
+                with self.subTest(vault=vault):
+                    self.assertEqual(completed.returncode, 2)
+                    self.assertEqual(
+                        json.loads(completed.stdout)["diagnostics"][0]["code"],
+                        "sync-storage-unsafe",
+                    )
             self.assertFalse((target / "records").exists())
+            self.assertFalse((target / "existing-vault" / "records").exists())
 
     def test_conformance_script_passes(self):
         completed = subprocess.run(

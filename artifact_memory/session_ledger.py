@@ -71,7 +71,7 @@ _SENSITIVE_TOKEN = re.compile(
             r"-----BEGIN [A-Z ]*PRIVATE " + r"KEY-----",
             rf"\b(?:{_TOKEN_PREFIXES})[A-Za-z0-9_-]{{16,}}",
             r"\bAuthor" + r"ization\s*:\s*Bearer\s+\S+",
-            rf"\b(?:{_CREDENTIAL_NAMES})\s*[:=]\s*\S+",
+            rf"(?<![A-Za-z0-9])(?:{_CREDENTIAL_NAMES})\s*[:=]\s*\S+",
         )
     ),
     re.IGNORECASE,
@@ -255,10 +255,18 @@ def import_session_ledger(
     created = existing = 0
 
     if dry_run:
-        _validate_storage_root(vault, create=False)
+        _validate_storage_root(
+            vault,
+            create=False,
+            reject_linked_ancestors=True,
+        )
         dispositions = ["planned"] * len(records)
     else:
-        _validate_storage_root(vault, create=True)
+        _validate_storage_root(
+            vault,
+            create=True,
+            reject_linked_ancestors=True,
+        )
         prepared = [
             (_record_path(vault, record), _record_bytes(record))
             for record in records
@@ -312,7 +320,7 @@ def exercise_session_ledger_fixture(fixture: Path) -> dict[str, Any]:
     import tempfile
 
     with tempfile.TemporaryDirectory() as temporary:
-        vault = Path(temporary) / "vault"
+        vault = Path(temporary).resolve() / "vault"
         source = fixture / "synthetic-done-log.md"
         source_before = _source_bytes(source)
         dry_run = import_session_ledger(source, vault, dry_run=True)
@@ -336,6 +344,7 @@ def exercise_session_ledger_fixture(fixture: Path) -> dict[str, Any]:
         sensitive_fragments = (
             "api" + " key" + ": " + synthetic_value,
             "client" + "_secret" + "=" + synthetic_value,
+            "azure" + "_client_secret" + "=" + synthetic_value,
             "aws" + "_secret_access_key" + "=" + synthetic_value,
             "github" + "_token" + "=" + synthetic_value,
             "session=" + "g" + "hs_" + "syntheticvalue1234",

@@ -239,8 +239,34 @@ def _scan_retained_policy_labels(
     return labels
 
 
-def _validate_storage_root(boundary: Path, *, create: bool) -> None:
-    """Reject a storage root that is itself a symlink or non-directory."""
+def _validate_storage_root(
+    boundary: Path,
+    *,
+    create: bool,
+    reject_linked_ancestors: bool = False,
+) -> None:
+    """Reject an unsafe root and, when requested, every linked ancestor."""
+    if reject_linked_ancestors:
+        absolute = Path(os.path.abspath(os.fspath(boundary)))
+        anchor = Path(absolute.anchor)
+        current_component = anchor
+        for part in absolute.relative_to(anchor).parts:
+            current_component /= part
+            try:
+                component_metadata = os.lstat(current_component)
+            except FileNotFoundError:
+                break
+            except OSError as exc:
+                raise SyncFailure(
+                    "sync-storage-unsafe", "sync storage root is unsafe"
+                ) from exc
+            if _is_link_or_reparse(component_metadata) or not stat.S_ISDIR(
+                component_metadata.st_mode
+            ):
+                raise SyncFailure(
+                    "sync-storage-unsafe",
+                    "sync storage root traverses a link, reparse point, or non-directory",
+                )
     if boundary.exists() or boundary.is_symlink():
         try:
             metadata = os.lstat(boundary)

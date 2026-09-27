@@ -7,11 +7,11 @@
   "outcome": "passed",
   "provenance_source_ref": "session-ledger",
   "raw_source_copied": false,
-  "receipt_id": "session-ledger-import-conformance-receipt://sha-256/425661d8bc95e9d509a3621de53da3c22b6dceef8212a21953acc60e3d09d640",
+  "receipt_id": "session-ledger-import-conformance-receipt://sha-256/c458eed9197dd092293558289c669bad7ec89252c3035e8028f64c47bfdb4bd7",
   "replay_created_count": 0,
   "replay_existing_count": 2,
   "schema_id": "artifact-memory/session-ledger-import-conformance-receipt/v0",
-  "sensitive_assignment_rejection_count": 5,
+  "sensitive_assignment_rejection_count": 6,
   "source_text_disclosed": false,
   "source_unchanged": true,
   "validated_record_count": 2
