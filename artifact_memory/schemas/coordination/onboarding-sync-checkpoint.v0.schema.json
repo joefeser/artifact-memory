@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/coordination/onboarding-sync-checkpoint/v0",
+  "title": "Artifact Memory local coordination onboarding sync checkpoint v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "checkpoint_id",
+    "attempt_ref",
+    "sync_receipt_ref",
+    "sync_response",
+    "authority_boundary"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "artifact-memory/local-coordination-onboarding-sync-checkpoint/v0"
+    },
+    "checkpoint_id": {
+      "type": "string",
+      "pattern": "^coordination-onboarding-sync-checkpoint://sha-256/[0-9a-f]{64}$"
+    },
+    "attempt_ref": {
+      "type": "string",
+      "pattern": "^coordination-onboarding-attempt://sha-256/[0-9a-f]{64}$"
+    },
+    "sync_receipt_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipt_id"],
+      "properties": {
+        "receipt_id": {
+          "type": "string",
+          "pattern": "^coordination-sync-receipt://sha-256/[0-9a-f]{64}$"
+        }
+      }
+    },
+    "sync_response": {
+      "type": "object"
+    },
+    "authority_boundary": {
+      "const": "onboarding artifacts are informational only and grant no execution, mutation, routing, disclosure, credential, spending, deployment, approval, or merge authority"
+    }
+  }
+}

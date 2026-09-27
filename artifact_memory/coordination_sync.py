@@ -1951,6 +1951,8 @@ def _apply_verified_pull(
     receipt: dict[str, Any],
     pairs: list[dict[str, str]],
     by_pair: dict[tuple[str, str], dict[str, Any]],
+    *,
+    force_receipt: bool = False,
 ) -> dict[str, Any]:
     marker_path = vault / "generated" / "coordination-sync" / "last-successful.json"
     if marker_path.exists():
@@ -2000,6 +2002,7 @@ def _apply_verified_pull(
             == receipt["authorized_membership"]
             and prior_receipt["excluded_count"] == receipt["excluded_count"]
             and not receipt["submission_outcomes"]
+            and not force_receipt
         ):
             # A no-op is valid only if the local authorized material still
             # matches the previously verified marker and projection.
@@ -2036,8 +2039,13 @@ def _apply_verified_pull(
     return {"outcome": "complete", "receipt": receipt, "authorized_pairs": pairs}
 
 
-def apply_pull_response(vault: Path, response: dict[str, Any]) -> dict[str, Any]:
-    """Verify a complete pull before appending records and advancing the marker."""
+def _validated_pull_response(
+    response: dict[str, Any],
+) -> tuple[
+    dict[str, Any],
+    list[dict[str, str]],
+    dict[tuple[str, str], dict[str, Any]],
+]:
     if not isinstance(response, dict) or set(response) != {
         "receipt",
         "pages",
@@ -2085,8 +2093,27 @@ def apply_pull_response(vault: Path, response: dict[str, Any]) -> dict[str, Any]
             )
     if set(by_pair) != {_pair_key(item) for item in pairs}:
         raise SyncFailure("sync-record-set-mismatch", "pull records do not match authorized membership")
+    return receipt, pairs, by_pair
+
+
+def apply_pull_response(
+    vault: Path,
+    response: dict[str, Any],
+    *,
+    _before_apply: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Verify a complete pull before appending records and advancing the marker."""
+    receipt, pairs, by_pair = _validated_pull_response(response)
+    if _before_apply is not None:
+        _before_apply(deepcopy(response))
     with _projection_apply_lock(vault):
-        return _apply_verified_pull(vault, receipt, pairs, by_pair)
+        return _apply_verified_pull(
+            vault,
+            receipt,
+            pairs,
+            by_pair,
+            force_receipt=_before_apply is not None,
+        )
 
 
 def _pull_bound(
@@ -2097,6 +2124,7 @@ def _pull_bound(
     label: dict[str, Any],
     principal_id: str,
     completed_at: str,
+    before_apply: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Pull and consume pending evidence under one principal lock."""
     pending = _load_pending_outcomes(
@@ -2114,7 +2142,11 @@ def _pull_bound(
         completed_at=completed_at,
         submission_outcomes=pending.outcomes,
     )
-    result = apply_pull_response(vault, response)
+    result = apply_pull_response(
+        vault,
+        response,
+        _before_apply=before_apply,
+    )
     _consume_pending_outcomes(vault, pending)
     return result
 
@@ -2148,6 +2180,8 @@ def sync(
     expected_hub_id: str | None = None,
     expected_access_label_ref: dict[str, str] | None = None,
     _before_sync: Callable[[], None] | None = None,
+    _before_pull_apply: Callable[[dict[str, Any]], None] | None = None,
+    _resume_pending: bool = False,
 ) -> dict[str, Any]:
     if phase not in {"push", "pull", "both"}:
         raise SyncFailure("sync-phase-invalid", "sync phase must be push, pull, or both")
@@ -2174,7 +2208,10 @@ def sync(
             )
         if _before_sync is not None:
             _before_sync()
-        if phase in {"push", "both"}:
+        pending_path = _pending_outcomes_path(vault)
+        pending_exists = pending_path.exists() or pending_path.is_symlink()
+        resume_pending = _resume_pending and phase == "both" and pending_exists
+        if phase in {"push", "both"} and not resume_pending:
             result["submission_outcomes"] = _push_bound(
                 vault,
                 hub,
@@ -2190,9 +2227,14 @@ def sync(
                 label=label,
                 principal_id=principal_id,
                 completed_at=completed_at,
+                before_apply=_before_pull_apply,
             )
             result.update(pulled)
             result["phase"] = phase
+            if "submission_outcomes" not in result:
+                result["submission_outcomes"] = deepcopy(
+                    pulled["receipt"]["submission_outcomes"]
+                )
     return result
 
 
@@ -2201,18 +2243,13 @@ def recover_matching_sync_result(
     hub: Path,
     *,
     session_id: str,
+    response: dict[str, Any],
     completed_at: str,
     required_project_id: str,
     expected_hub_id: str,
     expected_access_label_ref: dict[str, str],
-) -> dict[str, Any] | None:
-    """Recover one exact successful pull for interrupted onboarding.
-
-    The current marker is reusable only while it still names the authenticated
-    principal, current policy generation, exact label revision, and attempt
-    timestamp. No session or principal identifier is copied into onboarding
-    state.
-    """
+) -> dict[str, Any]:
+    """Recover one attempt-specific immutable pull and reconcile its outcome."""
     with _bound_principal_lock(
         hub, session_id, blocking=True
     ) as (config, label, principal_id):
@@ -2231,17 +2268,7 @@ def recover_matching_sync_result(
                 "onboard-label-mismatch",
                 "repo-bound sync selected a different AccessLabel revision than its onboarding link",
             )
-        marker_path = (
-            vault / "generated" / "coordination-sync" / "last-successful.json"
-        )
-        if not marker_path.exists() and not marker_path.is_symlink():
-            return None
-        if marker_path.is_symlink():
-            raise SyncFailure(
-                "sync-storage-unsafe",
-                "successful sync marker is a symlink",
-            )
-        _, receipt, pairs = _load_current_projection(vault)
+        receipt, pairs, by_pair = _validated_pull_response(response)
         if (
             receipt["hub_id"] != config["hub_id"]
             or receipt["principal_id"] != principal_id
@@ -2249,7 +2276,56 @@ def recover_matching_sync_result(
             or receipt["scope_generation"] != config["scope_generation"]
             or receipt["completed_at"] != completed_at
         ):
-            return None
+            raise SyncFailure(
+                "onboard-sync-checkpoint-mismatch",
+                "retained onboarding sync evidence does not match the current authenticated binding",
+            )
+        marker_path = (
+            vault / "generated" / "coordination-sync" / "last-successful.json"
+        )
+        with _projection_apply_lock(vault):
+            if marker_path.is_symlink():
+                raise SyncFailure(
+                    "sync-storage-unsafe",
+                    "successful sync marker is a symlink",
+                )
+            if marker_path.exists():
+                _, current_receipt, _ = _load_current_projection(vault)
+                if (
+                    current_receipt["hub_id"] != config["hub_id"]
+                    or current_receipt["principal_id"] != principal_id
+                ):
+                    raise SyncFailure(
+                        "sync-binding-mismatch",
+                        "current sync projection belongs to another authenticated binding",
+                    )
+                current_time = _parse_receipt_time(current_receipt["completed_at"])
+                checkpoint_time = _parse_receipt_time(receipt["completed_at"])
+                if (
+                    current_time == checkpoint_time
+                    and current_receipt["receipt_id"] != receipt["receipt_id"]
+                ):
+                    raise SyncFailure(
+                        "sync-receipt-order-conflict",
+                        "distinct pull responses cannot share a completion time",
+                    )
+                if current_time < checkpoint_time:
+                    _apply_verified_pull(vault, receipt, pairs, by_pair)
+            else:
+                _apply_verified_pull(vault, receipt, pairs, by_pair)
+
+        pending = _load_pending_outcomes(
+            vault,
+            hub=hub,
+            config=config,
+            label=label,
+            principal_id=principal_id,
+        )
+        if (
+            pending.source_digest is not None
+            and pending.outcomes == receipt["submission_outcomes"]
+        ):
+            _consume_pending_outcomes(vault, pending)
         return {
             "outcome": "recovered",
             "phase": "both",
@@ -2257,6 +2333,9 @@ def recover_matching_sync_result(
             "submission_outcomes": deepcopy(receipt["submission_outcomes"]),
             "receipt": receipt,
             "authorized_pairs": pairs,
+            "authorized_records": [
+                by_pair[_pair_key(pair)] for pair in pairs
+            ],
         }
 
 

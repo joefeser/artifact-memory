@@ -20,7 +20,6 @@ from .coordination_sync import (
     coordination_onboarding_lock,
     coordination_pair_count,
     describe_local_hub_registration,
-    load_authorized_projection,
     recover_matching_sync_result,
     sync,
 )
@@ -41,6 +40,9 @@ BOOTSTRAP_RECEIPT_SCHEMA_ID = (
 BOOTSTRAP_PACK_SCHEMA_ID = "artifact-memory/coordination-onboarding-kickoff-pack/v0"
 PROJECT_LINK_SCHEMA_ID = "artifact-memory/local-coordination-project-link/v0"
 ATTEMPT_SCHEMA_ID = "artifact-memory/local-coordination-onboarding-attempt/v0"
+SYNC_CHECKPOINT_SCHEMA_ID = (
+    "artifact-memory/local-coordination-onboarding-sync-checkpoint/v0"
+)
 PUBLICATION_SCHEMA_ID = (
     "artifact-memory/local-coordination-onboarding-publication/v0"
 )
@@ -69,6 +71,9 @@ _PROJECT_LINK_SCHEMA = load_schema(
 )
 _ATTEMPT_SCHEMA = load_schema(
     "coordination", "onboarding-attempt.v0.schema.json"
+)
+_SYNC_CHECKPOINT_SCHEMA = load_schema(
+    "coordination", "onboarding-sync-checkpoint.v0.schema.json"
 )
 _PUBLICATION_SCHEMA = load_schema(
     "coordination", "onboarding-publication.v0.schema.json"
@@ -142,6 +147,15 @@ def _attempt_path(vault: Path, project_id: str) -> Path:
         / "transactions"
         / "coordination-onboarding"
         / f"{project_id}.attempt.json"
+    )
+
+
+def _sync_checkpoint_path(vault: Path, project_id: str) -> Path:
+    return (
+        vault
+        / "transactions"
+        / "coordination-onboarding"
+        / f"{project_id}.sync.json"
     )
 
 
@@ -291,6 +305,14 @@ def _attempt_body(attempt: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _sync_checkpoint_body(checkpoint: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in checkpoint.items()
+        if key not in {"schema_id", "checkpoint_id"}
+    }
+
+
 def _validate_attempt(
     attempt: dict[str, Any],
     identity: dict[str, str],
@@ -314,6 +336,7 @@ def _validate_attempt(
         or attempt["project"]["project_name"] != identity["humanName"]
         or attempt["hub_id"] != registration["hub_id"]
         or attempt["access_label_ref"] != registration["access_label_ref"]
+        or attempt["scope_generation"] != registration["scope_generation"]
     ):
         raise ValidationFailure(
             "onboard-state-conflict",
@@ -359,6 +382,7 @@ def _create_attempt(
         "vault_state": vault_state,
         "hub_id": registration["hub_id"],
         "access_label_ref": registration["access_label_ref"],
+        "scope_generation": registration["scope_generation"],
         "completed_at": completed_at,
         "pair_count_before": pair_count_before,
         "authority_boundary": AUTHORITY_BOUNDARY,
@@ -374,6 +398,84 @@ def _create_attempt(
     _validate_attempt(attempt, identity, registration)
     _write_immutable(vault, path, canonical_bytes(attempt))
     return attempt
+
+
+def _validate_sync_checkpoint(
+    checkpoint: dict[str, Any], attempt: dict[str, Any]
+) -> None:
+    validate(checkpoint, _SYNC_CHECKPOINT_SCHEMA)
+    expected = (
+        "coordination-onboarding-sync-checkpoint://sha-256/"
+        + sha256_bytes(
+            canonical_bytes(_sync_checkpoint_body(checkpoint))
+        ).removeprefix("sha-256:")
+    )
+    if checkpoint["checkpoint_id"] != expected:
+        raise ValidationFailure(
+            "onboard-sync-checkpoint-id-mismatch",
+            "onboarding sync checkpoint identity does not match its canonical body",
+            "$.checkpoint_id",
+        )
+    response = checkpoint["sync_response"]
+    receipt = response.get("receipt") if isinstance(response, dict) else None
+    if (
+        checkpoint["attempt_ref"] != attempt["attempt_id"]
+        or not isinstance(receipt, dict)
+        or checkpoint["sync_receipt_ref"]["receipt_id"]
+        != receipt.get("receipt_id")
+    ):
+        raise ValidationFailure(
+            "onboard-sync-checkpoint-conflict",
+            "onboarding sync checkpoint conflicts with its retained attempt or response",
+        )
+
+
+def _load_sync_checkpoint(
+    vault: Path,
+    identity: dict[str, str],
+    attempt: dict[str, Any],
+) -> dict[str, Any] | None:
+    path = _sync_checkpoint_path(vault, identity["uuid"])
+    if not path.exists() and not path.is_symlink():
+        return None
+    checkpoint = _load_vault_object(
+        vault,
+        path,
+        _SYNC_CHECKPOINT_SCHEMA,
+        missing_code="onboard-state-incomplete",
+    )
+    _validate_sync_checkpoint(checkpoint, attempt)
+    return checkpoint
+
+
+def _create_sync_checkpoint(
+    vault: Path,
+    identity: dict[str, str],
+    attempt: dict[str, Any],
+    response: dict[str, Any],
+) -> dict[str, Any]:
+    receipt = response["receipt"]
+    body = {
+        "attempt_ref": attempt["attempt_id"],
+        "sync_receipt_ref": {"receipt_id": receipt["receipt_id"]},
+        "sync_response": response,
+        "authority_boundary": AUTHORITY_BOUNDARY,
+    }
+    checkpoint = {
+        "schema_id": SYNC_CHECKPOINT_SCHEMA_ID,
+        "checkpoint_id": (
+            "coordination-onboarding-sync-checkpoint://sha-256/"
+            + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:")
+        ),
+        **body,
+    }
+    _validate_sync_checkpoint(checkpoint, attempt)
+    _write_immutable(
+        vault,
+        _sync_checkpoint_path(vault, identity["uuid"]),
+        canonical_bytes(checkpoint),
+    )
+    return checkpoint
 
 
 def _validate_publication(
@@ -641,12 +743,18 @@ def _onboard_project_locked(
     vault_state = "linked" if vault_existed else "created"
     pair_count_before = coordination_pair_count(vault)
     attempt = _load_attempt(vault, identity, registration)
+    checkpoint = (
+        _load_sync_checkpoint(vault, identity, attempt)
+        if attempt is not None
+        else None
+    )
     sync_result = None
-    if attempt is not None:
+    if attempt is not None and checkpoint is not None:
         sync_result = recover_matching_sync_result(
             vault,
             hub,
             session_id=session_id,
+            response=checkpoint["sync_response"],
             completed_at=attempt["completed_at"],
             required_project_id=identity["uuid"],
             expected_hub_id=registration["hub_id"],
@@ -666,6 +774,20 @@ def _onboard_project_locked(
                 pair_count_before=pair_count_before,
             )
 
+    def preserve_sync_response(response: dict[str, Any]) -> None:
+        nonlocal checkpoint
+        if attempt is None:
+            raise ValidationFailure(
+                "onboard-state-incomplete",
+                "onboarding sync response has no retained attempt evidence",
+            )
+        checkpoint = _create_sync_checkpoint(
+            vault,
+            identity,
+            attempt,
+            response,
+        )
+
     if sync_result is None:
         sync_result = sync(
             vault,
@@ -681,11 +803,21 @@ def _onboard_project_locked(
             expected_hub_id=registration["hub_id"],
             expected_access_label_ref=registration["access_label_ref"],
             _before_sync=prepare_attempt,
+            _before_pull_apply=preserve_sync_response,
+            _resume_pending=attempt is not None,
         )
-    if attempt is None:
+    if attempt is None or checkpoint is None:
         raise ValidationFailure(
             "onboard-state-incomplete",
-            "onboarding sync completed without retained attempt evidence",
+            "onboarding sync completed without retained attempt and checkpoint evidence",
+        )
+    if (
+        checkpoint["sync_receipt_ref"]["receipt_id"]
+        != sync_result["receipt"]["receipt_id"]
+    ):
+        raise ValidationFailure(
+            "onboard-sync-checkpoint-conflict",
+            "onboarding sync result conflicts with its retained checkpoint",
         )
     sync_registration = sync_result["project_registration"]
     if (
@@ -708,7 +840,11 @@ def _onboard_project_locked(
         )
 
     receipt = sync_result["receipt"]
-    records = load_authorized_projection(vault)
+    records = [
+        record
+        for page in checkpoint["sync_response"]["record_pages"]
+        for record in page
+    ]
     project_record_count = sum(
         1 for record in records if record.get("projectId") == identity["uuid"]
     )

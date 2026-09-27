@@ -24,3 +24,8 @@ The transaction-boundary regression additionally submits one unsynced
 synthetic record, interrupts immediately after its successful sync, and proves
 retry reuses the exact authenticated receipt rather than losing its admission
 outcome or colliding on the observation timestamp.
+
+The interruption matrix also covers failure after push but before pull,
+failure after marker advancement but before pending-outcome consumption, and a
+later successful pull advancing the current marker before onboarding resumes.
+Each path recovers from the attempt-specific bounded response checkpoint.

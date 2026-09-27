@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 import artifact_memory.coordination_onboarding as onboarding_module
+import artifact_memory.coordination_sync as coordination_sync_module
 from artifact_memory.coordination import revision_digest
 from artifact_memory.coordination_onboarding import (
     BOOTSTRAP_PACK_SCHEMA_ID,
@@ -27,7 +28,9 @@ from artifact_memory.coordination_sync import (
     configure_local_hub,
     describe_local_hub_registration,
     directory_digest,
+    pull,
     store_coordination_record,
+    sync,
 )
 from artifact_memory.schema_resources import core_schemas, load_schema
 from artifact_memory.validator import ValidationFailure, load_json, validate
@@ -243,7 +246,7 @@ class CoordinationOnboardingTests(unittest.TestCase):
             self.assertEqual(require_repo_onboarding(repo, vault)["project_id"], PROJECT_A)
 
     def test_interrupted_publication_resumes_from_immutable_transaction(self):
-        for fail_at in range(2, 7):
+        for fail_at in range(2, 8):
             with (
                 self.subTest(fail_at=fail_at),
                 tempfile.TemporaryDirectory() as temporary,
@@ -291,7 +294,7 @@ class CoordinationOnboardingTests(unittest.TestCase):
                     / "coordination-onboarding"
                     / f"{PROJECT_A}.json"
                 )
-                self.assertEqual(publication.is_file(), fail_at > 2)
+                self.assertEqual(publication.is_file(), fail_at > 3)
 
                 receipt = onboard_project(
                     repo,
@@ -386,6 +389,22 @@ class CoordinationOnboardingTests(unittest.TestCase):
                 ["admitted"],
             )
 
+            later_task = self.task(label)
+            later_task_id = "task_" + "2" * 26
+            later_task["taskId"] = later_task_id
+            later_task["record_id"] = (
+                f"record://coordination/{later_task['originId']}/task/"
+                f"{later_task_id}"
+            )
+            store_coordination_record(hub, later_task)
+            later = pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-26T21:00:00Z",
+            )
+            self.assertNotEqual(later["receipt"]["receipt_id"], receipt_id)
+
             receipt = onboard_project(
                 repo,
                 vault,
@@ -396,6 +415,144 @@ class CoordinationOnboardingTests(unittest.TestCase):
             )
             self.assertEqual(receipt["sync_receipt_ref"]["receipt_id"], receipt_id)
             self.assertTrue(publication_path.is_file())
+            self.assertEqual(
+                load_json(
+                    vault
+                    / "generated"
+                    / "coordination-sync"
+                    / "last-successful.json"
+                )["receipt_ref"],
+                later["receipt"]["receipt_id"],
+            )
+
+    def test_retry_pulls_pending_outcomes_before_attempting_another_push(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repo, vault, hub = root / "repo", root / "vault", root / "hub"
+            self.init_repo(repo)
+            label = self.label()
+            self.configure(hub, label)
+            append_local_coordination_record(vault, self.task(label))
+
+            with (
+                mock.patch.object(
+                    coordination_sync_module,
+                    "_pull_bound",
+                    side_effect=SyncFailure(
+                        "synthetic-before-pull-interruption",
+                        "synthetic interruption after push",
+                    ),
+                ),
+                self.assertRaises(SyncFailure) as interrupted,
+            ):
+                onboard_project(
+                    repo,
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at=COMPLETED_AT,
+                    human_name="synthetic-public",
+                )
+            self.assertEqual(
+                interrupted.exception.code,
+                "synthetic-before-pull-interruption",
+            )
+            pending = (
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "pending-submission-outcomes.json"
+            )
+            self.assertTrue(pending.is_file())
+            self.assertFalse(
+                (vault / "generated" / "coordination-sync" / "last-successful.json").exists()
+            )
+
+            receipt = onboard_project(
+                repo,
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at=COMPLETED_AT,
+                human_name="synthetic-public",
+            )
+            self.assertFalse(pending.exists())
+            sync_receipt_id = receipt["sync_receipt_ref"]["receipt_id"]
+            retained = load_json(
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "projections"
+                / sync_receipt_id.rsplit("/", 1)[-1]
+                / "receipt.json"
+            )
+            self.assertEqual(
+                [item["outcome"] for item in retained["submission_outcomes"]],
+                ["admitted"],
+            )
+
+    def test_recovery_consumes_matching_pending_outcomes_after_marker_write(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repo, vault, hub = root / "repo", root / "vault", root / "hub"
+            self.init_repo(repo)
+            label = self.label()
+            self.configure(hub, label)
+            append_local_coordination_record(vault, self.task(label))
+
+            with (
+                mock.patch.object(
+                    coordination_sync_module,
+                    "_consume_pending_outcomes",
+                    side_effect=SyncFailure(
+                        "synthetic-after-marker-interruption",
+                        "synthetic interruption before pending consumption",
+                    ),
+                ),
+                self.assertRaises(SyncFailure) as interrupted,
+            ):
+                onboard_project(
+                    repo,
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at=COMPLETED_AT,
+                    human_name="synthetic-public",
+                )
+            self.assertEqual(
+                interrupted.exception.code,
+                "synthetic-after-marker-interruption",
+            )
+            pending = (
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "pending-submission-outcomes.json"
+            )
+            self.assertTrue(pending.is_file())
+            self.assertTrue(
+                (vault / "generated" / "coordination-sync" / "last-successful.json").is_file()
+            )
+
+            receipt = onboard_project(
+                repo,
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at=COMPLETED_AT,
+                human_name="synthetic-public",
+            )
+            self.assertFalse(pending.exists())
+            self.assertEqual(
+                sync(
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at="2026-09-26T21:00:00Z",
+                )["outcome"],
+                "no-op",
+            )
+            validate_bootstrap_receipt(receipt)
 
     def test_concurrent_onboarding_serializes_and_replays_first_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -864,6 +1021,13 @@ class CoordinationOnboardingTests(unittest.TestCase):
         self.assertEqual(
             attempt["properties"]["schema_id"]["const"],
             "artifact-memory/local-coordination-onboarding-attempt/v0",
+        )
+        checkpoint = load_schema(
+            "coordination", "onboarding-sync-checkpoint.v0.schema.json"
+        )
+        self.assertEqual(
+            checkpoint["properties"]["schema_id"]["const"],
+            "artifact-memory/local-coordination-onboarding-sync-checkpoint/v0",
         )
 
 

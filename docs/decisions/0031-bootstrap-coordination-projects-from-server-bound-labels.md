@@ -65,10 +65,15 @@ below; partial state without that evidence fails closed.
 
 Publication is serialized per project. Before sync, onboarding retains one
 immutable, digest-bound attempt containing the selected project and label,
-observation timestamp, initial record count, and initial repo/vault states. A
-retry may reuse a successful current sync receipt only when its authenticated
-principal, hub, label revision, policy generation, and timestamp exactly match
-that attempt. Before exposing the project link, kickoff projections, or
+policy generation, observation timestamp, initial record count, and initial
+repo/vault states. After the pull response is fully validated but before it is
+applied, onboarding retains an immutable checkpoint containing that exact
+bounded response. A retry validates the checkpoint against the authenticated
+principal, hub, label revision, policy generation, and timestamp from the
+attempt. It resumes an existing pending pull before attempting another push,
+consumes only pending outcomes represented by the checkpoint receipt, and can
+recover the checkpoint even if a later successful pull advances the mutable
+current marker. Before exposing the project link, kickoff projections, or
 bootstrap receipt, onboarding then retains one immutable, digest-bound
 publication transaction containing their exact bytes. A retry validates that
 transaction and installs only missing matching outputs; any conflicting output
@@ -94,9 +99,10 @@ may create and commit the strict manifest before rerunning onboarding.
   write and return an explicit unsupported outcome.
 - A crash after publication begins is recoverable from the immutable
   transaction, while conflicting partial bytes remain a hard failure.
-- A crash after a successful sync but before publication reuses only the exact
-  authenticated receipt bound to the pre-sync attempt, preserving consumed
-  admission evidence without accepting a stale or cross-principal receipt.
+- A crash during sync or before publication reuses only the exact bounded
+  response checkpoint bound to the pre-sync attempt. Pending admission evidence
+  is reconciled before another push, and a later current projection cannot
+  erase the attempt-specific evidence.
 - A bootstrap receipt proves local orchestration evidence only. It grants no
   execution, disclosure, mutation, spending, deployment, approval, or merge
   authority.

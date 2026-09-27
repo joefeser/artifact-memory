@@ -12,6 +12,7 @@
     "vault_state",
     "hub_id",
     "access_label_ref",
+    "scope_generation",
     "completed_at",
     "pair_count_before",
     "authority_boundary"
@@ -56,6 +57,7 @@
         }
       }
     },
+    "scope_generation": {"type": "integer", "minimum": 0},
     "completed_at": {"type": "string", "format": "date-time"},
     "pair_count_before": {"type": "integer", "minimum": 0},
     "authority_boundary": {
