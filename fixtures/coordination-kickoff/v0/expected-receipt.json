@@ -12,11 +12,11 @@
   },
   "open_task_count": 2,
   "outcome": "passed",
-  "pack_digest": "sha-256:149e462784c3e5e7938d04b87a026f3e6234f11955c5d5fb2ab964e308498c90",
-  "prompt_digest": "sha-256:97823eedf3997009efed70e05fb052a070679631f00f6cc2543079425f992839",
-  "receipt_id": "coordination-kickoff-conformance-receipt://sha-256/5f0fecfb768b5a932c7933c10f29eb6dfdf46f2c688400a008aba81259a87e21",
+  "pack_digest": "sha-256:e19973ce18502b3f200b2a688c0e66691ccf0acbda5ab3c80a16252810718d84",
+  "prompt_digest": "sha-256:9ad3b3ccef880e46c7b16ddc9ffb33ad1760019ab64753e505e52fbfe2b957d0",
+  "receipt_id": "coordination-kickoff-conformance-receipt://sha-256/f0b5dc08fdafcfa760b054eb8234155f1a44407964fa04a011530d4d559e0d44",
   "schema_id": "artifact-memory/coordination-kickoff-conformance-receipt/v0",
   "scope_generation": 7,
   "selected_task_id": "task_01J00000000000000000000003",
-  "sync_receipt_ref": "coordination-sync-receipt://sha-256/d3a973224189d1a5a44972cdf5e5528165f1f7e9a4d3ab808672b49bf28eda57"
+  "sync_receipt_ref": "coordination-sync-receipt://sha-256/de472a68aa1872a423b57807452abfbb2a23a5beb37d7275f8370f1547726ce1"
 }
