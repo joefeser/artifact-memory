@@ -1,0 +1,31 @@
+{
+  "authority_boundary": "onboarding proof grants no execution, mutation, routing, disclosure, credential, spending, deployment, approval, or merge authority",
+  "existing_repo": {
+    "duplicate_pair_count": 0,
+    "history_import_state": "deferred-to-am-1",
+    "pair_count_after": 1,
+    "pair_count_before": 1
+  },
+  "fresh_repo": {
+    "bootstrap_receipt_valid": true,
+    "identity_state": "created-pending-commit",
+    "kickoff_pack_valid": true,
+    "project_id": "11111111-1111-4111-8111-111111111111"
+  },
+  "idempotency": {
+    "receipt_replayed": true,
+    "vault_byte_identical": true
+  },
+  "outcome": "passed",
+  "privacy": {
+    "full_access_label_body_count": 0,
+    "machine_path_match_count": 0
+  },
+  "receipt_id": "coordination-onboarding-conformance-receipt://sha-256/f15a4d8ce892d29f9021b3dfbc4551bd2ee9956df0587e46f5181844cbfd37cc",
+  "schema_id": "artifact-memory/coordination-onboarding-conformance-receipt/v0",
+  "unonboarded_precondition": {
+    "append_code": "coordination-onboarding-required",
+    "names_onboard_fix": true,
+    "sync_code": "coordination-onboarding-required"
+  }
+}

@@ -9,10 +9,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import artifact_memory.repo_identity as repo_identity_module
 from artifact_memory.coordination import revision_digest
 from artifact_memory.repo_identity import (
     _is_link_or_reparse,
+    create_repo_identity_manifest,
     load_repo_identity,
+    load_repo_identity_candidate,
     load_repo_identity_registry,
     validate_repo_bound_coordination_records,
 )
@@ -71,6 +74,92 @@ class RepoIdentityTests(unittest.TestCase):
         self.assertEqual(
             identity["uuid"], "6f2d78a4-c0e5-4fa2-a9ce-2c4f760c5a31"
         )
+
+    def test_manifest_creation_is_no_overwrite_and_commit_separate(self):
+        candidate = {
+            "uuid": "11111111-1111-4111-8111-111111111111",
+            "humanName": "synthetic",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve() / "repository"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            self.assertEqual(create_repo_identity_manifest(root, candidate), "created")
+            self.assertEqual(load_repo_identity_candidate(root), candidate)
+            with self.assertRaises(ValidationFailure) as uncommitted:
+                load_repo_identity(root)
+            self.assertEqual(uncommitted.exception.code, "repo-identity-uncommitted")
+            self.assertEqual(create_repo_identity_manifest(root, candidate), "existing")
+            with self.assertRaises(ValidationFailure) as collision:
+                create_repo_identity_manifest(
+                    root,
+                    {**candidate, "uuid": "22222222-2222-4222-8222-222222222222"},
+                )
+            self.assertEqual(collision.exception.code, "repo-identity-collision")
+
+    def test_manifest_creation_portable_fallback_fails_without_writing(self):
+        candidate = {
+            "uuid": "11111111-1111-4111-8111-111111111111",
+            "humanName": "synthetic",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve() / "repository"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            with mock.patch.object(os, "supports_dir_fd", set()):
+                with self.assertRaises(ValidationFailure) as caught:
+                    create_repo_identity_manifest(root, candidate)
+            self.assertEqual(
+                caught.exception.code, "repo-identity-create-unsupported"
+            )
+            self.assertFalse((root / ".agent-memory").exists())
+
+    def test_manifest_creation_rejects_repository_replacement_after_verification(self):
+        candidate = {
+            "uuid": "11111111-1111-4111-8111-111111111111",
+            "humanName": "synthetic",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            root = base / "repository"
+            displaced = base / "verified-repository"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            original_create = (
+                repo_identity_module._create_manifest_with_directory_descriptors
+            )
+
+            def replace_then_create(absolute_root, data, verified_root_chain):
+                absolute_root.rename(displaced)
+                absolute_root.mkdir()
+                subprocess.run(["git", "init", "-q"], cwd=absolute_root, check=True)
+                return original_create(absolute_root, data, verified_root_chain)
+
+            with (
+                mock.patch.object(
+                    repo_identity_module,
+                    "_create_manifest_with_directory_descriptors",
+                    side_effect=replace_then_create,
+                ),
+                self.assertRaises(ValidationFailure) as caught,
+            ):
+                create_repo_identity_manifest(root, candidate)
+            self.assertEqual(caught.exception.code, "repo-identity-unsafe")
+            self.assertFalse((root / ".agent-memory").exists())
+            self.assertFalse((displaced / ".agent-memory").exists())
+
+    def test_manifest_creation_rejects_bare_repository(self):
+        candidate = {
+            "uuid": "11111111-1111-4111-8111-111111111111",
+            "humanName": "synthetic",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve() / "repository.git"
+            subprocess.run(["git", "init", "--bare", "-q", root], check=True)
+            with self.assertRaises(ValidationFailure) as caught:
+                create_repo_identity_manifest(root, candidate)
+            self.assertEqual(caught.exception.code, "repo-identity-not-repository")
+            self.assertFalse((root / ".agent-memory").exists())
 
     def test_same_human_name_with_different_uuids_is_unambiguous(self):
         with tempfile.TemporaryDirectory() as temporary:

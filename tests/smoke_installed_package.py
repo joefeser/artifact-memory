@@ -104,7 +104,28 @@ def main() -> None:
                 "'artifact-memory/release-candidate-verification-receipt/v3'; "
                 "assert load_schema('core', 'private-vault-onboarding-slice-receipt.v1.schema.json')"
                 "['properties']['schema_id']['const'] == "
-                "'artifact-memory/private-vault-onboarding-slice-receipt/v1'",
+                "'artifact-memory/private-vault-onboarding-slice-receipt/v1'; "
+                "assert load_schema('core', 'coordination-onboarding-bootstrap-receipt.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/coordination-onboarding-bootstrap-receipt/v0'; "
+                "assert load_schema('core', 'coordination-onboarding-kickoff-pack.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/coordination-onboarding-kickoff-pack/v0'; "
+                "assert load_schema('core', 'coordination-onboarding-conformance-receipt.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/coordination-onboarding-conformance-receipt/v0'; "
+                "assert load_schema('coordination', 'project-link.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/local-coordination-project-link/v0'; "
+                "assert load_schema('coordination', 'onboarding-publication.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/local-coordination-onboarding-publication/v0'; "
+                "assert load_schema('coordination', 'onboarding-attempt.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/local-coordination-onboarding-attempt/v0'; "
+                "assert load_schema('coordination', 'onboarding-sync-checkpoint.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/local-coordination-onboarding-sync-checkpoint/v0'",
             ],
             cwd=root,
             text=True,

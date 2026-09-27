@@ -109,6 +109,7 @@ are needed; `inspect` does not validate record semantics.
 - [Repository adoption prompts](docs/onboarding/repository-adoption.md)
 - [Private project-vault onboarding](docs/onboarding/private-project-vault.md)
 - [Local coordination sync proof](docs/onboarding/local-coordination-sync-proof.md)
+- [Coordination project onboarding](docs/onboarding/coordination-project-onboarding.md)
 - [Decision log](docs/decisions/README.md)
 - [Extension and adapter boundary](adapters/README.md)
 - [Schema work area](artifact_memory/schemas/README.md)

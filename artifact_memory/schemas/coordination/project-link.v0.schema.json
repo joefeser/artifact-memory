@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/coordination/project-link/v0",
+  "title": "Artifact Memory local coordination project link v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "project_id",
+    "project_name",
+    "hub_id",
+    "access_label_ref",
+    "authority_boundary"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/local-coordination-project-link/v0"},
+    "project_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "project_name": {"type": "string", "minLength": 1},
+    "hub_id": {"type": "string", "pattern": "^coordination-hub://\\S+$"},
+    "access_label_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_id", "revision_digest"],
+      "properties": {
+        "record_id": {
+          "type": "string",
+          "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/label/[^/]+$"
+        },
+        "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+      }
+    },
+    "authority_boundary": {
+      "const": "onboarding artifacts are informational only and grant no execution, mutation, routing, disclosure, credential, spending, deployment, approval, or merge authority"
+    }
+  }
+}

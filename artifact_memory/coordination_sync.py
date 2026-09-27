@@ -17,7 +17,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from .canonical import (
     CanonicalizationFailure,
@@ -725,6 +725,65 @@ def _binding(
     return config, matches[0]["access_label"], matches[0]["principal_id"]
 
 
+def _project_registration(
+    config: dict[str, Any],
+    label: dict[str, Any],
+    *,
+    project_id: str | None,
+) -> dict[str, Any]:
+    names: dict[str, str] = {}
+    for item in label["projectNames"]:
+        if item["projectId"] in names:
+            raise SyncFailure(
+                "onboard-project-provenance-ambiguous",
+                "the server-bound AccessLabel repeats a project UUID in display provenance",
+            )
+        names[item["projectId"]] = item["projectName"]
+    denied = set(label["mayNot"]["readProjects"])
+    readable = sorted(
+        project
+        for project in label["may"]["readProjects"]
+        if project in names and project not in denied
+    )
+    if project_id is not None and project_id not in readable:
+        raise SyncFailure(
+            "onboard-project-not-authorized",
+            "the authenticated hub binding does not grant read access to the requested onboarding project",
+        )
+    selected = readable if project_id is None else [project_id]
+    return {
+        "hub_id": config["hub_id"],
+        "scope_generation": config["scope_generation"],
+        "access_label_ref": _pair(label),
+        "projects": [
+            {"project_id": item, "project_name": names[item]}
+            for item in selected
+        ],
+    }
+
+
+def describe_local_hub_registration(
+    hub: Path,
+    *,
+    session_id: str,
+    project_id: str | None = None,
+    wait_for_principal: bool = False,
+) -> dict[str, Any]:
+    """Return only project identities the authenticated binding may read.
+
+    The full AccessLabel remains hub-side policy state. This description is
+    onboarding evidence, not a credential, grant, or administrative mutation.
+    """
+    with _bound_principal_lock(
+        hub, session_id, blocking=wait_for_principal
+    ) as (config, label, _principal_id):
+        return _project_registration(
+            config,
+            label,
+            project_id=project_id,
+        )
+
+
 def _walk_bounds(value: Any, depth: int = 0) -> None:
     if depth > MAX_NESTING_DEPTH:
         raise SyncFailure("sync-depth-limit", "sync record nesting exceeds the v0 limit")
@@ -765,6 +824,7 @@ def _advisory_lock(
     *,
     busy_code: str,
     busy_message: str,
+    blocking: bool = False,
 ) -> Iterator[None]:
     """Hold a crash-released OS lock; the persistent lock file is not state."""
     lock = (
@@ -792,11 +852,15 @@ def _advisory_lock(
                     os.write(descriptor, b"\0")
                     os.fsync(descriptor)
                 os.lseek(descriptor, 0, os.SEEK_SET)
-                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                mode = msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK
+                msvcrt.locking(descriptor, mode, 1)
             else:
                 import fcntl
 
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                operation = fcntl.LOCK_EX
+                if not blocking:
+                    operation |= fcntl.LOCK_NB
+                fcntl.flock(descriptor, operation)
             locked = True
         except (BlockingIOError, OSError) as exc:
             raise SyncFailure(busy_code, busy_message) from exc
@@ -819,37 +883,43 @@ def _advisory_lock(
 
 
 @contextmanager
-def _principal_lock(hub: Path, principal_id: str) -> Iterator[None]:
+def _principal_lock(
+    hub: Path, principal_id: str, *, blocking: bool = False
+) -> Iterator[None]:
     with _advisory_lock(
         hub,
         f"principal:{principal_id}",
         busy_code="sync-principal-busy",
         busy_message="one sync request is already in flight for this principal",
+        blocking=blocking,
     ):
         yield
 
 
 @contextmanager
-def _configuration_lock(hub: Path) -> Iterator[None]:
+def _configuration_lock(hub: Path, *, blocking: bool = False) -> Iterator[None]:
     with _advisory_lock(
         hub,
         "hub-configuration",
         busy_code="sync-config-busy",
         busy_message="hub configuration is being replaced or bound",
+        blocking=blocking,
     ):
         yield
 
 
 @contextmanager
 def _bound_principal_lock(
-    hub: Path, session_id: str
+    hub: Path, session_id: str, *, blocking: bool = False
 ) -> Iterator[tuple[dict[str, Any], dict[str, Any], str]]:
     """Bind a session atomically with acquiring its stable principal lock."""
     principal_guard = ExitStack()
     try:
-        with _configuration_lock(hub):
+        with _configuration_lock(hub, blocking=blocking):
             config, label, principal_id = _binding(hub, session_id)
-            principal_guard.enter_context(_principal_lock(hub, principal_id))
+            principal_guard.enter_context(
+                _principal_lock(hub, principal_id, blocking=blocking)
+            )
             rebound = _binding(hub, session_id)
             if rebound != (config, label, principal_id):
                 raise SyncFailure(
@@ -885,6 +955,19 @@ def _projection_apply_lock(vault: Path) -> Iterator[None]:
         "projection-apply",
         busy_code="sync-local-apply-busy",
         busy_message="one pull response is already being applied to this vault",
+    ):
+        yield
+
+
+@contextmanager
+def coordination_onboarding_lock(vault: Path, project_id: str) -> Iterator[None]:
+    """Serialize one project's idempotent bootstrap publication."""
+    with _advisory_lock(
+        vault,
+        f"coordination-onboarding:{project_id}",
+        busy_code="onboard-project-busy",
+        busy_message="project onboarding is already in progress",
+        blocking=True,
     ):
         yield
 
@@ -1868,6 +1951,8 @@ def _apply_verified_pull(
     receipt: dict[str, Any],
     pairs: list[dict[str, str]],
     by_pair: dict[tuple[str, str], dict[str, Any]],
+    *,
+    force_receipt: bool = False,
 ) -> dict[str, Any]:
     marker_path = vault / "generated" / "coordination-sync" / "last-successful.json"
     if marker_path.exists():
@@ -1917,6 +2002,7 @@ def _apply_verified_pull(
             == receipt["authorized_membership"]
             and prior_receipt["excluded_count"] == receipt["excluded_count"]
             and not receipt["submission_outcomes"]
+            and not force_receipt
         ):
             # A no-op is valid only if the local authorized material still
             # matches the previously verified marker and projection.
@@ -1953,8 +2039,13 @@ def _apply_verified_pull(
     return {"outcome": "complete", "receipt": receipt, "authorized_pairs": pairs}
 
 
-def apply_pull_response(vault: Path, response: dict[str, Any]) -> dict[str, Any]:
-    """Verify a complete pull before appending records and advancing the marker."""
+def _validated_pull_response(
+    response: dict[str, Any],
+) -> tuple[
+    dict[str, Any],
+    list[dict[str, str]],
+    dict[tuple[str, str], dict[str, Any]],
+]:
     if not isinstance(response, dict) or set(response) != {
         "receipt",
         "pages",
@@ -2002,8 +2093,27 @@ def apply_pull_response(vault: Path, response: dict[str, Any]) -> dict[str, Any]
             )
     if set(by_pair) != {_pair_key(item) for item in pairs}:
         raise SyncFailure("sync-record-set-mismatch", "pull records do not match authorized membership")
+    return receipt, pairs, by_pair
+
+
+def apply_pull_response(
+    vault: Path,
+    response: dict[str, Any],
+    *,
+    _before_apply: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Verify a complete pull before appending records and advancing the marker."""
+    receipt, pairs, by_pair = _validated_pull_response(response)
+    if _before_apply is not None:
+        _before_apply(deepcopy(response))
     with _projection_apply_lock(vault):
-        return _apply_verified_pull(vault, receipt, pairs, by_pair)
+        return _apply_verified_pull(
+            vault,
+            receipt,
+            pairs,
+            by_pair,
+            force_receipt=_before_apply is not None,
+        )
 
 
 def _pull_bound(
@@ -2014,6 +2124,7 @@ def _pull_bound(
     label: dict[str, Any],
     principal_id: str,
     completed_at: str,
+    before_apply: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Pull and consume pending evidence under one principal lock."""
     pending = _load_pending_outcomes(
@@ -2031,7 +2142,11 @@ def _pull_bound(
         completed_at=completed_at,
         submission_outcomes=pending.outcomes,
     )
-    result = apply_pull_response(vault, response)
+    result = apply_pull_response(
+        vault,
+        response,
+        _before_apply=before_apply,
+    )
     _consume_pending_outcomes(vault, pending)
     return result
 
@@ -2061,12 +2176,42 @@ def sync(
     session_id: str,
     completed_at: str,
     phase: str = "both",
+    required_project_id: str | None = None,
+    expected_hub_id: str | None = None,
+    expected_access_label_ref: dict[str, str] | None = None,
+    _before_sync: Callable[[], None] | None = None,
+    _before_pull_apply: Callable[[dict[str, Any]], None] | None = None,
+    _resume_pending: bool = False,
 ) -> dict[str, Any]:
     if phase not in {"push", "pull", "both"}:
         raise SyncFailure("sync-phase-invalid", "sync phase must be push, pull, or both")
     result: dict[str, Any] = {"outcome": "complete", "phase": phase}
     with _bound_principal_lock(hub, session_id) as (config, label, principal_id):
-        if phase in {"push", "both"}:
+        if required_project_id is not None:
+            result["project_registration"] = _project_registration(
+                config,
+                label,
+                project_id=required_project_id,
+            )
+        if expected_hub_id is not None and config["hub_id"] != expected_hub_id:
+            raise SyncFailure(
+                "onboard-hub-mismatch",
+                "repo-bound sync selected a different logical hub than its onboarding link",
+            )
+        if (
+            expected_access_label_ref is not None
+            and _pair(label) != expected_access_label_ref
+        ):
+            raise SyncFailure(
+                "onboard-label-mismatch",
+                "repo-bound sync selected a different AccessLabel revision than its onboarding link",
+            )
+        if _before_sync is not None:
+            _before_sync()
+        pending_path = _pending_outcomes_path(vault)
+        pending_exists = pending_path.exists() or pending_path.is_symlink()
+        resume_pending = _resume_pending and phase == "both" and pending_exists
+        if phase in {"push", "both"} and not resume_pending:
             result["submission_outcomes"] = _push_bound(
                 vault,
                 hub,
@@ -2082,10 +2227,116 @@ def sync(
                 label=label,
                 principal_id=principal_id,
                 completed_at=completed_at,
+                before_apply=_before_pull_apply,
             )
             result.update(pulled)
             result["phase"] = phase
+            if "submission_outcomes" not in result:
+                result["submission_outcomes"] = deepcopy(
+                    pulled["receipt"]["submission_outcomes"]
+                )
     return result
+
+
+def recover_matching_sync_result(
+    vault: Path,
+    hub: Path,
+    *,
+    session_id: str,
+    response: dict[str, Any],
+    completed_at: str,
+    required_project_id: str,
+    expected_hub_id: str,
+    expected_access_label_ref: dict[str, str],
+) -> dict[str, Any]:
+    """Recover one attempt-specific immutable pull and reconcile its outcome."""
+    with _bound_principal_lock(
+        hub, session_id, blocking=True
+    ) as (config, label, principal_id):
+        registration = _project_registration(
+            config,
+            label,
+            project_id=required_project_id,
+        )
+        if config["hub_id"] != expected_hub_id:
+            raise SyncFailure(
+                "onboard-hub-mismatch",
+                "repo-bound sync selected a different logical hub than its onboarding link",
+            )
+        if _pair(label) != expected_access_label_ref:
+            raise SyncFailure(
+                "onboard-label-mismatch",
+                "repo-bound sync selected a different AccessLabel revision than its onboarding link",
+            )
+        receipt, pairs, by_pair = _validated_pull_response(response)
+        if (
+            receipt["hub_id"] != config["hub_id"]
+            or receipt["principal_id"] != principal_id
+            or receipt["access_label_ref"] != _pair(label)
+            or receipt["scope_generation"] != config["scope_generation"]
+            or receipt["completed_at"] != completed_at
+        ):
+            raise SyncFailure(
+                "onboard-sync-checkpoint-mismatch",
+                "retained onboarding sync evidence does not match the current authenticated binding",
+            )
+        marker_path = (
+            vault / "generated" / "coordination-sync" / "last-successful.json"
+        )
+        with _projection_apply_lock(vault):
+            if marker_path.is_symlink():
+                raise SyncFailure(
+                    "sync-storage-unsafe",
+                    "successful sync marker is a symlink",
+                )
+            if marker_path.exists():
+                _, current_receipt, _ = _load_current_projection(vault)
+                if (
+                    current_receipt["hub_id"] != config["hub_id"]
+                    or current_receipt["principal_id"] != principal_id
+                ):
+                    raise SyncFailure(
+                        "sync-binding-mismatch",
+                        "current sync projection belongs to another authenticated binding",
+                    )
+                current_time = _parse_receipt_time(current_receipt["completed_at"])
+                checkpoint_time = _parse_receipt_time(receipt["completed_at"])
+                if (
+                    current_time == checkpoint_time
+                    and current_receipt["receipt_id"] != receipt["receipt_id"]
+                ):
+                    raise SyncFailure(
+                        "sync-receipt-order-conflict",
+                        "distinct pull responses cannot share a completion time",
+                    )
+                if current_time < checkpoint_time:
+                    _apply_verified_pull(vault, receipt, pairs, by_pair)
+            else:
+                _apply_verified_pull(vault, receipt, pairs, by_pair)
+
+        pending = _load_pending_outcomes(
+            vault,
+            hub=hub,
+            config=config,
+            label=label,
+            principal_id=principal_id,
+        )
+        if (
+            pending.source_digest is not None
+            and pending.outcomes == receipt["submission_outcomes"]
+        ):
+            _consume_pending_outcomes(vault, pending)
+        return {
+            "outcome": "recovered",
+            "phase": "both",
+            "project_registration": registration,
+            "submission_outcomes": deepcopy(receipt["submission_outcomes"]),
+            "receipt": receipt,
+            "authorized_pairs": pairs,
+            "authorized_records": [
+                by_pair[_pair_key(pair)] for pair in pairs
+            ],
+        }
 
 
 def load_authorized_projection(vault: Path) -> list[dict[str, Any]]:
@@ -2140,3 +2391,8 @@ def directory_digest(root: Path) -> str:
                 }
             )
     return sha256_bytes(canonical_bytes(entries))
+
+
+def coordination_pair_count(root: Path) -> int:
+    """Count validated immutable coordination pairs in one storage root."""
+    return len(_scan_records(root))

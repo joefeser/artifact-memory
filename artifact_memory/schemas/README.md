@@ -77,6 +77,19 @@ The UUID is authoritative; `humanName` is display-only provenance. The checked
 AM-8 receipt proves same-name coexistence, typed unknown-UUID rejection, and
 record-digest stability across a display-name rename.
 
+`coordination/project-link.v0.schema.json`,
+`coordination/onboarding-attempt.v0.schema.json`,
+`coordination/onboarding-sync-checkpoint.v0.schema.json`,
+`coordination/onboarding-publication.v0.schema.json`,
+`coordination-onboarding-kickoff-pack.v0.schema.json`,
+`coordination-onboarding-bootstrap-receipt.v0.schema.json`, and
+`coordination-onboarding-conformance-receipt.v0.schema.json` define AM-9's
+local project link, pre-sync attempt evidence, exact sync-response checkpoint,
+recoverable immutable publication transaction, minimal informational bootstrap
+view, digest-bound receipt, and checked synthetic proof. Full AccessLabel
+bodies remain hub-side; history import remains AM-1 and queue/command rendering
+remains AM-5.
+
 `release-manifest.v2.schema.json`, `release-manifest.v3.schema.json`, the three
 versions of `release-candidate-preparation-receipt`, and the three versions of
 `release-candidate-verification-receipt` separate deterministic asset
