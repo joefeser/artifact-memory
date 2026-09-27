@@ -1372,6 +1372,83 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertNotIn(task_b["record_id"], json.dumps(exported))
             self.assertEqual(len(list((hub / "policy" / "labels").glob("*/*.json"))), 2)
 
+    def test_context_export_serializes_with_scope_narrowing_apply(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            broad = label_for([PROJECT_A, PROJECT_B])
+            configure(hub, broad, generation=1)
+            task_a = task_for(broad)
+            task_b = task_for(broad, other_origin=True, project_id=PROJECT_B)
+            store_coordination_record(hub, task_a)
+            store_coordination_record(hub, task_b)
+            pull(
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T20:00:00Z",
+            )
+
+            narrow = label_for([PROJECT_A])
+            configure(hub, narrow, generation=2)
+            narrowed_response = build_pull_response(
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-25T21:00:00Z",
+            )
+            entered = threading.Event()
+            release = threading.Event()
+            context_packs: list[dict] = []
+            thread_error: list[BaseException] = []
+            module = __import__(
+                "artifact_memory.coordination_sync",
+                fromlist=["_load_current_projection"],
+            )
+            original = module._load_current_projection
+
+            def blocked_load(*args, **kwargs):
+                entered.set()
+                if not release.wait(timeout=5):
+                    raise AssertionError("synthetic snapshot barrier timed out")
+                return original(*args, **kwargs)
+
+            def export_context() -> None:
+                try:
+                    context_packs.append(export_authorized_coordination_context(vault))
+                except BaseException as exc:  # pragma: no cover - asserted below
+                    thread_error.append(exc)
+
+            with patch(
+                "artifact_memory.coordination_sync._load_current_projection",
+                side_effect=blocked_load,
+            ):
+                worker = threading.Thread(target=export_context)
+                worker.start()
+                self.assertTrue(entered.wait(timeout=5))
+                with self.assertRaises(SyncFailure) as busy:
+                    apply_pull_response(vault, narrowed_response)
+                self.assertEqual(busy.exception.code, "sync-local-apply-busy")
+                release.set()
+                worker.join(timeout=5)
+                self.assertFalse(worker.is_alive())
+
+            self.assertEqual(thread_error, [])
+            self.assertEqual(len(context_packs), 1)
+            self.assertEqual(context_packs[0]["record_count"], 2)
+            self.assertEqual(
+                context_packs[0]["sync_observation"]["scope_generation"],
+                1,
+            )
+            self.assertIn(task_b["record_id"], json.dumps(context_packs[0]))
+
+            applied = apply_pull_response(vault, narrowed_response)
+            self.assertEqual(applied["outcome"], "complete")
+            current = export_authorized_coordination_context(vault)
+            self.assertEqual(current["record_count"], 1)
+            self.assertEqual(current["sync_observation"]["scope_generation"], 2)
+            self.assertEqual(current["records"][0]["record_id"], task_a["record_id"])
+            self.assertNotIn(task_b["record_id"], json.dumps(current))
+
     def test_same_generation_label_revision_rebuilds_projection(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

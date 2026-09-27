@@ -75,3 +75,6 @@ to bind a committed repository UUID to an externally administered AccessLabel
 without storing the full label or claiming operational authority. Then use the
 [bounded coordination kickoff guide](onboarding/coordination-kickoff.md) to
 render the latest admitted open task as escaped, informational-only context.
+Use the [scoped coordination context export](onboarding/coordination-access-scope.md)
+when an agent needs the complete latest authorized projection rather than one
+selected kickoff task.

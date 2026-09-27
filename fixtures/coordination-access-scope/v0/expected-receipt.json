@@ -1,0 +1,38 @@
+{
+  "authority_boundary": "access-scope conformance evidence is informational only and grants no execution, mutation, routing, disclosure, credential, spending, deployment, approval, or merge authority",
+  "context_pack": {
+    "denied_identity_present": false,
+    "excluded_count": 3,
+    "full_access_label_body_count": 0,
+    "record_count": 1,
+    "schema_id": "artifact-memory/coordination-context-pack/v0",
+    "trusted_policy_receipt_bound": true
+  },
+  "negative_codes": {
+    "duplicate_label": "constraint-failed",
+    "invalid_bound_label_sync": "hub-config-invalid",
+    "invalid_label_context": "coordination-context-record-invalid",
+    "label_body_context": "coordination-context-label-body-forbidden",
+    "missing_policy_context": "sync-marker-missing",
+    "overlapping_label": "access-label-read-overlap"
+  },
+  "outcome": "passed",
+  "receipt_id": "coordination-access-scope-conformance-receipt://sha-256/c8d9538c6273ee8433f364cf909fde9a3df8185ef8918a88a9225916523ac782",
+  "restricted_sync": {
+    "authorized_record_count": 1,
+    "denied_identity_present": false,
+    "excluded_count": 3,
+    "full_access_label_body_count": 0
+  },
+  "schema_id": "artifact-memory/coordination-access-scope-conformance-receipt/v0",
+  "scope_narrowing": {
+    "canonical_history_retained": true,
+    "canonical_record_count": 2,
+    "current_authorized_count": 1,
+    "current_generation": 2,
+    "erasure_claimed": false,
+    "prior_authorized_count": 2,
+    "prior_generation": 1,
+    "suppressed_record_count": 1
+  }
+}

@@ -2271,7 +2271,7 @@ def _apply_verified_pull(
         ):
             # A no-op is valid only if the local authorized material still
             # matches the previously verified marker and projection.
-            load_authorized_projection(vault)
+            _load_authorized_coordination_snapshot_unlocked(vault)
             return {
                 "outcome": "no-op",
                 "receipt": prior_receipt,
@@ -2604,8 +2604,8 @@ def recover_matching_sync_result(
         }
 
 
-def load_authorized_coordination_snapshot(vault: Path) -> dict[str, Any]:
-    """Load the verified receipt, membership, and exact authorized records."""
+def _load_authorized_coordination_snapshot_unlocked(vault: Path) -> dict[str, Any]:
+    """Load one snapshot while the caller owns the projection apply lock."""
     _validate_storage_root(vault, create=False)
     _, receipt, pairs = _load_current_projection(vault)
     records: list[dict[str, Any]] = []
@@ -2640,6 +2640,22 @@ def load_authorized_coordination_snapshot(vault: Path) -> dict[str, Any]:
     }
 
 
+@contextmanager
+def authorized_coordination_snapshot(
+    vault: Path,
+) -> Iterator[dict[str, Any]]:
+    """Hold the projection lock while one verified snapshot is consumed."""
+    _validate_storage_root(vault, create=False)
+    with _projection_apply_lock(vault):
+        yield _load_authorized_coordination_snapshot_unlocked(vault)
+
+
+def load_authorized_coordination_snapshot(vault: Path) -> dict[str, Any]:
+    """Load one coherent verified authorization snapshot."""
+    with authorized_coordination_snapshot(vault) as snapshot:
+        return snapshot
+
+
 def load_authorized_projection(vault: Path) -> list[dict[str, Any]]:
     """Load only the verified generated authorization view for context consumers."""
     return load_authorized_coordination_snapshot(vault)["records"]
@@ -2671,16 +2687,10 @@ def load_local_coordination_records(vault: Path) -> list[dict[str, Any]]:
 
 
 def export_authorized_coordination_context(vault: Path) -> dict[str, Any]:
-    """Generated informational view; AM-5 owns rendered kickoff-pack behavior."""
-    records = load_authorized_projection(vault)
-    return {
-        "records": records,
-        "record_count": len(records),
-        "authority_boundary": (
-            "informational only; no execution, mutation, routing, disclosure, "
-            "credential, spending, deployment, approval, or merge authority"
-        ),
-    }
+    """Compatibility wrapper for the strict AM-7 coordination context pack."""
+    from .coordination_context import build_coordination_context_pack
+
+    return build_coordination_context_pack(vault)
 
 
 def directory_digest(root: Path) -> str:

@@ -111,6 +111,7 @@ are needed; `inspect` does not validate record semantics.
 - [Local coordination sync proof](docs/onboarding/local-coordination-sync-proof.md)
 - [Coordination project onboarding](docs/onboarding/coordination-project-onboarding.md)
 - [Bounded coordination kickoff context](docs/onboarding/coordination-kickoff.md)
+- [Scoped coordination context export](docs/onboarding/coordination-access-scope.md)
 - [Private session-ledger import](docs/onboarding/session-ledger-import.md)
 - [Decision log](docs/decisions/README.md)
 - [Extension and adapter boundary](adapters/README.md)
