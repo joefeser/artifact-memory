@@ -1,0 +1,17 @@
+{
+  "authority_boundary": "session-ledger imports are informational draft records and grant no execution, mutation, routing, disclosure, credential, spending, deployment, approval, or merge authority",
+  "dated_entry_count": 2,
+  "dry_run_created_vault": false,
+  "dry_run_mapping_count": 2,
+  "initial_created_count": 2,
+  "outcome": "passed",
+  "provenance_source_ref": "session-ledger",
+  "raw_source_copied": false,
+  "receipt_id": "session-ledger-import-conformance-receipt://sha-256/dacd343883f10133539f2e33f95a1bc1fb350ba63f08e9eb67017654fc6e5760",
+  "replay_created_count": 0,
+  "replay_existing_count": 2,
+  "schema_id": "artifact-memory/session-ledger-import-conformance-receipt/v0",
+  "source_text_disclosed": false,
+  "source_unchanged": true,
+  "validated_record_count": 2
+}
