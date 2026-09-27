@@ -247,6 +247,11 @@ def _validate_storage_root(
 ) -> None:
     """Reject an unsafe root and, when requested, every linked ancestor."""
     if reject_linked_ancestors:
+        if ".." in boundary.parts:
+            raise SyncFailure(
+                "sync-storage-unsafe",
+                "sync storage root must not contain parent-directory traversal",
+            )
         absolute = Path(os.path.abspath(os.fspath(boundary)))
         anchor = Path(absolute.anchor)
         current_component = anchor

@@ -45,8 +45,9 @@ API keys, client secrets, access or refresh tokens, and secret access keys.
 Provider-qualified names such as `AZURE_CLIENT_SECRET`, GitHub token assignment
 names, private-key assignments such as `SSH_PRIVATE_KEY`, and recognized GitHub
 and Slack token names and prefixes are rejected as credential-like material as
-well. The selected vault and every existing ancestor must be real directories
-rather than links or reparse points.
+well. Generic token or secret assignment names also fail closed. The selected
+vault must not contain parent-directory traversal, and it and every existing
+ancestor must be real directories rather than links or reparse points.
 Before publishing any record, the importer preflights the complete batch under
 a vault-local lock; a collision in a later entry therefore cannot publish an
 earlier entry. Imported records remain informational and require separate owner

@@ -71,6 +71,8 @@ _CREDENTIAL_NAMES = "|".join(
         "slack" + _NAME_GAP + "bot" + _NAME_GAP + "token",
         "aws" + _NAME_GAP + "secret" + _NAME_GAP + "access" + _NAME_GAP + "key",
         "secret" + _NAME_GAP + "access" + _NAME_GAP + "key",
+        "token",
+        "secret",
     )
 )
 _SENSITIVE_TOKEN = re.compile(
@@ -358,6 +360,8 @@ def exercise_session_ledger_fixture(fixture: Path) -> dict[str, Any]:
             "github" + "_token" + "=" + synthetic_value,
             "slack" + "_bot_token" + "=" + synthetic_value,
             "session=" + "xox" + "b-syntheticvalue1234",
+            "npm" + "_token" + "=" + synthetic_value,
+            "secret" + "=" + synthetic_value,
             "session=" + "g" + "hs_" + "syntheticvalue1234",
         )
         sensitive_rejections = 0

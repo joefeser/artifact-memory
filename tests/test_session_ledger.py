@@ -110,6 +110,10 @@ class SessionLedgerTests(unittest.TestCase):
                 "slack" + "_app_token" + "=" + synthetic_value,
                 "session=" + "xox" + "b-syntheticvalue1234",
                 "session=" + "xapp" + "-syntheticvalue1234",
+                "token" + "=" + synthetic_value,
+                "npm" + "_token" + "=" + synthetic_value,
+                "secret" + "=" + synthetic_value,
+                "service" + "_secret" + "=" + synthetic_value,
                 "session=" + "g" + "hs_" + "syntheticvalue1234",
             )
             for index, fragment in enumerate(cases):
@@ -133,7 +137,7 @@ class SessionLedgerTests(unittest.TestCase):
             root = Path(temporary).resolve()
             source = root / "ordinary.md"
             source.write_text(
-                "2026-09-27 Reviewed passwordless client-secret, private-key, and Slack bot-token rotation.\n",
+                "2026-09-27 Reviewed passwordless client-secret, private-key, Slack bot-token, and secret rotation; secretary=synthetic tokenizer=synthetic.\n",
                 encoding="utf-8",
             )
             result = import_session_ledger(source, root / "vault", dry_run=True)
@@ -259,6 +263,30 @@ class SessionLedgerTests(unittest.TestCase):
                     self.assertEqual(caught.exception.code, "sync-storage-unsafe")
                     self.assertFalse((vault / "records").exists())
 
+    @unittest.skipIf(os.name == "nt", "POSIX symlink traversal proof")
+    def test_parent_segments_cannot_escape_through_linked_ancestor(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            inside = root / "inside"
+            outside_child = root / "outside" / "child"
+            inside.mkdir()
+            outside_child.mkdir(parents=True)
+            (inside / "link").symlink_to(outside_child, target_is_directory=True)
+            apparent_vault = inside / "link" / ".." / "vault"
+            redirected_vault = outside_child.parent / "vault"
+            for dry_run in (True, False):
+                with self.subTest(dry_run=dry_run), self.assertRaises(
+                    ValidationFailure
+                ) as caught:
+                    import_session_ledger(
+                        FIXTURE / "synthetic-done-log.md",
+                        apparent_vault,
+                        dry_run=dry_run,
+                    )
+                self.assertEqual(caught.exception.code, "sync-storage-unsafe")
+                self.assertFalse((redirected_vault / "locks").exists())
+                self.assertFalse((redirected_vault / "records").exists())
+
     @unittest.skipUnless(os.name == "nt", "Windows junction proof runs on Windows")
     def test_windows_junction_vault_and_ancestor_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -275,7 +303,11 @@ class SessionLedgerTests(unittest.TestCase):
             )
             self.assertEqual(linked.returncode, 0, linked.stderr or linked.stdout)
             (target / "existing-vault").mkdir()
-            for vault in (junction, junction / "existing-vault"):
+            for vault in (
+                junction,
+                junction / "existing-vault",
+                junction / ".." / "escaped-vault",
+            ):
                 completed = subprocess.run(
                     [
                         sys.executable,
@@ -299,6 +331,8 @@ class SessionLedgerTests(unittest.TestCase):
                     )
             self.assertFalse((target / "records").exists())
             self.assertFalse((target / "existing-vault" / "records").exists())
+            self.assertFalse((root / "escaped-vault" / "locks").exists())
+            self.assertFalse((root / "escaped-vault" / "records").exists())
 
     def test_conformance_script_passes(self):
         completed = subprocess.run(
