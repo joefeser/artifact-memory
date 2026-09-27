@@ -1257,6 +1257,69 @@ def require_repo_onboarding(repo_root: Path, vault: Path) -> dict[str, Any]:
     return link
 
 
+def load_onboarded_project(
+    vault: Path, project_selector: str
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Resolve one complete onboarding state by UUID or unambiguous display name."""
+    _validate_storage_root(vault, create=False)
+    root = vault / "config" / "coordination" / "projects"
+    if root.is_symlink() or not root.is_dir():
+        raise ValidationFailure(
+            "coordination-onboarding-required",
+            "run artifact-memory onboard before generating a kickoff pack",
+        )
+    paths = sorted(root.iterdir())
+    if any(
+        path.is_symlink() or not path.is_file() or path.suffix != ".json"
+        for path in paths
+    ):
+        raise ValidationFailure(
+            "onboard-state-unsafe",
+            "coordination project-link storage is unsafe",
+        )
+    id_matches: list[dict[str, Any]] = []
+    name_matches: list[dict[str, Any]] = []
+    for path in paths:
+        link = _load_vault_object(
+            vault,
+            path,
+            _PROJECT_LINK_SCHEMA,
+            missing_code="coordination-onboarding-required",
+        )
+        if path.name != f"{link['project_id']}.json":
+            raise ValidationFailure(
+                "onboard-state-conflict",
+                "coordination project-link filename does not match its project UUID",
+            )
+        if project_selector == link["project_id"]:
+            id_matches.append(link)
+        if project_selector == link["project_name"]:
+            name_matches.append(link)
+    matches = id_matches or name_matches
+    if not matches:
+        raise ValidationFailure(
+            "kickoff-project-unknown",
+            "requested project has no complete local onboarding state",
+        )
+    if len(matches) != 1:
+        raise ValidationFailure(
+            "kickoff-project-ambiguous",
+            "project display name is ambiguous; use the exact project UUID",
+        )
+    selected = matches[0]
+    identity = {
+        "uuid": selected["project_id"],
+        "humanName": selected["project_name"],
+    }
+    state = _load_existing_bootstrap(vault, identity)
+    if state is None:
+        raise ValidationFailure(
+            "coordination-onboarding-required",
+            "run artifact-memory onboard before generating a kickoff pack",
+        )
+    return state
+
+
 def validate_repo_bound_append(
     link: dict[str, Any], record: dict[str, Any]
 ) -> dict[str, Any]:

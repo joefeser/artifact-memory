@@ -88,7 +88,13 @@ local project link, pre-sync attempt evidence, exact sync-response checkpoint,
 recoverable immutable publication transaction, minimal informational bootstrap
 view, digest-bound receipt, and checked synthetic proof. Full AccessLabel
 bodies remain hub-side; history import remains AM-1 and queue/command rendering
-remains AM-5.
+is a separate AM-5 surface.
+
+`coordination-kickoff-pack.v0.schema.json` and
+`coordination-kickoff-conformance-receipt.v0.schema.json` define AM-5's bounded
+receipt-qualified queue summary and its checked synthetic proof. Queue text is
+untrusted data, the selected acceptance command is escaped and explicitly not
+executable, and no pack grants operational authority.
 
 `release-manifest.v2.schema.json`, `release-manifest.v3.schema.json`, the three
 versions of `release-candidate-preparation-receipt`, and the three versions of

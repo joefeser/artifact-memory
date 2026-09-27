@@ -303,6 +303,56 @@ def _validate_task_chains(
     return leaves
 
 
+def current_coordination_task_leaves(
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return strict unique TaskPacket leaves without claiming hub admission.
+
+    Callers must independently prove that every supplied revision is present in
+    the current authenticated authorized-membership projection.
+    """
+    tasks: list[dict[str, Any]] = []
+    pairs: dict[tuple[str, str], dict[str, Any]] = {}
+    claim_ids: dict[tuple[str, str], str] = {}
+    for index, candidate in enumerate(candidates):
+        try:
+            task, digest = validate_coordination_record_body(candidate)
+        except ValidationFailure as exc:
+            raise _with_record_path(exc, index) from exc
+        if task["schema_id"] != TASK_PACKET_SCHEMA_ID:
+            raise ValidationFailure(
+                "coordination-task-required",
+                "current-task selection accepts only TaskPacket revisions",
+                f"$.records[{index}].schema_id",
+            )
+        key = task["record_id"], digest
+        if key in pairs:
+            raise ValidationFailure(
+                "duplicate-record-revision",
+                "the same TaskPacket revision was supplied more than once",
+                f"$.records[{index}]",
+            )
+        if task["claims"]:
+            claim = task["claims"][0]
+            claim_key = task["originId"], claim["claimId"]
+            prior_record_id = claim_ids.get(claim_key)
+            if prior_record_id is not None and prior_record_id != task["record_id"]:
+                raise ValidationFailure(
+                    "coordination-claim-id-duplicate",
+                    "claimId must be unique within its origin namespace",
+                    f"$.records[{index}].claims[0].claimId",
+                )
+            claim_ids[claim_key] = task["record_id"]
+        pairs[key] = task
+        tasks.append(task)
+
+    leaves = _validate_task_chains(tasks, pairs)
+    return [
+        deepcopy(pairs[pair])
+        for pair in sorted(leaves.values())
+    ]
+
+
 def _resolve_label(
     reference: dict[str, str],
     pairs: dict[tuple[str, str], dict[str, Any]],

@@ -2339,12 +2339,12 @@ def recover_matching_sync_result(
         }
 
 
-def load_authorized_projection(vault: Path) -> list[dict[str, Any]]:
-    """Load only the verified generated authorization view for context consumers."""
+def load_authorized_coordination_snapshot(vault: Path) -> dict[str, Any]:
+    """Load the verified receipt, membership, and exact authorized records."""
     _validate_storage_root(vault, create=False)
     if not (vault / "generated" / "coordination-sync" / "last-successful.json").exists():
         raise SyncFailure("sync-marker-missing", "no successful authorized sync projection exists")
-    _, _, pairs = _load_current_projection(vault)
+    _, receipt, pairs = _load_current_projection(vault)
     records: list[dict[str, Any]] = []
     for pair in sorted_pairs(pairs):
         path = _record_path(vault, pair)
@@ -2363,6 +2363,40 @@ def load_authorized_projection(vault: Path) -> list[dict[str, Any]]:
         if _pair(materialized, digest) != pair:
             raise SyncFailure("sync-local-record-mismatch", "authorized local record has changed")
         records.append(materialized)
+    return {
+        "receipt": deepcopy(receipt),
+        "authorized_pairs": deepcopy(pairs),
+        "records": records,
+    }
+
+
+def load_authorized_projection(vault: Path) -> list[dict[str, Any]]:
+    """Load only the verified generated authorization view for context consumers."""
+    return load_authorized_coordination_snapshot(vault)["records"]
+
+
+def load_local_coordination_records(vault: Path) -> list[dict[str, Any]]:
+    """Load every exact local coordination pair without claiming admission."""
+    records: list[dict[str, Any]] = []
+    for stored in _scan_records(vault):
+        try:
+            materialized, digest = validate_coordination_record_body(stored.record)
+        except ValidationFailure as exc:
+            raise SyncFailure(
+                "sync-local-record-mismatch",
+                "local coordination record is invalid",
+            ) from exc
+        if digest != stored.record_ref["revision_digest"]:
+            raise SyncFailure(
+                "sync-local-record-mismatch",
+                "local coordination record digest does not match its path",
+            )
+        records.append(
+            {
+                "record_ref": deepcopy(stored.record_ref),
+                "record": materialized,
+            }
+        )
     return records
 
 

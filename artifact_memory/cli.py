@@ -22,6 +22,12 @@ from .context import (
     validate_context_pack,
 )
 from .coordination import validate_coordination_files
+from .coordination_kickoff import (
+    KICKOFF_PACK_SCHEMA_ID,
+    build_kickoff_pack,
+    render_kickoff_prompt,
+    validate_kickoff_pack,
+)
 from .coordination_onboarding import (
     BOOTSTRAP_PACK_SCHEMA_ID,
     BOOTSTRAP_RECEIPT_SCHEMA_ID,
@@ -158,6 +164,14 @@ def main(argv: list[str] | None = None) -> int:
     onboard.add_argument("--project-id")
     onboard.add_argument("--human-name")
     onboard.add_argument("--json", action="store_true", dest="as_json")
+    kickoff = subparsers.add_parser(
+        "kickoff",
+        help="emit bounded informational startup context from verified queue evidence",
+    )
+    kickoff.add_argument("--project", required=True)
+    kickoff.add_argument("--vault", required=True, type=Path)
+    kickoff.add_argument("--out", type=Path)
+    kickoff.add_argument("--json", action="store_true", dest="as_json")
     scan = subparsers.add_parser("scan")
     scan.add_argument("root", type=Path)
     scan.add_argument("--out", type=Path)
@@ -389,6 +403,41 @@ def main(argv: list[str] | None = None) -> int:
             )
             return EXIT_INVALID
         _receipt(result, args.as_json)
+        return EXIT_OK
+
+    if args.command == "kickoff":
+        try:
+            result = build_kickoff_pack(args.vault, args.project)
+            prompt = render_kickoff_prompt(result)
+            if args.out is not None:
+                args.out.mkdir(parents=True, exist_ok=True)
+                (args.out / "kickoff-pack.json").write_text(
+                    json.dumps(result, sort_keys=True, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                (args.out / "kickoff.md").write_text(prompt, encoding="utf-8")
+        except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
+            _receipt(
+                {
+                    "outcome": "rejected",
+                    "diagnostics": [
+                        {
+                            "code": getattr(exc, "code", "kickoff-storage-unavailable"),
+                            "message": getattr(
+                                exc,
+                                "message",
+                                "coordination kickoff evidence is unavailable",
+                            ),
+                        }
+                    ],
+                },
+                args.as_json,
+            )
+            return EXIT_INVALID
+        if args.as_json:
+            _receipt(result, True)
+        else:
+            print(prompt, end="")
         return EXIT_OK
 
     if args.command == "version":
@@ -689,6 +738,8 @@ def main(argv: list[str] | None = None) -> int:
             validate_bootstrap_pack(record)
         if schema_id == BOOTSTRAP_RECEIPT_SCHEMA_ID:
             validate_bootstrap_receipt(record)
+        if schema_id == KICKOFF_PACK_SCHEMA_ID:
+            validate_kickoff_pack(record)
     except ValidationFailure as exc:
         result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}
     else:
