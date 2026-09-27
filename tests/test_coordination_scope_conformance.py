@@ -114,6 +114,39 @@ class CoordinationAccessScopeConformanceTests(unittest.TestCase):
             validate_coordination_context_pack(changed)
         self.assertEqual(raised.exception.code, "constraint-failed")
 
+    def test_context_pack_rejects_noninteroperable_integer_fields(self):
+        pack, _ = exercise(ROOT / "fixtures")
+        paths = (
+            ("record_count",),
+            ("sync_observation", "scope_generation"),
+            ("sync_observation", "authorized_pair_count"),
+            ("sync_observation", "excluded_count"),
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                changed = deepcopy(pack)
+                target = changed
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = 9_007_199_254_740_992
+                with self.assertRaises(ValidationFailure) as raised:
+                    validate_coordination_context_pack(changed)
+                self.assertEqual(raised.exception.code, "constraint-failed")
+
+    def test_cli_returns_structured_rejection_for_noninteroperable_integer(self):
+        pack, _ = exercise(ROOT / "fixtures")
+        pack["sync_observation"]["excluded_count"] = 9_007_199_254_740_992
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "context-pack.json"
+            path.write_text(json.dumps(pack), encoding="utf-8")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                exit_code = main(["validate", str(path), "--json"])
+        self.assertEqual(exit_code, 2)
+        result = json.loads(stdout.getvalue())
+        self.assertEqual(result["outcome"], "rejected")
+        self.assertEqual(result["diagnostics"][0]["code"], "constraint-failed")
+
     def test_context_builder_supports_multi_page_membership_totals(self):
         pack, _ = exercise(ROOT / "fixtures")
         base = pack["records"][0]
