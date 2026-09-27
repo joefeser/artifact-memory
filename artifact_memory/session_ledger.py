@@ -12,6 +12,9 @@ from typing import Any
 
 from .canonical import canonical_bytes, receipt_with_digest
 from .coordination_sync import (
+    SyncFailure,
+    _advisory_lock,
+    _prepare_parent,
     _read_local_regular_file,
     _validate_storage_root,
     _write_immutable,
@@ -42,12 +45,17 @@ _HEADING = re.compile(r"^#{1,6}\s+\S.*$")
 _TOKEN_PREFIXES = "|".join(
     re.escape(value) for value in ("g" + "hp_", "github" + "_pat_", "s" + "k-")
 )
+_NAME_GAP = r"[ _-]*"
 _CREDENTIAL_NAMES = "|".join(
     (
-        "pass" + "word",
-        "pass" + "wd",
-        "api" + "[_-]?key",
-        "access" + "[_-]?token",
+        "pass" + _NAME_GAP + "word",
+        "pass" + _NAME_GAP + "wd",
+        "api" + _NAME_GAP + "key",
+        "access" + _NAME_GAP + "token",
+        "refresh" + _NAME_GAP + "token",
+        "client" + _NAME_GAP + "secret",
+        "aws" + _NAME_GAP + "secret" + _NAME_GAP + "access" + _NAME_GAP + "key",
+        "secret" + _NAME_GAP + "access" + _NAME_GAP + "key",
     )
 )
 _SENSITIVE_TOKEN = re.compile(
@@ -81,6 +89,7 @@ def _source_bytes(source: Path) -> bytes:
         source,
         missing_code="session-ledger-source-missing",
         missing_message="session ledger source is missing",
+        maximum_bytes=MAX_SOURCE_BYTES,
     )
     if len(raw) > MAX_SOURCE_BYTES:
         raise ValidationFailure(
@@ -202,6 +211,30 @@ def _record_path(vault: Path, record: dict[str, Any]) -> Path:
     )
 
 
+def _record_bytes(record: dict[str, Any]) -> bytes:
+    return (json.dumps(record, sort_keys=True, indent=2) + "\n").encode("utf-8")
+
+
+def _preflight_record(vault: Path, path: Path, data: bytes) -> str:
+    """Prove one immutable target before any record in the batch is published."""
+    _prepare_parent(vault, path)
+    if not path.exists() and not path.is_symlink():
+        return "created"
+    observed = _read_local_regular_file(
+        vault,
+        path,
+        missing_code="immutable-record-collision",
+        missing_message="immutable record target changed during preflight",
+        maximum_bytes=len(data),
+    )
+    if observed != data:
+        raise SyncFailure(
+            "immutable-record-collision",
+            "immutable record target already contains different bytes",
+        )
+    return "duplicate"
+
+
 def import_session_ledger(
     source: Path,
     vault: Path,
@@ -219,21 +252,30 @@ def import_session_ledger(
         dispositions = ["planned"] * len(records)
     else:
         _validate_storage_root(vault, create=True)
-        dispositions = []
-        for record in records:
-            data = (
-                json.dumps(record, sort_keys=True, indent=2) + "\n"
-            ).encode("utf-8")
-            disposition = _write_immutable(
-                vault,
-                _record_path(vault, record),
-                data,
-            )
-            dispositions.append(disposition)
-            if disposition == "created":
-                created += 1
-            else:
-                existing += 1
+        prepared = [
+            (_record_path(vault, record), _record_bytes(record))
+            for record in records
+        ]
+        with _advisory_lock(
+            vault,
+            "session-ledger-import",
+            busy_code="session-ledger-import-busy",
+            busy_message="another session-ledger import is in progress",
+            blocking=True,
+        ):
+            dispositions = [
+                _preflight_record(vault, path, data)
+                for path, data in prepared
+            ]
+            for (path, data), expected in zip(prepared, dispositions):
+                observed = _write_immutable(vault, path, data)
+                if observed != expected:
+                    raise SyncFailure(
+                        "immutable-record-collision",
+                        "immutable record target changed after batch preflight",
+                    )
+        created = dispositions.count("created")
+        existing = dispositions.count("duplicate")
 
     for entry, record, disposition in zip(entries, records, dispositions):
         mapping.append(
@@ -283,6 +325,30 @@ def exercise_session_ledger_fixture(fixture: Path) -> dict[str, Any]:
             for path in vault.rglob("*")
         )
         source_unchanged = _source_bytes(source) == source_before
+        synthetic_value = "synthetic-value"
+        sensitive_fragments = (
+            "api" + " key" + ": " + synthetic_value,
+            "client" + "_secret" + "=" + synthetic_value,
+            "aws" + "_secret_access_key" + "=" + synthetic_value,
+        )
+        sensitive_rejections = 0
+        for index, fragment in enumerate(sensitive_fragments):
+            sensitive_source = Path(temporary) / f"sensitive-{index}.md"
+            sensitive_source.write_text(
+                f"2026-09-27 {fragment}\n",
+                encoding="utf-8",
+            )
+            try:
+                import_session_ledger(sensitive_source, vault, dry_run=True)
+            except ValidationFailure as exc:
+                if exc.code == "session-ledger-sensitive-content":
+                    sensitive_rejections += 1
+                    continue
+                raise
+            raise ValidationFailure(
+                "session-ledger-conformance-failed",
+                "synthetic credential assignment was not rejected",
+            )
 
     body = {
         "outcome": "passed",
@@ -293,6 +359,7 @@ def exercise_session_ledger_fixture(fixture: Path) -> dict[str, Any]:
         "replay_created_count": replay["created_record_count"],
         "replay_existing_count": replay["existing_record_count"],
         "validated_record_count": len(records),
+        "sensitive_assignment_rejection_count": sensitive_rejections,
         "provenance_source_ref": PROVENANCE_SOURCE_REF,
         "raw_source_copied": copied_raw_source,
         "source_text_disclosed": source_text_disclosed,
@@ -319,6 +386,7 @@ def render_session_ledger_conformance_receipt(receipt: dict[str, Any]) -> str:
         f"- Replay records created: `{receipt['replay_created_count']}`\n"
         f"- Replay records reused: `{receipt['replay_existing_count']}`\n"
         f"- Records validated: `{receipt['validated_record_count']}`\n"
+        f"- Sensitive assignment forms rejected: `{receipt['sensitive_assignment_rejection_count']}`\n"
         f"- Provenance: `{receipt['provenance_source_ref']}`\n"
         f"- Raw source copied: `{str(receipt['raw_source_copied']).lower()}`\n"
         f"- Source text disclosed by mapping: `{str(receipt['source_text_disclosed']).lower()}`\n"

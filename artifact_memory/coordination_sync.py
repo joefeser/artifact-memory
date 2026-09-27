@@ -241,11 +241,18 @@ def _scan_retained_policy_labels(
 
 def _validate_storage_root(boundary: Path, *, create: bool) -> None:
     """Reject a storage root that is itself a symlink or non-directory."""
-    if boundary.is_symlink():
-        raise SyncFailure("sync-storage-unsafe", "sync storage root is a symlink")
-    if boundary.exists():
-        if not boundary.is_dir():
-            raise SyncFailure("sync-storage-unsafe", "sync storage root is not a directory")
+    if boundary.exists() or boundary.is_symlink():
+        try:
+            metadata = os.lstat(boundary)
+        except OSError as exc:
+            raise SyncFailure(
+                "sync-storage-unsafe", "sync storage root is unsafe"
+            ) from exc
+        if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
+            raise SyncFailure(
+                "sync-storage-unsafe",
+                "sync storage root is a link, reparse point, or non-directory",
+            )
     else:
         if not create:
             return
@@ -257,7 +264,15 @@ def _validate_storage_root(boundary: Path, *, create: bool) -> None:
             if parent == current:
                 break
             current = parent
-        if current.is_symlink() or not current.is_dir():
+        try:
+            current_metadata = os.lstat(current)
+        except OSError as exc:
+            raise SyncFailure(
+                "sync-storage-unsafe", "sync storage root is unsafe"
+            ) from exc
+        if _is_link_or_reparse(current_metadata) or not stat.S_ISDIR(
+            current_metadata.st_mode
+        ):
             raise SyncFailure("sync-storage-unsafe", "sync storage root is unsafe")
         for candidate in reversed(missing):
             parent = candidate.parent
@@ -265,7 +280,15 @@ def _validate_storage_root(boundary: Path, *, create: bool) -> None:
                 candidate.mkdir()
             except FileExistsError:
                 pass
-            if candidate.is_symlink() or not candidate.is_dir():
+            try:
+                candidate_metadata = os.lstat(candidate)
+            except OSError as exc:
+                raise SyncFailure(
+                    "sync-storage-unsafe", "sync storage root is unsafe"
+                ) from exc
+            if _is_link_or_reparse(candidate_metadata) or not stat.S_ISDIR(
+                candidate_metadata.st_mode
+            ):
                 raise SyncFailure("sync-storage-unsafe", "sync storage root is unsafe")
             _sync_directory(candidate)
             _sync_directory(parent)
@@ -330,8 +353,25 @@ def _read_local_regular_file(
     *,
     missing_code: str,
     missing_message: str,
+    maximum_bytes: int | None = None,
 ) -> bytes:
     """Read a regular file without following descendants outside the root."""
+    if maximum_bytes is not None and maximum_bytes < 0:
+        raise ValueError("maximum_bytes must be non-negative")
+
+    def read_snapshot(stream: Any) -> bytes:
+        if maximum_bytes is None:
+            return stream.read()
+        remaining = maximum_bytes + 1
+        chunks: list[bytes] = []
+        while remaining:
+            chunk = stream.read(min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+
     _validate_storage_root(boundary, create=False)
     try:
         relative = path.relative_to(boundary)
@@ -373,7 +413,7 @@ def _read_local_regular_file(
                     "sync-storage-unsafe", "sync read target is not a regular file"
                 )
             with os.fdopen(descriptor, "rb", closefd=False) as stream:
-                return stream.read()
+                return read_snapshot(stream)
         except FileNotFoundError as exc:
             raise SyncFailure(missing_code, missing_message) from exc
         except SyncFailure:
@@ -405,7 +445,7 @@ def _read_local_regular_file(
                     "sync-storage-unsafe", "sync read target changed before opening"
                 )
             with os.fdopen(descriptor, "rb", closefd=False) as stream:
-                snapshot = stream.read()
+                snapshot = read_snapshot(stream)
             opened_after = os.fstat(descriptor)
         finally:
             os.close(descriptor)
@@ -482,15 +522,38 @@ def _prepare_parent(boundary: Path, path: Path) -> None:
         parent = current
         candidate = parent / part
         if candidate.exists() or candidate.is_symlink():
-            if candidate.is_symlink() or not candidate.is_dir():
+            try:
+                metadata = os.lstat(candidate)
+            except OSError as exc:
+                raise SyncFailure(
+                    "sync-storage-unsafe", "sync storage parent is unsafe"
+                ) from exc
+            if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
                 raise SyncFailure(
                     "sync-storage-unsafe",
-                    "sync storage contains a symlink or non-directory parent",
+                    "sync storage contains a link, reparse point, or non-directory parent",
                 )
         else:
-            candidate.mkdir()
-            _sync_directory(candidate)
-            _sync_directory(parent)
+            created = False
+            try:
+                candidate.mkdir()
+                created = True
+            except FileExistsError:
+                pass
+            try:
+                metadata = os.lstat(candidate)
+            except OSError as exc:
+                raise SyncFailure(
+                    "sync-storage-unsafe", "sync storage parent is unsafe"
+                ) from exc
+            if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
+                raise SyncFailure(
+                    "sync-storage-unsafe",
+                    "sync storage contains a link, reparse point, or non-directory parent",
+                )
+            if created:
+                _sync_directory(candidate)
+                _sync_directory(parent)
         current = candidate
 
 

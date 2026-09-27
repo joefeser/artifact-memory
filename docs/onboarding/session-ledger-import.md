@@ -39,6 +39,10 @@ are not copied into the vault or printed in the dry-run mapping.
 The importer accepts at most one MiB, 1,000 entries, and 4,096 normalized
 characters per entry. Invalid dates, undated content, credential-like material,
 unsafe storage paths, and immutable-path collisions fail typed. Credentials
-belong in an approved secret manager, never a memory record. Imported records
-remain informational and require separate owner review and authenticated
-authority before any action.
+belong in an approved secret manager, never a memory record. Common assignment
+forms are rejected whether names use spaces, hyphens, or underscores, including
+API keys, client secrets, access or refresh tokens, and secret access keys.
+Before publishing any record, the importer preflights the complete batch under
+a vault-local lock; a collision in a later entry therefore cannot publish an
+earlier entry. Imported records remain informational and require separate owner
+review and authenticated authority before any action.

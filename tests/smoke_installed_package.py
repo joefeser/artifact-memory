@@ -162,6 +162,47 @@ def main() -> None:
         if codex_history_schemas.returncode != 0:
             raise SystemExit(codex_history_schemas.stderr or codex_history_schemas.stdout)
 
+        if sys.platform == "win32":
+            target = root / "synthetic-vault-target"
+            junction = root / "synthetic-vault-junction"
+            source = root / "synthetic-done-log.md"
+            target.mkdir()
+            source.write_text(
+                "2026-09-27 Verified synthetic session handoff.\n",
+                encoding="utf-8",
+            )
+            linked = subprocess.run(
+                ["cmd.exe", "/d", "/c", "mklink", "/J", str(junction), str(target)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            if linked.returncode != 0:
+                raise SystemExit(linked.stderr or linked.stdout)
+            rejected = subprocess.run(
+                [
+                    "artifact-memory",
+                    "import-session-ledger",
+                    str(source),
+                    "--vault",
+                    str(junction),
+                    "--json",
+                ],
+                cwd=root,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            if rejected.returncode != 2:
+                raise SystemExit(rejected.stderr or rejected.stdout)
+            payload = json.loads(rejected.stdout)
+            if payload.get("diagnostics", [{}])[0].get("code") != "sync-storage-unsafe":
+                raise SystemExit(rejected.stdout)
+            if (target / "records").exists():
+                raise SystemExit("session-ledger junction proof crossed the vault boundary")
+
 
 if __name__ == "__main__":
     main()
