@@ -80,8 +80,8 @@ _SENSITIVE_TOKEN = re.compile(
         (
             r"-----BEGIN [A-Z ]*PRIVATE " + r"KEY-----",
             rf"\b(?:{_TOKEN_PREFIXES})[A-Za-z0-9_-]{{16,}}",
-            r"\bAuthor" + r"ization\s*:\s*Bearer\s+\S+",
-            rf"(?<![A-Za-z0-9])(?:{_CREDENTIAL_NAMES})\s*[:=]\s*\S+",
+            r"\bAuthor" + r"ization[\"'`]?\s*:\s*[\"'`]?Bearer\s+\S+",
+            rf"(?<![A-Za-z0-9])(?:{_CREDENTIAL_NAMES})[\"'`]?\s*[:=]\s*\S+",
         )
     ),
     re.IGNORECASE,
@@ -363,6 +363,10 @@ def exercise_session_ledger_fixture(fixture: Path) -> dict[str, Any]:
             "npm" + "_token" + "=" + synthetic_value,
             "secret" + "=" + synthetic_value,
             "session=" + "g" + "hs_" + "syntheticvalue1234",
+            json.dumps({"api_key": synthetic_value}),
+            "'client_secret': '" + synthetic_value + "'",
+            "`github_token`=" + synthetic_value,
+            json.dumps({"Authorization": "Bearer " + synthetic_value}),
         )
         sensitive_rejections = 0
         for index, fragment in enumerate(sensitive_fragments):

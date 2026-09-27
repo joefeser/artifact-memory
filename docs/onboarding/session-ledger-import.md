@@ -42,12 +42,16 @@ unsafe storage paths, and immutable-path collisions fail typed. Credentials
 belong in an approved secret manager, never a memory record. Common assignment
 forms are rejected whether names use spaces, hyphens, or underscores, including
 API keys, client secrets, access or refresh tokens, and secret access keys.
+Single-quoted, double-quoted, and backtick-quoted keys are also checked, including
+JSON-style assignments and quoted Authorization Bearer headers.
 Provider-qualified names such as `AZURE_CLIENT_SECRET`, GitHub token assignment
 names, private-key assignments such as `SSH_PRIVATE_KEY`, and recognized GitHub
 and Slack token names and prefixes are rejected as credential-like material as
 well. Generic token or secret assignment names also fail closed. The selected
 vault must not contain parent-directory traversal, and it and every existing
-ancestor must be real directories rather than links or reparse points.
+ancestor must be real directories rather than links or reparse points. Sources
+and existing record targets must be regular files; named pipes are rejected
+without waiting for a writer.
 Before publishing any record, the importer preflights the complete batch under
 a vault-local lock; a collision in a later entry therefore cannot publish an
 earlier entry. Imported records remain informational and require separate owner

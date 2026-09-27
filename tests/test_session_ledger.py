@@ -144,6 +144,60 @@ class SessionLedgerTests(unittest.TestCase):
             self.assertEqual(result["source_entry_count"], 1)
             self.assertFalse((root / "vault").exists())
 
+    def test_quoted_credential_assignments_reject_before_writing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source = root / "synthetic-quoted.md"
+            names = ("api_key", "AZURE_CLIENT_SECRET", "github_token", "password")
+            fragments = [
+                f"{quote}{name}{quote}: {quote}synthetic-value{quote}"
+                for name in names
+                for quote in ('"', "'", "`")
+            ]
+            fragments.append(json.dumps({"Authorization": "Bearer synthetic-value"}))
+            for index, fragment in enumerate(fragments):
+                source.write_text(f"2026-09-27 {fragment}\n", encoding="utf-8")
+                for dry_run in (True, False):
+                    vault = root / f"vault-{index}-{dry_run}"
+                    with self.subTest(index=index, dry_run=dry_run):
+                        with self.assertRaises(ValidationFailure) as caught:
+                            import_session_ledger(source, vault, dry_run=dry_run)
+                        self.assertEqual(caught.exception.code, "session-ledger-sensitive-content")
+                        self.assertFalse(vault.exists())
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO proof")
+    def test_fifo_source_and_record_target_reject_without_blocking(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fifo = root / "synthetic.fifo"
+            os.mkfifo(fifo)
+            fixture_source = FIXTURE / "synthetic-done-log.md"
+            vault = root / "vault"
+            mapping = import_session_ledger(fixture_source, vault, dry_run=True)["mapping"]
+            first, second = [
+                vault / "records" / "session-ledger" / f"{item['record_id'].rsplit('/', 1)[-1]}.json"
+                for item in mapping
+            ]
+            second.parent.mkdir(parents=True)
+            os.mkfifo(second)
+            for source, dry_run in ((fifo, True), (fifo, False), (fixture_source, False)):
+                command = [
+                    sys.executable, "-m", "artifact_memory", "import-session-ledger",
+                    str(source), "--vault", str(vault), "--json",
+                ]
+                if dry_run:
+                    command.append("--dry-run")
+                with self.subTest(source=source.name, dry_run=dry_run):
+                    completed = subprocess.run(
+                        command, cwd=ROOT, text=True, capture_output=True, timeout=5,
+                    )
+                    self.assertEqual(completed.returncode, 2, completed.stderr)
+                    self.assertEqual(
+                        json.loads(completed.stdout)["diagnostics"][0]["code"],
+                        "sync-storage-unsafe",
+                    )
+                    self.assertFalse(first.exists())
+
     def test_source_reader_stops_after_configured_bound(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

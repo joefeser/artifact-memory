@@ -434,8 +434,10 @@ def _read_local_regular_file(
                     | getattr(os, "O_CLOEXEC", 0)
                 )
                 flags |= (
-                    getattr(os, "O_BINARY", 0) if final else os.O_DIRECTORY
+                    (getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0))
+                    if final else os.O_DIRECTORY
                 )
+                # Opening a FIFO must not block before fstat can reject it.
                 child = os.open(part, flags, dir_fd=descriptor)
                 os.close(descriptor)
                 descriptor = child
@@ -464,6 +466,7 @@ def _read_local_regular_file(
             | getattr(os, "O_BINARY", 0)
             | getattr(os, "O_CLOEXEC", 0)
             | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0)
         )
         descriptor = os.open(path, flags)
         try:
