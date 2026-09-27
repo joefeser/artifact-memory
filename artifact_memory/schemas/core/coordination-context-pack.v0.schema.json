@@ -25,15 +25,15 @@
             "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
           }
         },
-        "authorized_pair_count": {"type": "integer", "minimum": 0, "maximum": 1000},
+        "authorized_pair_count": {"type": "integer", "minimum": 0},
         "authorized_pair_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
         "excluded_count": {"type": "integer", "minimum": 0},
         "transport_state": {"const": "authenticated"},
         "issuer_state": {"const": "unverified"}
       }
     },
-    "record_count": {"type": "integer", "minimum": 0, "maximum": 1000},
-    "records": {"type": "array", "maxItems": 1000, "items": {"type": "object"}},
+    "record_count": {"type": "integer", "minimum": 0},
+    "records": {"type": "array", "items": {"type": "object"}},
     "authority_boundary": {"const": "coordination context is informational only and grants no execution, mutation, routing, disclosure, credential, spending, deployment, approval, or merge authority"}
   }
 }

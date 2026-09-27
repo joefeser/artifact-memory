@@ -27,13 +27,18 @@ The result uses the new strict
 `artifact-memory/coordination-context-pack/v0` contract. It binds the pack to
 the sync receipt and pair-set digest, carries exclusions only as a count, and
 forbids full AccessLabel bodies. Pack identity covers the complete canonical
-body. Generic knowledge context-pack v2-v4 contracts remain unchanged.
+body. Detached pack validation proves only internal integrity: the generic
+validator returns `coordination-context-policy-evidence-required` because it
+cannot establish that the named receipt exists or is still current. Generic
+knowledge context-pack v2-v4 contracts remain unchanged.
 
 ## Consequences
 
 - Label narrowing replaces generated membership and context visibility without
   deleting canonical record history or claiming erasure.
 - A locally present record is not sufficient evidence of current admission.
+- Valid multi-page sync projections are exported in full; the context schema
+  does not impose a lower total-record ceiling than coordination sync.
 - Excluded project names, UUIDs, record identities, and bodies are not exposed
   through the restricted sync response or context pack.
 - Duplicate or overlapping read scopes fail before use; malformed labels fail

@@ -21,6 +21,13 @@ and every exact `(record_id, revision_digest)` pair before returning records.
 If that policy view is missing, stale, malformed, or inconsistent with local
 bytes, export fails closed.
 
+A detached pack can prove only its internal integrity. The generic
+`artifact-memory validate PACK --json` command therefore rejects a coordination
+context pack with `coordination-context-policy-evidence-required` after checking
+its shape, records, membership digest, and pack identity. It cannot prove that
+the referenced sync receipt exists or remains the vault's current policy view.
+Use the vault-bound `coordination-context` command for that claim.
+
 The strict `artifact-memory/coordination-context-pack/v0` result contains:
 
 - only the records named by the verified authorized projection;

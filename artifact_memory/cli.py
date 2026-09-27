@@ -823,6 +823,14 @@ def main(argv: list[str] | None = None) -> int:
             validate_kickoff_pack(record)
         if schema_id == COORDINATION_CONTEXT_PACK_SCHEMA_ID:
             validate_coordination_context_pack(record)
+            raise ValidationFailure(
+                "coordination-context-policy-evidence-required",
+                (
+                    "detached validation cannot verify the referenced sync receipt; "
+                    "export from a verified vault with coordination-context"
+                ),
+                "$.sync_observation.receipt_id",
+            )
     except ValidationFailure as exc:
         result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}
     else:

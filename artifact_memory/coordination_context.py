@@ -51,7 +51,7 @@ def _expected_pack_id(pack: dict[str, Any]) -> str:
 
 
 def validate_coordination_context_pack(pack: dict[str, Any]) -> None:
-    """Validate strict pack shape, record semantics, membership, and identity."""
+    """Validate detached integrity, not the existence of referenced policy evidence."""
     validate(pack, _CONTEXT_PACK_SCHEMA)
     references: list[dict[str, str]] = []
     for index, candidate in enumerate(pack["records"]):

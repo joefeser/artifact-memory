@@ -8,10 +8,13 @@ import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 from artifact_memory.cli import main
+from artifact_memory.coordination import revision_digest
 from artifact_memory.coordination_context import (
     CONTEXT_PACK_SCHEMA_ID,
+    build_coordination_context_pack,
     validate_coordination_context_pack,
 )
 from artifact_memory.coordination_scope_conformance import (
@@ -20,12 +23,53 @@ from artifact_memory.coordination_scope_conformance import (
     render_coordination_access_scope_conformance_receipt,
     run,
 )
+from artifact_memory.coordination_sync import (
+    configure_local_hub,
+    pair_set_digest,
+    pull,
+    sorted_pairs,
+    store_coordination_record,
+)
 from artifact_memory.schema_resources import core_schemas
 from artifact_memory.validator import ValidationFailure, load_json, validate
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "fixtures" / "coordination-access-scope" / "v0"
+PROJECT_ID = "11111111-1111-4111-8111-111111111111"
+PRINCIPAL_ID = "coordination-principal://synthetic/context-cli"
+SESSION_ID = "coordination-session://synthetic/context-cli"
+
+
+def verified_vault(root: Path) -> tuple[Path, dict, dict]:
+    hub = root / "hub"
+    vault = root / "vault"
+    label = load_json(ROOT / "fixtures" / "coordination" / "access-label.json")
+    task = load_json(ROOT / "fixtures" / "coordination" / "task-open.json")
+    task["accessLabelRef"] = {
+        "record_id": label["record_id"],
+        "revision_digest": revision_digest(label),
+    }
+    configure_local_hub(
+        hub,
+        hub_id="coordination-hub://synthetic/context-cli",
+        scope_generation=1,
+        bindings=[
+            {
+                "session_id": SESSION_ID,
+                "principal_id": PRINCIPAL_ID,
+                "access_label": label,
+            }
+        ],
+    )
+    store_coordination_record(hub, task)
+    result = pull(
+        vault,
+        hub,
+        session_id=SESSION_ID,
+        completed_at="2026-09-27T18:03:00Z",
+    )
+    return vault, task, result
 
 
 class CoordinationAccessScopeConformanceTests(unittest.TestCase):
@@ -64,6 +108,86 @@ class CoordinationAccessScopeConformanceTests(unittest.TestCase):
             "coordination-context-pack-id-mismatch",
         )
 
+        changed = deepcopy(pack)
+        changed["sync_observation"]["transport_state"] = "unauthenticated"
+        with self.assertRaises(ValidationFailure) as raised:
+            validate_coordination_context_pack(changed)
+        self.assertEqual(raised.exception.code, "constraint-failed")
+
+    def test_context_builder_supports_multi_page_membership_totals(self):
+        pack, _ = exercise(ROOT / "fixtures")
+        base = pack["records"][0]
+        records = []
+        for ordinal in range(1001):
+            task = deepcopy(base)
+            task_id = "task_" + f"{ordinal:026d}"
+            task["taskId"] = task_id
+            task["record_id"] = (
+                f"record://coordination/{task['originId']}/task/{task_id}"
+            )
+            task["title"] = f"Synthetic multi-page task {ordinal}"
+            records.append(task)
+        records.sort(key=lambda record: (record["record_id"], revision_digest(record)))
+        pairs = sorted_pairs(
+            [
+                {
+                    "record_id": record["record_id"],
+                    "revision_digest": revision_digest(record),
+                }
+                for record in records
+            ]
+        )
+        observation = pack["sync_observation"]
+        snapshot = {
+            "receipt": {
+                "receipt_id": observation["receipt_id"],
+                "completed_at": observation["completed_at"],
+                "scope_generation": observation["scope_generation"],
+                "access_label_ref": observation["access_label_ref"],
+                "authorized_membership": {
+                    "pair_count": len(pairs),
+                    "pair_set_digest": pair_set_digest(pairs),
+                },
+                "excluded_count": observation["excluded_count"],
+                "transport_state": observation["transport_state"],
+                "issuer_state": observation["issuer_state"],
+            },
+            "records": records,
+        }
+        with patch(
+            "artifact_memory.coordination_context.load_authorized_coordination_snapshot",
+            return_value=snapshot,
+        ):
+            large = build_coordination_context_pack(Path("synthetic-unused-vault"))
+        self.assertEqual(large["record_count"], 1001)
+        self.assertEqual(large["sync_observation"]["authorized_pair_count"], 1001)
+
+    def test_cli_exports_verified_context_json(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vault, task, sync_result = verified_vault(Path(temporary))
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                exit_code = main(
+                    [
+                        "coordination-context",
+                        "--vault",
+                        str(vault),
+                        "--json",
+                    ]
+                )
+        self.assertEqual(exit_code, 0)
+        result = json.loads(stdout.getvalue())
+        self.assertEqual(result["record_count"], 1)
+        self.assertEqual(result["records"], [task])
+        self.assertEqual(
+            result["sync_observation"]["receipt_id"],
+            sync_result["receipt"]["receipt_id"],
+        )
+        self.assertEqual(
+            result["sync_observation"]["excluded_count"],
+            sync_result["receipt"]["excluded_count"],
+        )
+
     def test_generic_cli_validation_runs_context_pack_semantics(self):
         pack, _ = exercise(ROOT / "fixtures")
         pack["records"][0]["title"] = "Changed after export"
@@ -78,6 +202,21 @@ class CoordinationAccessScopeConformanceTests(unittest.TestCase):
         self.assertEqual(
             result["diagnostics"][0]["code"],
             "coordination-context-membership-mismatch",
+        )
+
+    def test_generic_cli_cannot_verify_detached_sync_provenance(self):
+        pack, _ = exercise(ROOT / "fixtures")
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "context-pack.json"
+            path.write_text(json.dumps(pack), encoding="utf-8")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                exit_code = main(["validate", str(path), "--json"])
+        self.assertEqual(exit_code, 2)
+        result = json.loads(stdout.getvalue())
+        self.assertEqual(
+            result["diagnostics"][0]["code"],
+            "coordination-context-policy-evidence-required",
         )
 
     def test_cli_denies_without_a_verified_policy_projection(self):
