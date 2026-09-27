@@ -2671,16 +2671,10 @@ def load_local_coordination_records(vault: Path) -> list[dict[str, Any]]:
 
 
 def export_authorized_coordination_context(vault: Path) -> dict[str, Any]:
-    """Generated informational view; AM-5 owns rendered kickoff-pack behavior."""
-    records = load_authorized_projection(vault)
-    return {
-        "records": records,
-        "record_count": len(records),
-        "authority_boundary": (
-            "informational only; no execution, mutation, routing, disclosure, "
-            "credential, spending, deployment, approval, or merge authority"
-        ),
-    }
+    """Compatibility wrapper for the strict AM-7 coordination context pack."""
+    from .coordination_context import build_coordination_context_pack
+
+    return build_coordination_context_pack(vault)
 
 
 def directory_digest(root: Path) -> str:

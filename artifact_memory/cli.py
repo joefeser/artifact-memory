@@ -22,6 +22,11 @@ from .context import (
     validate_context_pack,
 )
 from .coordination import validate_coordination_files
+from .coordination_context import (
+    CONTEXT_PACK_SCHEMA_ID as COORDINATION_CONTEXT_PACK_SCHEMA_ID,
+    build_coordination_context_pack,
+    validate_coordination_context_pack,
+)
 from .coordination_kickoff import (
     KICKOFF_PACK_SCHEMA_IDS,
     build_kickoff_pack,
@@ -177,6 +182,12 @@ def main(argv: list[str] | None = None) -> int:
         help="evaluate the supported coordination freshness extension against this onboarded repo",
     )
     kickoff.add_argument("--json", action="store_true", dest="as_json")
+    coordination_context = subparsers.add_parser(
+        "coordination-context",
+        help="export context from the latest verified authorized coordination projection",
+    )
+    coordination_context.add_argument("--vault", required=True, type=Path)
+    coordination_context.add_argument("--json", action="store_true", dest="as_json")
     session_ledger = subparsers.add_parser(
         "import-session-ledger",
         help="import bounded ISO-dated done-log entries into a private vault",
@@ -448,6 +459,34 @@ def main(argv: list[str] | None = None) -> int:
             _receipt(result, True)
         else:
             print(prompt, end="")
+        return EXIT_OK
+
+    if args.command == "coordination-context":
+        try:
+            result = build_coordination_context_pack(args.vault)
+        except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
+            _receipt(
+                {
+                    "outcome": "rejected",
+                    "diagnostics": [
+                        {
+                            "code": getattr(
+                                exc,
+                                "code",
+                                "coordination-context-storage-unavailable",
+                            ),
+                            "message": getattr(
+                                exc,
+                                "message",
+                                "authorized coordination context is unavailable",
+                            ),
+                        }
+                    ],
+                },
+                args.as_json,
+            )
+            return EXIT_INVALID
+        _receipt(result, args.as_json)
         return EXIT_OK
 
     if args.command == "import-session-ledger":
@@ -782,6 +821,8 @@ def main(argv: list[str] | None = None) -> int:
             validate_bootstrap_receipt(record)
         if schema_id in KICKOFF_PACK_SCHEMA_IDS:
             validate_kickoff_pack(record)
+        if schema_id == COORDINATION_CONTEXT_PACK_SCHEMA_ID:
+            validate_coordination_context_pack(record)
     except ValidationFailure as exc:
         result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}
     else:

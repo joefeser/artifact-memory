@@ -102,6 +102,13 @@ checked repository-ancestry proof. Repo-bound kickoff v1 marks the supported
 freshness extension `current` or `stale-verify`; v0 and generic context-pack
 v2-v4 remain unchanged when freshness support is not requested.
 
+`coordination-context-pack.v0.schema.json` and
+`coordination-access-scope-conformance-receipt.v0.schema.json` define AM-7's
+receipt-bound informational export and checked scope-narrowing proof. Context
+records come only from the latest verified authorized projection. Exclusions
+remain count-only, full AccessLabel bodies are forbidden, and canonical local
+history is not deleted when generated membership narrows.
+
 `session-ledger-import-conformance-receipt.v0.schema.json` defines AM-1's
 checked synthetic proof. Dated done-log lines become deterministic private
 draft knowledge records with `session-ledger` import provenance; dry-run writes
