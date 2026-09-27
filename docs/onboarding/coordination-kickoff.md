@@ -8,15 +8,14 @@ before using it.
 ```sh
 artifact-memory kickoff \
   --project 11111111-1111-4111-8111-111111111111 \
-  --vault /path/to/private-coordination-vault \
-  --out /path/to/generated-kickoff
+  --vault /path/to/private-coordination-vault
 ```
 
 An unambiguous project display name may replace the UUID. If two project links
 share a display name, the command fails with `kickoff-project-ambiguous`; use
-the UUID. The output directory receives `kickoff-pack.json` and `kickoff.md`.
-Without `--out`, the human-readable prompt is printed. Add `--json` to print
-the canonical pack instead.
+the UUID. The command is read-only and prints the human-readable prompt to
+stdout. Add `--json` to print the canonical pack instead; redirect stdout
+explicitly when local persistence is intended.
 
 The generator verifies the current successful-sync marker, receipt identity,
 authorized membership count and digest, every authorized record's exact pair,

@@ -170,7 +170,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     kickoff.add_argument("--project", required=True)
     kickoff.add_argument("--vault", required=True, type=Path)
-    kickoff.add_argument("--out", type=Path)
     kickoff.add_argument("--json", action="store_true", dest="as_json")
     scan = subparsers.add_parser("scan")
     scan.add_argument("root", type=Path)
@@ -409,13 +408,6 @@ def main(argv: list[str] | None = None) -> int:
         try:
             result = build_kickoff_pack(args.vault, args.project)
             prompt = render_kickoff_prompt(result)
-            if args.out is not None:
-                args.out.mkdir(parents=True, exist_ok=True)
-                (args.out / "kickoff-pack.json").write_text(
-                    json.dumps(result, sort_keys=True, indent=2) + "\n",
-                    encoding="utf-8",
-                )
-                (args.out / "kickoff.md").write_text(prompt, encoding="utf-8")
         except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
             _receipt(
                 {

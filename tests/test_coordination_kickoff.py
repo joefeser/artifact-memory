@@ -1,14 +1,20 @@
 import copy
 import contextlib
+import hashlib
 import io
 import json
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 from artifact_memory.cli import main
-from artifact_memory.canonical import receipt_with_digest
+from artifact_memory.canonical import (
+    canonical_bytes,
+    receipt_with_digest,
+    sha256_bytes,
+)
 from artifact_memory.coordination import revision_digest
 from artifact_memory.coordination_kickoff import (
     KICKOFF_PACK_SCHEMA_ID,
@@ -48,6 +54,17 @@ MALICIOUS_COMMAND = (
 
 
 class CoordinationKickoffTests(unittest.TestCase):
+    def rebind_pack(self, pack: dict) -> None:
+        body = {
+            key: value
+            for key, value in pack.items()
+            if key not in {"schema_id", "pack_id"}
+        }
+        pack["pack_id"] = (
+            "coordination-kickoff-pack://sha-256/"
+            + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:")
+        )
+
     def label(self) -> dict:
         label = copy.deepcopy(load_json(FIXTURES / "access-label.json"))
         label["projectNames"] = [
@@ -142,6 +159,52 @@ class CoordinationKickoffTests(unittest.TestCase):
             self.assertNotIn(MALICIOUS_COMMAND, prompt)
             self.assertFalse((root / "synthetic-marker").exists())
 
+    def test_pack_identity_rejects_modified_body(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            vault, _, _, _ = self.setup_vault(root)
+            pack = build_kickoff_pack(vault, PROJECT_ID)
+            pack["project"]["project_name"] = "changed-synthetic-service"
+
+            with self.assertRaises(ValidationFailure) as raised:
+                validate_kickoff_pack(pack)
+            self.assertEqual(raised.exception.code, "kickoff-pack-id-mismatch")
+
+    def test_queue_count_and_selection_must_agree(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            vault, _, _, _ = self.setup_vault(root)
+            valid = build_kickoff_pack(vault, PROJECT_ID)
+            contradictions = []
+            zero_with_task = copy.deepcopy(valid)
+            zero_with_task["queue"]["open_task_count"] = 0
+            self.rebind_pack(zero_with_task)
+            contradictions.append(zero_with_task)
+            positive_without_task = copy.deepcopy(valid)
+            positive_without_task["queue"]["selected_task"] = None
+            self.rebind_pack(positive_without_task)
+            contradictions.append(positive_without_task)
+
+            for pack in contradictions:
+                with self.subTest(queue=pack["queue"]):
+                    with self.assertRaises(ValidationFailure) as raised:
+                        validate_kickoff_pack(pack)
+                    self.assertEqual(
+                        raised.exception.code, "kickoff-queue-contradictory"
+                    )
+
+    def test_mutating_one_pack_does_not_change_later_startup_protocol(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            vault, _, _, _ = self.setup_vault(root)
+            first = build_kickoff_pack(vault, PROJECT_ID)
+            first["startup_protocol"].append("Synthetic mutation")
+
+            second = build_kickoff_pack(vault, PROJECT_ID)
+
+            validate_kickoff_pack(second)
+            self.assertNotIn("Synthetic mutation", second["startup_protocol"])
+
     def test_pending_project_task_fails_before_pack_emission(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -193,6 +256,59 @@ class CoordinationKickoffTests(unittest.TestCase):
             with self.assertRaises(SyncFailure) as raised:
                 build_kickoff_pack(vault, PROJECT_ID)
             self.assertEqual(raised.exception.code, "sync-marker-missing")
+
+    def test_symlinked_successful_marker_is_rejected_before_read(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            vault, _, _, _ = self.setup_vault(root)
+            marker = vault / "generated" / "coordination-sync" / "last-successful.json"
+            outside = root / "outside-marker.json"
+            marker.rename(outside)
+            os.symlink(outside, marker)
+
+            with self.assertRaises(SyncFailure) as raised:
+                build_kickoff_pack(vault, PROJECT_ID)
+            self.assertEqual(raised.exception.code, "sync-storage-unsafe")
+
+    def test_symlinked_projection_directory_is_rejected_before_read(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            vault, _, _, _ = self.setup_vault(root)
+            marker = load_json(
+                vault / "generated" / "coordination-sync" / "last-successful.json"
+            )
+            projection = (
+                vault
+                / "generated"
+                / "coordination-sync"
+                / "projections"
+                / marker["receipt_ref"].rsplit("/", 1)[-1]
+            )
+            outside = root / "outside-projection"
+            projection.rename(outside)
+            os.symlink(outside, projection, target_is_directory=True)
+
+            with self.assertRaises(SyncFailure) as raised:
+                build_kickoff_pack(vault, PROJECT_ID)
+            self.assertEqual(raised.exception.code, "sync-storage-unsafe")
+
+    def test_symlinked_canonical_identity_is_rejected_before_read(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            vault, _, _, _ = self.setup_vault(root)
+            snapshot = load_authorized_coordination_snapshot(vault)
+            pair = snapshot["authorized_pairs"][0]
+            identity_hash = hashlib.sha256(
+                pair["record_id"].encode("utf-8")
+            ).hexdigest()
+            identity = vault / "canonical" / "coordination" / identity_hash
+            outside = root / "outside-identity"
+            identity.rename(outside)
+            os.symlink(outside, identity, target_is_directory=True)
+
+            with self.assertRaises(SyncFailure) as raised:
+                build_kickoff_pack(vault, PROJECT_ID)
+            self.assertEqual(raised.exception.code, "sync-storage-unsafe")
 
     def test_forked_admitted_task_chain_fails_typed(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -296,12 +412,12 @@ class CoordinationKickoffTests(unittest.TestCase):
                 "kickoff-current-task-ambiguous",
             )
 
-    def test_cli_writes_pack_and_prompt_without_execution(self):
+    def test_cli_emits_pack_without_writing_or_executing(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             vault, _, _, _ = self.setup_vault(root)
-            output = root / "output"
-            with contextlib.redirect_stdout(io.StringIO()):
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
                 exit_code = main(
                     [
                         "kickoff",
@@ -309,17 +425,12 @@ class CoordinationKickoffTests(unittest.TestCase):
                         PROJECT_ID,
                         "--vault",
                         str(vault),
-                        "--out",
-                        str(output),
                         "--json",
                     ]
                 )
             self.assertEqual(exit_code, 0)
-            validate_kickoff_pack(load_json(output / "kickoff-pack.json"))
-            self.assertEqual(
-                (output / "kickoff.md").read_text(encoding="utf-8"),
-                render_kickoff_prompt(load_json(output / "kickoff-pack.json")),
-            )
+            validate_kickoff_pack(json.loads(stdout.getvalue()))
+            self.assertFalse((root / "output").exists())
             self.assertFalse((root / "synthetic-marker").exists())
 
     def test_empty_authorized_queue_emits_no_selected_task(self):
