@@ -87,14 +87,19 @@ record-digest stability across a display-name rename.
 local project link, pre-sync attempt evidence, exact sync-response checkpoint,
 recoverable immutable publication transaction, minimal informational bootstrap
 view, digest-bound receipt, and checked synthetic proof. Full AccessLabel
-bodies remain hub-side; history import remains AM-1 and queue/command rendering
-is a separate AM-5 surface.
+bodies remain hub-side; AM-1 provides history import through a separate
+operator-invoked command, and queue/command rendering is an AM-5 surface.
 
 `coordination-kickoff-pack.v0.schema.json` and
 `coordination-kickoff-conformance-receipt.v0.schema.json` define AM-5's bounded
 receipt-qualified queue summary and its checked synthetic proof. Queue text is
 untrusted data, the selected acceptance command is escaped and explicitly not
 executable, and no pack grants operational authority.
+
+`session-ledger-import-conformance-receipt.v0.schema.json` defines AM-1's
+checked synthetic proof. Dated done-log lines become deterministic private
+draft knowledge records with `session-ledger` import provenance; dry-run writes
+nothing, the raw source is not copied, and replay is idempotent.
 
 `release-manifest.v2.schema.json`, `release-manifest.v3.schema.json`, the three
 versions of `release-candidate-preparation-receipt`, and the three versions of

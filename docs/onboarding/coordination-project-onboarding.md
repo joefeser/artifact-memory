@@ -72,8 +72,10 @@ not a hostname, path, credential, or full label body. The generated bootstrap
 pack is informational and does not select queue work. AM-5 provides that
 separate receipt-qualified step in the
 [coordination kickoff guide](coordination-kickoff.md), including safe rendering
-of untrusted acceptance commands. AM-1 will add session-ledger ingestion;
-onboarding preserves existing history without claiming it was imported.
+of untrusted acceptance commands. The separate
+[AM-1 session-ledger importer](session-ledger-import.md) admits bounded dated
+entries only when an operator invokes it explicitly; onboarding preserves
+existing history without claiming it was imported.
 
 The attempt is immutable pre-sync evidence. The sync checkpoint retains the
 exact bounded response after validation and before application. If sync or

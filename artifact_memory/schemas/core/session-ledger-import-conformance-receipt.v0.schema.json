@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/session-ledger-import-conformance-receipt/v0",
+  "title": "Artifact Memory session-ledger import conformance receipt v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "dated_entry_count", "dry_run_created_vault", "dry_run_mapping_count", "initial_created_count", "replay_created_count", "replay_existing_count", "validated_record_count", "sensitive_assignment_rejection_count", "provenance_source_ref", "raw_source_copied", "source_text_disclosed", "source_unchanged", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/session-ledger-import-conformance-receipt/v0"},
+    "receipt_id": {"type": "string", "pattern": "^session-ledger-import-conformance-receipt://sha-256/[0-9a-f]{64}$"},
+    "outcome": {"const": "passed"},
+    "dated_entry_count": {"type": "integer", "minimum": 1},
+    "dry_run_created_vault": {"const": false},
+    "dry_run_mapping_count": {"type": "integer", "minimum": 1},
+    "initial_created_count": {"type": "integer", "minimum": 1},
+    "replay_created_count": {"const": 0},
+    "replay_existing_count": {"type": "integer", "minimum": 1},
+    "validated_record_count": {"type": "integer", "minimum": 1},
+    "sensitive_assignment_rejection_count": {"const": 15},
+    "provenance_source_ref": {"const": "session-ledger"},
+    "raw_source_copied": {"const": false},
+    "source_text_disclosed": {"const": false},
+    "source_unchanged": {"const": true},
+    "authority_boundary": {"const": "session-ledger imports are informational draft records and grant no execution, mutation, routing, disclosure, credential, spending, deployment, approval, or merge authority"}
+  }
+}

@@ -60,6 +60,7 @@ from .release_preparation import (
 from .repo_identity import validate_repo_bound_coordination_files
 from .scan import diff_manifests, scan_path, verify_path
 from .schema_resources import core_schemas
+from .session_ledger import import_session_ledger
 from .validator import ValidationFailure, load_json, validate
 
 EXIT_OK = 0
@@ -171,6 +172,14 @@ def main(argv: list[str] | None = None) -> int:
     kickoff.add_argument("--project", required=True)
     kickoff.add_argument("--vault", required=True, type=Path)
     kickoff.add_argument("--json", action="store_true", dest="as_json")
+    session_ledger = subparsers.add_parser(
+        "import-session-ledger",
+        help="import bounded ISO-dated done-log entries into a private vault",
+    )
+    session_ledger.add_argument("done_log", type=Path)
+    session_ledger.add_argument("--vault", required=True, type=Path)
+    session_ledger.add_argument("--dry-run", action="store_true")
+    session_ledger.add_argument("--json", action="store_true", dest="as_json")
     scan = subparsers.add_parser("scan")
     scan.add_argument("root", type=Path)
     scan.add_argument("--out", type=Path)
@@ -430,6 +439,38 @@ def main(argv: list[str] | None = None) -> int:
             _receipt(result, True)
         else:
             print(prompt, end="")
+        return EXIT_OK
+
+    if args.command == "import-session-ledger":
+        try:
+            result = import_session_ledger(
+                args.done_log,
+                args.vault,
+                dry_run=args.dry_run,
+            )
+        except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
+            _receipt(
+                {
+                    "outcome": "rejected",
+                    "diagnostics": [
+                        {
+                            "code": getattr(
+                                exc,
+                                "code",
+                                "session-ledger-storage-unavailable",
+                            ),
+                            "message": getattr(
+                                exc,
+                                "message",
+                                "session-ledger import storage is unavailable",
+                            ),
+                        }
+                    ],
+                },
+                args.as_json,
+            )
+            return EXIT_INVALID
+        _receipt(result, args.as_json)
         return EXIT_OK
 
     if args.command == "version":
