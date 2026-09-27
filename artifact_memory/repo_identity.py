@@ -285,8 +285,10 @@ def _git_output(repo_root: Path, *args: str) -> bytes:
     return completed.stdout
 
 
-def verify_repo_worktree_root(repo_root: Path) -> Path:
-    """Return an exact, link-free Git worktree root without requiring HEAD."""
+def _verify_repo_worktree_root_with_observations(
+    repo_root: Path,
+) -> tuple[Path, list[os.stat_result]]:
+    """Return the verified root and the exact directory identities it used."""
     absolute_root = _absolute_without_resolution(repo_root)
     before = _observe_directory_path(absolute_root)
     try:
@@ -338,6 +340,12 @@ def verify_repo_worktree_root(repo_root: Path) -> Path:
             "repository root changed while its identity boundary was verified",
             "$",
         )
+    return absolute_root, after
+
+
+def verify_repo_worktree_root(repo_root: Path) -> Path:
+    """Return an exact, link-free Git worktree root without requiring HEAD."""
+    absolute_root, _ = _verify_repo_worktree_root_with_observations(repo_root)
     return absolute_root
 
 
@@ -366,15 +374,35 @@ def _write_all(descriptor: int, data: bytes) -> None:
 
 
 def _create_manifest_with_directory_descriptors(
-    absolute_root: Path, data: bytes
+    absolute_root: Path,
+    data: bytes,
+    verified_root_chain: list[os.stat_result],
 ) -> None:
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
     descriptor = os.open(absolute_root.anchor, flags)
     try:
-        for part in absolute_root.relative_to(absolute_root.anchor).parts:
+        relative_parts = absolute_root.relative_to(absolute_root.anchor).parts
+        if len(relative_parts) != len(verified_root_chain):
+            raise ValidationFailure(
+                "repo-identity-unsafe",
+                "repository root changed before its identity manifest was created",
+                "$",
+            )
+        for part, verified_entry in zip(relative_parts, verified_root_chain):
             child = os.open(part, flags, dir_fd=descriptor)
             os.close(descriptor)
             descriptor = child
+            opened_entry = os.fstat(descriptor)
+            if (
+                _is_link_or_reparse(opened_entry)
+                or not stat.S_ISDIR(opened_entry.st_mode)
+                or _entry_identity(opened_entry) != _entry_identity(verified_entry)
+            ):
+                raise ValidationFailure(
+                    "repo-identity-unsafe",
+                    "repository root changed before its identity manifest was created",
+                    "$",
+                )
         try:
             os.mkdir(REPO_IDENTITY_RELATIVE_PATH.parent.name, 0o755, dir_fd=descriptor)
             os.fsync(descriptor)
@@ -439,7 +467,9 @@ def create_repo_identity_manifest(
     history. It returns ``created`` or ``existing``.
     """
     validate(identity, REPO_IDENTITY_SCHEMA)
-    absolute_root = verify_repo_worktree_root(repo_root)
+    absolute_root, verified_root_chain = _verify_repo_worktree_root_with_observations(
+        repo_root
+    )
     manifest_path = absolute_root / REPO_IDENTITY_RELATIVE_PATH
     if manifest_path.exists() or manifest_path.is_symlink():
         existing = load_repo_identity_candidate(absolute_root)
@@ -460,7 +490,11 @@ def create_repo_identity_manifest(
     )
     try:
         if secure_directory_create:
-            _create_manifest_with_directory_descriptors(absolute_root, data)
+            _create_manifest_with_directory_descriptors(
+                absolute_root,
+                data,
+                verified_root_chain,
+            )
         else:
             _create_manifest_portable(absolute_root, data)
     except FileExistsError as exc:
@@ -485,6 +519,15 @@ def create_repo_identity_manifest(
             "repository identity manifest could not be created safely",
             "$",
         ) from exc
+    if not _same_entry_chain(
+        verified_root_chain,
+        _observe_directory_path(absolute_root),
+    ):
+        raise ValidationFailure(
+            "repo-identity-unsafe",
+            "repository root changed while its identity manifest was created",
+            "$",
+        )
     if _read_manifest_bytes(absolute_root) != data:
         raise ValidationFailure(
             "repo-identity-unsafe",

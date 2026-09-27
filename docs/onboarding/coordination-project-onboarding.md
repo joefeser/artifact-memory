@@ -64,6 +64,7 @@ transactions/coordination-onboarding/<project-uuid>.attempt.json
 transactions/coordination-onboarding/<project-uuid>.sync.json
 transactions/coordination-onboarding/failed/<project-uuid>/<attempt-digest>/attempt.json
 transactions/coordination-onboarding/failed/<project-uuid>/<attempt-digest>/sync.json
+transactions/coordination-onboarding/stale/<project-uuid>/<attempt-digest>/attempt.json
 ```
 
 The project link stores logical IDs and the exact opaque AccessLabel reference,
@@ -92,6 +93,12 @@ byte-matching active transaction copies are retired, so a later invocation can
 make a fresh attempt after the missing prerequisite or policy is corrected.
 An interrupted retirement completes from the immutable archive before that
 fresh attempt begins.
+
+If policy advances to a newer scope generation after an attempt is retained
+but before any sync checkpoint exists, onboarding archives that exact attempt
+under `stale/` and makes a fresh attempt at the current generation. A changed
+hub, changed AccessLabel reference, generation rollback, or obsolete attempt
+that already has sync evidence remains a hard conflict.
 
 ## Repo-bound commands
 

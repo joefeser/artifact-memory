@@ -84,6 +84,11 @@ publication transaction containing their exact bytes. A retry validates that
 transaction and installs only missing matching outputs; any conflicting output
 fails closed. This makes interruption recoverable without rewriting or losing
 immutable evidence, and concurrent calls replay the first completed receipt.
+If the authenticated scope generation advances before an attempt has any sync
+checkpoint, onboarding preserves that attempt in a separate digest-addressed
+`stale/` archive and retries under the current generation. It does not use this
+path for changed hub or label bindings, generation rollback, or attempts with
+sync evidence; those remain conflicts requiring inspection.
 
 Automatic `repo.json` creation requires held parent-directory descriptors and
 no-follow traversal. A runtime without equivalent primitives fails typed with

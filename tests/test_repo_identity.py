@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import artifact_memory.repo_identity as repo_identity_module
 from artifact_memory.coordination import revision_digest
 from artifact_memory.repo_identity import (
     _is_link_or_reparse,
@@ -112,6 +113,40 @@ class RepoIdentityTests(unittest.TestCase):
                 caught.exception.code, "repo-identity-create-unsupported"
             )
             self.assertFalse((root / ".agent-memory").exists())
+
+    def test_manifest_creation_rejects_repository_replacement_after_verification(self):
+        candidate = {
+            "uuid": "11111111-1111-4111-8111-111111111111",
+            "humanName": "synthetic",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            root = base / "repository"
+            displaced = base / "verified-repository"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            original_create = (
+                repo_identity_module._create_manifest_with_directory_descriptors
+            )
+
+            def replace_then_create(absolute_root, data, verified_root_chain):
+                absolute_root.rename(displaced)
+                absolute_root.mkdir()
+                subprocess.run(["git", "init", "-q"], cwd=absolute_root, check=True)
+                return original_create(absolute_root, data, verified_root_chain)
+
+            with (
+                mock.patch.object(
+                    repo_identity_module,
+                    "_create_manifest_with_directory_descriptors",
+                    side_effect=replace_then_create,
+                ),
+                self.assertRaises(ValidationFailure) as caught,
+            ):
+                create_repo_identity_manifest(root, candidate)
+            self.assertEqual(caught.exception.code, "repo-identity-unsafe")
+            self.assertFalse((root / ".agent-memory").exists())
+            self.assertFalse((displaced / ".agent-memory").exists())
 
     def test_manifest_creation_rejects_bare_repository(self):
         candidate = {

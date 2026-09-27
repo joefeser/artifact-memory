@@ -87,11 +87,13 @@ class CoordinationOnboardingTests(unittest.TestCase):
         label["mayNot"]["readProjects"] = []
         return label
 
-    def configure(self, hub: Path, label: dict) -> None:
+    def configure(
+        self, hub: Path, label: dict, *, scope_generation: int = 1
+    ) -> None:
         configure_local_hub(
             hub,
             hub_id=HUB_ID,
-            scope_generation=1,
+            scope_generation=scope_generation,
             bindings=[
                 {
                     "session_id": SESSION,
@@ -545,6 +547,78 @@ class CoordinationOnboardingTests(unittest.TestCase):
             self.assertEqual(
                 [item["outcome"] for item in retained["submission_outcomes"]],
                 ["admitted"],
+            )
+
+    def test_new_scope_retires_pre_checkpoint_attempt_and_retries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repo, vault, hub = root / "repo", root / "vault", root / "hub"
+            self.init_repo(repo)
+            label = self.label()
+            self.configure(hub, label)
+            append_local_coordination_record(vault, self.task(label))
+
+            with (
+                mock.patch.object(
+                    coordination_sync_module,
+                    "_pull_bound",
+                    side_effect=SyncFailure(
+                        "synthetic-before-checkpoint-interruption",
+                        "synthetic interruption before checkpoint retention",
+                    ),
+                ),
+                self.assertRaises(SyncFailure) as interrupted,
+            ):
+                onboard_project(
+                    repo,
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at=COMPLETED_AT,
+                    human_name="synthetic-public",
+                )
+            self.assertEqual(
+                interrupted.exception.code,
+                "synthetic-before-checkpoint-interruption",
+            )
+            transaction_root = vault / "transactions" / "coordination-onboarding"
+            attempt_path = transaction_root / f"{PROJECT_A}.attempt.json"
+            checkpoint_path = transaction_root / f"{PROJECT_A}.sync.json"
+            stale_attempt = load_json(attempt_path)
+            self.assertEqual(stale_attempt["scope_generation"], 1)
+            self.assertFalse(checkpoint_path.exists())
+
+            self.configure(hub, label, scope_generation=2)
+            receipt = onboard_project(
+                repo,
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-26T21:00:00Z",
+                human_name="synthetic-public",
+            )
+
+            validate_bootstrap_receipt(receipt)
+            pack = load_json(
+                vault
+                / "generated"
+                / "coordination-onboarding"
+                / PROJECT_A
+                / "bootstrap-kickoff.json"
+            )
+            self.assertEqual(pack["sync_observation"]["scope_generation"], 2)
+            current_attempt = load_json(attempt_path)
+            self.assertEqual(current_attempt["scope_generation"], 2)
+            self.assertNotEqual(
+                current_attempt["attempt_id"], stale_attempt["attempt_id"]
+            )
+            stale_archives = list(
+                (transaction_root / "stale" / PROJECT_A).iterdir()
+            )
+            self.assertEqual(len(stale_archives), 1)
+            self.assertEqual(
+                load_json(stale_archives[0] / "attempt.json"),
+                stale_attempt,
             )
 
     def test_recovery_consumes_matching_pending_outcomes_after_marker_write(self):

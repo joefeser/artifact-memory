@@ -175,6 +175,22 @@ def _failed_attempt_root(
     )
 
 
+def _stale_attempt_root(
+    vault: Path,
+    project_id: str,
+    attempt: dict[str, Any],
+) -> Path:
+    attempt_digest = attempt["attempt_id"].rsplit("/", 1)[-1]
+    return (
+        vault
+        / "transactions"
+        / "coordination-onboarding"
+        / "stale"
+        / project_id
+        / attempt_digest
+    )
+
+
 def _load_vault_object(
     vault: Path,
     path: Path,
@@ -329,10 +345,9 @@ def _sync_checkpoint_body(checkpoint: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _validate_attempt(
+def _validate_attempt_identity(
     attempt: dict[str, Any],
     identity: dict[str, str],
-    registration: dict[str, Any],
 ) -> None:
     validate(attempt, _ATTEMPT_SCHEMA)
     expected = (
@@ -350,20 +365,46 @@ def _validate_attempt(
     if (
         attempt["project"]["project_id"] != identity["uuid"]
         or attempt["project"]["project_name"] != identity["humanName"]
-        or attempt["hub_id"] != registration["hub_id"]
-        or attempt["access_label_ref"] != registration["access_label_ref"]
-        or attempt["scope_generation"] != registration["scope_generation"]
     ):
         raise ValidationFailure(
             "onboard-state-conflict",
-            "onboarding attempt conflicts with the repository identity or hub binding",
+            "onboarding attempt conflicts with the repository identity",
+        )
+
+
+def _attempt_scope_state(
+    attempt: dict[str, Any], registration: dict[str, Any]
+) -> str:
+    if (
+        attempt["hub_id"] != registration["hub_id"]
+        or attempt["access_label_ref"] != registration["access_label_ref"]
+        or attempt["scope_generation"] > registration["scope_generation"]
+    ):
+        raise ValidationFailure(
+            "onboard-state-conflict",
+            "onboarding attempt conflicts with the current hub binding",
+        )
+    if attempt["scope_generation"] < registration["scope_generation"]:
+        return "stale"
+    return "current"
+
+
+def _validate_attempt(
+    attempt: dict[str, Any],
+    identity: dict[str, str],
+    registration: dict[str, Any],
+) -> None:
+    _validate_attempt_identity(attempt, identity)
+    if _attempt_scope_state(attempt, registration) != "current":
+        raise ValidationFailure(
+            "onboard-state-conflict",
+            "onboarding attempt uses an obsolete scope generation",
         )
 
 
 def _load_attempt(
     vault: Path,
     identity: dict[str, str],
-    registration: dict[str, Any],
 ) -> dict[str, Any] | None:
     path = _attempt_path(vault, identity["uuid"])
     if not path.exists() and not path.is_symlink():
@@ -374,7 +415,7 @@ def _load_attempt(
         _ATTEMPT_SCHEMA,
         missing_code="onboard-state-incomplete",
     )
-    _validate_attempt(attempt, identity, registration)
+    _validate_attempt_identity(attempt, identity)
     return attempt
 
 
@@ -528,6 +569,69 @@ def _remove_exact_active_evidence(
         ) from exc
 
 
+def _retire_stale_attempt(
+    vault: Path,
+    identity: dict[str, str],
+    registration: dict[str, Any],
+    attempt: dict[str, Any],
+) -> None:
+    """Archive one pre-checkpoint attempt invalidated by a newer scope."""
+    _validate_attempt_identity(attempt, identity)
+    if _attempt_scope_state(attempt, registration) != "stale":
+        raise ValidationFailure(
+            "onboard-state-conflict",
+            "only an obsolete pre-checkpoint attempt can be retired as stale",
+        )
+    archive = _stale_attempt_root(vault, identity["uuid"], attempt)
+    _write_immutable(vault, archive / "attempt.json", canonical_bytes(attempt))
+    _remove_exact_active_evidence(
+        vault,
+        _attempt_path(vault, identity["uuid"]),
+        attempt,
+    )
+
+
+def _finish_stale_attempt_retirement(
+    vault: Path,
+    identity: dict[str, str],
+    registration: dict[str, Any],
+    attempt: dict[str, Any],
+    checkpoint: dict[str, Any] | None,
+) -> bool:
+    """Finish an interrupted stale-attempt retirement from its archive."""
+    archive_path = (
+        _stale_attempt_root(vault, identity["uuid"], attempt) / "attempt.json"
+    )
+    if not archive_path.exists() and not archive_path.is_symlink():
+        return False
+    if checkpoint is not None:
+        raise ValidationFailure(
+            "onboard-state-conflict",
+            "a stale-attempt archive conflicts with active sync evidence",
+        )
+    archived_attempt = _load_vault_object(
+        vault,
+        archive_path,
+        _ATTEMPT_SCHEMA,
+        missing_code="onboard-state-incomplete",
+    )
+    _validate_attempt_identity(archived_attempt, identity)
+    if (
+        archived_attempt != attempt
+        or _attempt_scope_state(archived_attempt, registration) != "stale"
+    ):
+        raise ValidationFailure(
+            "onboard-state-conflict",
+            "stale onboarding archive conflicts with active transaction evidence",
+        )
+    _remove_exact_active_evidence(
+        vault,
+        _attempt_path(vault, identity["uuid"]),
+        archived_attempt,
+    )
+    return True
+
+
 def _retire_failed_attempt(
     vault: Path,
     identity: dict[str, str],
@@ -564,7 +668,6 @@ def _retire_failed_attempt(
 def _finish_failed_attempt_retirement(
     vault: Path,
     identity: dict[str, str],
-    registration: dict[str, Any],
     attempt: dict[str, Any],
     checkpoint: dict[str, Any] | None,
 ) -> bool:
@@ -595,7 +698,7 @@ def _finish_failed_attempt_retirement(
         _ATTEMPT_SCHEMA,
         missing_code="onboard-state-incomplete",
     )
-    _validate_attempt(archived_attempt, identity, registration)
+    _validate_attempt_identity(archived_attempt, identity)
     archived_checkpoint = _load_vault_object(
         vault,
         archived_checkpoint_path,
@@ -887,13 +990,23 @@ def _onboard_project_locked(
 
     vault_state = "linked" if vault_existed else "created"
     pair_count_before = coordination_pair_count(vault)
-    attempt = _load_attempt(vault, identity, registration)
+    attempt = _load_attempt(vault, identity)
     checkpoint = (
         _load_sync_checkpoint(vault, identity, attempt)
         if attempt is not None
         else None
     )
+    resume_pending = attempt is not None
     if attempt is not None and _finish_failed_attempt_retirement(
+        vault,
+        identity,
+        attempt,
+        checkpoint,
+    ):
+        attempt = None
+        checkpoint = None
+        resume_pending = False
+    if attempt is not None and _finish_stale_attempt_retirement(
         vault,
         identity,
         registration,
@@ -902,6 +1015,19 @@ def _onboard_project_locked(
     ):
         attempt = None
         checkpoint = None
+        resume_pending = True
+    if (
+        attempt is not None
+        and _attempt_scope_state(attempt, registration) == "stale"
+    ):
+        if checkpoint is not None:
+            raise ValidationFailure(
+                "onboard-state-conflict",
+                "an obsolete onboarding attempt already has sync evidence",
+            )
+        _retire_stale_attempt(vault, identity, registration, attempt)
+        attempt = None
+        resume_pending = True
     sync_result = None
     if attempt is not None and checkpoint is not None:
         sync_result = recover_matching_sync_result(
@@ -958,7 +1084,7 @@ def _onboard_project_locked(
             expected_access_label_ref=registration["access_label_ref"],
             _before_sync=prepare_attempt,
             _before_pull_apply=preserve_sync_response,
-            _resume_pending=attempt is not None,
+            _resume_pending=resume_pending or attempt is not None,
         )
     if attempt is None or checkpoint is None:
         raise ValidationFailure(
