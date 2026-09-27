@@ -23,7 +23,7 @@ from .context import (
 )
 from .coordination import validate_coordination_files
 from .coordination_kickoff import (
-    KICKOFF_PACK_SCHEMA_ID,
+    KICKOFF_PACK_SCHEMA_IDS,
     build_kickoff_pack,
     render_kickoff_prompt,
     validate_kickoff_pack,
@@ -780,7 +780,7 @@ def main(argv: list[str] | None = None) -> int:
             validate_bootstrap_pack(record)
         if schema_id == BOOTSTRAP_RECEIPT_SCHEMA_ID:
             validate_bootstrap_receipt(record)
-        if schema_id == KICKOFF_PACK_SCHEMA_ID:
+        if schema_id in KICKOFF_PACK_SCHEMA_IDS:
             validate_kickoff_pack(record)
     except ValidationFailure as exc:
         result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}

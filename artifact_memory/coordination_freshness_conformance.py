@@ -17,7 +17,12 @@ from .coordination import (
 from .coordination_freshness import evaluate_coordination_freshness
 from .coordination_kickoff import build_kickoff_pack, validate_kickoff_pack
 from .coordination_onboarding import onboard_project
-from .coordination_sync import configure_local_hub, pull, store_coordination_record
+from .coordination_sync import (
+    configure_local_hub,
+    load_authorized_coordination_snapshot,
+    pull,
+    store_coordination_record,
+)
 from .schema_resources import load_schema
 from .validator import ValidationFailure, load_json, validate
 
@@ -130,7 +135,9 @@ def exercise(fixtures: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, 
             human_name="synthetic-service",
         )
         _git(repo, "add", ".agent-memory/repo.json")
-        _commit(repo, "Add synthetic identity", "2026-09-27T15:01:00Z")
+        ancestor_commit = _commit(
+            repo, "Add synthetic identity", "2026-09-27T15:01:00Z"
+        )
 
         _git(repo, "switch", "-q", "-c", "synthetic-stale")
         (repo / "stale.txt").write_text("synthetic stale branch\n", encoding="utf-8")
@@ -146,7 +153,10 @@ def exercise(fixtures: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, 
         )
 
         stale_task = _task(fixtures, label, 3, stale_commit)
-        extensions_before = canonical_bytes(stale_task["extensions"])
+        opaque_extension_id = "https://synthetic.example/extensions/opaque"
+        opaque_before = canonical_bytes(
+            stale_task["extensions"][opaque_extension_id]
+        )
         store_coordination_record(hub, stale_task)
         pull(
             vault,
@@ -156,8 +166,18 @@ def exercise(fixtures: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, 
         )
         stale_pack = build_kickoff_pack(vault, PROJECT_ID, repo_root=repo)
         validate_kickoff_pack(stale_pack)
+        stale_digest = revision_digest(stale_task)
+        transported_stale = next(
+            record
+            for record in load_authorized_coordination_snapshot(vault)["records"]
+            if record["record_id"] == stale_task["record_id"]
+            and revision_digest(record) == stale_digest
+        )
+        opaque_transport_preserved = canonical_bytes(
+            transported_stale["extensions"][opaque_extension_id]
+        ) == opaque_before
 
-        current_task = _task(fixtures, label, 5, current_head)
+        current_task = _task(fixtures, label, 5, ancestor_commit)
         store_coordination_record(hub, current_task)
         pull(
             vault,
@@ -175,16 +195,24 @@ def exercise(fixtures: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, 
             "value": {},
         }
         try:
-            evaluate_coordination_freshness(required, repo)
+            evaluate_coordination_freshness(
+                required,
+                repo,
+                expected_project_id=PROJECT_ID,
+            )
         except ValidationFailure as exc:
             required_code = exc.code
         else:
             raise RuntimeError("unknown required coordination extension was accepted")
 
         top_level = deepcopy(current_task)
-        top_level["trueAsOfCommit"] = current_head
+        top_level["trueAsOfCommit"] = ancestor_commit
         try:
-            evaluate_coordination_freshness(top_level, repo)
+            evaluate_coordination_freshness(
+                top_level,
+                repo,
+                expected_project_id=PROJECT_ID,
+            )
         except ValidationFailure as exc:
             top_level_code = exc.code
         else:
@@ -199,9 +227,7 @@ def exercise(fixtures: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, 
                 "outcome": "passed",
                 "stale_observation": stale_observation,
                 "current_observation": current_observation,
-                "unknown_optional_preserved": (
-                    canonical_bytes(stale_task["extensions"]) == extensions_before
-                ),
+                "unknown_optional_preserved": opaque_transport_preserved,
                 "negative_codes": {
                     "unknown_required": required_code,
                     "top_level_freshness": top_level_code,

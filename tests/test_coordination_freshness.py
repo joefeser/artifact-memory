@@ -24,6 +24,7 @@ from artifact_memory.coordination_kickoff import (
 from artifact_memory.coordination_onboarding import onboard_project
 from artifact_memory.coordination_sync import (
     configure_local_hub,
+    load_authorized_coordination_snapshot,
     pull,
     store_coordination_record,
 )
@@ -64,7 +65,7 @@ class CoordinationFreshnessTests(unittest.TestCase):
         )
         return self.git(repo, "rev-parse", "HEAD")
 
-    def setup_plane(self, root: Path) -> tuple[Path, Path, Path, dict]:
+    def setup_plane(self, root: Path) -> tuple[Path, Path, Path, dict, str]:
         repo, vault, hub = root / "repo", root / "vault", root / "hub"
         repo.mkdir()
         self.git(repo, "init", "-q", "-b", "main")
@@ -98,8 +99,10 @@ class CoordinationFreshnessTests(unittest.TestCase):
             human_name="synthetic-service",
         )
         self.git(repo, "add", ".agent-memory/repo.json")
-        self.commit(repo, "Add synthetic identity", "2026-09-27T15:01:00Z")
-        return repo, vault, hub, label
+        ancestor = self.commit(
+            repo, "Add synthetic identity", "2026-09-27T15:01:00Z"
+        )
+        return repo, vault, hub, label, ancestor
 
     def divergent_commits(self, repo: Path) -> tuple[str, str]:
         self.git(repo, "switch", "-q", "-c", "synthetic-stale")
@@ -138,10 +141,13 @@ class CoordinationFreshnessTests(unittest.TestCase):
 
     def test_repo_bound_pack_marks_divergent_and_ancestor_commits(self):
         with tempfile.TemporaryDirectory() as temporary:
-            repo, vault, hub, label = self.setup_plane(Path(temporary).resolve())
+            repo, vault, hub, label, ancestor = self.setup_plane(
+                Path(temporary).resolve()
+            )
             stale, head = self.divergent_commits(repo)
             stale_task = self.task(label, 3, stale)
-            before = copy.deepcopy(stale_task["extensions"])
+            opaque_id = "https://synthetic.example/extensions/opaque"
+            before = copy.deepcopy(stale_task["extensions"][opaque_id])
             store_coordination_record(hub, stale_task)
             pull(
                 vault,
@@ -165,10 +171,18 @@ class CoordinationFreshnessTests(unittest.TestCase):
             self.assertEqual(stale_freshness["status"], "stale-verify")
             self.assertEqual(stale_freshness["true_as_of_commit"], stale)
             self.assertEqual(stale_freshness["observed_head"], head)
-            self.assertEqual(stale_task["extensions"], before)
+            transported = next(
+                record
+                for record in load_authorized_coordination_snapshot(vault)[
+                    "records"
+                ]
+                if record["record_id"] == stale_task["record_id"]
+                and revision_digest(record) == revision_digest(stale_task)
+            )
+            self.assertEqual(transported["extensions"][opaque_id], before)
             self.assertIn("Repository freshness: `stale-verify`", render_kickoff_prompt(stale_pack))
 
-            current_task = self.task(label, 5, head)
+            current_task = self.task(label, 5, ancestor)
             store_coordination_record(hub, current_task)
             pull(
                 vault,
@@ -183,6 +197,13 @@ class CoordinationFreshnessTests(unittest.TestCase):
                 current_pack["queue"]["selected_task"]["freshness"]["status"],
                 "current",
             )
+            self.assertEqual(
+                current_pack["queue"]["selected_task"]["freshness"][
+                    "true_as_of_commit"
+                ],
+                ancestor,
+            )
+            self.assertNotEqual(ancestor, head)
 
             stdout = io.StringIO()
             with contextlib.redirect_stdout(stdout):
@@ -205,9 +226,64 @@ class CoordinationFreshnessTests(unittest.TestCase):
                 "current",
             )
 
+            tampered = copy.deepcopy(current_pack)
+            tampered["queue"]["selected_task"]["title_untrusted"] += " changed"
+            tampered_path = Path(temporary) / "tampered-kickoff-v1.json"
+            tampered_path.write_text(json.dumps(tampered), encoding="utf-8")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                exit_code = main(["validate", str(tampered_path), "--json"])
+            self.assertEqual(exit_code, 2)
+            rejected = json.loads(stdout.getvalue())
+            self.assertEqual(
+                rejected["diagnostics"][0]["code"],
+                "kickoff-pack-id-mismatch",
+            )
+
+            malformed = []
+            missing = copy.deepcopy(current_pack)
+            del missing["queue"]["selected_task"]["freshness"]
+            malformed.append(missing)
+            bad_status = copy.deepcopy(current_pack)
+            bad_status["queue"]["selected_task"]["freshness"]["status"] = "stale"
+            malformed.append(bad_status)
+            bad_commit = copy.deepcopy(current_pack)
+            bad_commit["queue"]["selected_task"]["freshness"][
+                "true_as_of_commit"
+            ] = "not-a-commit"
+            malformed.append(bad_commit)
+            bad_head = copy.deepcopy(current_pack)
+            bad_head["queue"]["selected_task"]["freshness"][
+                "observed_head"
+            ] = "not-a-head"
+            malformed.append(bad_head)
+            for pack in malformed:
+                with self.subTest(freshness=pack["queue"]["selected_task"].get("freshness")):
+                    with self.assertRaises(ValidationFailure):
+                        validate_kickoff_pack(pack)
+
+    def test_repo_binding_is_enforced_for_an_empty_queue(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repo, vault, _, _, _ = self.setup_plane(root)
+            pack = build_kickoff_pack(vault, PROJECT_ID, repo_root=repo)
+            self.assertIsNone(pack["queue"]["selected_task"])
+            with self.assertRaises(ValidationFailure) as raised:
+                build_kickoff_pack(
+                    vault,
+                    PROJECT_ID,
+                    repo_root=root / "missing-repository",
+                )
+            self.assertEqual(
+                raised.exception.code,
+                "coordination-onboarding-required",
+            )
+
     def test_unavailable_and_wrong_format_commits_fail_typed(self):
         with tempfile.TemporaryDirectory() as temporary:
-            repo, _, _, _ = self.setup_plane(Path(temporary).resolve())
+            repo, _, _, _, ancestor = self.setup_plane(
+                Path(temporary).resolve()
+            )
             with self.assertRaises(ValidationFailure) as raised:
                 compare_commit_to_head(repo, "0" * 40)
             self.assertEqual(
@@ -222,6 +298,32 @@ class CoordinationFreshnessTests(unittest.TestCase):
                 "coordination-freshness-object-format-mismatch",
             )
 
+            manifest_path = repo / ".agent-memory/repo.json"
+            other_identity = json.loads(manifest_path.read_text(encoding="utf-8"))
+            other_identity["uuid"] = "22222222-2222-4222-8222-222222222222"
+            other_identity["humanName"] = "other-synthetic-service"
+            manifest_path.write_text(
+                json.dumps(other_identity, sort_keys=True, separators=(",", ":"))
+                + "\n",
+                encoding="utf-8",
+            )
+            self.git(repo, "add", ".agent-memory/repo.json")
+            self.commit(
+                repo,
+                "Change synthetic identity",
+                "2026-09-27T15:06:00Z",
+            )
+            with self.assertRaises(ValidationFailure) as raised:
+                compare_commit_to_head(
+                    repo,
+                    ancestor,
+                    expected_project_id=PROJECT_ID,
+                )
+            self.assertEqual(
+                raised.exception.code,
+                "coordination-freshness-repository-identity-mismatch",
+            )
+
     def test_unknown_required_and_top_level_freshness_fail_closed(self):
         label = copy.deepcopy(load_json(FIXTURES / "access-label.json"))
         task = self.task(label, 3, "a" * 40)
@@ -232,13 +334,21 @@ class CoordinationFreshnessTests(unittest.TestCase):
             "value": {},
         }
         with self.assertRaises(ValidationFailure) as raised:
-            evaluate_coordination_freshness(required, Path.cwd())
+            evaluate_coordination_freshness(
+                required,
+                Path.cwd(),
+                expected_project_id=PROJECT_ID,
+            )
         self.assertEqual(raised.exception.code, "required-extension-unsupported")
 
         top_level = copy.deepcopy(task)
         top_level["trueAsOfCommit"] = "a" * 40
         with self.assertRaises(ValidationFailure) as raised:
-            evaluate_coordination_freshness(top_level, Path.cwd())
+            evaluate_coordination_freshness(
+                top_level,
+                Path.cwd(),
+                expected_project_id=PROJECT_ID,
+            )
         self.assertEqual(raised.exception.code, "unknown-field")
 
     def test_fresh_pack_schema_is_packaged(self):

@@ -3,14 +3,14 @@
   "current_observation": {
     "observed_head": "c82a4dd03a77d86df04e8c1cf0b51b992153fcaf",
     "status": "current",
-    "true_as_of_commit": "c82a4dd03a77d86df04e8c1cf0b51b992153fcaf"
+    "true_as_of_commit": "ed6c27b2b59f22c16bc9c9db84634a3e7aa7ff43"
   },
   "negative_codes": {
     "top_level_freshness": "unknown-field",
     "unknown_required": "required-extension-unsupported"
   },
   "outcome": "passed",
-  "receipt_id": "coordination-freshness-conformance-receipt://sha-256/3b811063bc3c44af414684f97c37a1686767ce740c430ae00833a0752d2a056c",
+  "receipt_id": "coordination-freshness-conformance-receipt://sha-256/8b2f3a464b81df07ce6ccf6cc56e42ffed6a1320af9612c5120e4bd8d8387db7",
   "schema_id": "artifact-memory/coordination-freshness-conformance-receipt/v0",
   "stale_observation": {
     "observed_head": "c82a4dd03a77d86df04e8c1cf0b51b992153fcaf",

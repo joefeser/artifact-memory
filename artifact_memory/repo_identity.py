@@ -353,7 +353,12 @@ def verify_repo_worktree_root(repo_root: Path) -> Path:
     return absolute_root
 
 
-def compare_commit_to_head(repo_root: Path, candidate: str) -> dict[str, str]:
+def compare_commit_to_head(
+    repo_root: Path,
+    candidate: str,
+    *,
+    expected_project_id: str | None = None,
+) -> dict[str, str]:
     """Compare one validated object ID with a stable repository HEAD.
 
     Git replacement objects and ambient repository/configuration overrides
@@ -405,6 +410,28 @@ def compare_commit_to_head(repo_root: Path, candidate: str) -> dict[str, str]:
             "Git returned an invalid current repository head",
             "$",
         )
+    if expected_project_id is not None:
+        try:
+            committed_identity = load_json_bytes(
+                _git_output(
+                    absolute_root,
+                    "show",
+                    f"{head}:{REPO_IDENTITY_RELATIVE_PATH.as_posix()}",
+                )
+            )
+            validate(committed_identity, REPO_IDENTITY_SCHEMA)
+        except ValidationFailure as exc:
+            raise ValidationFailure(
+                "coordination-freshness-repository-identity-mismatch",
+                "observed repository head does not contain the expected project identity",
+                "$",
+            ) from exc
+        if committed_identity["uuid"] != expected_project_id:
+            raise ValidationFailure(
+                "coordination-freshness-repository-identity-mismatch",
+                "observed repository head names another project identity",
+                "$",
+            )
 
     comparison = _git_result(
         absolute_root, "merge-base", "--is-ancestor", candidate, head

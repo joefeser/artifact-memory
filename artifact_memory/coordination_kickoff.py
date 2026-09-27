@@ -45,6 +45,7 @@ _SCHEMAS = {
         "core", "coordination-kickoff-pack.v1.schema.json"
     ),
 }
+KICKOFF_PACK_SCHEMA_IDS = frozenset(_SCHEMAS)
 
 
 def validate_kickoff_pack(pack: dict[str, Any]) -> None:
@@ -176,6 +177,13 @@ def build_kickoff_pack(
 ) -> dict[str, Any]:
     """Build one receipt-bound queue view for an onboarded project."""
     link, _, bootstrap_pack = load_onboarded_project(vault, project_selector)
+    if repo_root is not None:
+        repo_link = require_repo_onboarding(repo_root, vault)
+        if repo_link != link:
+            raise ValidationFailure(
+                "kickoff-repository-binding-mismatch",
+                "selected repository does not match the kickoff project binding",
+            )
     snapshot = load_authorized_coordination_snapshot(vault)
     receipt = snapshot["receipt"]
     if (
@@ -255,18 +263,14 @@ def build_kickoff_pack(
             },
         }
         if repo_root is not None:
-            repo_link = require_repo_onboarding(repo_root, vault)
-            if repo_link != link:
-                raise ValidationFailure(
-                    "kickoff-repository-binding-mismatch",
-                    "selected repository does not match the kickoff project binding",
-                )
             freshness = selected.get("extensions", {}).get(
                 FRESHNESS_EXTENSION_ID
             )
             if freshness is not None:
                 selected_summary["freshness"] = evaluate_coordination_freshness(
-                    selected, repo_root
+                    selected,
+                    repo_root,
+                    expected_project_id=link["project_id"],
                 )
                 pack_schema_id = FRESH_KICKOFF_PACK_SCHEMA_ID
 
