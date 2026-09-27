@@ -72,4 +72,6 @@ For the local coordination plane, first read the
 [provider-free sync proof](onboarding/local-coordination-sync-proof.md), then
 use [coordination project onboarding](onboarding/coordination-project-onboarding.md)
 to bind a committed repository UUID to an externally administered AccessLabel
-without storing the full label or claiming operational authority.
+without storing the full label or claiming operational authority. Then use the
+[bounded coordination kickoff guide](onboarding/coordination-kickoff.md) to
+render the latest admitted open task as escaped, informational-only context.

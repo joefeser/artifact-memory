@@ -69,10 +69,11 @@ transactions/coordination-onboarding/stale/<project-uuid>/<attempt-digest>/attem
 
 The project link stores logical IDs and the exact opaque AccessLabel reference,
 not a hostname, path, credential, or full label body. The generated bootstrap
-pack is informational. AM-5 will add queue selection and safe rendering of
-untrusted acceptance commands; AM-9 explicitly does neither. AM-1 will add
-session-ledger ingestion; onboarding preserves existing history without
-claiming it was imported.
+pack is informational and does not select queue work. AM-5 provides that
+separate receipt-qualified step in the
+[coordination kickoff guide](coordination-kickoff.md), including safe rendering
+of untrusted acceptance commands. AM-1 will add session-ledger ingestion;
+onboarding preserves existing history without claiming it was imported.
 
 The attempt is immutable pre-sync evidence. The sync checkpoint retains the
 exact bounded response after validation and before application. If sync or

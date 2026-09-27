@@ -285,6 +285,151 @@ def _validate_storage_root(boundary: Path, *, create: bool) -> None:
         os.close(descriptor)
 
 
+def _is_link_or_reparse(metadata: os.stat_result) -> bool:
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return stat.S_ISLNK(metadata.st_mode) or bool(
+        getattr(metadata, "st_file_attributes", 0) & reparse_flag
+    )
+
+
+def _entry_identity(metadata: os.stat_result) -> tuple[int, int, int]:
+    return metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode)
+
+
+def _observe_local_file(boundary: Path, path: Path) -> list[os.stat_result]:
+    """Observe one regular file and every directory beneath the storage root."""
+    try:
+        relative = path.relative_to(boundary)
+    except ValueError as exc:
+        raise SyncFailure(
+            "sync-storage-escape", "sync read path escapes its storage root"
+        ) from exc
+    if not relative.parts or ".." in relative.parts:
+        raise SyncFailure("sync-storage-escape", "sync read path is unsafe")
+    observations: list[os.stat_result] = []
+    current = boundary
+    for index, part in enumerate(relative.parts):
+        current /= part
+        metadata = os.lstat(current)
+        final = index == len(relative.parts) - 1
+        expected_type = (
+            stat.S_ISREG(metadata.st_mode) if final else stat.S_ISDIR(metadata.st_mode)
+        )
+        if _is_link_or_reparse(metadata) or not expected_type:
+            raise SyncFailure(
+                "sync-storage-unsafe",
+                "sync read path traverses a link, reparse point, or unexpected entry type",
+            )
+        observations.append(metadata)
+    return observations
+
+
+def _read_local_regular_file(
+    boundary: Path,
+    path: Path,
+    *,
+    missing_code: str,
+    missing_message: str,
+) -> bytes:
+    """Read a regular file without following descendants outside the root."""
+    _validate_storage_root(boundary, create=False)
+    try:
+        relative = path.relative_to(boundary)
+    except ValueError as exc:
+        raise SyncFailure(
+            "sync-storage-escape", "sync read path escapes its storage root"
+        ) from exc
+    if not relative.parts or ".." in relative.parts:
+        raise SyncFailure("sync-storage-escape", "sync read path is unsafe")
+
+    secure_directory_open = os.open in os.supports_dir_fd and all(
+        hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")
+    )
+    if secure_directory_open:
+        descriptor: int | None = None
+        try:
+            descriptor = os.open(
+                boundary,
+                os.O_RDONLY
+                | os.O_DIRECTORY
+                | os.O_NOFOLLOW
+                | getattr(os, "O_CLOEXEC", 0),
+            )
+            for index, part in enumerate(relative.parts):
+                final = index == len(relative.parts) - 1
+                flags = (
+                    os.O_RDONLY
+                    | os.O_NOFOLLOW
+                    | getattr(os, "O_CLOEXEC", 0)
+                )
+                flags |= (
+                    getattr(os, "O_BINARY", 0) if final else os.O_DIRECTORY
+                )
+                child = os.open(part, flags, dir_fd=descriptor)
+                os.close(descriptor)
+                descriptor = child
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise SyncFailure(
+                    "sync-storage-unsafe", "sync read target is not a regular file"
+                )
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                return stream.read()
+        except FileNotFoundError as exc:
+            raise SyncFailure(missing_code, missing_message) from exc
+        except SyncFailure:
+            raise
+        except OSError as exc:
+            raise SyncFailure(
+                "sync-storage-unsafe", "sync read path could not be opened safely"
+            ) from exc
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
+    try:
+        before = _observe_local_file(boundary, path)
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        descriptor = os.open(path, flags)
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or _entry_identity(before[-1]) != _entry_identity(opened)
+            ):
+                raise SyncFailure(
+                    "sync-storage-unsafe", "sync read target changed before opening"
+                )
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                snapshot = stream.read()
+            opened_after = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        after = _observe_local_file(boundary, path)
+    except FileNotFoundError as exc:
+        raise SyncFailure(missing_code, missing_message) from exc
+    except SyncFailure:
+        raise
+    except OSError as exc:
+        raise SyncFailure(
+            "sync-storage-unsafe", "sync read path could not be inspected safely"
+        ) from exc
+    if (
+        len(before) != len(after)
+        or any(
+            _entry_identity(left) != _entry_identity(right)
+            for left, right in zip(before, after)
+        )
+        or _entry_identity(opened) != _entry_identity(opened_after)
+    ):
+        raise SyncFailure("sync-storage-unsafe", "sync read path changed during reading")
+    return snapshot
+
+
 def _sync_directory(path: Path) -> None:
     """Persist POSIX directory metadata; Windows installs use write-through moves."""
     if os.name == "nt":
@@ -1882,7 +2027,16 @@ def _load_current_projection(
     _validate_storage_root(vault, create=False)
     marker_path = vault / "generated" / "coordination-sync" / "last-successful.json"
     try:
-        marker = load_json(marker_path)
+        marker_raw = _read_local_regular_file(
+            vault,
+            marker_path,
+            missing_code="sync-marker-missing",
+            missing_message="no successful authorized sync projection exists",
+        )
+        _check_raw_depth(marker_raw)
+        marker = load_json_bytes(marker_raw)
+    except SyncFailure:
+        raise
     except ValidationFailure as exc:
         raise SyncFailure("sync-marker-invalid", "successful sync marker is invalid") from exc
     required_marker_fields = {
@@ -1909,11 +2063,25 @@ def _load_current_projection(
     projection = _projection_root(vault, receipt_ref)
     receipt_path = projection / "receipt.json"
     manifest_path = projection / "authorized-membership.json"
-    if receipt_path.is_symlink() or manifest_path.is_symlink():
-        raise SyncFailure("sync-storage-unsafe", "sync projection storage is unsafe")
     try:
-        receipt = load_json(receipt_path)
-        pairs = _validated_pair_manifest(load_json(manifest_path))
+        receipt_raw = _read_local_regular_file(
+            vault,
+            receipt_path,
+            missing_code="sync-projection-invalid",
+            missing_message="authorized projection is incomplete",
+        )
+        manifest_raw = _read_local_regular_file(
+            vault,
+            manifest_path,
+            missing_code="sync-projection-invalid",
+            missing_message="authorized projection is incomplete",
+        )
+        _check_raw_depth(receipt_raw)
+        _check_raw_depth(manifest_raw)
+        receipt = load_json_bytes(receipt_raw)
+        pairs = _validated_pair_manifest(load_json_bytes(manifest_raw))
+    except SyncFailure:
+        raise
     except ValidationFailure as exc:
         raise SyncFailure("sync-projection-invalid", "authorized projection is invalid") from exc
     if not isinstance(receipt, dict):
@@ -2339,19 +2507,24 @@ def recover_matching_sync_result(
         }
 
 
-def load_authorized_projection(vault: Path) -> list[dict[str, Any]]:
-    """Load only the verified generated authorization view for context consumers."""
+def load_authorized_coordination_snapshot(vault: Path) -> dict[str, Any]:
+    """Load the verified receipt, membership, and exact authorized records."""
     _validate_storage_root(vault, create=False)
-    if not (vault / "generated" / "coordination-sync" / "last-successful.json").exists():
-        raise SyncFailure("sync-marker-missing", "no successful authorized sync projection exists")
-    _, _, pairs = _load_current_projection(vault)
+    _, receipt, pairs = _load_current_projection(vault)
     records: list[dict[str, Any]] = []
     for pair in sorted_pairs(pairs):
         path = _record_path(vault, pair)
-        if path.is_symlink():
-            raise SyncFailure("sync-storage-unsafe", "authorized local record path is unsafe")
         try:
-            record = load_json(path)
+            raw = _read_local_regular_file(
+                vault,
+                path,
+                missing_code="sync-local-record-missing",
+                missing_message="authorized local record is unavailable",
+            )
+            _check_raw_depth(raw)
+            record = load_json_bytes(raw)
+        except SyncFailure:
+            raise
         except ValidationFailure as exc:
             raise SyncFailure("sync-local-record-missing", "authorized local record is unavailable") from exc
         if not isinstance(record, dict):
@@ -2363,6 +2536,40 @@ def load_authorized_projection(vault: Path) -> list[dict[str, Any]]:
         if _pair(materialized, digest) != pair:
             raise SyncFailure("sync-local-record-mismatch", "authorized local record has changed")
         records.append(materialized)
+    return {
+        "receipt": deepcopy(receipt),
+        "authorized_pairs": deepcopy(pairs),
+        "records": records,
+    }
+
+
+def load_authorized_projection(vault: Path) -> list[dict[str, Any]]:
+    """Load only the verified generated authorization view for context consumers."""
+    return load_authorized_coordination_snapshot(vault)["records"]
+
+
+def load_local_coordination_records(vault: Path) -> list[dict[str, Any]]:
+    """Load every exact local coordination pair without claiming admission."""
+    records: list[dict[str, Any]] = []
+    for stored in _scan_records(vault):
+        try:
+            materialized, digest = validate_coordination_record_body(stored.record)
+        except ValidationFailure as exc:
+            raise SyncFailure(
+                "sync-local-record-mismatch",
+                "local coordination record is invalid",
+            ) from exc
+        if digest != stored.record_ref["revision_digest"]:
+            raise SyncFailure(
+                "sync-local-record-mismatch",
+                "local coordination record digest does not match its path",
+            )
+        records.append(
+            {
+                "record_ref": deepcopy(stored.record_ref),
+                "record": materialized,
+            }
+        )
     return records
 
 
