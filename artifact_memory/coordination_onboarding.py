@@ -159,6 +159,22 @@ def _sync_checkpoint_path(vault: Path, project_id: str) -> Path:
     )
 
 
+def _failed_attempt_root(
+    vault: Path,
+    project_id: str,
+    attempt: dict[str, Any],
+) -> Path:
+    attempt_digest = attempt["attempt_id"].rsplit("/", 1)[-1]
+    return (
+        vault
+        / "transactions"
+        / "coordination-onboarding"
+        / "failed"
+        / project_id
+        / attempt_digest
+    )
+
+
 def _load_vault_object(
     vault: Path,
     path: Path,
@@ -478,6 +494,135 @@ def _create_sync_checkpoint(
     return checkpoint
 
 
+def _remove_exact_active_evidence(
+    vault: Path,
+    path: Path,
+    expected: dict[str, Any],
+) -> None:
+    if not path.exists() and not path.is_symlink():
+        return
+    _validate_storage_root(vault, create=False)
+    if path.is_symlink() or not path.is_file():
+        raise ValidationFailure(
+            "onboard-state-unsafe",
+            "active onboarding evidence is not a regular local file",
+        )
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise ValidationFailure(
+            "onboard-state-invalid",
+            "active onboarding evidence is unreadable",
+        ) from exc
+    if raw != canonical_bytes(expected):
+        raise ValidationFailure(
+            "onboard-state-conflict",
+            "active onboarding evidence changed before retirement",
+        )
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise ValidationFailure(
+            "onboard-state-retirement-failed",
+            "failed onboarding evidence was archived but its active path could not be retired",
+        ) from exc
+
+
+def _retire_failed_attempt(
+    vault: Path,
+    identity: dict[str, str],
+    attempt: dict[str, Any],
+    checkpoint: dict[str, Any],
+) -> None:
+    """Archive one failed pair before making its active paths reusable."""
+    _validate_sync_checkpoint(checkpoint, attempt)
+    archive = _failed_attempt_root(vault, identity["uuid"], attempt)
+    _write_immutable(
+        vault,
+        archive / "attempt.json",
+        canonical_bytes(attempt),
+    )
+    _write_immutable(
+        vault,
+        archive / "sync.json",
+        canonical_bytes(checkpoint),
+    )
+    # Checkpoint first is deliberate: after interruption, a remaining active
+    # attempt still identifies the complete immutable archive for recovery.
+    _remove_exact_active_evidence(
+        vault,
+        _sync_checkpoint_path(vault, identity["uuid"]),
+        checkpoint,
+    )
+    _remove_exact_active_evidence(
+        vault,
+        _attempt_path(vault, identity["uuid"]),
+        attempt,
+    )
+
+
+def _finish_failed_attempt_retirement(
+    vault: Path,
+    identity: dict[str, str],
+    registration: dict[str, Any],
+    attempt: dict[str, Any],
+    checkpoint: dict[str, Any] | None,
+) -> bool:
+    """Finish an interrupted retirement once both archive objects are durable."""
+    archive = _failed_attempt_root(vault, identity["uuid"], attempt)
+    archived_attempt_path = archive / "attempt.json"
+    archived_checkpoint_path = archive / "sync.json"
+    attempt_archived = (
+        archived_attempt_path.exists() or archived_attempt_path.is_symlink()
+    )
+    checkpoint_archived = (
+        archived_checkpoint_path.exists() or archived_checkpoint_path.is_symlink()
+    )
+    if not attempt_archived and not checkpoint_archived:
+        return False
+    if attempt_archived and not checkpoint_archived:
+        # The first archive write completed, but the active pair remains the
+        # authoritative resumable evidence until the second write completes.
+        return False
+    if checkpoint_archived and not attempt_archived:
+        raise ValidationFailure(
+            "onboard-state-incomplete",
+            "failed onboarding archive is missing its attempt evidence",
+        )
+    archived_attempt = _load_vault_object(
+        vault,
+        archived_attempt_path,
+        _ATTEMPT_SCHEMA,
+        missing_code="onboard-state-incomplete",
+    )
+    _validate_attempt(archived_attempt, identity, registration)
+    archived_checkpoint = _load_vault_object(
+        vault,
+        archived_checkpoint_path,
+        _SYNC_CHECKPOINT_SCHEMA,
+        missing_code="onboard-state-incomplete",
+    )
+    _validate_sync_checkpoint(archived_checkpoint, archived_attempt)
+    if archived_attempt != attempt or (
+        checkpoint is not None and archived_checkpoint != checkpoint
+    ):
+        raise ValidationFailure(
+            "onboard-state-conflict",
+            "failed onboarding archive conflicts with active transaction evidence",
+        )
+    _remove_exact_active_evidence(
+        vault,
+        _sync_checkpoint_path(vault, identity["uuid"]),
+        archived_checkpoint,
+    )
+    _remove_exact_active_evidence(
+        vault,
+        _attempt_path(vault, identity["uuid"]),
+        archived_attempt,
+    )
+    return True
+
+
 def _validate_publication(
     publication: dict[str, Any], identity: dict[str, str]
 ) -> None:
@@ -748,6 +893,15 @@ def _onboard_project_locked(
         if attempt is not None
         else None
     )
+    if attempt is not None and _finish_failed_attempt_retirement(
+        vault,
+        identity,
+        registration,
+        attempt,
+        checkpoint,
+    ):
+        attempt = None
+        checkpoint = None
     sync_result = None
     if attempt is not None and checkpoint is not None:
         sync_result = recover_matching_sync_result(
@@ -834,9 +988,11 @@ def _onboard_project_locked(
         if outcome["outcome"] != "admitted"
     ]
     if non_admitted:
+        _retire_failed_attempt(vault, identity, attempt, checkpoint)
         raise ValidationFailure(
             "onboard-sync-submission-rejected",
-            "first sync rejected or quarantined a local coordination revision",
+            "first sync rejected or quarantined a local coordination revision; "
+            "the failed attempt was retained and a later invocation may retry",
         )
 
     receipt = sync_result["receipt"]

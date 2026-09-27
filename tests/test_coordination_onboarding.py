@@ -112,6 +112,62 @@ class CoordinationOnboardingTests(unittest.TestCase):
         }
         return task
 
+    def claimed_task(self, label: dict) -> tuple[dict, dict]:
+        opened = self.task(label)
+        claimed = deepcopy(opened)
+        claimed["status"] = "claimed"
+        claimed["predecessor"] = {
+            "record_id": opened["record_id"],
+            "revision_digest": revision_digest(opened),
+        }
+        claimed["claims"] = [
+            {
+                "claimId": "claim_01J00000000000000000000002",
+                "principalId": PRINCIPAL,
+                "taskRef": deepcopy(claimed["predecessor"]),
+                "claimedAt": "2026-09-26T19:05:00Z",
+            }
+        ]
+        return opened, claimed
+
+    def work_receipt(self, label: dict, claimed: dict) -> dict:
+        return {
+            "schema_id": "artifact-memory/coordination-work-receipt/v0",
+            "record_id": (
+                "record://coordination/33333333-3333-4333-8333-333333333333/"
+                "receipt/rcpt-01J00000000000000000000001"
+            ),
+            "originId": "33333333-3333-4333-8333-333333333333",
+            "receiptId": "rcpt-01J00000000000000000000001",
+            "taskRef": {
+                "record_id": claimed["record_id"],
+                "revision_digest": revision_digest(claimed),
+            },
+            "writer": PRINCIPAL,
+            "machine": "synthetic-client-a",
+            "projectId": PROJECT_A,
+            "projectName": "synthetic-1",
+            "headSha": "a" * 40,
+            "accessLabelRef": {
+                "record_id": label["record_id"],
+                "revision_digest": revision_digest(label),
+            },
+            "evidence": [
+                {
+                    "command": "python3 -m unittest tests.test_synthetic_adapter",
+                    "exitCode": 0,
+                    "counts": {"passed": 1, "failed": 0, "skipped": 0},
+                    "artifacts": [],
+                }
+            ],
+            "consumedTokensNote": None,
+            "recordedAt": "2026-09-26T19:20:00Z",
+            "authority_boundary": (
+                "informational only; authority requires independently "
+                "authenticated WITS enforcement"
+            ),
+        }
+
     def test_fresh_repo_bootstraps_without_storing_full_access_label(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -553,6 +609,128 @@ class CoordinationOnboardingTests(unittest.TestCase):
                 "no-op",
             )
             validate_bootstrap_receipt(receipt)
+
+    def test_rejected_sync_is_archived_and_a_fresh_attempt_can_succeed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repo, vault, hub = root / "repo", root / "vault", root / "hub"
+            self.init_repo(repo)
+            label = self.label()
+            self.configure(hub, label)
+            opened, claimed = self.claimed_task(label)
+            append_local_coordination_record(
+                vault,
+                self.work_receipt(label, claimed),
+            )
+
+            with self.assertRaises(ValidationFailure) as rejected:
+                onboard_project(
+                    repo,
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at=COMPLETED_AT,
+                    human_name="synthetic-public",
+                )
+            self.assertEqual(
+                rejected.exception.code,
+                "onboard-sync-submission-rejected",
+            )
+            transaction_root = vault / "transactions" / "coordination-onboarding"
+            self.assertFalse((transaction_root / f"{PROJECT_A}.attempt.json").exists())
+            self.assertFalse((transaction_root / f"{PROJECT_A}.sync.json").exists())
+            failed_attempts = list((transaction_root / "failed" / PROJECT_A).iterdir())
+            self.assertEqual(len(failed_attempts), 1)
+            archived_attempt = load_json(failed_attempts[0] / "attempt.json")
+            archived_checkpoint = load_json(failed_attempts[0] / "sync.json")
+            self.assertEqual(
+                archived_checkpoint["attempt_ref"],
+                archived_attempt["attempt_id"],
+            )
+            self.assertEqual(
+                [
+                    item["outcome"]
+                    for item in archived_checkpoint["sync_response"]["receipt"][
+                        "submission_outcomes"
+                    ]
+                ],
+                ["rejected"],
+            )
+
+            store_coordination_record(hub, opened)
+            store_coordination_record(hub, claimed)
+            receipt = onboard_project(
+                repo,
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-26T21:00:00Z",
+                human_name="synthetic-public",
+            )
+            validate_bootstrap_receipt(receipt)
+            self.assertNotEqual(
+                load_json(transaction_root / f"{PROJECT_A}.attempt.json")[
+                    "attempt_id"
+                ],
+                archived_attempt["attempt_id"],
+            )
+            self.assertTrue((failed_attempts[0] / "sync.json").is_file())
+
+    def test_retry_finishes_an_interrupted_failed_attempt_retirement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repo, vault, hub = root / "repo", root / "vault", root / "hub"
+            self.init_repo(repo)
+            label = self.label()
+            self.configure(hub, label)
+            opened, claimed = self.claimed_task(label)
+            append_local_coordination_record(
+                vault,
+                self.work_receipt(label, claimed),
+            )
+
+            with (
+                mock.patch.object(
+                    onboarding_module,
+                    "_remove_exact_active_evidence",
+                    side_effect=ValidationFailure(
+                        "synthetic-retirement-interruption",
+                        "synthetic interruption after archive publication",
+                    ),
+                ),
+                self.assertRaises(ValidationFailure) as interrupted,
+            ):
+                onboard_project(
+                    repo,
+                    vault,
+                    hub,
+                    session_id=SESSION,
+                    completed_at=COMPLETED_AT,
+                    human_name="synthetic-public",
+                )
+            self.assertEqual(
+                interrupted.exception.code,
+                "synthetic-retirement-interruption",
+            )
+            transaction_root = vault / "transactions" / "coordination-onboarding"
+            self.assertTrue((transaction_root / f"{PROJECT_A}.attempt.json").is_file())
+            self.assertTrue((transaction_root / f"{PROJECT_A}.sync.json").is_file())
+
+            store_coordination_record(hub, opened)
+            store_coordination_record(hub, claimed)
+            receipt = onboard_project(
+                repo,
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at="2026-09-26T21:00:00Z",
+                human_name="synthetic-public",
+            )
+            validate_bootstrap_receipt(receipt)
+            failed_attempts = list((transaction_root / "failed" / PROJECT_A).iterdir())
+            self.assertEqual(len(failed_attempts), 1)
+            self.assertTrue((failed_attempts[0] / "attempt.json").is_file())
+            self.assertTrue((failed_attempts[0] / "sync.json").is_file())
 
     def test_concurrent_onboarding_serializes_and_replays_first_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:

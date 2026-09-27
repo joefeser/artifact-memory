@@ -110,6 +110,22 @@ def _task(fixtures: Path, label: dict[str, Any]) -> dict[str, Any]:
     return task
 
 
+def _run_artifact_memory(
+    source_root: Path,
+    arguments: list[str],
+) -> subprocess.CompletedProcess[str]:
+    # This proof intentionally exercises the installed CLI boundary. The
+    # interpreter and module are fixed locally, every variable is one argv
+    # value, and shell=False prevents command-text interpretation.
+    return subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        [sys.executable, "-m", "artifact_memory", *arguments],
+        cwd=source_root,
+        text=True,
+        capture_output=True,
+        shell=False,
+    )
+
+
 def _command(
     source_root: Path,
     repo: Path,
@@ -118,11 +134,9 @@ def _command(
     *,
     completed_at: str,
 ) -> dict[str, Any]:
-    completed = subprocess.run(
+    completed = _run_artifact_memory(
+        source_root,
         [
-            sys.executable,
-            "-m",
-            "artifact_memory",
             "onboard",
             str(repo),
             "--vault",
@@ -137,9 +151,6 @@ def _command(
             completed_at,
             "--json",
         ],
-        cwd=source_root,
-        text=True,
-        capture_output=True,
     )
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr or completed.stdout)
@@ -217,11 +228,9 @@ def run(fixtures: Path, fixture: Path) -> dict[str, Any]:
             unonboarded_repo,
             {"uuid": PROJECT_ID, "humanName": "synthetic-service"},
         )
-        rejected = subprocess.run(
+        rejected = _run_artifact_memory(
+            source_root,
             [
-                sys.executable,
-                "-m",
-                "artifact_memory",
                 "sync",
                 "--repo",
                 str(unonboarded_repo),
@@ -235,19 +244,14 @@ def run(fixtures: Path, fixture: Path) -> dict[str, Any]:
                 "2026-09-26T23:00:00Z",
                 "--json",
             ],
-            cwd=source_root,
-            text=True,
-            capture_output=True,
         )
         if rejected.returncode != 2:
             raise RuntimeError("unonboarded repo-bound sync did not fail typed")
         rejected_payload = json.loads(rejected.stdout)
         sync_diagnostic = rejected_payload["diagnostics"][0]
-        rejected_append = subprocess.run(
+        rejected_append = _run_artifact_memory(
+            source_root,
             [
-                sys.executable,
-                "-m",
-                "artifact_memory",
                 "record",
                 "append",
                 str(fixtures / "coordination" / "task-open.json"),
@@ -257,9 +261,6 @@ def run(fixtures: Path, fixture: Path) -> dict[str, Any]:
                 str(unonboarded_vault),
                 "--json",
             ],
-            cwd=source_root,
-            text=True,
-            capture_output=True,
         )
         if rejected_append.returncode != 2:
             raise RuntimeError("unonboarded repo-bound append did not fail typed")

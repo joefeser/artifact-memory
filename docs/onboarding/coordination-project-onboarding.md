@@ -62,6 +62,8 @@ receipts/coordination-onboarding/<project-uuid>.json
 transactions/coordination-onboarding/<project-uuid>.json
 transactions/coordination-onboarding/<project-uuid>.attempt.json
 transactions/coordination-onboarding/<project-uuid>.sync.json
+transactions/coordination-onboarding/failed/<project-uuid>/<attempt-digest>/attempt.json
+transactions/coordination-onboarding/failed/<project-uuid>/<attempt-digest>/sync.json
 ```
 
 The project link stores logical IDs and the exact opaque AccessLabel reference,
@@ -82,6 +84,14 @@ lets a retry complete missing matching outputs after interruption without
 deleting or rewriting durable evidence. Project onboarding is serialized so
 concurrent calls replay the first completed receipt instead of creating
 divergent packs.
+
+If the first sync rejects or quarantines a submitted revision, the command
+returns `onboard-sync-submission-rejected`. Its exact attempt and validated
+response checkpoint remain in the digest-addressed `failed/` archive. Only
+byte-matching active transaction copies are retired, so a later invocation can
+make a fresh attempt after the missing prerequisite or policy is corrected.
+An interrupted retirement completes from the immutable archive before that
+fresh attempt begins.
 
 ## Repo-bound commands
 

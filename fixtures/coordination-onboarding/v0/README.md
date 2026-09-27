@@ -29,3 +29,7 @@ The interruption matrix also covers failure after push but before pull,
 failure after marker advancement but before pending-outcome consumption, and a
 later successful pull advancing the current marker before onboarding resumes.
 Each path recovers from the attempt-specific bounded response checkpoint.
+The focused runtime regressions also prove that a rejected first-sync attempt
+is retained under its digest, a corrected prerequisite can succeed through a
+fresh attempt, and an interruption after failed-evidence archival completes
+the retirement before retrying.

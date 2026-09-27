@@ -73,13 +73,17 @@ principal, hub, label revision, policy generation, and timestamp from the
 attempt. It resumes an existing pending pull before attempting another push,
 consumes only pending outcomes represented by the checkpoint receipt, and can
 recover the checkpoint even if a later successful pull advances the mutable
-current marker. Before exposing the project link, kickoff projections, or
+current marker. If the receipt rejects or quarantines a submitted revision,
+onboarding copies the exact attempt and checkpoint into a digest-addressed
+immutable failed-attempt archive before removing only the byte-matching active
+transaction pair. The next invocation can therefore make a fresh attempt while
+the failed evidence remains inspectable; interrupted retirement resumes from
+the complete archive. Before exposing the project link, kickoff projections, or
 bootstrap receipt, onboarding then retains one immutable, digest-bound
 publication transaction containing their exact bytes. A retry validates that
 transaction and installs only missing matching outputs; any conflicting output
-fails closed. This makes interruption recoverable without rewriting or
-deleting immutable evidence, and concurrent calls replay the first completed
-receipt.
+fails closed. This makes interruption recoverable without rewriting or losing
+immutable evidence, and concurrent calls replay the first completed receipt.
 
 Automatic `repo.json` creation requires held parent-directory descriptors and
 no-follow traversal. A runtime without equivalent primitives fails typed with
@@ -103,6 +107,9 @@ may create and commit the strict manifest before rerunning onboarding.
   response checkpoint bound to the pre-sync attempt. Pending admission evidence
   is reconciled before another push, and a later current projection cannot
   erase the attempt-specific evidence.
+- Rejected or quarantined first-sync outcomes remain in a digest-addressed
+  failed-attempt archive; only exact active copies are retired so corrected
+  prerequisites or policy can be tried by a later invocation.
 - A bootstrap receipt proves local orchestration evidence only. It grants no
   execution, disclosure, mutation, spending, deployment, approval, or merge
   authority.
