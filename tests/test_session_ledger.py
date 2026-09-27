@@ -101,6 +101,8 @@ class SessionLedgerTests(unittest.TestCase):
                 "api" + " key" + ": " + synthetic_value,
                 "client" + "_secret" + "=" + synthetic_value,
                 "aws" + "_secret_access_key" + "=" + synthetic_value,
+                "github" + "_token" + "=" + synthetic_value,
+                "session=" + "g" + "hs_" + "syntheticvalue1234",
             )
             for index, fragment in enumerate(cases):
                 source = root / f"synthetic-sensitive-{index}.md"

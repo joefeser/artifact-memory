@@ -43,7 +43,13 @@ _ENTRY = re.compile(
 )
 _HEADING = re.compile(r"^#{1,6}\s+\S.*$")
 _TOKEN_PREFIXES = "|".join(
-    re.escape(value) for value in ("g" + "hp_", "github" + "_pat_", "s" + "k-")
+    re.escape(value)
+    for value in (
+        "g" + "hp_",
+        "g" + "hs_",
+        "github" + "_pat_",
+        "s" + "k-",
+    )
 )
 _NAME_GAP = r"[ _-]*"
 _CREDENTIAL_NAMES = "|".join(
@@ -54,6 +60,7 @@ _CREDENTIAL_NAMES = "|".join(
         "access" + _NAME_GAP + "token",
         "refresh" + _NAME_GAP + "token",
         "client" + _NAME_GAP + "secret",
+        "github" + _NAME_GAP + "token",
         "aws" + _NAME_GAP + "secret" + _NAME_GAP + "access" + _NAME_GAP + "key",
         "secret" + _NAME_GAP + "access" + _NAME_GAP + "key",
     )
@@ -330,6 +337,8 @@ def exercise_session_ledger_fixture(fixture: Path) -> dict[str, Any]:
             "api" + " key" + ": " + synthetic_value,
             "client" + "_secret" + "=" + synthetic_value,
             "aws" + "_secret_access_key" + "=" + synthetic_value,
+            "github" + "_token" + "=" + synthetic_value,
+            "session=" + "g" + "hs_" + "syntheticvalue1234",
         )
         sensitive_rejections = 0
         for index, fragment in enumerate(sensitive_fragments):

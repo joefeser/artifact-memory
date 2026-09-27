@@ -42,6 +42,8 @@ unsafe storage paths, and immutable-path collisions fail typed. Credentials
 belong in an approved secret manager, never a memory record. Common assignment
 forms are rejected whether names use spaces, hyphens, or underscores, including
 API keys, client secrets, access or refresh tokens, and secret access keys.
+GitHub token assignment names and recognized GitHub token prefixes are rejected
+as credential-like material as well.
 Before publishing any record, the importer preflights the complete batch under
 a vault-local lock; a collision in a later entry therefore cannot publish an
 earlier entry. Imported records remain informational and require separate owner
