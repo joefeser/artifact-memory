@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from copy import deepcopy
 from pathlib import Path
@@ -24,6 +25,9 @@ from artifact_memory.coordination_scope_conformance import (
     run,
 )
 from artifact_memory.coordination_sync import (
+    SyncFailure,
+    apply_pull_response,
+    build_pull_response,
     configure_local_hub,
     pair_set_digest,
     pull,
@@ -41,7 +45,7 @@ PRINCIPAL_ID = "coordination-principal://synthetic/context-cli"
 SESSION_ID = "coordination-session://synthetic/context-cli"
 
 
-def verified_vault(root: Path) -> tuple[Path, dict, dict]:
+def verified_vault(root: Path) -> tuple[Path, Path, dict, dict]:
     hub = root / "hub"
     vault = root / "vault"
     label = load_json(ROOT / "fixtures" / "coordination" / "access-label.json")
@@ -69,7 +73,7 @@ def verified_vault(root: Path) -> tuple[Path, dict, dict]:
         session_id=SESSION_ID,
         completed_at="2026-09-27T18:03:00Z",
     )
-    return vault, task, result
+    return hub, vault, task, result
 
 
 class CoordinationAccessScopeConformanceTests(unittest.TestCase):
@@ -187,9 +191,13 @@ class CoordinationAccessScopeConformanceTests(unittest.TestCase):
             },
             "records": records,
         }
+        @contextlib.contextmanager
+        def synthetic_snapshot(_vault):
+            yield snapshot
+
         with patch(
-            "artifact_memory.coordination_context.load_authorized_coordination_snapshot",
-            return_value=snapshot,
+            "artifact_memory.coordination_context.authorized_coordination_snapshot",
+            new=synthetic_snapshot,
         ):
             large = build_coordination_context_pack(Path("synthetic-unused-vault"))
         self.assertEqual(large["record_count"], 1001)
@@ -197,7 +205,7 @@ class CoordinationAccessScopeConformanceTests(unittest.TestCase):
 
     def test_cli_exports_verified_context_json(self):
         with tempfile.TemporaryDirectory() as temporary:
-            vault, task, sync_result = verified_vault(Path(temporary))
+            _hub, vault, task, sync_result = verified_vault(Path(temporary))
             stdout = io.StringIO()
             with contextlib.redirect_stdout(stdout):
                 exit_code = main(
@@ -220,6 +228,91 @@ class CoordinationAccessScopeConformanceTests(unittest.TestCase):
             result["sync_observation"]["excluded_count"],
             sync_result["receipt"]["excluded_count"],
         )
+
+    def test_cli_holds_scope_stable_through_context_emission(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            hub, vault, task, _sync_result = verified_vault(Path(temporary))
+            narrow = load_json(
+                ROOT / "fixtures" / "coordination" / "access-label.json"
+            )
+            narrow["may"]["readProjects"] = []
+            narrow["may"]["syncTaskPackets"] = []
+            narrow["may"]["syncWorkReceipts"] = []
+            narrow["may"]["postReceipts"] = []
+            narrow["mayNot"]["readProjects"] = [
+                project["projectId"] for project in narrow["projectNames"]
+            ]
+            configure_local_hub(
+                hub,
+                hub_id="coordination-hub://synthetic/context-cli",
+                scope_generation=2,
+                bindings=[
+                    {
+                        "session_id": SESSION_ID,
+                        "principal_id": PRINCIPAL_ID,
+                        "access_label": narrow,
+                    }
+                ],
+            )
+            narrowed_response = build_pull_response(
+                hub,
+                session_id=SESSION_ID,
+                completed_at="2026-09-27T18:04:00Z",
+            )
+
+            entered = threading.Event()
+            release = threading.Event()
+            stdout = io.StringIO()
+            exit_codes: list[int] = []
+            thread_error: list[BaseException] = []
+            from artifact_memory import cli as cli_module
+
+            original_receipt = cli_module._receipt
+
+            def blocked_receipt(payload, as_json):
+                entered.set()
+                if not release.wait(timeout=5):
+                    raise AssertionError("synthetic context emission barrier timed out")
+                original_receipt(payload, as_json)
+
+            def run_cli() -> None:
+                try:
+                    with contextlib.redirect_stdout(stdout):
+                        exit_codes.append(
+                            main(
+                                [
+                                    "coordination-context",
+                                    "--vault",
+                                    str(vault),
+                                    "--json",
+                                ]
+                            )
+                        )
+                except BaseException as exc:  # pragma: no cover - asserted below
+                    thread_error.append(exc)
+
+            with patch("artifact_memory.cli._receipt", side_effect=blocked_receipt):
+                worker = threading.Thread(target=run_cli)
+                worker.start()
+                self.assertTrue(entered.wait(timeout=5))
+                with self.assertRaises(SyncFailure) as busy:
+                    apply_pull_response(vault, narrowed_response)
+                self.assertEqual(busy.exception.code, "sync-local-apply-busy")
+                release.set()
+                worker.join(timeout=5)
+                self.assertFalse(worker.is_alive())
+
+            self.assertEqual(thread_error, [])
+            self.assertEqual(exit_codes, [0])
+            broad_pack = json.loads(stdout.getvalue())
+            self.assertEqual(broad_pack["record_count"], 1)
+            self.assertEqual(broad_pack["records"][0]["record_id"], task["record_id"])
+
+            applied = apply_pull_response(vault, narrowed_response)
+            self.assertEqual(applied["outcome"], "complete")
+            narrowed_pack = build_coordination_context_pack(vault)
+            self.assertEqual(narrowed_pack["record_count"], 0)
+            self.assertEqual(narrowed_pack["sync_observation"]["scope_generation"], 2)
 
     def test_generic_cli_validation_runs_context_pack_semantics(self):
         pack, _ = exercise(ROOT / "fixtures")

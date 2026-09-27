@@ -2640,11 +2640,20 @@ def _load_authorized_coordination_snapshot_unlocked(vault: Path) -> dict[str, An
     }
 
 
-def load_authorized_coordination_snapshot(vault: Path) -> dict[str, Any]:
-    """Load one coherent verified authorization snapshot."""
+@contextmanager
+def authorized_coordination_snapshot(
+    vault: Path,
+) -> Iterator[dict[str, Any]]:
+    """Hold the projection lock while one verified snapshot is consumed."""
     _validate_storage_root(vault, create=False)
     with _projection_apply_lock(vault):
-        return _load_authorized_coordination_snapshot_unlocked(vault)
+        yield _load_authorized_coordination_snapshot_unlocked(vault)
+
+
+def load_authorized_coordination_snapshot(vault: Path) -> dict[str, Any]:
+    """Load one coherent verified authorization snapshot."""
+    with authorized_coordination_snapshot(vault) as snapshot:
+        return snapshot
 
 
 def load_authorized_projection(vault: Path) -> list[dict[str, Any]]:

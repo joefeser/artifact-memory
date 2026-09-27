@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .canonical import canonical_bytes, sha256_bytes
 from .coordination import (
@@ -13,7 +14,7 @@ from .coordination import (
     validate_coordination_record_body,
 )
 from .coordination_sync import (
-    load_authorized_coordination_snapshot,
+    authorized_coordination_snapshot,
     pair_set_digest,
     sorted_pairs,
 )
@@ -110,9 +111,9 @@ def validate_coordination_context_pack(pack: dict[str, Any]) -> None:
         )
 
 
-def build_coordination_context_pack(vault: Path) -> dict[str, Any]:
-    """Export only records named by the latest verified authorized projection."""
-    snapshot = load_authorized_coordination_snapshot(vault)
+def _build_coordination_context_pack(
+    snapshot: dict[str, Any],
+) -> dict[str, Any]:
     receipt = snapshot["receipt"]
     records = deepcopy(snapshot["records"])
     body = {
@@ -143,3 +144,16 @@ def build_coordination_context_pack(vault: Path) -> dict[str, Any]:
     }
     validate_coordination_context_pack(pack)
     return pack
+
+
+@contextmanager
+def open_coordination_context_pack(vault: Path) -> Iterator[dict[str, Any]]:
+    """Hold authorization stable through one caller-controlled export action."""
+    with authorized_coordination_snapshot(vault) as snapshot:
+        yield _build_coordination_context_pack(snapshot)
+
+
+def build_coordination_context_pack(vault: Path) -> dict[str, Any]:
+    """Build a pack from the latest verified authorized projection."""
+    with open_coordination_context_pack(vault) as pack:
+        return pack

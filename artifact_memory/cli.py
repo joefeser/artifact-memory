@@ -24,7 +24,7 @@ from .context import (
 from .coordination import validate_coordination_files
 from .coordination_context import (
     CONTEXT_PACK_SCHEMA_ID as COORDINATION_CONTEXT_PACK_SCHEMA_ID,
-    build_coordination_context_pack,
+    open_coordination_context_pack,
     validate_coordination_context_pack,
 )
 from .coordination_kickoff import (
@@ -463,7 +463,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "coordination-context":
         try:
-            result = build_coordination_context_pack(args.vault)
+            with open_coordination_context_pack(args.vault) as result:
+                _receipt(result, args.as_json)
         except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
             _receipt(
                 {
@@ -486,7 +487,6 @@ def main(argv: list[str] | None = None) -> int:
                 args.as_json,
             )
             return EXIT_INVALID
-        _receipt(result, args.as_json)
         return EXIT_OK
 
     if args.command == "import-session-ledger":
