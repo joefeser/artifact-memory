@@ -6,6 +6,7 @@
 - Scope generation: `7`
 - Command escaped: `true`
 - Explicit do-not-execute instruction: `true`
+- Command execution marker created: `false`
 - Missing-receipt diagnostic: `sync-marker-missing`
 - Unadmitted-task diagnostic: `kickoff-record-not-admitted`
 - Receipt: `coordination-kickoff-conformance-receipt://sha-256/f0b5dc08fdafcfa760b054eb8234155f1a44407964fa04a011530d4d559e0d44`

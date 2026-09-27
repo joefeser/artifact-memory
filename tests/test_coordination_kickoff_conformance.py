@@ -33,10 +33,12 @@ class CoordinationKickoffConformanceTests(unittest.TestCase):
         validate_kickoff_pack(pack)
         self.assertIn(CONFORMANCE_SCHEMA_ID, core_schemas())
         validate(receipt, core_schemas()[CONFORMANCE_SCHEMA_ID])
+        rendered_receipt = render_coordination_kickoff_conformance_receipt(receipt)
         self.assertEqual(
-            render_coordination_kickoff_conformance_receipt(receipt),
+            rendered_receipt,
             (FIXTURE / "receipt.md").read_text(encoding="utf-8"),
         )
+        self.assertIn("- Command execution marker created: `false`", rendered_receipt)
 
     def test_check_rejects_machine_receipt_drift(self):
         with tempfile.TemporaryDirectory() as temporary:

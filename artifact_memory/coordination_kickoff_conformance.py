@@ -218,6 +218,8 @@ def render_coordination_kickoff_conformance_receipt(
         f"- Command escaped: `{str(receipt['command_rendering']['escaped']).lower()}`\n"
         "- Explicit do-not-execute instruction: "
         f"`{str(receipt['command_rendering']['do_not_execute_present']).lower()}`\n"
+        "- Command execution marker created: "
+        f"`{str(receipt['command_rendering']['marker_created']).lower()}`\n"
         f"- Missing-receipt diagnostic: `{receipt['negative_codes']['missing_receipt']}`\n"
         f"- Unadmitted-task diagnostic: `{receipt['negative_codes']['unadmitted_task']}`\n"
         f"- Receipt: `{receipt['receipt_id']}`\n\n"
