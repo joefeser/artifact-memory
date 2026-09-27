@@ -8,11 +8,11 @@
 - Replay records created: `0`
 - Replay records reused: `2`
 - Records validated: `2`
-- Sensitive assignment forms rejected: `6`
+- Sensitive assignment forms rejected: `7`
 - Provenance: `session-ledger`
 - Raw source copied: `false`
 - Source text disclosed by mapping: `false`
 - Source unchanged: `true`
-- Receipt: `session-ledger-import-conformance-receipt://sha-256/c458eed9197dd092293558289c669bad7ec89252c3035e8028f64c47bfdb4bd7`
+- Receipt: `session-ledger-import-conformance-receipt://sha-256/419585c7072920539580ad8b1f59d34e76b8947fa296f59380488d36050a070a`
 
 Authority boundary: session-ledger imports are informational draft records and grant no execution, mutation, routing, disclosure, credential, spending, deployment, approval, or merge authority.

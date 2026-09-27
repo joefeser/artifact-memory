@@ -102,6 +102,8 @@ class SessionLedgerTests(unittest.TestCase):
                 "client" + "_secret" + "=" + synthetic_value,
                 "azure" + "_client_secret" + "=" + synthetic_value,
                 "vendor" + "-api-key" + ":" + synthetic_value,
+                "private" + "_key" + "=" + synthetic_value,
+                "ssh" + "_private_key" + "=" + synthetic_value,
                 "aws" + "_secret_access_key" + "=" + synthetic_value,
                 "github" + "_token" + "=" + synthetic_value,
                 "session=" + "g" + "hs_" + "syntheticvalue1234",
@@ -127,7 +129,7 @@ class SessionLedgerTests(unittest.TestCase):
             root = Path(temporary).resolve()
             source = root / "ordinary.md"
             source.write_text(
-                "2026-09-27 Reviewed passwordless client-secret rotation.\n",
+                "2026-09-27 Reviewed passwordless client-secret and private-key rotation.\n",
                 encoding="utf-8",
             )
             result = import_session_ledger(source, root / "vault", dry_run=True)

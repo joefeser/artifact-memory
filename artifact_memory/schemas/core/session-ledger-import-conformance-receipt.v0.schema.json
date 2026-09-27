@@ -16,7 +16,7 @@
     "replay_created_count": {"const": 0},
     "replay_existing_count": {"type": "integer", "minimum": 1},
     "validated_record_count": {"type": "integer", "minimum": 1},
-    "sensitive_assignment_rejection_count": {"const": 6},
+    "sensitive_assignment_rejection_count": {"const": 7},
     "provenance_source_ref": {"const": "session-ledger"},
     "raw_source_copied": {"const": false},
     "source_text_disclosed": {"const": false},
