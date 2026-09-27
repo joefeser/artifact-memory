@@ -23,7 +23,7 @@ from .context import (
 )
 from .coordination import validate_coordination_files
 from .coordination_kickoff import (
-    KICKOFF_PACK_SCHEMA_ID,
+    KICKOFF_PACK_SCHEMA_IDS,
     build_kickoff_pack,
     render_kickoff_prompt,
     validate_kickoff_pack,
@@ -171,6 +171,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     kickoff.add_argument("--project", required=True)
     kickoff.add_argument("--vault", required=True, type=Path)
+    kickoff.add_argument(
+        "--repo",
+        type=Path,
+        help="evaluate the supported coordination freshness extension against this onboarded repo",
+    )
     kickoff.add_argument("--json", action="store_true", dest="as_json")
     session_ledger = subparsers.add_parser(
         "import-session-ledger",
@@ -415,7 +420,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "kickoff":
         try:
-            result = build_kickoff_pack(args.vault, args.project)
+            result = build_kickoff_pack(
+                args.vault,
+                args.project,
+                repo_root=args.repo,
+            )
             prompt = render_kickoff_prompt(result)
         except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
             _receipt(
@@ -771,7 +780,7 @@ def main(argv: list[str] | None = None) -> int:
             validate_bootstrap_pack(record)
         if schema_id == BOOTSTRAP_RECEIPT_SCHEMA_ID:
             validate_bootstrap_receipt(record)
-        if schema_id == KICKOFF_PACK_SCHEMA_ID:
+        if schema_id in KICKOFF_PACK_SCHEMA_IDS:
             validate_kickoff_pack(record)
     except ValidationFailure as exc:
         result = {"valid": False, "outcome": "rejected", "diagnostics": [{"code": exc.code, "path": exc.path, "message": exc.message}]}

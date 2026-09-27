@@ -249,7 +249,7 @@ def _read_manifest_bytes(repo_root: Path) -> bytes:
     return data
 
 
-def _git_output(repo_root: Path, *args: str) -> bytes:
+def _git_result(repo_root: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
     environment = os.environ.copy()
     for name in tuple(environment):
         if (
@@ -263,7 +263,7 @@ def _git_output(repo_root: Path, *args: str) -> bytes:
     environment["GIT_CONFIG_SYSTEM"] = os.devnull
     environment["GIT_CONFIG_GLOBAL"] = os.devnull
     try:
-        completed = subprocess.run(
+        return subprocess.run(
             ["git", "--no-replace-objects", "-C", os.fspath(repo_root), *args],
             check=False,
             env=environment,
@@ -276,6 +276,10 @@ def _git_output(repo_root: Path, *args: str) -> bytes:
             "repository identity could not be verified against Git",
             "$",
         ) from exc
+
+
+def _git_output(repo_root: Path, *args: str) -> bytes:
+    completed = _git_result(repo_root, *args)
     if completed.returncode != 0:
         raise ValidationFailure(
             "repo-identity-uncommitted",
@@ -347,6 +351,121 @@ def verify_repo_worktree_root(repo_root: Path) -> Path:
     """Return an exact, link-free Git worktree root without requiring HEAD."""
     absolute_root, _ = _verify_repo_worktree_root_with_observations(repo_root)
     return absolute_root
+
+
+def compare_commit_to_head(
+    repo_root: Path,
+    candidate: str,
+    *,
+    expected_project_id: str | None = None,
+) -> dict[str, str]:
+    """Compare one validated object ID with a stable repository HEAD.
+
+    Git replacement objects and ambient repository/configuration overrides
+    remain disabled here just as they are for repository identity verification.
+    """
+    if not isinstance(candidate, str) or len(candidate) not in {40, 64} or any(
+        character not in "0123456789abcdef" for character in candidate
+    ):
+        raise ValidationFailure(
+            "freshness-extension-invalid",
+            "trueAsOfCommit must be a lowercase 40- or 64-hex Git object ID",
+            "$",
+        )
+    absolute_root, verified_root_chain = (
+        _verify_repo_worktree_root_with_observations(repo_root)
+    )
+    head_before = _git_output(
+        absolute_root, "rev-parse", "--verify", "HEAD^{commit}"
+    ).strip()
+    object_format = _git_output(
+        absolute_root, "rev-parse", "--show-object-format"
+    ).strip()
+    expected_length = {b"sha1": 40, b"sha256": 64}.get(object_format)
+    if expected_length is None:
+        raise ValidationFailure(
+            "coordination-freshness-unavailable",
+            "Git returned an unsupported repository object format",
+            "$",
+        )
+    if len(candidate) != expected_length:
+        raise ValidationFailure(
+            "coordination-freshness-object-format-mismatch",
+            "trueAsOfCommit length does not match the selected repository object format",
+            "$",
+        )
+    try:
+        head = head_before.decode("ascii", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValidationFailure(
+            "coordination-freshness-unavailable",
+            "Git returned an invalid current repository head",
+            "$",
+        ) from exc
+    if len(head) not in {40, 64} or any(
+        character not in "0123456789abcdef" for character in head
+    ):
+        raise ValidationFailure(
+            "coordination-freshness-unavailable",
+            "Git returned an invalid current repository head",
+            "$",
+        )
+    if expected_project_id is not None:
+        try:
+            committed_identity = load_json_bytes(
+                _git_output(
+                    absolute_root,
+                    "show",
+                    f"{head}:{REPO_IDENTITY_RELATIVE_PATH.as_posix()}",
+                )
+            )
+            validate(committed_identity, REPO_IDENTITY_SCHEMA)
+        except ValidationFailure as exc:
+            raise ValidationFailure(
+                "coordination-freshness-repository-identity-mismatch",
+                "observed repository head does not contain the expected project identity",
+                "$",
+            ) from exc
+        if committed_identity["uuid"] != expected_project_id:
+            raise ValidationFailure(
+                "coordination-freshness-repository-identity-mismatch",
+                "observed repository head names another project identity",
+                "$",
+            )
+
+    comparison = _git_result(
+        absolute_root, "merge-base", "--is-ancestor", candidate, head
+    )
+    if comparison.returncode == 0:
+        status = "current"
+    elif comparison.returncode == 1:
+        status = "stale-verify"
+    else:
+        raise ValidationFailure(
+            "coordination-freshness-commit-unavailable",
+            "trueAsOfCommit is not an available commit in the selected repository",
+            "$",
+        )
+
+    head_after = _git_output(
+        absolute_root, "rev-parse", "--verify", "HEAD^{commit}"
+    ).strip()
+    if head_after != head_before:
+        raise ValidationFailure(
+            "coordination-freshness-head-changed",
+            "repository head changed during freshness evaluation",
+            "$",
+        )
+    if not _same_entry_chain(
+        verified_root_chain,
+        _observe_directory_path(absolute_root),
+    ):
+        raise ValidationFailure(
+            "repo-identity-unsafe",
+            "repository root changed during freshness evaluation",
+            "$",
+        )
+    return {"status": status, "true_as_of_commit": candidate, "observed_head": head}
 
 
 def load_repo_identity_candidate(repo_root: Path) -> dict[str, str]:

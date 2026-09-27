@@ -90,11 +90,17 @@ view, digest-bound receipt, and checked synthetic proof. Full AccessLabel
 bodies remain hub-side; AM-1 provides history import through a separate
 operator-invoked command, and queue/command rendering is an AM-5 surface.
 
-`coordination-kickoff-pack.v0.schema.json` and
+`coordination-kickoff-pack.v0.schema.json`,
+`coordination-kickoff-pack.v1.schema.json`, and
 `coordination-kickoff-conformance-receipt.v0.schema.json` define AM-5's bounded
 receipt-qualified queue summary and its checked synthetic proof. Queue text is
 untrusted data, the selected acceptance command is escaped and explicitly not
 executable, and no pack grants operational authority.
+
+`coordination-freshness-conformance-receipt.v0.schema.json` defines AM-6's
+checked repository-ancestry proof. Repo-bound kickoff v1 marks the supported
+freshness extension `current` or `stale-verify`; v0 and generic context-pack
+v2-v4 remain unchanged when freshness support is not requested.
 
 `session-ledger-import-conformance-receipt.v0.schema.json` defines AM-1's
 checked synthetic proof. Dated done-log lines become deterministic private
