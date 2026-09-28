@@ -23,6 +23,7 @@ from .context import (
     validate_context_pack,
 )
 from .coordination import validate_coordination_files
+from .coordination_claim import claim_http
 from .coordination_context import (
     CONTEXT_PACK_SCHEMA_ID as COORDINATION_CONTEXT_PACK_SCHEMA_ID,
     open_coordination_context_pack,
@@ -163,6 +164,16 @@ def main(argv: list[str] | None = None) -> int:
     sync_parser.add_argument("--phase", choices=["push", "pull", "both"], default="both")
     sync_parser.add_argument("--completed-at", help="completion time for the local-path adapter; HTTP uses server time")
     sync_parser.add_argument("--json", action="store_true", dest="as_json")
+    claim_parser = subparsers.add_parser("claim", help="claim one exact assigned task through the WITS HTTP hub; no execution")
+    claim_parser.add_argument("--vault", required=True, type=Path)
+    claim_parser.add_argument("--hub", required=True)
+    claim_parser.add_argument("--project-id", required=True)
+    claim_parser.add_argument("--task-ref", required=True, help="exact original open TaskPacket reference as JSON")
+    claim_parser.add_argument("--hub-id", required=True)
+    claim_parser.add_argument("--principal-id", required=True)
+    claim_parser.add_argument("--access-label-ref", required=True, help="exact credential-bound AccessLabel reference as JSON")
+    claim_parser.add_argument("--bearer-env", default="ARTIFACT_MEMORY_COORDINATION_BEARER")
+    claim_parser.add_argument("--json", action="store_true", dest="as_json")
     onboard = subparsers.add_parser(
         "onboard",
         help="bind one Git repo to an externally administered coordination project",
@@ -364,6 +375,25 @@ def main(argv: list[str] | None = None) -> int:
                 },
                 args.as_json,
             )
+            return EXIT_INVALID
+        _receipt(result, args.as_json)
+        return EXIT_OK
+
+    if args.command == "claim":
+        try:
+            try:
+                task_ref = json.loads(args.task_ref)
+                label_ref = json.loads(args.access_label_ref)
+            except ValueError:
+                raise SyncFailure("claim-binding-invalid", "task-ref and access-label-ref must be JSON references") from None
+            result = claim_http(args.vault, args.hub, task_ref=task_ref, project_id=args.project_id,
+                bearer=os.environ.get(args.bearer_env), expected_hub_id=args.hub_id,
+                expected_principal_id=args.principal_id, expected_access_label_ref=label_ref)
+        except (ValidationFailure, OSError, RecursionError) as exc:
+            _receipt({"outcome": "rejected", "diagnostics": [{
+                "code": getattr(exc, "code", "claim-storage-unavailable"),
+                "message": getattr(exc, "message", "claim outcome is unverified; storage is unavailable"),
+            }]}, args.as_json)
             return EXIT_INVALID
         _receipt(result, args.as_json)
         return EXIT_OK
