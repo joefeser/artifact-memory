@@ -1,4 +1,6 @@
 """Opt-in publisher/worker/observer pickup against real pinned WITS routes."""
+import copy
+import hashlib
 import json
 import ipaddress
 import sys
@@ -48,7 +50,13 @@ class WitsClaimIntegration(unittest.TestCase):
             hidden = unique_task_for(label, 800)
             hidden.update(originId='44444444-4444-4444-8444-444444444444', projectId=PROJECT_B, projectName='sample-analytics')
             hidden['record_id'] = f"record://coordination/{hidden['originId']}/task/{hidden['taskId']}"
-            store_coordination_record(hub, hidden)
+            hidden_ref = store_coordination_record(hub, hidden)
+            denied_label = copy.deepcopy(label)
+            denied_label['may']['claimProjects'] = []
+            denied_label_ref = {'record_id': denied_label['record_id'], 'revision_digest': revision_digest(denied_label)}
+            denied_label_path = hub / 'policy' / 'labels' / hashlib.sha256(denied_label_ref['record_id'].encode()).hexdigest() / (denied_label_ref['revision_digest'].removeprefix('sha-256:') + '.json')
+            denied_label_path.parent.mkdir(parents=True, exist_ok=True)
+            denied_label_path.write_bytes(canonical_bytes(denied_label))
             (hub / 'policy/coordination-origin-projects.json').write_bytes(canonical_bytes({
                 'schema_id': 'wits/coordination-origin-projects/v0',
                 'origins': {opened['originId']: PROJECT_A, hidden['originId']: PROJECT_B},
@@ -73,6 +81,8 @@ class WitsClaimIntegration(unittest.TestCase):
             ]:
                 keys.append({'projectId': PROJECT_A, 'token': token, 'principal': principal, 'labelRef': label_ref,
                     'capabilities': [f'coordination:{action}:{PROJECT_A}' for action in actions]})
+            keys.append({'projectId': PROJECT_A, 'token': 'synthetic-am156-denied-label', 'principal': PRINCIPAL,
+                'labelRef': denied_label_ref, 'capabilities': [f'coordination:claim:{PROJECT_A}']})
             seed.write_bytes(canonical_bytes({'projects': [
                 {'id': PROJECT_A, 'name': 'sample-service'}, {'id': PROJECT_B, 'name': 'sample-analytics'}], 'keys': keys}))
             env = os.environ | {'DATABASE_URL': os.environ['TEST_DATABASE_URL'], 'WITS_HTTP_SYNTHETIC_SEED': str(seed),
@@ -92,6 +102,28 @@ class WitsClaimIntegration(unittest.TestCase):
                             expected_principal_id=principal, expected_access_label_ref=label_ref)
                     published = sync(publisher, url, **binding(publisher_token, publisher_principal))
                     self.assertEqual([item['code'] for item in published['submission_outcomes']], ['admitted'])
+                    # Independent hub gates deny before canonical/admission/audit mutation.
+                    def custody_snapshot():
+                        return {str(file.relative_to(hub)): hashlib.sha256(file.read_bytes()).hexdigest()
+                            for directory in ['canonical', 'admission', 'audit']
+                            for file in (hub / directory).rglob('*.json')}
+                    before_denials = custody_snapshot()
+                    unknown_ref = open_ref | {'record_id': open_ref['record_id'].replace(opened['originId'], '55555555-5555-4555-8555-555555555555')}
+                    for token, requested, code in [
+                        (publisher_token, open_ref, 'COORDINATION_CAPABILITY_MISSING'),
+                        ('synthetic-am156-denied-label', open_ref, 'COORDINATION_LABEL_DENIED'),
+                        (worker_token, hidden_ref, 'COORDINATION_TASK_ORIGIN_DENIED'),
+                        (worker_token, unknown_ref, 'COORDINATION_TASK_ORIGIN_DENIED'),
+                    ]:
+                        request = Request(url + '/api/agent/coordination/claims', method='POST',
+                            data=canonical_bytes({'taskRef': requested}), headers={'Authorization': 'Bearer ' + token})
+                        with self.assertRaises(HTTPError) as denied:
+                            urlopen(request, timeout=20)
+                        self.assertEqual(denied.exception.code, 403)
+                        body = json.loads(denied.exception.read())
+                        self.assertEqual(body['error']['code'], code)
+                        denied.exception.close()
+                        self.assertEqual(custody_snapshot(), before_denials)
                     args = [sys.executable, '-m', 'artifact_memory', 'claim',
                         '--vault', str(worker), '--hub', url, '--hub-id', HUB_ID, '--project-id', PROJECT_A,
                         '--principal-id', PRINCIPAL, '--access-label-ref', json.dumps(label_ref),
@@ -138,4 +170,4 @@ class WitsClaimIntegration(unittest.TestCase):
                     except subprocess.TimeoutExpired:
                         server.kill(); server.wait(timeout=10)
                     if server.stdout: server.stdout.close()
-        print('AM156-WITS: published=1 claimed=1 replay=verified conflict=409 receipt=1 observed=3 excluded=1 execution=not-authorized')
+        print('AM156-WITS: published=1 claimed=1 replay=verified conflict=409 receipt=1 observed=3 excluded=1 denied=4 denial-writes=0 execution=not-authorized')

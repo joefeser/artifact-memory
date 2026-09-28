@@ -8,6 +8,7 @@ from copy import deepcopy
 from pathlib import Path
 import time
 from typing import Any
+from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, build_opener
 
 from .coordination import (
@@ -15,7 +16,7 @@ from .coordination import (
     revision_digest,
 )
 from .coordination_http import (
-    _NoRedirect, _binding, _endpoint, _post_json, _require_bearer, sync_http,
+    ENDPOINT, _NoRedirect, _binding, _endpoint, _post_json, _require_bearer, sync_http,
 )
 from .coordination_sync import SyncFailure, _advisory_lock, authorized_coordination_snapshot
 from .schema_resources import core_schemas
@@ -69,6 +70,7 @@ def claim_http(vault: Path, hub: str, *, task_ref: dict, project_id: str,
     have committed at the hub; a later explicit call must use the same open ref.
     """
     url = _endpoint(hub, CLAIM_ENDPOINT)
+    sync_url = urlsplit(url)._replace(path=ENDPOINT).geturl()
     bearer = _require_bearer(bearer)
     binding = _binding(expected_hub_id, expected_principal_id, expected_access_label_ref)
     _validate_ref(task_ref)
@@ -82,22 +84,23 @@ def claim_http(vault: Path, hub: str, *, task_ref: dict, project_id: str,
                      expected_access_label_ref=binding["access_label_ref"], phase="pull")
     with _advisory_lock(vault, "http-task-claim", busy_code="claim-local-busy",
                        busy_message="one task pickup is already in flight for this vault"):
-        sync_http(vault, hub, **sync_args)
+        sync_http(vault, sync_url, **sync_args)
         with authorized_coordination_snapshot(vault) as snapshot:
-            _task(snapshot, requested, project_id, binding)
+            preclaimed = _task(snapshot, requested, project_id, binding)["status"] == "claimed"
         opener = build_opener(ProxyHandler({}), _NoRedirect())
         status, response = _post_json(opener, url, bearer, {"taskRef": requested},
                                      time.monotonic() + 20, statuses=(200, 201),
                                      response_limit=8192, operation="claim")
         if (not isinstance(response, dict) or set(response) != {"taskRef", "replay"}
                 or type(response["replay"]) is not bool
-                or response["replay"] != (status == 200)):
+                or response["replay"] != (status == 200)
+                or (preclaimed and not response["replay"])):
             raise SyncFailure("claim-response-invalid", "claim outcome is unverified; retry only the same exact open reference")
         try:
             _validate_ref(response["taskRef"])
             if response["taskRef"]["record_id"] != requested["record_id"]:
                 raise SyncFailure("claim-response-invalid", "claim response names another task")
-            sync_http(vault, hub, **sync_args)
+            sync_http(vault, sync_url, **sync_args)
             with authorized_coordination_snapshot(vault) as snapshot:
                 leaf = _task(snapshot, requested, project_id, binding)
                 successor = {"record_id": leaf["record_id"], "revision_digest": revision_digest(leaf)}

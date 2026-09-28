@@ -9,6 +9,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 from artifact_memory.canonical import canonical_bytes
 from artifact_memory.coordination import revision_digest
@@ -39,6 +40,7 @@ class HttpClaimTests(unittest.TestCase):
         self.fail_pull = False
         self.admitted = False
         self.redirect = False
+        self.force_new = False
         self.before = build_pull_response(self.hub, session_id=SESSION, completed_at='2026-09-27T23:00:00Z')
         outer = self
 
@@ -73,7 +75,7 @@ class HttpClaimTests(unittest.TestCase):
                 if outer.deny:
                     self.reply(outer.deny, {'secret': 'synthetic-bearer'})
                     return
-                replay = outer.admitted
+                replay = outer.admitted and not outer.force_new
                 store_coordination_record(outer.hub, outer.claimed)
                 outer.admitted = True
                 if outer.drop:
@@ -108,6 +110,49 @@ class HttpClaimTests(unittest.TestCase):
                             and auth == 'Bearer synthetic-bearer' for path, body, auth in self.claims))
         self.assertNotIn(b'synthetic-bearer', canonical_bytes(first))
         self.assertTrue(all(b'synthetic-bearer' not in file.read_bytes() for file in self.vault.rglob('*.json')))
+
+    def test_preclaimed_history_requires_hub_replay_confirmation(self):
+        self.pickup()
+        self.force_new = True
+        before = self.syncs
+        with self.assertRaises(SyncFailure) as caught:
+            self.pickup()
+        self.assertEqual(caught.exception.code, 'claim-response-invalid')
+        self.assertEqual(self.syncs, before + 1)
+        self.assertEqual(len(self.claims), 2)
+        self.force_new = False
+        self.assertTrue(self.pickup()['replay'])
+
+    def test_each_accepted_endpoint_normalizes_both_pull_and_claim(self):
+        for path in ['', '/', '/api/agent/coordination/sync', '/api/agent/coordination/claims']:
+            with self.subTest(path=path):
+                receipt = claim_http(self.vault, self.url + path, **self.binding)
+                self.assertEqual(receipt['outcome'], 'verified')
+        self.assertEqual(self.syncs, 8)
+        self.assertTrue(all(path == '/api/agent/coordination/claims' for path, _, _ in self.claims))
+
+    def test_hostile_environment_proxy_never_receives_pull_or_claim_bearer(self):
+        contacts = []
+        class RejectProxy(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_POST(self):
+                contacts.append(self.path)
+                self.send_response(502)
+                self.end_headers()
+        proxy = ThreadingHTTPServer(('127.0.0.1', 0), RejectProxy)
+        self.addCleanup(proxy.server_close)
+        self.addCleanup(proxy.shutdown)
+        threading.Thread(target=proxy.serve_forever, daemon=True).start()
+        target = f'http://127.0.0.1:{proxy.server_port}'
+        proxy_env = {name: target for name in ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY',
+                                               'http_proxy', 'https_proxy', 'all_proxy']}
+        proxy_env.update(NO_PROXY='', no_proxy='')
+        with patch.dict(os.environ, proxy_env):
+            receipt = self.pickup()
+        self.assertEqual(receipt['outcome'], 'verified')
+        self.assertEqual(self.syncs, 2)
+        self.assertEqual(len(self.claims), 1)
+        self.assertEqual(contacts, [])
 
     def test_conflict_denial_and_redirect_never_choose_another_task_or_retry(self):
         for status, code in [(401, 'claim-unauthenticated'), (403, 'claim-unauthorized'), (409, 'claim-conflict')]:

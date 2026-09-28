@@ -45,3 +45,17 @@ An operator must separately provision keys, compatible publisher/worker label
 bindings, server origin ownership, HTTPS and worker runtime. HTTP project
 onboarding and automatic runner launch are separate contracts. This command
 does not execute `dod.acceptanceCommand` or launch an agent.
+
+## Security and compatibility impact
+
+The command sends a bearer only to the configured validated hub, bypasses
+environment proxies and rejects redirects. It adds no execution authority,
+local claim truth, automatic claim retries or credential persistence. A task
+already observed as claimed requires an explicit hub replay response; a 201
+response cannot be reported as verified new admission for that history.
+
+The CLI addition is opt-in. Existing TaskPacket, WorkReceipt, AccessLabel and
+sync schemas, byte limits and existing sync proof source pin are unchanged.
+Root, sync-endpoint and claim-endpoint hub URLs normalize to their separate
+pull and claim endpoints. The shared synthetic hub proof runs against both
+independently pinned WITS revisions.
