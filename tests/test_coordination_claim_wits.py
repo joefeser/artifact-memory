@@ -21,7 +21,7 @@ from tests.test_coordination_sync import (
 )
 
 # Filled from the reviewed claim-policy repair, independently of the original AM-153 pin.
-WITS_CLAIM_REF = '5a04c0d7d6d834f1708eda85b286ef576fa8d0af'
+WITS_CLAIM_REF = 'a696bca63e7cfb1ab5d30a91e171a8ccbd8656fd'
 
 
 @unittest.skipUnless(os.environ.get('RUN_WITS_CLAIM_INTEGRATION') == '1', 'opt-in WITS task pickup integration')
