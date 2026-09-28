@@ -750,7 +750,7 @@ def _record_files(root: Path) -> list[Path]:
     return paths
 
 
-def _check_raw_depth(raw: bytes) -> None:
+def _check_raw_depth(raw: bytes, *, max_depth: int = MAX_NESTING_DEPTH) -> None:
     depth = 0
     in_string = False
     escaped = False
@@ -767,7 +767,7 @@ def _check_raw_depth(raw: bytes) -> None:
             in_string = True
         elif byte in {0x7B, 0x5B}:
             depth += 1
-            if depth > MAX_NESTING_DEPTH:
+            if depth > max_depth:
                 raise SyncFailure("sync-depth-limit", "sync record nesting exceeds the v0 limit")
         elif byte in {0x7D, 0x5D}:
             depth -= 1
@@ -1990,7 +1990,7 @@ def validate_sync_receipt(receipt: dict[str, Any]) -> None:
 
 
 def validate_membership_pages(
-    receipt: dict[str, Any], pages: list[dict[str, Any]]
+    receipt: dict[str, Any], pages: list[dict[str, Any]], *, opaque_tokens: bool = False
 ) -> list[dict[str, str]]:
     validate_sync_receipt(receipt)
     membership = receipt["authorized_membership"]
@@ -2018,7 +2018,10 @@ def validate_membership_pages(
                 index + 1,
             )
         )
-        if page["next_token"] != expected_token:
+        token = page["next_token"]
+        opaque_valid = (token is None if index + 1 == membership["page_count"] else
+                        isinstance(token, str) and 0 < len(token) <= 500_000)
+        if (not opaque_valid if opaque_tokens else token != expected_token):
             raise SyncFailure("sync-page-token-invalid", "membership continuation state is invalid")
         if len(canonical_bytes(page)) > MAX_PAGE_BYTES:
             raise SyncFailure("sync-page-too-large", "membership page exceeds the v0 byte limit")
@@ -2306,6 +2309,7 @@ def _apply_verified_pull(
 
 def _validated_pull_response(
     response: dict[str, Any],
+    *, opaque_tokens: bool = False,
 ) -> tuple[
     dict[str, Any],
     list[dict[str, str]],
@@ -2326,7 +2330,7 @@ def _validated_pull_response(
         or not isinstance(record_pages, list)
     ):
         raise SyncFailure("sync-response-invalid", "pull response has invalid field types")
-    pairs = validate_membership_pages(receipt, pages)
+    pairs = validate_membership_pages(receipt, pages, opaque_tokens=opaque_tokens)
     if len(record_pages) != len(pages) or any(
         not isinstance(page, list) for page in record_pages
     ):
@@ -2366,9 +2370,10 @@ def apply_pull_response(
     response: dict[str, Any],
     *,
     _before_apply: Callable[[dict[str, Any]], None] | None = None,
+    opaque_tokens: bool = False,
 ) -> dict[str, Any]:
     """Verify a complete pull before appending records and advancing the marker."""
-    receipt, pairs, by_pair = _validated_pull_response(response)
+    receipt, pairs, by_pair = _validated_pull_response(response, opaque_tokens=opaque_tokens)
     if _before_apply is not None:
         _before_apply(deepcopy(response))
     with _projection_apply_lock(vault):
@@ -2436,7 +2441,7 @@ def pull(
 
 def sync(
     vault: Path,
-    hub: Path,
+    hub: Path | str,
     *,
     session_id: str,
     completed_at: str,
@@ -2447,7 +2452,22 @@ def sync(
     _before_sync: Callable[[], None] | None = None,
     _before_pull_apply: Callable[[dict[str, Any]], None] | None = None,
     _resume_pending: bool = False,
+    bearer: str | None = None,
+    expected_principal_id: str | None = None,
 ) -> dict[str, Any]:
+    if isinstance(hub, str) and "://" in hub:
+        from .coordination_http import sync_http
+
+        if required_project_id is not None:
+            raise SyncFailure("sync-http-repo-binding-unsupported", "HTTP repo onboarding is not yet supported")
+        if _before_sync is not None:
+            _before_sync()
+        return sync_http(vault, hub, bearer=bearer,
+                         expected_hub_id=expected_hub_id,
+                         expected_principal_id=expected_principal_id,
+                         expected_access_label_ref=expected_access_label_ref,
+                         phase=phase, before_apply=_before_pull_apply)
+    hub = Path(hub)
     if phase not in {"push", "pull", "both"}:
         raise SyncFailure("sync-phase-invalid", "sync phase must be push, pull, or both")
     result: dict[str, Any] = {"outcome": "complete", "phase": phase}

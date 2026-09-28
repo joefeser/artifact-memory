@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -141,10 +142,15 @@ def main(argv: list[str] | None = None) -> int:
     record_append.add_argument("--json", action="store_true", dest="as_json")
     sync_parser = subparsers.add_parser(
         "sync",
-        help="run the provider-free local coordination sync adapter",
+        help="sync coordination through a local path or WITS HTTP hub",
     )
     sync_parser.add_argument("--vault", required=True, type=Path)
-    sync_parser.add_argument("--hub", required=True, type=Path)
+    sync_parser.add_argument("--hub", required=True)
+    sync_parser.add_argument("--hub-id", help="expected logical HTTP hub identity")
+    sync_parser.add_argument("--principal-id", help="expected bearer-bound HTTP principal")
+    sync_parser.add_argument("--access-label-ref", help="expected HTTP AccessLabel reference as JSON")
+    sync_parser.add_argument("--bearer-env", default="ARTIFACT_MEMORY_COORDINATION_BEARER",
+                             help="environment variable containing the HTTP bearer; never put credentials in arguments")
     sync_parser.add_argument(
         "--repo",
         type=Path,
@@ -152,11 +158,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     sync_parser.add_argument(
         "--session-id",
-        required=True,
         help="opaque authenticated-session handle resolved by the hub",
     )
     sync_parser.add_argument("--phase", choices=["push", "pull", "both"], default="both")
-    sync_parser.add_argument("--completed-at", required=True)
+    sync_parser.add_argument("--completed-at", help="completion time for the local-path adapter; HTTP uses server time")
     sync_parser.add_argument("--json", action="store_true", dest="as_json")
     onboard = subparsers.add_parser(
         "onboard",
@@ -365,20 +370,31 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "sync":
         try:
+            is_http = "://" in args.hub
+            if not is_http and (not args.session_id or not args.completed_at):
+                raise SyncFailure("sync-local-binding-required", "local sync requires session-id and completed-at")
+            try:
+                http_label_ref = json.loads(args.access_label_ref) if args.access_label_ref else None
+            except ValueError:
+                raise SyncFailure("sync-http-binding-required", "access-label-ref must be a JSON record reference") from None
             link = None
             if args.repo is not None:
+                if is_http:
+                    raise SyncFailure("sync-http-repo-binding-unsupported", "HTTP repo onboarding is not yet supported")
                 link = require_repo_onboarding(args.repo, args.vault)
             result = sync_coordination(
                 args.vault,
-                args.hub,
+                args.hub if is_http else Path(args.hub),
                 session_id=args.session_id,
                 completed_at=args.completed_at,
                 phase=args.phase,
                 required_project_id=(link["project_id"] if link else None),
-                expected_hub_id=(link["hub_id"] if link else None),
+                expected_hub_id=(link["hub_id"] if link else args.hub_id),
                 expected_access_label_ref=(
-                    link["access_label_ref"] if link else None
+                    link["access_label_ref"] if link else http_label_ref
                 ),
+                expected_principal_id=args.principal_id,
+                bearer=os.environ.get(args.bearer_env) if is_http else None,
             )
         except (SyncFailure, ValidationFailure, OSError) as exc:
             _receipt(

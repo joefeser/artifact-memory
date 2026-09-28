@@ -109,6 +109,7 @@ are needed; `inspect` does not validate record semantics.
 - [Repository adoption prompts](docs/onboarding/repository-adoption.md)
 - [Private project-vault onboarding](docs/onboarding/private-project-vault.md)
 - [Local coordination sync proof](docs/onboarding/local-coordination-sync-proof.md)
+- [WITS HTTP coordination sync proof](docs/onboarding/http-coordination-sync-proof.md)
 - [Coordination project onboarding](docs/onboarding/coordination-project-onboarding.md)
 - [Bounded coordination kickoff context](docs/onboarding/coordination-kickoff.md)
 - [Scoped coordination context export](docs/onboarding/coordination-access-scope.md)
