@@ -32,6 +32,19 @@ writer but is a single point of failure and cannot coordinate parallel work.
 - **Transport** = HTTP to WITS (synchronous claim/post), with the bus
   (BUS_TRANSPORT) used only for fan-out notifications, never intake truth.
 
+Before submitted identity lookup, the bridge MUST resolve `originId` through
+server-owned origin-to-project policy. Each origin is assigned to exactly one
+project; clients cannot supply or alter that binding. Unknown or foreign
+origins receive `unauthorized-project` independent of whether the guessed
+record exists. This minting policy is authorization configuration, not another
+copy of coordination records. WITS provisions it under its vault's policy tree.
+
+WITS task and receipt sync admission additionally requires project read
+permission before consulting retained task history or receipt predecessors.
+A write grant alone MUST NOT reveal withheld identity existence through
+admission, rejection codes, or an exclusion-count change. Valid known and
+absent write-only submissions both receive `unauthorized-project`.
+
 ## Local-first sync (outbox pattern)
 
 1. A writer ALWAYS appends to its local vault first. The local append is
@@ -147,6 +160,24 @@ append-only canonical vault or claim erasure. For an unchanged scope, a delta
 plus the previously verified manifest may be used. Missing pages, duplicate or
 conflicting pairs, count/digest mismatch, or use of a prior-generation manifest
 fails typed and cannot advance the last-successful-sync marker.
+
+The HTTP adapter treats continuation tokens as opaque, follows them only to
+the original authenticated endpoint, and requires an unchanged canonical
+receipt across every sequential page. It verifies all record pages, complete
+membership count/digest, pinned logical hub, principal, and exact AccessLabel
+reference before local projection. HTTPS is mandatory outside literal
+loopback or localhost test endpoints; redirects are never followed. Bearers
+and transport URLs are not durable identities and are not written to receipts
+or retry state. The local-path adapter remains supported.
+
+A ref-only HTTP retry journal binds the exact submitted batch to the configured
+hub/principal/label before the first request. On an incomplete exchange or
+interrupted local apply it remains pending; retry replays that exact immutable
+batch through current server authorization and verifies a fresh complete
+response. A pull with a pending HTTP batch may resend it for reconciliation.
+Only successful local projection consumes the journal. HTTP receipts use the
+server completion time; callers cannot override it. Remote admission may have
+completed even when a client observes a network failure.
 
 Successful receipts are ordered by `completed_at`. Exact `receipt_id` replay is
 idempotent. A receipt earlier than the last successful receipt fails
