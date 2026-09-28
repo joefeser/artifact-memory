@@ -1,5 +1,7 @@
 /** Synthetic HTTP wrapper around the real pinned WITS route and bearer auth. */
 import { createServer } from 'node:http'
+import { AsyncLocalStorage } from 'node:async_hooks'
+Object.assign(globalThis, { AsyncLocalStorage })
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -9,6 +11,9 @@ const { prisma } = await import(pathToFileURL(path.join(root, 'lib/db/prisma.ts'
 const { hashAgentApiKey } = await import(pathToFileURL(path.join(root, 'lib/agents/keys.ts')).href)
 const { NextRequest } = await import(pathToFileURL(path.join(root, 'node_modules/next/server.js')).href)
 const { POST } = await import(pathToFileURL(path.join(root, 'app/api/agent/coordination/sync/route.ts')).href)
+const { POST: claimPost } = await import(pathToFileURL(path.join(root, 'app/api/agent/coordination/claims/route.ts')).href)
+const { workAsyncStorage } = await import(pathToFileURL(path.join(root, 'node_modules/next/dist/server/app-render/work-async-storage.external.js')).href)
+const { AfterContext } = await import(pathToFileURL(path.join(root, 'node_modules/next/dist/server/after/after-context.js')).href)
 const createdKeys: string[] = []
 for (const project of seed.projects) await prisma.project.create({ data: project })
 for (const key of seed.keys) {
@@ -25,18 +30,27 @@ for (const key of seed.keys) {
 }
 const server = createServer(async (request, response) => {
   try {
-    if (request.url !== '/api/agent/coordination/sync' || request.method !== 'POST') {
+    if (!['/api/agent/coordination/sync', '/api/agent/coordination/claims'].includes(request.url || '') || request.method !== 'POST') {
       response.writeHead(404).end(); return
     }
     const chunks: Buffer[] = []
     for await (const chunk of request) chunks.push(Buffer.from(chunk))
-    const result = await POST(new NextRequest('http://localhost/api/agent/coordination/sync', {
+    const callbacks: Array<() => void> = []
+    const pending: Promise<unknown>[] = []
+    const afterContext = new AfterContext({
+      waitUntil: (job: Promise<unknown>) => { pending.push(job) },
+      onClose: (callback: () => void) => { callbacks.push(callback) },
+    })
+    const handler = request.url === '/api/agent/coordination/claims' ? claimPost : POST
+    const result = await workAsyncStorage.run({ afterContext }, () => handler(new NextRequest('http://localhost' + request.url, {
       method: 'POST', headers: {
         Authorization: request.headers.authorization || '', 'Content-Type': 'application/json',
       }, body: Buffer.concat(chunks),
-    }))
+    })))
     response.writeHead(result.status, { 'Content-Type': 'application/json' })
     response.end(await result.text())
+    for (const callback of callbacks) callback()
+    await Promise.all(pending)
   } catch {
     response.writeHead(500).end('{}')
   }

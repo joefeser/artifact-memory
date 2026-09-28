@@ -606,3 +606,5 @@ label; a permission UUID without matching provenance cannot disclose a record.
 - No WITS-side duplicate of record storage.
 - No policy inside the bridge: ceilings, quorums, and scope fences stay in
   lane configs and task packets. Machinery must not outrun judgment.
+
+The transport-only HTTP pickup client is specified in [HTTP task claim v0](http-task-claim-v0.md). Hub-confirmed claim evidence grants no execution authority.

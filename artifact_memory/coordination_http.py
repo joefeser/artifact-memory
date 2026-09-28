@@ -44,7 +44,7 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def _endpoint(url: str) -> str:
+def _endpoint(url: str, endpoint: str = ENDPOINT) -> str:
     try:
         parsed = urlsplit(url)
         port = parsed.port
@@ -53,9 +53,9 @@ def _endpoint(url: str) -> str:
         raise SyncFailure("sync-http-url-invalid", "hub URL is invalid") from exc
     if (parsed.scheme not in {"http", "https"} or not host
             or parsed.username is not None or parsed.password is not None
-            or parsed.query or parsed.fragment or parsed.path not in {"", "/", ENDPOINT}
+            or parsed.query or parsed.fragment or parsed.path not in {"", "/", ENDPOINT, endpoint}
             or (port is not None and not 1 <= port <= 65535)):
-        raise SyncFailure("sync-http-url-invalid", "hub URL must name the WITS sync endpoint")
+        raise SyncFailure("sync-http-url-invalid", "hub URL must name the WITS coordination endpoint")
     if parsed.scheme == "http":
         try:
             local = ipaddress.ip_address(host).is_loopback
@@ -63,54 +63,70 @@ def _endpoint(url: str) -> str:
             local = host == "localhost"
         if not local:
             raise SyncFailure("sync-http-tls-required", "non-loopback hubs require HTTPS")
-    return urlunsplit((parsed.scheme, parsed.netloc, ENDPOINT, "", ""))
+    return urlunsplit((parsed.scheme, parsed.netloc, endpoint, "", ""))
 
 
-def _exchange(opener, url: str, bearer: str, payload: dict, deadline: float) -> dict:
+def _post_json(opener, url: str, bearer: str, payload: dict, deadline: float, *,
+               statuses: tuple[int, ...] = (200,), response_limit: int | None = None,
+               operation: str = "sync") -> tuple[int, Any]:
+    response_limit = MAX_PAGE_BYTES if response_limit is None else response_limit
     raw = canonical_bytes(payload)
     if len(raw) > MAX_REQUEST_BYTES:
         raise SyncFailure("sync-request-too-large", "HTTP request exceeds the v0 byte limit")
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        raise SyncFailure("sync-http-timeout", "HTTP sync deadline expired")
+        raise SyncFailure(f"{operation}-http-timeout", "HTTP exchange deadline expired; outcome is unverified")
     request = Request(url, data=raw, method="POST", headers={
         "Authorization": f"Bearer {bearer}", "Content-Type": "application/json",
         "Accept": "application/json",
     })
     try:
         with opener.open(request, timeout=min(20, remaining)) as response:
-            if response.status != 200:
-                raise SyncFailure("sync-http-status", "hub did not return a successful exchange")
+            if response.status not in statuses:
+                raise SyncFailure(f"{operation}-http-status", "hub did not return a successful exchange")
+            status = response.status
             chunks, size = [], 0
             while True:
                 if time.monotonic() >= deadline:
-                    raise SyncFailure("sync-http-timeout", "HTTP sync deadline expired")
-                chunk = response.read1(min(65_536, MAX_PAGE_BYTES + 1 - size))
+                    raise SyncFailure(f"{operation}-http-timeout", "HTTP exchange deadline expired; outcome is unverified")
+                chunk = response.read1(min(65_536, response_limit + 1 - size))
                 if not chunk:
                     break
                 chunks.append(chunk)
                 size += len(chunk)
-                if size > MAX_PAGE_BYTES:
-                    raise SyncFailure("sync-page-too-large", "HTTP response exceeds the v0 page limit")
+                if size > response_limit:
+                    raise SyncFailure(f"{operation}-page-too-large", "HTTP response exceeds the bounded page limit")
             raw_response = b"".join(chunks)
     except HTTPError as exc:
         # Do not surface untrusted error bodies, URLs, credentials, or topology.
         code = exc.code
         exc.close()
-        raise SyncFailure("sync-http-rejected", f"hub rejected exchange (HTTP {code})") from None
+        kind = {401: "unauthenticated", 403: "unauthorized", 409: "conflict"}.get(code, "http-rejected") if operation == "claim" else "http-rejected"
+        raise SyncFailure(f"{operation}-{kind}", f"hub rejected exchange (HTTP {code})") from None
     except (URLError, OSError, TimeoutError, HTTPException):
-        raise SyncFailure("sync-http-unavailable", "HTTP hub exchange is unavailable") from None
-    if len(raw_response) > MAX_PAGE_BYTES:
-        raise SyncFailure("sync-page-too-large", "HTTP response exceeds the v0 page limit")
+        raise SyncFailure(f"{operation}-http-unavailable", "HTTP outcome is unverified; retry only the same explicit reference or sync batch") from None
+    if len(raw_response) > response_limit:
+        raise SyncFailure(f"{operation}-page-too-large", "HTTP response exceeds the bounded page limit")
     try:
         _check_raw_depth(raw_response, max_depth=MAX_NESTING_DEPTH + 5)
         value = load_json_bytes(raw_response)
         canonical_bytes(value)
     except (ValidationFailure, RecursionError, CanonicalizationFailure):
-        raise SyncFailure("sync-response-invalid", "hub returned invalid JSON") from None
+        raise SyncFailure(f"{operation}-response-invalid", "hub returned invalid JSON; outcome is unverified") from None
+    return status, value
+
+
+def _exchange(opener, url: str, bearer: str, payload: dict, deadline: float) -> dict:
+    _, value = _post_json(opener, url, bearer, payload, deadline)
     if not isinstance(value, dict) or set(value) != {"receipt", "pages", "record_pages"}:
         raise SyncFailure("sync-response-invalid", "hub returned an invalid exchange shape")
     return value
+
+
+def _require_bearer(bearer: str | None) -> str:
+    if not isinstance(bearer, str) or not bearer or len(bearer) > 16_384 or any(c.isspace() for c in bearer):
+        raise SyncFailure("sync-http-bearer-required", "HTTP coordination requires a bearer credential")
+    return bearer
 
 
 def _binding(hub_id, principal_id, label_ref) -> dict:
@@ -168,8 +184,7 @@ def sync_http(vault: Path, hub: str, *, bearer: str | None,
     if phase not in {"push", "pull", "both"}:
         raise SyncFailure("sync-phase-invalid", "sync phase must be push, pull, or both")
     url = _endpoint(hub)
-    if not isinstance(bearer, str) or not bearer or len(bearer) > 16_384 or any(c.isspace() for c in bearer):
-        raise SyncFailure("sync-http-bearer-required", "HTTP sync requires a bearer credential")
+    bearer = _require_bearer(bearer)
     binding = _binding(expected_hub_id, expected_principal_id, expected_access_label_ref)
     pending_path = vault / "generated" / "coordination-sync" / "http-pending.json"
     # This is a local crash-released transport lock; the server owns admission.
