@@ -11,38 +11,43 @@ synthetic and disposable. Existing local servers are not used or stopped.
 
 ## Prerequisites
 
-- Python 3.11 or newer, Node and the pinned WITS checkout with installed
-  dependencies and generated Prisma client.
-- A dedicated disposable PostgreSQL database with pgvector, provisioned using
-  the pinned WITS Prisma schema. Do not point the test at an existing database.
-- `WITS_SOURCE_ROOT` names that clean checkout; `TEST_DATABASE_URL` names only
-  the disposable database. Neither value belongs in commits or proof output.
+- Python 3.11 or newer, Node, Docker and a dedicated clean checkout of the
+  pinned WITS ref with its dependencies installed. Prisma generation writes
+  ignored files in that checkout, so use an isolated test checkout.
+- Set `WITS_SOURCE_ROOT` outside command history to that checkout. Its
+  machine-local value does not belong in commits or proof output.
 
-Run Prisma's `db push` and `generate` in that checkout with `DATABASE_URL` set
-to the disposable database. No reset/data-loss flags are needed for a fresh DB.
-Then run from this repository:
+Run from this repository:
 
 ```sh
-RUN_WITS_HTTP_INTEGRATION=1 AM153_DISPOSABLE_DATABASE=synthetic \
-  python3 -m unittest tests.test_coordination_http_wits -v
+python3 scripts/run_wits_http_integration.py
 ```
 
-The test checks the pinned WITS HEAD and tracked source diff. It provisions and
-removes only its own synthetic project/key rows, uses an ephemeral loopback
-port, and stops its wrapper after the test. Provision the required environment
-variables outside command history. The default suite skips this integration.
+The runner creates a uniquely named synthetic pgvector container, discovers its
+loopback port, provisions the pinned Prisma schema and generated client, runs
+the route proof, and removes only the container it created, including on test
+failure. It never consumes an existing database URL or resets an existing DB.
+The test checks pinned WITS HEAD and tracked source, creates/removes its own
+synthetic project/key rows, and stops its ephemeral HTTP wrapper. The default
+unit suite skips this cross-repository integration.
 
 ## Receipt
 
 ```text
 Ran 1 test
 OK
-AM153-WITS: admitted=2(task+receipt) rejected=1 quarantined=1 pages=2 excluded=1 retry=verified no-op=verified
+AM153-WITS: admitted=2(task+receipt) rejected=1 quarantined=1 pages=2 excluded=1 retry=verified no-op=verified denials=8(count-invariant)
+AM153 fixture: provisioned=verified cleanup=verified
 ```
 
 This proves HTTP record admission, exact per-submission outcomes, opaque
 continuation assembly, a verified complete authorized projection, denied
 identity/label exclusion, interrupted apply recovery and unchanged pull no-op.
+Four unknown/foreign-origin probes and four write-only task/receipt probes
+assert exact `unauthorized-project` outcomes for known and absent identities,
+and unchanged exclusion counts. The write-only fixture has a bearer read
+capability to reach the route but an AccessLabel denying project reads; its
+write grants cannot bypass that label.
 Quarantine is tested on a separate corrupt synthetic client with push-only
 transport; the adapter does not repair or overwrite that local collision.
 The test is a single machine route integration; it does not claim deployment,

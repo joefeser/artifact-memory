@@ -30,9 +30,14 @@ HTTP repo onboarding is rejected typed; its local filesystem transaction is not
 silently reinterpreted as a network operation. A deployment must separately
 provision bearer binding, retained labels, origin policy and server token secret.
 
-One exchange is bounded to 120 seconds, 128 MiB total responses and the existing
+One exchange is bounded to 120 seconds, 100 pages and 400 MiB total responses and the existing
 v0 per-request/page limits. Environment proxy settings are not used; deployment
-URLs must be directly reachable. A bearer rotation is supplied out of band.
+URLs must be directly reachable. The aggregate wire limit includes repeated
+receipts, tokens and references, independently of WITS's 128 MiB vault scan.
+With 10,000 records, a 1 MiB metadata reserve and 1 MiB maximum record,
+WITS's greedy packing produces fewer than 68 byte-full pages, at most 20
+500-record pages and one tail. The 100-page cap covers that bound with slack;
+the entire HTTP envelope still must fit WITS's 4 MiB per-response limit. A bearer rotation is supplied out of band.
 
 ## CLI
 

@@ -9,13 +9,14 @@ import ipaddress
 import time
 from bisect import bisect_right
 from copy import deepcopy
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
-from .canonical import canonical_bytes
+from .canonical import CanonicalizationFailure, canonical_bytes
 from .coordination_sync import (
     MAX_PAGE_BYTES, MAX_RECORD_BYTES, MAX_REQUEST_BYTES, MAX_SUBMITTED_RECORDS, MAX_NESTING_DEPTH,
     SYNC_RECEIPT_SCHEMA_ID, SyncFailure, _acknowledged_hub_state, _check_raw_depth,
@@ -28,7 +29,13 @@ from .schema_resources import core_schemas
 from .validator import ValidationFailure, load_json_bytes, validate
 
 ENDPOINT = "/api/agent/coordination/sync"
-MAX_EXCHANGE_BYTES = 128 * 1024 * 1024
+# WITS scans <=128 MiB /10,000 records, packing pages with a 1 MiB
+# metadata reserve and <=1 MiB records. Exact task/receipt refs are <512
+# bytes. A byte-full page therefore holds > (2 MiB - 538) bytes; fewer
+# than 68 such pages plus at most 20 count-full pages and a tail suffice.
+# 100 pages leaves slack, including repeated receipt/token metadata.
+MAX_HTTP_PAGES = 100
+MAX_EXCHANGE_BYTES = MAX_HTTP_PAGES * MAX_PAGE_BYTES
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -91,14 +98,15 @@ def _exchange(opener, url: str, bearer: str, payload: dict, deadline: float) -> 
         code = exc.code
         exc.close()
         raise SyncFailure("sync-http-rejected", f"hub rejected exchange (HTTP {code})") from None
-    except (URLError, OSError, TimeoutError):
+    except (URLError, OSError, TimeoutError, HTTPException):
         raise SyncFailure("sync-http-unavailable", "HTTP hub exchange is unavailable") from None
     if len(raw_response) > MAX_PAGE_BYTES:
         raise SyncFailure("sync-page-too-large", "HTTP response exceeds the v0 page limit")
     try:
         _check_raw_depth(raw_response, max_depth=MAX_NESTING_DEPTH + 5)
         value = load_json_bytes(raw_response)
-    except (ValidationFailure, RecursionError):
+        canonical_bytes(value)
+    except (ValidationFailure, RecursionError, CanonicalizationFailure):
         raise SyncFailure("sync-response-invalid", "hub returned invalid JSON") from None
     if not isinstance(value, dict) or set(value) != {"receipt", "pages", "record_pages"}:
         raise SyncFailure("sync-response-invalid", "hub returned an invalid exchange shape")
@@ -132,21 +140,23 @@ def _batch(vault: Path, binding: dict) -> list:
     fresh, retry = rotate(fresh, fresh_cursor), rotate(retry, retry_cursor)
     ordered = retry + fresh if retry_first and retry and fresh else fresh + retry
     records = []
+    request_bytes = len(canonical_bytes({"records": [], "page_token": None}))
     for item in ordered:
         if len(records) >= MAX_SUBMITTED_RECORDS:
             break
         if item.stat().st_size > MAX_RECORD_BYTES:
             raise SyncFailure("sync-record-too-large", "local record exceeds the v0 byte limit")
-        loaded = _load_record_paths(vault, [item])[0]
+        loaded = _load_record_paths(vault, [item], maximum_bytes=MAX_RECORD_BYTES)[0]
         if len(loaded.raw) > MAX_RECORD_BYTES:
             raise SyncFailure("sync-record-too-large", "local record exceeds the v0 byte limit")
-        proposed = records + [loaded]
-        request = {"records": [{"record_ref": r.record_ref, "record": r.record} for r in proposed], "page_token": None}
-        if len(canonical_bytes(request)) > MAX_REQUEST_BYTES:
+        contribution = len(canonical_bytes({"record_ref": loaded.record_ref, "record": loaded.record}))
+        proposed_bytes = request_bytes + contribution + bool(records)
+        if proposed_bytes > MAX_REQUEST_BYTES:
             if not records:
                 raise SyncFailure("sync-request-too-large", "local record cannot fit an HTTP request")
             break
-        records = proposed
+        records.append(loaded)
+        request_bytes = proposed_bytes
     _request_bounds(records)
     return records
 
@@ -172,7 +182,10 @@ def sync_http(vault: Path, hub: str, *, bearer: str | None,
             if pending_path.lstat().st_size > MAX_REQUEST_BYTES:
                 raise SyncFailure("sync-pending-binding-mismatch", "HTTP retry state exceeds its bound")
             raw = _read_local_regular_file(vault, pending_path,
-                missing_code="sync-pending-missing", missing_message="HTTP retry state is unavailable")
+                missing_code="sync-pending-missing", missing_message="HTTP retry state is unavailable",
+                maximum_bytes=MAX_REQUEST_BYTES)
+            if len(raw) > MAX_REQUEST_BYTES:
+                raise SyncFailure("sync-pending-binding-mismatch", "HTTP retry state exceeds its bound")
             try:
                 _check_raw_depth(raw)
                 pending = load_json_bytes(raw)
@@ -180,12 +193,12 @@ def sync_http(vault: Path, hub: str, *, bearer: str | None,
                         or pending["schema_id"] != "artifact-memory/http-coordination-pending/v0"
                         or pending["binding"] != binding):
                     raise ValueError()
-                refs = _validated_pair_manifest(pending["request_refs"])
-                if len(refs) > MAX_SUBMITTED_RECORDS:
+                if not isinstance(pending["request_refs"], list) or len(pending["request_refs"]) > MAX_SUBMITTED_RECORDS:
                     raise ValueError()
+                refs = _validated_pair_manifest(pending["request_refs"])
             except (ValueError, ValidationFailure, RecursionError):
                 raise SyncFailure("sync-pending-binding-mismatch", "HTTP retry state does not match the configured binding") from None
-            records = _load_record_paths(vault, [_record_path(vault, ref) for ref in refs])
+            records = _load_record_paths(vault, [_record_path(vault, ref) for ref in refs], maximum_bytes=MAX_RECORD_BYTES)
         else:
             records = _batch(vault, binding) if phase in {"push", "both"} else []
             refs = [r.record_ref for r in records]
@@ -214,7 +227,7 @@ def sync_http(vault: Path, hub: str, *, bearer: str | None,
                 raise SyncFailure("sync-binding-mismatch", "HTTP receipt does not match the configured binding")
             if receipt is None:
                 receipt = current
-                if current["authorized_membership"]["page_count"] > 10_000:
+                if current["authorized_membership"]["page_count"] > MAX_HTTP_PAGES:
                     raise SyncFailure("sync-page-count-mismatch", "HTTP membership exceeds the v0 deployment bound")
                 if {_pair_key(o["record_ref"]) for o in current["submission_outcomes"]} != {_pair_key(r) for r in refs}:
                     raise SyncFailure("sync-outcomes-invalid", "HTTP outcomes do not cover the exact submitted batch")

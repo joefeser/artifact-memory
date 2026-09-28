@@ -13,16 +13,17 @@ import tempfile
 import unittest
 from pathlib import Path
 from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 
 from artifact_memory.canonical import canonical_bytes
 from artifact_memory.coordination import revision_digest
 from artifact_memory.coordination_sync import (
-    _record_path, _write_immutable, directory_digest, load_authorized_projection,
+    _policy_label_path, _record_path, _write_immutable, directory_digest, load_authorized_projection,
     store_coordination_record, sync,
 )
 from tests.test_coordination_sync import (
     HUB_ID, PRINCIPAL, SESSION, PROJECT_A, PROJECT_B, configure, label_for, unique_task_for,
-    claimed_task_for, work_receipt_for,
+    claimed_task_for, work_receipt_for, label_identity,
 )
 
 WITS_REF = 'd07f850d07a447e7672ae40a0e61b67029e71d02'
@@ -62,6 +63,13 @@ class WitsHttpIntegration(unittest.TestCase):
                 'schema_id': 'wits/coordination-origin-projects/v0',
                 'origins': {tasks[0]['originId']: PROJECT_A, hidden['originId']: PROJECT_B},
             }))
+            write_only = label_identity(label_for([]), 'synthetic-write-only')
+            write_only['may']['syncTaskPackets'] = [PROJECT_A]
+            write_only['may']['syncWorkReceipts'] = [PROJECT_A]
+            write_only_ref = {"record_id": write_only["record_id"], "revision_digest": revision_digest(write_only)}
+            _write_immutable(hub, _policy_label_path(hub, write_only_ref), canonical_bytes(write_only))
+            write_only_principal = 'coordination-principal://synthetic/write-only'
+            write_only_token = 'synthetic-am153-write-only'
             writer_token, reader_token = 'synthetic-am153-writer', 'synthetic-am153-reader'
             reader_principal = 'coordination-principal://synthetic/reader-a'
             seed = root / 'synthetic-seed.json'
@@ -70,6 +78,9 @@ class WitsHttpIntegration(unittest.TestCase):
                 'keys': [
                     {'projectId': PROJECT_A, 'token': writer_token, 'principal': PRINCIPAL, 'labelRef': label_ref,
                      'capabilities': [f'coordination:{action}:{PROJECT_A}' for action in ('read', 'sync:task-packet', 'sync:work-receipt')]},
+                    {'projectId': PROJECT_A, 'token': write_only_token, 'principal': write_only_principal,
+                     'labelRef': write_only_ref, 'capabilities': [f'coordination:{action}:{PROJECT_A}'
+                        for action in ('read', 'sync:task-packet', 'sync:work-receipt')]},
                     {'projectId': PROJECT_A, 'token': reader_token, 'principal': reader_principal, 'labelRef': label_ref,
                      'capabilities': [f'coordination:read:{PROJECT_A}']},
                 ],
@@ -78,6 +89,8 @@ class WitsHttpIntegration(unittest.TestCase):
             config = json.loads((hub / 'hub-config.json').read_bytes())
             config['bindings'].append({'session_id': 'coordination-session://synthetic/reader-a',
                 'principal_id': reader_principal, 'access_label': label})
+            config['bindings'].append({'session_id': 'coordination-session://synthetic/write-only',
+                'principal_id': write_only_principal, 'access_label': write_only})
             (hub / 'hub-config.json').write_bytes(canonical_bytes(config))
             env = os.environ | {'DATABASE_URL': database, 'WITS_HTTP_SYNTHETIC_SEED': str(seed),
                 'COORDINATION_VAULT_ROOT': str(hub),
@@ -128,6 +141,40 @@ class WitsHttpIntegration(unittest.TestCase):
                         'bearer': reader_token, 'expected_principal_id': reader_principal}))['outcome'], 'no-op')
                     self.assertEqual(directory_digest(reader), before)
                     self.assertEqual(len(load_authorized_projection(reader)), 505)
+                    # Denial matrix goes through the actual authenticated POST route.
+                    def exchange(token, records):
+                        entries = [{'record_ref': {'record_id': r['record_id'],
+                            'revision_digest': revision_digest(r)}, 'record': r} for r in records]
+                        request = Request(url + '/api/agent/coordination/sync',
+                            data=canonical_bytes({'records': entries, 'page_token': None}), method='POST',
+                            headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
+                        with urlopen(request, timeout=20) as response:
+                            return json.load(response)
+                    withheld_count = exchange(writer_token, [])['receipt']['excluded_count']
+                    origin_denials = []
+                    for origin in ('55555555-5555-4555-8555-555555555555', hidden['originId']):
+                        for identity in (hidden['taskId'], 'task_' + f'{802:026d}'):
+                            candidate = unique_task_for(label, 802)
+                            candidate.update(originId=origin, taskId=identity)
+                            candidate['record_id'] = f'record://coordination/{origin}/task/{identity}'
+                            origin_denials.append(candidate)
+                    denied_reply = exchange(writer_token, origin_denials)
+                    self.assertEqual([o['code'] for o in denied_reply['receipt']['submission_outcomes']],
+                                     ['unauthorized-project'] * 4)
+                    self.assertEqual(denied_reply['receipt']['excluded_count'], withheld_count)
+                    write_only_count = exchange(write_only_token, [])['receipt']['excluded_count']
+                    write_only_records = [unique_task_for(write_only, i) for i in (0, 803)]
+                    for known in (True, False):
+                        candidate = work_receipt_for(write_only, claimed)
+                        candidate['writer'] = write_only_principal
+                        if not known:
+                            candidate['taskRef']['record_id'] = unique_task_for(write_only, 804)['record_id']
+                        write_only_records.append(candidate)
+                    write_denied = exchange(write_only_token, write_only_records)
+                    self.assertEqual([o['code'] for o in write_denied['receipt']['submission_outcomes']],
+                                     ['unauthorized-project'] * 4)
+                    self.assertEqual(write_denied['receipt']['excluded_count'], write_only_count)
+                    self.assertEqual(exchange(writer_token, [])['receipt']['excluded_count'], withheld_count)
                     # A corrupt local pair can be sent for quarantine, never auto-repaired.
                     pair = {'record_id': tasks[0]['record_id'], 'revision_digest': revision_digest(tasks[0])}
                     altered = dict(tasks[0], title='synthetic different bytes')
@@ -135,7 +182,7 @@ class WitsHttpIntegration(unittest.TestCase):
                     quarantined = sync(collision, url, phase='push', **binding)
                     self.assertEqual(quarantined['submission_outcomes'][0]['outcome'], 'quarantined')
                     self.assertFalse((collision / 'generated/coordination-sync/last-successful.json').exists())
-                    print('AM153-WITS: admitted=2(task+receipt) rejected=1 quarantined=1 pages=2 excluded=1 retry=verified no-op=verified')
+                    print('AM153-WITS: admitted=2(task+receipt) rejected=1 quarantined=1 pages=2 excluded=1 retry=verified no-op=verified denials=8(count-invariant)')
                 finally:
                     server.terminate()
                     try:

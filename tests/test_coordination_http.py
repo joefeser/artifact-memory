@@ -7,6 +7,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from http.client import BadStatusLine
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -39,6 +40,8 @@ class HttpCoordinationTests(unittest.TestCase):
         self.redirect = False
         self.paused = None
         self.responses = []
+        self.raw_reply = None
+        self.truncated = False
         outer = self
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
@@ -59,7 +62,11 @@ class HttpCoordinationTests(unittest.TestCase):
                     self.send_response(401)
                     self.end_headers()
                     return
-                raw = canonical_bytes(outer.responses[index])
+                if outer.truncated:
+                    self.wfile.write(b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabc')
+                    self.close_connection = True
+                    return
+                raw = outer.raw_reply if outer.raw_reply is not None else canonical_bytes(outer.responses[index])
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
@@ -194,6 +201,114 @@ class HttpCoordinationTests(unittest.TestCase):
             sync(self.vault, self.url, phase='pull', **self.binding)
         self.assertEqual(caught.exception.code, 'sync-outcomes-invalid')
         self.assertFalse((self.vault / 'generated/coordination-sync/last-successful.json').exists())
+
+    def test_direct_http_api_omits_local_fields_and_local_still_requires_them(self):
+        binding = {key: value for key, value in self.binding.items() if key not in {'session_id', 'completed_at'}}
+        self.assertEqual(sync(self.vault, self.url, phase='pull', **binding)['outcome'], 'complete')
+        with self.assertRaises(SyncFailure) as caught:
+            sync(self.vault, self.hub)
+        self.assertEqual(caught.exception.code, 'sync-local-binding-required')
+
+    def test_truncated_chunked_reply_and_bad_status_are_typed_and_keep_retry(self):
+        ref = store_coordination_record(self.vault, self.tasks[0])
+        self.truncated = True
+        with self.assertRaises(SyncFailure) as caught:
+            sync(self.vault, self.url, **self.binding)
+        self.assertEqual(caught.exception.code, 'sync-http-unavailable')
+        self.assertTrue((self.vault / 'generated/coordination-sync/http-pending.json').exists())
+        with patch('urllib.request.OpenerDirector.open', side_effect=BadStatusLine('untrusted synthetic text')):
+            with self.assertRaises(SyncFailure) as caught:
+                sync(self.vault, self.url, phase='pull', **self.binding)
+        self.assertEqual(caught.exception.code, 'sync-http-unavailable')
+        self.assertNotIn('untrusted', str(caught.exception))
+        self.truncated = False
+        self.response([{'record_ref': ref, 'outcome': 'admitted', 'code': 'admitted'}])
+        self.assertEqual(sync(self.vault, self.url, phase='pull', **self.binding)['outcome'], 'complete')
+
+    def test_surrogate_json_is_typed_without_advancing_success(self):
+        store_coordination_record(self.vault, self.tasks[0])
+        self.raw_reply = b'{"receipt":{"untrusted":"\\ud800"},"pages":[],"record_pages":[]}'
+        with self.assertRaises(SyncFailure) as caught:
+            sync(self.vault, self.url, **self.binding)
+        self.assertEqual(caught.exception.code, 'sync-response-invalid')
+        self.assertTrue((self.vault / 'generated/coordination-sync/http-pending.json').exists())
+        self.assertFalse((self.vault / 'generated/coordination-sync/last-successful.json').exists())
+
+    def test_retry_journal_growth_is_bounded_at_read_not_only_stat(self):
+        from artifact_memory.coordination_sync import _read_local_regular_file
+        store_coordination_record(self.vault, self.tasks[0])
+        self.failure_page = 0
+        with self.assertRaises(SyncFailure):
+            sync(self.vault, self.url, **self.binding)
+        pending = self.vault / 'generated/coordination-sync/http-pending.json'
+        observed = []
+        def growing_read(vault, path, **kwargs):
+            if path == pending:
+                observed.append(kwargs.get('maximum_bytes'))
+                # Replacement happens after lstat, before the secure bounded read.
+                path.write_bytes(b'x' * 4096)
+            return _read_local_regular_file(vault, path, **kwargs)
+        with patch('artifact_memory.coordination_http.MAX_REQUEST_BYTES', 2048), \
+             patch('artifact_memory.coordination_http._read_local_regular_file', side_effect=growing_read):
+            with self.assertRaises(SyncFailure) as caught:
+                sync(self.vault, self.url, phase='pull', **self.binding)
+        self.assertEqual(observed, [2048])
+        self.assertEqual(caught.exception.code, 'sync-pending-binding-mismatch')
+        self.assertEqual(len(self.requests), 1)
+
+    def test_local_http_record_growth_is_bounded_before_json_parse(self):
+        from artifact_memory.coordination_sync import _read_local_regular_file
+        ref = store_coordination_record(self.vault, self.tasks[0])
+        from artifact_memory.coordination_sync import _record_path
+        record_path = _record_path(self.vault, ref)
+        def growing_read(vault, path, **kwargs):
+            if path == record_path:
+                self.assertEqual(kwargs['maximum_bytes'], 2048)
+                path.write_bytes(b'x' * 4096)
+            return _read_local_regular_file(vault, path, **kwargs)
+        with patch('artifact_memory.coordination_http.MAX_RECORD_BYTES', 2048), \
+             patch('artifact_memory.coordination_sync._read_local_regular_file', side_effect=growing_read):
+            with self.assertRaises(SyncFailure) as caught:
+                sync(self.vault, self.url, **self.binding)
+        self.assertEqual(caught.exception.code, 'sync-record-too-large')
+        self.assertEqual(self.requests, [])
+
+    def test_full_batch_serializes_each_candidate_once_and_honors_exact_wire_size(self):
+        from artifact_memory.coordination_http import _batch
+        for i in range(1000):
+            task = unique_task_for(self.label, 1000 + i)
+            task['title'] = 'synthetic-' + 'x' * 6800
+            store_coordination_record(self.vault, task)
+        with patch('artifact_memory.coordination_http.canonical_bytes', wraps=canonical_bytes) as counted:
+            batch = _batch(self.vault, {'hub_id': HUB_ID, 'principal_id': PRINCIPAL})
+        self.assertEqual(len(batch), 1000)
+        self.assertEqual(counted.call_count, 1001)
+        request = {'records': [{'record_ref': r.record_ref, 'record': r.record} for r in batch], 'page_token': None}
+        wire_size = len(canonical_bytes(request))
+        self.assertGreater(wire_size, 7 * 1024 * 1024)
+        self.assertLessEqual(wire_size, 8 * 1024 * 1024)
+        with patch('artifact_memory.coordination_http.MAX_REQUEST_BYTES', wire_size - 1):
+            limited = _batch(self.vault, {'hub_id': HUB_ID, 'principal_id': PRINCIPAL})
+        self.assertEqual(len(limited), 999)
+
+    def test_aggregate_wire_budget_includes_repeated_metadata(self):
+        # Scaled boundary: canonical records fit the vault budget but whole
+        # response bodies exceed it. The wire allowance must be independent.
+        record_bytes = sum(len(canonical_bytes(r)) for r in self.tasks)
+        wire_bytes = sum(len(canonical_bytes(r)) for r in self.responses)
+        self.assertGreater(wire_bytes, record_bytes)
+        with patch('artifact_memory.coordination_http.MAX_EXCHANGE_BYTES', wire_bytes):
+            self.assertEqual(sync(self.vault, self.url, phase='pull', **self.binding)['outcome'], 'complete')
+        with patch('artifact_memory.coordination_http.MAX_EXCHANGE_BYTES', wire_bytes - 1):
+            with self.assertRaises(SyncFailure) as caught:
+                sync(self.vault, self.url, phase='pull', **self.binding)
+        self.assertEqual(caught.exception.code, 'sync-response-too-large')
+        from artifact_memory.coordination_http import MAX_HTTP_PAGES, MAX_EXCHANGE_BYTES
+        # WITS byte-full groups exceed this lower bound even at maximal refs.
+        packed_bytes = 128 * 1024 * 1024 + 10000 * (512 + 2)
+        byte_full_min = 2 * 1024 * 1024 - 538
+        self.assertLess(packed_bytes // byte_full_min + 20 + 1, MAX_HTTP_PAGES)
+        self.assertEqual(MAX_EXCHANGE_BYTES, MAX_HTTP_PAGES * 4 * 1024 * 1024)
 
 
 if __name__ == "__main__":

@@ -773,7 +773,7 @@ def _check_raw_depth(raw: bytes, *, max_depth: int = MAX_NESTING_DEPTH) -> None:
             depth -= 1
 
 
-def _load_record_paths(root: Path, paths: list[Path]) -> list[StoredRecord]:
+def _load_record_paths(root: Path, paths: list[Path], *, maximum_bytes: int | None = None) -> list[StoredRecord]:
     records: list[StoredRecord] = []
     for path in paths:
         if len(path.stem) != 64 or any(
@@ -784,7 +784,13 @@ def _load_record_paths(root: Path, paths: list[Path]) -> list[StoredRecord]:
                 "canonical coordination storage has an invalid digest path",
             )
         try:
-            raw = path.read_bytes()
+            if maximum_bytes is None:
+                raw = path.read_bytes()
+            else:
+                raw = _read_local_regular_file(root, path, maximum_bytes=maximum_bytes,
+                    missing_code="local-record-invalid", missing_message="canonical record is unavailable")
+                if len(raw) > maximum_bytes:
+                    raise SyncFailure("sync-record-too-large", "local record exceeds the v0 byte limit")
             _check_raw_depth(raw)
             value = load_json_bytes(raw)
         except SyncFailure:
@@ -2443,8 +2449,8 @@ def sync(
     vault: Path,
     hub: Path | str,
     *,
-    session_id: str,
-    completed_at: str,
+    session_id: str | None = None,
+    completed_at: str | None = None,
     phase: str = "both",
     required_project_id: str | None = None,
     expected_hub_id: str | None = None,
@@ -2467,6 +2473,8 @@ def sync(
                          expected_principal_id=expected_principal_id,
                          expected_access_label_ref=expected_access_label_ref,
                          phase=phase, before_apply=_before_pull_apply)
+    if not session_id or not completed_at:
+        raise SyncFailure("sync-local-binding-required", "local-path sync requires session_id and completed_at")
     hub = Path(hub)
     if phase not in {"push", "pull", "both"}:
         raise SyncFailure("sync-phase-invalid", "sync phase must be push, pull, or both")
