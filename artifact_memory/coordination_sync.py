@@ -841,14 +841,25 @@ def _scan_record_identity(root: Path, record_id: str) -> list[StoredRecord]:
     return _load_record_paths(root, paths)
 
 
-def _validate_hub_config(config: Any) -> dict[str, Any]:
-    if not isinstance(config, dict) or set(config) != {
+def _validate_hub_config(
+    config: Any,
+    *,
+    allow_legacy_without_origin_projects: bool = False,
+) -> dict[str, Any]:
+    current_keys = {
         "schema_id",
         "hub_id",
         "scope_generation",
         "bindings",
         "origin_projects",
-    }:
+    }
+    legacy_keys = current_keys - {"origin_projects"}
+    if not isinstance(config, dict) or (
+        set(config) != current_keys
+        and not (
+            allow_legacy_without_origin_projects and set(config) == legacy_keys
+        )
+    ):
         raise SyncFailure("hub-config-invalid", "local hub configuration has an invalid shape")
     if config["schema_id"] != LOCAL_HUB_SCHEMA_ID:
         raise SyncFailure("hub-config-invalid", "local hub schema is unsupported")
@@ -893,23 +904,24 @@ def _validate_hub_config(config: Any) -> dict[str, Any]:
         label, _ = validate_coordination_record_body(binding["access_label"])
         if label["schema_id"] != ACCESS_LABEL_SCHEMA_ID:
             raise SyncFailure("hub-config-invalid", "principal binding requires an AccessLabel")
-    origin_projects = config["origin_projects"]
-    if not isinstance(origin_projects, dict):
-        raise SyncFailure("hub-config-invalid", "origin_projects must be an object")
-    for origin_id, project_id in origin_projects.items():
-        try:
-            canonical_origin = str(UUID(origin_id))
-            canonical_project = str(UUID(project_id))
-        except (AttributeError, TypeError, ValueError) as exc:
-            raise SyncFailure(
-                "hub-config-invalid",
-                "origin_projects must map canonical UUIDs to canonical UUIDs",
-            ) from exc
-        if canonical_origin != origin_id or canonical_project != project_id:
-            raise SyncFailure(
-                "hub-config-invalid",
-                "origin_projects must map canonical UUIDs to canonical UUIDs",
-            )
+    if "origin_projects" in config:
+        origin_projects = config["origin_projects"]
+        if not isinstance(origin_projects, dict):
+            raise SyncFailure("hub-config-invalid", "origin_projects must be an object")
+        for origin_id, project_id in origin_projects.items():
+            try:
+                canonical_origin = str(UUID(origin_id))
+                canonical_project = str(UUID(project_id))
+            except (AttributeError, TypeError, ValueError) as exc:
+                raise SyncFailure(
+                    "hub-config-invalid",
+                    "origin_projects must map canonical UUIDs to canonical UUIDs",
+                ) from exc
+            if canonical_origin != origin_id or canonical_project != project_id:
+                raise SyncFailure(
+                    "hub-config-invalid",
+                    "origin_projects must map canonical UUIDs to canonical UUIDs",
+                )
     return deepcopy(config)
 
 
@@ -951,7 +963,13 @@ def configure_local_hub(
         prior_principals: set[str] = set()
         config_path = hub / "hub-config.json"
         if config_path.exists() or config_path.is_symlink():
-            prior_config = _load_hub_config(hub)
+            # The immediately preceding v0 shape lacked origin_projects. Only
+            # this explicit administrative rewrite may read that exact legacy
+            # shape; ordinary sync continues to fail closed until migration.
+            prior_config = _load_hub_config(
+                hub,
+                allow_legacy_without_origin_projects=True,
+            )
             if prior_config["hub_id"] != config["hub_id"]:
                 raise SyncFailure(
                     "hub-identity-mismatch",
@@ -983,7 +1001,11 @@ def configure_local_hub(
             _write_atomic(hub, config_path, canonical_bytes(config))
 
 
-def _load_hub_config(hub: Path) -> dict[str, Any]:
+def _load_hub_config(
+    hub: Path,
+    *,
+    allow_legacy_without_origin_projects: bool = False,
+) -> dict[str, Any]:
     _validate_storage_root(hub, create=False)
     path = hub / "hub-config.json"
     if path.is_symlink() or not path.is_file():
@@ -991,7 +1013,10 @@ def _load_hub_config(hub: Path) -> dict[str, Any]:
     try:
         raw = path.read_bytes()
         _check_raw_depth(raw)
-        return _validate_hub_config(load_json_bytes(raw))
+        return _validate_hub_config(
+            load_json_bytes(raw),
+            allow_legacy_without_origin_projects=allow_legacy_without_origin_projects,
+        )
     except (OSError, RecursionError, ValidationFailure) as exc:
         if isinstance(exc, SyncFailure):
             raise

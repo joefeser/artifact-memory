@@ -1947,6 +1947,44 @@ class CoordinationSyncTests(unittest.TestCase):
             configure(hub, narrow, generation=2)
             self.assertEqual(load_json(hub / "hub-config.json")["scope_generation"], 2)
 
+    def test_explicit_configuration_migrates_legacy_hub_shape(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(vault, task_for(label))
+            config_path = hub / "hub-config.json"
+            legacy_config = load_json(config_path)
+            del legacy_config["origin_projects"]
+            config_path.write_bytes(canonical_bytes(legacy_config))
+
+            with self.assertRaises(SyncFailure) as unmigrated:
+                push(vault, hub, session_id=SESSION)
+            self.assertEqual(unmigrated.exception.code, "hub-config-invalid")
+
+            configure_local_hub(
+                hub,
+                hub_id=HUB_ID,
+                scope_generation=2,
+                bindings=[
+                    {
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": label,
+                    }
+                ],
+                origin_projects=ORIGIN_PROJECTS,
+            )
+
+            migrated = load_json(config_path)
+            self.assertEqual(migrated["origin_projects"], ORIGIN_PROJECTS)
+            self.assertEqual(migrated["scope_generation"], 2)
+            self.assertEqual(
+                [item["outcome"] for item in push(vault, hub, session_id=SESSION)],
+                ["admitted"],
+            )
+
     def test_configuration_cannot_relabel_an_existing_logical_hub(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
