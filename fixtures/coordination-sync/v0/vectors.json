@@ -74,7 +74,7 @@
     "expected_page_count": 2,
     "max_pairs_per_page": 500,
     "oversized_record_bytes": 4194304,
-    "expected_oversized_record_code": "sync-page-too-large"
+    "expected_oversized_record_code": "sync-record-too-large"
   },
   "authority_boundary": "sync vectors are synthetic and grant no execution, disclosure, authorization, or trust"
 }

@@ -457,6 +457,33 @@ class CoordinationRecordTests(unittest.TestCase):
         self.assertEqual(result["diagnostics"][0]["code"], "access-label-read-overlap")
         self.assertNotIn("hub_admission_verified", result)
 
+    def test_cli_rejects_recursive_json_with_typed_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "recursive.json"
+            path.write_text(
+                ("[" * 65) + ("]" * 65),
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "artifact_memory",
+                    "records",
+                    "validate",
+                    str(path),
+                    "--json",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+        self.assertEqual(completed.returncode, 2, completed.stderr or completed.stdout)
+        result = json.loads(completed.stdout)
+        self.assertEqual(result["outcome"], "rejected")
+        self.assertEqual(result["diagnostics"][0]["code"], "invalid-json")
+        self.assertEqual(result["diagnostics"][0]["path"], "$.files[0]")
+
 
 if __name__ == "__main__":
     unittest.main()

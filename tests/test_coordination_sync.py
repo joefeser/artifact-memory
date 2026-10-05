@@ -1777,6 +1777,27 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "sync-record-too-large")
             self.assertEqual(list((hub / "canonical" / "coordination").glob("*/*.json")), [])
 
+    def test_hub_scan_bounds_canonical_record_before_parsing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            task = task_for(label)
+            store_coordination_record(hub, task)
+            claimed_path(hub, task).write_bytes(b"{" + (b" " * 64))
+
+            with patch("artifact_memory.coordination_sync.MAX_RECORD_BYTES", 32):
+                with self.assertRaises(SyncFailure) as raised:
+                    pull(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+            self.assertEqual(raised.exception.code, "sync-record-too-large")
+            self.assertFalse((vault / "generated").exists())
+
     def test_pending_outcomes_reject_a_different_authenticated_principal(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

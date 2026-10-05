@@ -775,7 +775,15 @@ def _check_raw_depth(raw: bytes, *, max_depth: int = MAX_NESTING_DEPTH) -> None:
             depth -= 1
 
 
-def _load_record_paths(root: Path, paths: list[Path], *, maximum_bytes: int | None = None) -> list[StoredRecord]:
+def _load_record_paths(
+    root: Path,
+    paths: list[Path],
+    *,
+    maximum_bytes: int | None = None,
+) -> list[StoredRecord]:
+    effective_maximum = (
+        MAX_RECORD_BYTES if maximum_bytes is None else maximum_bytes
+    )
     records: list[StoredRecord] = []
     for path in paths:
         if len(path.stem) != 64 or any(
@@ -786,13 +794,18 @@ def _load_record_paths(root: Path, paths: list[Path], *, maximum_bytes: int | No
                 "canonical coordination storage has an invalid digest path",
             )
         try:
-            if maximum_bytes is None:
-                raw = path.read_bytes()
-            else:
-                raw = _read_local_regular_file(root, path, maximum_bytes=maximum_bytes,
-                    missing_code="local-record-invalid", missing_message="canonical record is unavailable")
-                if len(raw) > maximum_bytes:
-                    raise SyncFailure("sync-record-too-large", "local record exceeds the v0 byte limit")
+            raw = _read_local_regular_file(
+                root,
+                path,
+                maximum_bytes=effective_maximum,
+                missing_code="local-record-invalid",
+                missing_message="canonical record is unavailable",
+            )
+            if len(raw) > effective_maximum:
+                raise SyncFailure(
+                    "sync-record-too-large",
+                    "local record exceeds the v0 byte limit",
+                )
             _check_raw_depth(raw)
             value = load_json_bytes(raw)
         except SyncFailure:

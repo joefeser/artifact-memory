@@ -11,7 +11,7 @@ from .canonical import CanonicalizationFailure, canonical_bytes, sha256_bytes
 from .extensions import ExtensionFailure, preserve_extensions
 from .location import ARTIFACT_REF, ENDPOINT_REF, RELATIVE_PATH
 from .schema_resources import core_schemas
-from .validator import ValidationFailure, load_json, validate
+from .validator import ValidationFailure, load_json_bytes, validate
 
 
 TASK_PACKET_SCHEMA_ID = "artifact-memory/coordination-task-packet/v0"
@@ -28,6 +28,34 @@ FRESHNESS_EXTENSION_ID = (
 AUTHORITY_BOUNDARY = (
     "informational only; authority requires independently authenticated WITS enforcement"
 )
+MAX_COORDINATION_FILE_NESTING_DEPTH = 64
+
+
+def _check_coordination_json_depth(data: bytes) -> None:
+    """Reject excessive JSON nesting consistently across Python runtimes."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for byte in data:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 0x5C:
+                escaped = True
+            elif byte == 0x22:
+                in_string = False
+            continue
+        if byte == 0x22:
+            in_string = True
+        elif byte in {0x7B, 0x5B}:
+            depth += 1
+            if depth > MAX_COORDINATION_FILE_NESTING_DEPTH:
+                raise ValidationFailure(
+                    "invalid-json",
+                    "coordination record exceeds supported JSON nesting",
+                )
+        elif byte in {0x7D, 0x5D}:
+            depth -= 1
 
 
 def revision_digest(record: dict[str, Any]) -> str:
@@ -496,9 +524,23 @@ def validate_coordination_files(paths: list[Path]) -> dict[str, Any]:
     records: list[dict[str, Any]] = []
     for index, path in enumerate(paths):
         try:
-            value = load_json(path)
+            raw = path.read_bytes()
+            _check_coordination_json_depth(raw)
+            value = load_json_bytes(raw)
+        except OSError as exc:
+            raise ValidationFailure(
+                "invalid-json",
+                "input is not valid UTF-8 JSON",
+                f"$.files[{index}]",
+            ) from exc
         except ValidationFailure as exc:
             raise ValidationFailure(exc.code, exc.message, f"$.files[{index}]") from exc
+        except RecursionError as exc:
+            raise ValidationFailure(
+                "invalid-json",
+                "coordination record exceeds supported JSON nesting",
+                f"$.files[{index}]",
+            ) from exc
         if not isinstance(value, dict):
             raise ValidationFailure(
                 "invalid-input",
@@ -506,4 +548,11 @@ def validate_coordination_files(paths: list[Path]) -> dict[str, Any]:
                 f"$.files[{index}]",
             )
         records.append(value)
-    return validate_coordination_records(records)
+    try:
+        return validate_coordination_records(records)
+    except RecursionError as exc:
+        raise ValidationFailure(
+            "invalid-json",
+            "coordination records exceed supported validation nesting",
+            "$.records",
+        ) from exc
