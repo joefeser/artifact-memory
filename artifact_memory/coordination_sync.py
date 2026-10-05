@@ -597,7 +597,7 @@ def _prepare_parent(boundary: Path, path: Path) -> None:
 def _write_immutable(boundary: Path, path: Path, data: bytes) -> str:
     _prepare_parent(boundary, path)
     if path.exists() or path.is_symlink():
-        if path.is_symlink() or not path.is_file() or path.read_bytes() != data:
+        if not _immutable_target_matches(boundary, path, data):
             raise SyncFailure(
                 "immutable-record-collision",
                 "an immutable coordination path contains different bytes",
@@ -616,7 +616,7 @@ def _write_immutable(boundary: Path, path: Path, data: bytes) -> str:
                 os.link(temporary, path)
                 _sync_directory(path.parent)
         except FileExistsError:
-            if path.is_symlink() or not path.is_file() or path.read_bytes() != data:
+            if not _immutable_target_matches(boundary, path, data):
                 raise SyncFailure(
                     "immutable-record-collision",
                     "an immutable coordination path contains different bytes",
@@ -630,6 +630,31 @@ def _write_immutable(boundary: Path, path: Path, data: bytes) -> str:
             pass
         else:
             _sync_directory(path.parent)
+
+
+def _immutable_target_matches(boundary: Path, path: Path, data: bytes) -> bool:
+    """Compare one existing immutable target without an unbounded read."""
+    try:
+        metadata = os.lstat(path)
+    except OSError as exc:
+        raise SyncFailure(
+            "immutable-record-collision",
+            "an immutable coordination path changed during comparison",
+        ) from exc
+    if (
+        _is_link_or_reparse(metadata)
+        or not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_size != len(data)
+    ):
+        return False
+    observed = _read_local_regular_file(
+        boundary,
+        path,
+        maximum_bytes=len(data),
+        missing_code="immutable-record-collision",
+        missing_message="an immutable coordination path changed during comparison",
+    )
+    return observed == data
 
 
 def _write_atomic(boundary: Path, path: Path, data: bytes) -> None:

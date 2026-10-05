@@ -1312,6 +1312,39 @@ class CoordinationSyncTests(unittest.TestCase):
                         ).exists()
                     )
 
+    def test_immutable_collision_comparison_is_size_checked_and_bounded(self):
+        module = __import__(
+            "artifact_memory.coordination_sync",
+            fromlist=["_read_local_regular_file"],
+        )
+        label = label_for([PROJECT_A])
+        task = task_for(label)
+        expected = canonical_bytes(task)
+        for existing in (b"x" * (len(expected) + 1), b"x" * len(expected)):
+            with self.subTest(existing_size=len(existing)):
+                with tempfile.TemporaryDirectory() as temporary:
+                    vault = Path(temporary) / "vault"
+                    target = claimed_path(vault, task)
+                    target.parent.mkdir(parents=True)
+                    target.write_bytes(existing)
+                    with patch(
+                        "artifact_memory.coordination_sync._read_local_regular_file",
+                        wraps=module._read_local_regular_file,
+                    ) as reader:
+                        with self.assertRaises(SyncFailure) as raised:
+                            store_coordination_record(vault, task)
+                    self.assertEqual(
+                        raised.exception.code,
+                        "immutable-record-collision",
+                    )
+                    if len(existing) != len(expected):
+                        reader.assert_not_called()
+                    else:
+                        self.assertEqual(
+                            reader.call_args.kwargs["maximum_bytes"],
+                            len(expected),
+                        )
+
     def test_push_ignores_malformed_historical_membership_without_crashing(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

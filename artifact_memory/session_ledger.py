@@ -74,6 +74,7 @@ _CREDENTIAL_NAMES = "|".join(
         "slack" + _NAME_GAP + "bot" + _NAME_GAP + "token",
         "aws" + _NAME_GAP + "secret" + _NAME_GAP + "access" + _NAME_GAP + "key",
         "secret" + _NAME_GAP + "access" + _NAME_GAP + "key",
+        "author" + _NAME_GAP + "ization",
         "token",
         "secret",
     )
@@ -83,7 +84,6 @@ _SENSITIVE_TOKEN = re.compile(
         (
             r"-----BEGIN [A-Z ]*PRIVATE " + r"KEY-----",
             rf"\b(?:{_TOKEN_PREFIXES})[A-Za-z0-9_-]{{16,}}",
-            r"\bAuthor" + r"ization[\"'`]?\s*:\s*[\"'`]?Bearer\s+\S+",
             rf"(?<![A-Za-z0-9])(?:{_CREDENTIAL_NAMES})[\"'`]?\s*[:=]\s*\S+",
         )
     ),
