@@ -114,7 +114,12 @@ class SessionLedgerTests(unittest.TestCase):
                 "npm" + "_token" + "=" + synthetic_value,
                 "secret" + "=" + synthetic_value,
                 "service" + "_secret" + "=" + synthetic_value,
+                "Authorization: Basic c3ludGhldGljOnZhbHVl",
+                "Authorization: Digest synthetic-value",
                 "session=" + "g" + "hs_" + "syntheticvalue1234",
+                "session=" + "g" + "ho_" + "syntheticvalue1234",
+                "session=" + "g" + "hr_" + "syntheticvalue1234",
+                "session=" + "g" + "hu_" + "syntheticvalue1234",
             )
             for index, fragment in enumerate(cases):
                 source = root / f"synthetic-sensitive-{index}.md"
@@ -154,7 +159,10 @@ class SessionLedgerTests(unittest.TestCase):
                 for name in names
                 for quote in ('"', "'", "`")
             ]
-            fragments.append(json.dumps({"Authorization": "Bearer synthetic-value"}))
+            fragments.extend(
+                json.dumps({"Authorization": f"{scheme} synthetic-value"})
+                for scheme in ("Bearer", "Basic", "Digest")
+            )
             for index, fragment in enumerate(fragments):
                 source.write_text(f"2026-09-27 {fragment}\n", encoding="utf-8")
                 for dry_run in (True, False):

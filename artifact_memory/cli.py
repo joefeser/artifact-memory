@@ -31,7 +31,7 @@ from .coordination_context import (
 )
 from .coordination_kickoff import (
     KICKOFF_PACK_SCHEMA_IDS,
-    build_kickoff_pack,
+    open_kickoff_pack,
     render_kickoff_prompt,
     validate_kickoff_pack,
 )
@@ -405,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise SyncFailure("sync-local-binding-required", "local sync requires session-id and completed-at")
             try:
                 http_label_ref = json.loads(args.access_label_ref) if args.access_label_ref else None
-            except ValueError:
+            except (ValueError, RecursionError):
                 raise SyncFailure("sync-http-binding-required", "access-label-ref must be a JSON record reference") from None
             link = None
             if args.repo is not None:
@@ -426,7 +426,7 @@ def main(argv: list[str] | None = None) -> int:
                 expected_principal_id=args.principal_id,
                 bearer=os.environ.get(args.bearer_env) if is_http else None,
             )
-        except (SyncFailure, ValidationFailure, OSError) as exc:
+        except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
             _receipt(
                 {
                     "outcome": "rejected",
@@ -477,12 +477,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "kickoff":
         try:
-            result = build_kickoff_pack(
+            with open_kickoff_pack(
                 args.vault,
                 args.project,
                 repo_root=args.repo,
-            )
-            prompt = render_kickoff_prompt(result)
+            ) as result:
+                prompt = render_kickoff_prompt(result)
+                if args.as_json:
+                    _receipt(result, True)
+                else:
+                    print(prompt, end="")
+                sys.stdout.flush()
         except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
             _receipt(
                 {
@@ -501,10 +506,6 @@ def main(argv: list[str] | None = None) -> int:
                 args.as_json,
             )
             return EXIT_INVALID
-        if args.as_json:
-            _receipt(result, True)
-        else:
-            print(prompt, end="")
         return EXIT_OK
 
     if args.command == "coordination-context":

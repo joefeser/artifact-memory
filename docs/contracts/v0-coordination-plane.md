@@ -218,7 +218,8 @@ replacement is coordinated with the affected principal locks, so revocation or
 scope rotation cannot race an already authenticated request. The logical
 `hub_id` is immutable for one local hub directory; reconfiguration may rotate
 bindings and scope but cannot relabel retained records as belonging to another
-hub identity.
+hub identity. A pending-outcome envelope is bounded to 4 MiB before parsing;
+oversized or unsafe local evidence fails typed without advancing sync state.
 
 Response pages are at most 4 MiB and 500 records. A larger authorized delta or
 membership manifest is paginated with opaque, principal- and
@@ -396,6 +397,10 @@ merging is an operator convenience, never a requirement.
 }
 ```
 
+Each `scopeFence` path array is limited to 1,000 unique entries. Validators
+enforce that count before uniqueness comparison or per-item validation, and
+kickoff-pack projections preserve the same ceiling.
+
 The claim entry in the hub-created successor has this strict shape; its
 `taskRef` and the successor's `predecessor` both name the open revision above:
 
@@ -522,6 +527,10 @@ rejected before binding or use, with a typed validation error. There is no
 grant-versus-denial precedence rule for an invalid label. If a bound label is
 later found to violate this invariant, sync and context export fail closed
 rather than choosing either interpretation.
+
+Each project-UUID set under `may` or `mayNot` is limited to 1,000 unique
+entries. Validators enforce the count before uniqueness comparison or per-item
+validation.
 
 `credentialHint` is display-only provenance and never selects or authenticates
 a policy. WITS maintains a server-owned binding from the authenticated

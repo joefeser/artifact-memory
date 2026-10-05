@@ -49,8 +49,9 @@
   "record_bound_egress_vectors": [
     {
       "name": "caller-allows-record-label-denies",
+      "expected_submission_code": "unauthorized-project",
       "expected_authorized_pair_count": 0,
-      "expected_excluded_count": 3
+      "expected_excluded_count": 2
     }
   ],
   "project_provenance_vectors": [
@@ -73,7 +74,7 @@
     "expected_page_count": 2,
     "max_pairs_per_page": 500,
     "oversized_record_bytes": 4194304,
-    "expected_oversized_record_code": "sync-page-too-large"
+    "expected_oversized_record_code": "sync-record-too-large"
   },
   "authority_boundary": "sync vectors are synthetic and grant no execution, disclosure, authorization, or trust"
 }

@@ -45,6 +45,10 @@ PROJECT_B = "22222222-2222-4222-8222-222222222222"
 PRINCIPAL = "coordination-principal://synthetic/agent-1"
 SESSION = "coordination-session://synthetic/session-1"
 HUB_ID = "coordination-hub://synthetic/hub-a"
+ORIGIN_PROJECTS = {
+    "33333333-3333-4333-8333-333333333333": PROJECT_A,
+    "44444444-4444-4444-8444-444444444444": PROJECT_B,
+}
 
 
 def fixture(name: str) -> dict:
@@ -159,6 +163,7 @@ def configure(hub: Path, label: dict, generation: int = 1) -> None:
                 "access_label": label,
             }
         ],
+        origin_projects=ORIGIN_PROJECTS,
     )
 
 
@@ -204,6 +209,61 @@ def receipt_for_pairs(pairs: list[dict[str, str]], page_count: int) -> dict:
 
 
 class CoordinationSyncTests(unittest.TestCase):
+    def test_conflicting_derived_origin_bindings_require_explicit_mapping(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub = root / "hub"
+            first = label_identity(label_for([PROJECT_A]), "label-first")
+            first["projectNames"] = [
+                item
+                for item in first["projectNames"]
+                if item["projectId"] == PROJECT_A
+            ]
+            second = label_identity(label_for([PROJECT_B]), "label-second")
+            second["projectNames"] = [
+                item
+                for item in second["projectNames"]
+                if item["projectId"] == PROJECT_B
+            ]
+            bindings = [
+                {
+                    "session_id": SESSION,
+                    "principal_id": PRINCIPAL,
+                    "access_label": first,
+                },
+                {
+                    "session_id": "coordination-session://synthetic/session-2",
+                    "principal_id": "coordination-principal://synthetic/agent-2",
+                    "access_label": second,
+                },
+            ]
+            for ordered in (bindings, list(reversed(bindings))):
+                with self.subTest(first_label=ordered[0]["access_label"]["labelId"]):
+                    with self.assertRaises(SyncFailure) as raised:
+                        configure_local_hub(
+                            hub,
+                            hub_id=HUB_ID,
+                            scope_generation=1,
+                            bindings=ordered,
+                        )
+                    self.assertEqual(raised.exception.code, "hub-config-invalid")
+                    self.assertFalse(hub.exists())
+
+    def test_hub_configuration_is_bounded_before_json_parsing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            hub = Path(temporary) / "hub"
+            configure(hub, label_for([PROJECT_A]))
+            with patch("artifact_memory.coordination_sync.MAX_HUB_CONFIG_BYTES", 32):
+                with self.assertRaises(SyncFailure) as raised:
+                    pull(
+                        Path(temporary) / "vault",
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+            self.assertEqual(raised.exception.code, "hub-config-invalid")
+            self.assertIn("byte limit", raised.exception.message)
+
     def test_two_vaults_converge_and_second_round_is_byte_identical(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -229,6 +289,63 @@ class CoordinationSyncTests(unittest.TestCase):
                 (directory_digest(hub), directory_digest(first), directory_digest(second)),
                 before,
             )
+
+    def test_unknown_and_foreign_origins_fail_before_identity_lookup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            label = label_for([PROJECT_A, PROJECT_B])
+            for name, origin_projects in (
+                ("unknown", ORIGIN_PROJECTS),
+                (
+                    "foreign",
+                    ORIGIN_PROJECTS
+                    | {"55555555-5555-4555-8555-555555555555": PROJECT_B},
+                ),
+            ):
+                hub, vault = root / f"hub-{name}", root / f"vault-{name}"
+                configure_local_hub(
+                    hub,
+                    hub_id=HUB_ID,
+                    scope_generation=1,
+                    bindings=[{
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": label,
+                    }],
+                    origin_projects=origin_projects,
+                )
+                task = task_for(label)
+                task["originId"] = "55555555-5555-4555-8555-555555555555"
+                task["record_id"] = (
+                    f"record://coordination/{task['originId']}/task/{task['taskId']}"
+                )
+                store_coordination_record(vault, task)
+                self.assertEqual(
+                    push(vault, hub, session_id=SESSION)[0]["code"],
+                    "unauthorized-project",
+                )
+                self.assertEqual(list((hub / "canonical").glob("**/*.json")), [])
+
+    def test_pending_outcomes_are_bounded_before_json_parsing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(vault, task_for(label))
+            push(vault, hub, session_id=SESSION)
+            with patch(
+                "artifact_memory.coordination_sync.MAX_PENDING_OUTCOMES_BYTES",
+                32,
+            ):
+                with self.assertRaises(SyncFailure) as raised:
+                    pull(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+            self.assertEqual(raised.exception.code, "sync-outcomes-invalid")
 
     def test_outbox_larger_than_record_limit_drains_in_bounded_batches(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -304,7 +421,7 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(len(second["submission_outcomes"]), 1)
             self.assertEqual(len(load_authorized_projection(vault)), 2)
 
-    def test_rejected_and_quarantined_prefix_cannot_starve_later_append(self):
+    def test_rejected_prefix_cannot_starve_later_append(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             hub, vault = root / "hub", root / "vault"
@@ -316,13 +433,10 @@ class CoordinationSyncTests(unittest.TestCase):
             rejected["projectName"] = "sample-analytics"
             append_local_coordination_record(vault, rejected)
 
-            original = unique_task_for(label, 1)
-            original["projectId"] = PROJECT_B
-            original["projectName"] = "sample-analytics"
-            store_coordination_record(hub, original)
-            collision = copy.deepcopy(original)
-            collision["title"] = "Synthetic same-pair collision"
-            write_claimed(vault, collision, revision_digest(original))
+            second_rejected = unique_task_for(label, 1)
+            second_rejected["projectId"] = PROJECT_B
+            second_rejected["projectName"] = "sample-analytics"
+            append_local_coordination_record(vault, second_rejected)
 
             admitted = unique_task_for(label, 2)
             append_local_coordination_record(vault, admitted)
@@ -351,7 +465,7 @@ class CoordinationSyncTests(unittest.TestCase):
 
             self.assertEqual(
                 [item["outcome"] for item in first["submission_outcomes"]],
-                ["rejected", "quarantined"],
+                ["rejected", "rejected"],
             )
             self.assertIn(
                 {
@@ -650,6 +764,7 @@ class CoordinationSyncTests(unittest.TestCase):
                         "access_label": label,
                     },
                 ],
+                origin_projects=ORIGIN_PROJECTS,
             )
             first = task_for(label)
             competing = copy.deepcopy(first)
@@ -947,6 +1062,53 @@ class CoordinationSyncTests(unittest.TestCase):
                 "sync-receipt-identity-mismatch",
             )
 
+    def test_receipt_canonicalization_failures_are_typed_in_cli(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name, value in (
+                ("integer", 9_007_199_254_740_992),
+                ("unicode", "\ud800"),
+            ):
+                receipt = receipt_for_pairs([], 1)
+                if name == "integer":
+                    receipt["scope_generation"] = value
+                else:
+                    receipt["submission_outcomes"] = [
+                        {
+                            "record_ref": {
+                                "record_id": value,
+                                "revision_digest": "sha-256:" + ("a" * 64),
+                            },
+                            "outcome": "rejected",
+                            "code": "schema-invalid",
+                        }
+                    ]
+                path = root / f"{name}.json"
+                path.write_text(
+                    json.dumps(receipt),
+                    encoding="utf-8",
+                )
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "artifact_memory",
+                        "validate",
+                        str(path),
+                        "--json",
+                    ],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                )
+                with self.subTest(name=name):
+                    self.assertEqual(completed.returncode, 2)
+                    self.assertEqual(
+                        json.loads(completed.stdout)["diagnostics"][0]["code"],
+                        "canonicalization-failed",
+                    )
+                    self.assertNotIn("Traceback", completed.stderr)
+
     def test_sync_receipt_schema_rejects_missing_unknown_nested_and_constant_mutations(self):
         receipt = receipt_for_pairs([], 1)
         for field in core_schemas()[SYNC_RECEIPT_SCHEMA_ID]["required"]:
@@ -1151,6 +1313,63 @@ class CoordinationSyncTests(unittest.TestCase):
                 apply_pull_response(vault, tampered)
             self.assertFalse((vault / "generated" / "coordination-sync" / "last-successful.json").exists())
 
+    def test_incomplete_task_history_or_unresolved_receipt_does_not_advance_marker(self):
+        def response_for(records: list[dict]) -> dict:
+            pairs = sorted_pairs(
+                [
+                    {
+                        "record_id": record["record_id"],
+                        "revision_digest": revision_digest(record),
+                    }
+                    for record in records
+                ]
+            )
+            receipt = receipt_for_pairs(pairs, 1)
+            pages = build_membership_pages(pairs, receipt["receipt_id"], PRINCIPAL, 1)
+            records_by_pair = {
+                (record["record_id"], revision_digest(record)): record
+                for record in records
+            }
+            return {
+                "receipt": receipt,
+                "pages": pages,
+                "record_pages": [
+                    [
+                        records_by_pair[(pair["record_id"], pair["revision_digest"])]
+                        for pair in page["pairs"]
+                    ]
+                    for page in pages
+                ],
+            }
+
+        label = label_for([PROJECT_A])
+        _, claimed = claimed_task_for(label)
+        receipt = work_receipt_for(label, claimed)
+        for records in ([claimed], [receipt]):
+            with self.subTest(schema_id=records[0]["schema_id"]):
+                with tempfile.TemporaryDirectory() as temporary:
+                    vault = Path(temporary) / "vault"
+                    with self.assertRaises(SyncFailure) as raised:
+                        apply_pull_response(vault, response_for(records))
+                    self.assertEqual(
+                        raised.exception.code,
+                        "sync-record-history-invalid",
+                    )
+                    self.assertFalse(
+                        (
+                            vault
+                            / "generated"
+                            / "coordination-sync"
+                            / "last-successful.json"
+                        ).exists()
+                    )
+                    self.assertEqual(
+                        list(
+                            (vault / "canonical" / "coordination").glob("*/*.json")
+                        ),
+                        [],
+                    )
+
     def test_projection_collision_precedes_canonical_record_exposure(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1195,6 +1414,39 @@ class CoordinationSyncTests(unittest.TestCase):
                         ).exists()
                     )
 
+    def test_immutable_collision_comparison_is_size_checked_and_bounded(self):
+        module = __import__(
+            "artifact_memory.coordination_sync",
+            fromlist=["_read_local_regular_file"],
+        )
+        label = label_for([PROJECT_A])
+        task = task_for(label)
+        expected = canonical_bytes(task)
+        for existing in (b"x" * (len(expected) + 1), b"x" * len(expected)):
+            with self.subTest(existing_size=len(existing)):
+                with tempfile.TemporaryDirectory() as temporary:
+                    vault = Path(temporary) / "vault"
+                    target = claimed_path(vault, task)
+                    target.parent.mkdir(parents=True)
+                    target.write_bytes(existing)
+                    with patch(
+                        "artifact_memory.coordination_sync._read_local_regular_file",
+                        wraps=module._read_local_regular_file,
+                    ) as reader:
+                        with self.assertRaises(SyncFailure) as raised:
+                            store_coordination_record(vault, task)
+                    self.assertEqual(
+                        raised.exception.code,
+                        "immutable-record-collision",
+                    )
+                    if len(existing) != len(expected):
+                        reader.assert_not_called()
+                    else:
+                        self.assertEqual(
+                            reader.call_args.kwargs["maximum_bytes"],
+                            len(expected),
+                        )
+
     def test_push_ignores_malformed_historical_membership_without_crashing(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1225,6 +1477,40 @@ class CoordinationSyncTests(unittest.TestCase):
                 sorted(item["code"] for item in outcomes),
                 ["admitted", "admitted"],
             )
+
+    def test_interrupted_projection_publication_does_not_block_future_push(self):
+        from artifact_memory.coordination_sync import _write_immutable
+
+        for interrupted_file in ("receipt.json", "authorized-membership.json"):
+            with self.subTest(interrupted_file=interrupted_file), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                hub, vault = root / "hub", root / "vault"
+                label = label_for([PROJECT_A])
+                configure(hub, label)
+                task = task_for(label)
+                ref = store_coordination_record(vault, task)
+                store_coordination_record(hub, task)
+
+                def interrupt(boundary, path, data):
+                    if path.name == interrupted_file:
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        raise OSError("synthetic interrupted projection publication")
+                    return _write_immutable(boundary, path, data)
+
+                with patch("artifact_memory.coordination_sync._write_immutable", interrupt):
+                    with self.assertRaises(OSError):
+                        pull(vault, hub, session_id=SESSION, completed_at="2026-09-25T20:00:00Z")
+                self.assertFalse((vault / "generated/coordination-sync/last-successful.json").exists())
+                result = sync(vault, hub, session_id=SESSION, completed_at="2026-09-25T20:01:00Z")
+                self.assertEqual(result["outcome"], "complete")
+                # Incomplete evidence must not acknowledge the local pair: it is
+                # resubmitted idempotently before a complete receipt is installed.
+                self.assertEqual(result["submission_outcomes"], [
+                    {"record_ref": ref, "outcome": "admitted", "code": "admitted"},
+                ])
+                self.assertEqual(load_authorized_projection(vault), [task])
+                self.assertEqual(sync(vault, hub, session_id=SESSION,
+                                      completed_at="2026-09-25T20:02:00Z")["outcome"], "no-op")
 
     def test_tampered_existing_marker_and_prior_generation_cannot_advance_state(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1478,14 +1764,12 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(len(second["authorized_pairs"]), 1)
             self.assertNotIn(task_b["record_id"], json.dumps(second))
 
-    def test_egress_intersects_caller_and_record_bound_access_labels(self):
+    def test_write_only_submission_is_unauthorized_without_history_probe(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            hub, source, reader = root / "hub", root / "source", root / "reader"
+            hub, source = root / "hub", root / "source"
             record_label = label_identity(label_for([]), "label-sync-only")
             record_label["may"]["syncTaskPackets"] = [PROJECT_A]
-            reader_label = label_identity(label_for([PROJECT_A]), "label-reader")
-            reader_session = "coordination-session://synthetic/reader"
             configure_local_hub(
                 hub,
                 hub_id=HUB_ID,
@@ -1496,26 +1780,26 @@ class CoordinationSyncTests(unittest.TestCase):
                         "principal_id": PRINCIPAL,
                         "access_label": record_label,
                     },
-                    {
-                        "session_id": reader_session,
-                        "principal_id": "coordination-principal://synthetic/reader",
-                        "access_label": reader_label,
-                    },
                 ],
+                origin_projects=ORIGIN_PROJECTS,
             )
-            task = task_for(record_label)
-            store_coordination_record(source, task)
-            self.assertEqual(push(source, hub, session_id=SESSION)[0]["code"], "admitted")
+            absent = task_for(record_label)
+            store_coordination_record(source, absent)
+            self.assertEqual(
+                push(source, hub, session_id=SESSION)[0]["code"],
+                "unauthorized-project",
+            )
+            self.assertEqual(list((hub / "canonical").glob("**/*.json")), [])
 
-            result = pull(
-                reader,
-                hub,
-                session_id=reader_session,
-                completed_at="2026-09-25T20:00:00Z",
+            existing = copy.deepcopy(absent)
+            existing["title"] = "Retained synthetic task"
+            store_coordination_record(hub, existing)
+            second_source = root / "second-source"
+            store_coordination_record(second_source, absent)
+            self.assertEqual(
+                push(second_source, hub, session_id=SESSION)[0]["code"],
+                "unauthorized-project",
             )
-            self.assertEqual(result["authorized_pairs"], [])
-            self.assertEqual(result["receipt"]["excluded_count"], 3)
-            self.assertNotIn(task["record_id"], json.dumps(result))
 
     def test_excluded_count_deduplicates_canonical_and_policy_label_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1558,6 +1842,27 @@ class CoordinationSyncTests(unittest.TestCase):
                     completed_at="2026-09-25T20:00:00Z",
                 )
             self.assertEqual(raised.exception.code, "hub-record-invalid")
+            self.assertFalse((vault / "generated").exists())
+
+    def test_retained_policy_label_read_is_bounded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(hub, task_for(label))
+            policy_path = next((hub / "policy" / "labels").glob("*/*.json"))
+            policy_path.write_bytes(b"{" + (b" " * 64))
+
+            with patch("artifact_memory.coordination_sync.MAX_RECORD_BYTES", 32):
+                with self.assertRaises(SyncFailure) as raised:
+                    pull(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+            self.assertEqual(raised.exception.code, "sync-record-too-large")
             self.assertFalse((vault / "generated").exists())
 
     def test_egress_requires_project_provenance_in_the_caller_label(self):
@@ -1648,6 +1953,115 @@ class CoordinationSyncTests(unittest.TestCase):
                 load_authorized_projection(vault)
             self.assertEqual(raised.exception.code, "sync-local-record-mismatch")
 
+    def test_local_authorized_record_read_is_bounded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            task = task_for(label)
+            pair = store_coordination_record(hub, task)
+            pull(vault, hub, session_id=SESSION, completed_at="2026-09-25T20:00:00Z")
+            marker_path = vault / "generated" / "coordination-sync" / "last-successful.json"
+            before = marker_path.read_bytes()
+            claimed_path(vault, task, pair["revision_digest"]).write_bytes(
+                b"{" + (b" " * 64)
+            )
+
+            with patch("artifact_memory.coordination_sync.MAX_RECORD_BYTES", 32):
+                with self.assertRaises(SyncFailure) as raised:
+                    load_authorized_projection(vault)
+            self.assertEqual(raised.exception.code, "sync-record-too-large")
+            self.assertEqual(marker_path.read_bytes(), before)
+
+    def test_generated_projection_state_reads_are_bounded(self):
+        limits = (
+            ("last-successful.json", "MAX_SYNC_MARKER_BYTES", "sync-marker-invalid"),
+            ("receipt.json", "MAX_SYNC_RECEIPT_BYTES", "sync-projection-invalid"),
+            (
+                "authorized-membership.json",
+                "MAX_MEMBERSHIP_MANIFEST_BYTES",
+                "sync-projection-invalid",
+            ),
+        )
+        for target_name, limit_name, expected_code in limits:
+            with self.subTest(target=target_name):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    hub, vault = root / "hub", root / "vault"
+                    label = label_for([PROJECT_A])
+                    configure(hub, label)
+                    store_coordination_record(hub, task_for(label))
+                    result = pull(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+                    if target_name == "last-successful.json":
+                        target = (
+                            vault
+                            / "generated"
+                            / "coordination-sync"
+                            / target_name
+                        )
+                    else:
+                        target = (
+                            vault
+                            / "generated"
+                            / "coordination-sync"
+                            / "projections"
+                            / result["receipt"]["receipt_id"].rsplit("/", 1)[-1]
+                            / target_name
+                        )
+                    target.write_bytes(b"{" + (b" " * 64))
+                    with patch(
+                        f"artifact_memory.coordination_sync.{limit_name}",
+                        32,
+                    ):
+                        with self.assertRaises(SyncFailure) as raised:
+                            load_authorized_projection(vault)
+                    self.assertEqual(raised.exception.code, expected_code)
+
+    def test_historical_projection_reads_are_bounded(self):
+        limits = (
+            ("receipt.json", "MAX_SYNC_RECEIPT_BYTES"),
+            ("authorized-membership.json", "MAX_MEMBERSHIP_MANIFEST_BYTES"),
+        )
+        for target_name, limit_name in limits:
+            with self.subTest(target=target_name):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    hub, vault = root / "hub", root / "vault"
+                    label = label_for([PROJECT_A])
+                    configure(hub, label)
+                    store_coordination_record(hub, task_for(label))
+                    result = pull(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+                    target = (
+                        vault
+                        / "generated"
+                        / "coordination-sync"
+                        / "projections"
+                        / result["receipt"]["receipt_id"].rsplit("/", 1)[-1]
+                        / target_name
+                    )
+                    target.write_bytes(b"{" + (b" " * 64))
+                    with patch(
+                        f"artifact_memory.coordination_sync.{limit_name}",
+                        32,
+                    ):
+                        with self.assertRaises(SyncFailure) as raised:
+                            push(vault, hub, session_id=SESSION)
+                    self.assertEqual(
+                        raised.exception.code,
+                        "sync-projection-invalid",
+                    )
+
     def test_initial_outcome_codes_reject_or_quarantine_without_entering_union(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1719,6 +2133,27 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "sync-record-too-large")
             self.assertEqual(list((hub / "canonical" / "coordination").glob("*/*.json")), [])
 
+    def test_hub_scan_bounds_canonical_record_before_parsing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            task = task_for(label)
+            store_coordination_record(hub, task)
+            claimed_path(hub, task).write_bytes(b"{" + (b" " * 64))
+
+            with patch("artifact_memory.coordination_sync.MAX_RECORD_BYTES", 32):
+                with self.assertRaises(SyncFailure) as raised:
+                    pull(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+            self.assertEqual(raised.exception.code, "sync-record-too-large")
+            self.assertFalse((vault / "generated").exists())
+
     def test_pending_outcomes_reject_a_different_authenticated_principal(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1742,6 +2177,7 @@ class CoordinationSyncTests(unittest.TestCase):
                         "access_label": label,
                     },
                 ],
+                origin_projects=ORIGIN_PROJECTS,
             )
             store_coordination_record(vault, task_for(label))
             push(vault, hub, session_id=SESSION)
@@ -1785,6 +2221,7 @@ class CoordinationSyncTests(unittest.TestCase):
                         "access_label": label,
                     }
                 ],
+                origin_projects=ORIGIN_PROJECTS,
             )
             result = pull(
                 vault,
@@ -1886,6 +2323,44 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(thread_error, [])
             configure(hub, narrow, generation=2)
             self.assertEqual(load_json(hub / "hub-config.json")["scope_generation"], 2)
+
+    def test_explicit_configuration_migrates_legacy_hub_shape(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(vault, task_for(label))
+            config_path = hub / "hub-config.json"
+            legacy_config = load_json(config_path)
+            del legacy_config["origin_projects"]
+            config_path.write_bytes(canonical_bytes(legacy_config))
+
+            with self.assertRaises(SyncFailure) as unmigrated:
+                push(vault, hub, session_id=SESSION)
+            self.assertEqual(unmigrated.exception.code, "hub-config-invalid")
+
+            configure_local_hub(
+                hub,
+                hub_id=HUB_ID,
+                scope_generation=2,
+                bindings=[
+                    {
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": label,
+                    }
+                ],
+                origin_projects=ORIGIN_PROJECTS,
+            )
+
+            migrated = load_json(config_path)
+            self.assertEqual(migrated["origin_projects"], ORIGIN_PROJECTS)
+            self.assertEqual(migrated["scope_generation"], 2)
+            self.assertEqual(
+                [item["outcome"] for item in push(vault, hub, session_id=SESSION)],
+                ["admitted"],
+            )
 
     def test_configuration_cannot_relabel_an_existing_logical_hub(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -2079,6 +2554,7 @@ class CoordinationSyncTests(unittest.TestCase):
                         "access_label": label,
                     }
                 ],
+                origin_projects=ORIGIN_PROJECTS,
             )
             store_coordination_record(vault, task_for(label))
             push(vault, first_hub, session_id=SESSION)

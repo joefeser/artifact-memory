@@ -1,5 +1,7 @@
 """Transport adversarial fixtures; actual WITS proof is the opt-in integration."""
 import copy
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -15,6 +17,7 @@ from unittest.mock import patch
 from artifact_memory.coordination_sync import (
     SyncFailure, build_pull_response, directory_digest, store_coordination_record, sync,
 )
+from artifact_memory import cli
 from artifact_memory.coordination import revision_digest
 from artifact_memory.canonical import canonical_bytes
 from artifact_memory.validator import ValidationFailure
@@ -123,6 +126,27 @@ class HttpCoordinationTests(unittest.TestCase):
         self.assertEqual(len(self.requests[-2][0]["records"]), 1)
         self.assertFalse(pending.exists())
 
+    def test_http_push_recovers_after_interrupted_projection_publication(self):
+        from artifact_memory.coordination_sync import _write_immutable
+        ref = store_coordination_record(self.vault, self.tasks[0])
+
+        def interrupt(boundary, path, data):
+            if path.name == "authorized-membership.json":
+                raise OSError("synthetic interrupted projection publication")
+            return _write_immutable(boundary, path, data)
+
+        with patch("artifact_memory.coordination_sync._write_immutable", interrupt):
+            with self.assertRaises(OSError):
+                sync(self.vault, self.url, phase="pull", **self.binding)
+        self.assertFalse((self.vault / "generated/coordination-sync/last-successful.json").exists())
+        outcomes = [{"record_ref": ref, "outcome": "admitted", "code": "admitted"}]
+        self.response(outcomes)
+        result = sync(self.vault, self.url, **self.binding)
+        self.assertEqual(result["outcome"], "complete")
+        self.assertEqual(result["submission_outcomes"], outcomes)
+        self.assertEqual(self.requests[-2][0]["records"][0]["record_ref"], ref)
+        self.assertFalse((self.vault / "generated/coordination-sync/http-pending.json").exists())
+
     def test_forged_records_or_page_receipt_never_advance_marker(self):
         for mutation in ("record", "receipt", "index", "token", "binding"):
             with self.subTest(mutation=mutation):
@@ -161,6 +185,22 @@ class HttpCoordinationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['receipt']['authorized_membership']['pair_count'], 3)
         self.assertNotIn('synthetic-bearer', result.stdout + result.stderr)
+
+    def test_cli_rejects_recursive_access_label_reference_without_traceback(self):
+        stdout = io.StringIO()
+        with patch("artifact_memory.cli.json.loads", side_effect=RecursionError), \
+             contextlib.redirect_stdout(stdout):
+            exit_code = cli.main([
+                'sync', '--vault', str(self.vault), '--hub', self.url,
+                '--hub-id', HUB_ID, '--principal-id', PRINCIPAL,
+                '--access-label-ref', 'synthetic-recursive-json',
+                '--phase', 'pull', '--json',
+            ])
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(
+            json.JSONDecoder().decode(stdout.getvalue())['diagnostics'][0]['code'],
+            'sync-http-binding-required',
+        )
 
     def test_redirect_is_rejected_without_forwarding_bearer(self):
         self.redirect = True

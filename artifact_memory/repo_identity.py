@@ -17,7 +17,7 @@ from .coordination import (
     validate_coordination_records,
 )
 from .schema_resources import load_schema
-from .validator import ValidationFailure, load_json, load_json_bytes, validate
+from .validator import ValidationFailure, load_json_bytes, validate
 
 
 REPO_IDENTITY_RELATIVE_PATH = Path(".agent-memory/repo.json")
@@ -57,6 +57,30 @@ _GIT_REPOSITORY_ENVIRONMENT = frozenset(
         "GIT_WORK_TREE",
     }
 )
+
+
+def _check_manifest_json_depth(data: bytes, max_depth: int = 2_048) -> None:
+    """Reject excessive JSON nesting consistently across Python runtimes."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for byte in data:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 0x5C:
+                escaped = True
+            elif byte == 0x22:
+                in_string = False
+            continue
+        if byte == 0x22:
+            in_string = True
+        elif byte in {0x7B, 0x5B}:
+            depth += 1
+            if depth > max_depth:
+                raise RecursionError("repository identity JSON nesting exceeds limit")
+        elif byte in {0x7D, 0x5D}:
+            depth -= 1
 
 
 def _is_link_or_reparse(entry: os.stat_result) -> bool:
@@ -246,6 +270,7 @@ def _read_manifest_bytes(repo_root: Path) -> bytes:
             "repository identity path changed while the manifest was read",
             "$",
         )
+    _check_manifest_json_depth(data)
     return data
 
 
@@ -412,15 +437,15 @@ def compare_commit_to_head(
         )
     if expected_project_id is not None:
         try:
-            committed_identity = load_json_bytes(
-                _git_output(
-                    absolute_root,
-                    "show",
-                    f"{head}:{REPO_IDENTITY_RELATIVE_PATH.as_posix()}",
-                )
+            committed_identity_bytes = _git_output(
+                absolute_root,
+                "show",
+                f"{head}:{REPO_IDENTITY_RELATIVE_PATH.as_posix()}",
             )
+            _check_manifest_json_depth(committed_identity_bytes)
+            committed_identity = load_json_bytes(committed_identity_bytes)
             validate(committed_identity, REPO_IDENTITY_SCHEMA)
-        except ValidationFailure as exc:
+        except (ValidationFailure, RecursionError) as exc:
             raise ValidationFailure(
                 "coordination-freshness-repository-identity-mismatch",
                 "observed repository head does not contain the expected project identity",
@@ -826,7 +851,15 @@ def validate_repo_bound_coordination_files(
     records: list[dict[str, Any]] = []
     for index, path in enumerate(record_paths):
         try:
-            value = load_json(path)
+            raw = path.read_bytes()
+            _check_manifest_json_depth(raw)
+            value = load_json_bytes(raw)
+        except OSError as exc:
+            raise ValidationFailure(
+                "invalid-json",
+                "input is not valid UTF-8 JSON",
+                f"$.files[{index}]",
+            ) from exc
         except ValidationFailure as exc:
             raise ValidationFailure(
                 exc.code, exc.message, f"$.files[{index}]"

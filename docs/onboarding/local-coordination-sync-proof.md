@@ -8,10 +8,16 @@ interoperability.
 The adapter requires three distinct roots or inputs:
 
 - a local vault containing append-only canonical coordination revisions;
-- a synthetic hub directory containing server-owned session, principal, and
-  exact AccessLabel bindings; and
+- a synthetic hub directory containing server-owned session, principal, exact
+  AccessLabel, and origin-to-project bindings; and
 - an opaque session handle. The client cannot select the effective principal
-  or AccessLabel carried by the receipt.
+or AccessLabel carried by the receipt.
+
+Before any retained identity lookup, admission resolves the submitted
+`originId` through that server-owned origin policy and requires effective read
+permission in addition to the type-specific sync grant. Unknown origins,
+foreign origins, and both known and absent write-only submissions return the
+same `unauthorized-project` outcome.
 
 These commands are the low-level provider-free adapter. A repository-bound
 operator flow should first run
@@ -47,6 +53,12 @@ advances the last-successful marker. Missing pages, duplicate pages, digest or
 count mismatches, response-record mismatches, and receipt tampering fail typed
 before the marker advances. AccessLabel rotation replaces only the generated
 projection; canonical history remains append-only.
+
+An interruption before both projection files are durable leaves no usable
+acknowledgment. Push recovery ignores that incomplete historical directory
+and resubmits local pairs idempotently until a complete receipt and membership
+manifest prove admission. Unsafe paths and oversized evidence still fail
+closed; a damaged current projection cannot authorize context export.
 
 Full AccessLabel bodies and continuation tokens are never written into a
 restricted replica. Exclusions are count-only. Coordination records, receipts,

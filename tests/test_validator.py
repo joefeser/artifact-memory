@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from artifact_memory.validator import ValidationFailure, validate
 
@@ -50,6 +51,17 @@ class ValidatorTests(unittest.TestCase):
         with self.assertRaises(ValidationFailure) as raised:
             validate(["one", "two"], schema)
         self.assertEqual(raised.exception.code, "constraint-failed")
+
+    def test_max_items_is_enforced_before_unique_items(self):
+        schema = {"type": "array", "maxItems": 1, "uniqueItems": True}
+        with patch(
+            "artifact_memory.validator._json_equal",
+            side_effect=AssertionError("uniqueness comparison must not run"),
+        ):
+            with self.assertRaises(ValidationFailure) as raised:
+                validate(["one", "two"], schema)
+        self.assertEqual(raised.exception.code, "constraint-failed")
+        self.assertEqual(raised.exception.message, "array has too many items")
 
     def test_unique_items_uses_json_equality(self):
         schema = {"type": "array", "uniqueItems": True}

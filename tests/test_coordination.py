@@ -155,6 +155,40 @@ class CoordinationRecordTests(unittest.TestCase):
         records[-1]["evidence"] = []
         self.assert_rejected(records, "constraint-failed")
 
+    def test_scope_fence_path_arrays_are_bounded(self):
+        for field in ("allowedPaths", "forbiddenPaths"):
+            with self.subTest(field=field):
+                records = valid_records()
+                records[1]["scopeFence"][field] = [
+                    f"synthetic/path-{index}" for index in range(1001)
+                ]
+                self.assert_rejected(records, "constraint-failed")
+
+    def test_access_label_project_sets_are_bounded(self):
+        project_ids = [
+            f"00000000-0000-4000-8000-{index:012x}" for index in range(1001)
+        ]
+        for section, fields in (
+            (
+                "may",
+                (
+                    "claimProjects",
+                    "postReceipts",
+                    "readProjects",
+                    "syncTaskPackets",
+                    "syncWorkReceipts",
+                ),
+            ),
+            ("mayNot", ("readProjects",)),
+        ):
+            for field in fields:
+                with self.subTest(section=section, field=field):
+                    label = fixture("access-label.json")
+                    label[section][field] = project_ids
+                    with self.assertRaises(ValidationFailure) as raised:
+                        validate(label, core_schemas()[ACCESS_LABEL_SCHEMA_ID])
+                    self.assertEqual(raised.exception.code, "constraint-failed")
+
     def test_same_human_task_id_from_distinct_origins_does_not_collide(self):
         records = valid_records()
         tasks = [record for record in records if record["schema_id"] == TASK_PACKET_SCHEMA_ID]
@@ -456,6 +490,33 @@ class CoordinationRecordTests(unittest.TestCase):
         self.assertEqual(result["outcome"], "rejected")
         self.assertEqual(result["diagnostics"][0]["code"], "access-label-read-overlap")
         self.assertNotIn("hub_admission_verified", result)
+
+    def test_cli_rejects_recursive_json_with_typed_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "recursive.json"
+            path.write_text(
+                ("[" * 65) + ("]" * 65),
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "artifact_memory",
+                    "records",
+                    "validate",
+                    str(path),
+                    "--json",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+        self.assertEqual(completed.returncode, 2, completed.stderr or completed.stdout)
+        result = json.loads(completed.stdout)
+        self.assertEqual(result["outcome"], "rejected")
+        self.assertEqual(result["diagnostics"][0]["code"], "invalid-json")
+        self.assertEqual(result["diagnostics"][0]["path"], "$.files[0]")
 
 
 if __name__ == "__main__":
