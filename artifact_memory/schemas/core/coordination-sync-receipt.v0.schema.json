@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/coordination-sync-receipt/v0",
+  "title": "Artifact Memory coordination sync receipt v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "hub_id", "principal_id", "access_label_ref", "scope_generation", "completed_at", "authorized_membership", "excluded_count", "submission_outcomes", "transport_state", "issuer_state", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/coordination-sync-receipt/v0"},
+    "receipt_id": {"type": "string", "pattern": "^coordination-sync-receipt://sha-256/[0-9a-f]{64}$"},
+    "hub_id": {"type": "string", "pattern": "^coordination-hub://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$"},
+    "principal_id": {"type": "string", "pattern": "^coordination-principal://[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$"},
+    "access_label_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_id", "revision_digest"],
+      "properties": {
+        "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/label/(?=[A-Za-z0-9._~-]*[A-Za-z0-9_~-]$)[A-Za-z0-9._~-]+$"},
+        "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+      }
+    },
+    "scope_generation": {"type": "integer", "minimum": 0},
+    "completed_at": {"type": "string", "format": "date-time"},
+    "authorized_membership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pair_count", "pair_set_digest", "page_count"],
+      "properties": {
+        "pair_count": {"type": "integer", "minimum": 0},
+        "pair_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+        "page_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "excluded_count": {"type": "integer", "minimum": 0},
+    "submission_outcomes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["record_ref", "outcome", "code"],
+        "properties": {
+          "record_ref": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["record_id", "revision_digest"],
+            "properties": {
+              "record_id": {"type": "string", "minLength": 1},
+              "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+            }
+          },
+          "outcome": {"type": "string", "enum": ["admitted", "rejected", "quarantined"]},
+          "code": {"type": "string", "enum": ["admitted", "schema-invalid", "digest-mismatch", "unauthorized-project", "unauthorized-record-type", "label-mismatch", "principal-mismatch", "same-pair-different-bytes", "resource-limit", "unsupported-required-extension"]}
+        }
+      }
+    },
+    "transport_state": {"const": "authenticated"},
+    "issuer_state": {"const": "unverified"},
+    "authority_boundary": {"const": "sync receipt grants no execution, disclosure, authorization, or trust"}
+  }
+}

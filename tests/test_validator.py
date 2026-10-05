@@ -1,9 +1,27 @@
 import unittest
+from unittest.mock import patch
 
 from artifact_memory.validator import ValidationFailure, validate
 
 
 class ValidatorTests(unittest.TestCase):
+    def test_date_time_format_is_strict_rfc3339(self):
+        schema = {"type": "string", "format": "date-time"}
+        for value in (
+            "2026-09-25T19:05:00Z",
+            "2026-09-25T19:05:00.123+00:00",
+            "2026-09-25T14:05:00-05:00",
+            "2026-09-25t19:05:00z",
+        ):
+            validate(value, schema)
+        for value in (
+            "2026-09-25X19:05:00+00:00",
+            "2026-09-25 19:05:00+00:00",
+            "2026-09-25T19:05:00",
+        ):
+            with self.subTest(value=value), self.assertRaises(ValidationFailure):
+                validate(value, schema)
+
     def test_const_and_enum_do_not_coerce_booleans_to_numbers(self):
         for schema in ({"const": True}, {"enum": [True]}):
             validate(True, schema)
@@ -33,6 +51,17 @@ class ValidatorTests(unittest.TestCase):
         with self.assertRaises(ValidationFailure) as raised:
             validate(["one", "two"], schema)
         self.assertEqual(raised.exception.code, "constraint-failed")
+
+    def test_max_items_is_enforced_before_unique_items(self):
+        schema = {"type": "array", "maxItems": 1, "uniqueItems": True}
+        with patch(
+            "artifact_memory.validator._json_equal",
+            side_effect=AssertionError("uniqueness comparison must not run"),
+        ):
+            with self.assertRaises(ValidationFailure) as raised:
+                validate(["one", "two"], schema)
+        self.assertEqual(raised.exception.code, "constraint-failed")
+        self.assertEqual(raised.exception.message, "array has too many items")
 
     def test_unique_items_uses_json_equality(self):
         schema = {"type": "array", "uniqueItems": True}

@@ -101,7 +101,49 @@ def main() -> None:
                 "'artifact-memory/release-candidate-preparation-receipt/v3'; "
                 "assert load_schema('core', 'release-candidate-verification-receipt.v3.schema.json')"
                 "['properties']['schema_id']['const'] == "
-                "'artifact-memory/release-candidate-verification-receipt/v3'",
+                "'artifact-memory/release-candidate-verification-receipt/v3'; "
+                "assert load_schema('core', 'private-vault-onboarding-slice-receipt.v1.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/private-vault-onboarding-slice-receipt/v1'; "
+                "assert load_schema('core', 'coordination-onboarding-bootstrap-receipt.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/coordination-onboarding-bootstrap-receipt/v0'; "
+                "assert load_schema('core', 'coordination-onboarding-kickoff-pack.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/coordination-onboarding-kickoff-pack/v0'; "
+                "assert load_schema('core', 'coordination-onboarding-conformance-receipt.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/coordination-onboarding-conformance-receipt/v0'; "
+                "assert load_schema('core', 'coordination-kickoff-pack.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/coordination-kickoff-pack/v0'; "
+                "assert load_schema('core', 'coordination-kickoff-pack.v1.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/coordination-kickoff-pack/v1'; "
+                "assert load_schema('core', 'coordination-kickoff-conformance-receipt.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/coordination-kickoff-conformance-receipt/v0'; "
+                "assert load_schema('core', 'coordination-freshness-conformance-receipt.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/coordination-freshness-conformance-receipt/v0'; "
+                "assert load_schema('core', 'coordination-context-pack.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/coordination-context-pack/v0'; "
+                "assert load_schema('core', 'coordination-access-scope-conformance-receipt.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/coordination-access-scope-conformance-receipt/v0'; "
+                "assert load_schema('coordination', 'project-link.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/local-coordination-project-link/v0'; "
+                "assert load_schema('coordination', 'onboarding-publication.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/local-coordination-onboarding-publication/v0'; "
+                "assert load_schema('coordination', 'onboarding-attempt.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/local-coordination-onboarding-attempt/v0'; "
+                "assert load_schema('coordination', 'onboarding-sync-checkpoint.v0.schema.json')"
+                "['properties']['schema_id']['const'] == "
+                "'artifact-memory/local-coordination-onboarding-sync-checkpoint/v0'",
             ],
             cwd=root,
             text=True,
@@ -131,6 +173,47 @@ def main() -> None:
         )
         if codex_history_schemas.returncode != 0:
             raise SystemExit(codex_history_schemas.stderr or codex_history_schemas.stdout)
+
+        if sys.platform == "win32":
+            target = root / "synthetic-vault-target"
+            junction = root / "synthetic-vault-junction"
+            source = root / "synthetic-done-log.md"
+            target.mkdir()
+            source.write_text(
+                "2026-09-27 Verified synthetic session handoff.\n",
+                encoding="utf-8",
+            )
+            linked = subprocess.run(
+                ["cmd.exe", "/d", "/c", "mklink", "/J", str(junction), str(target)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            if linked.returncode != 0:
+                raise SystemExit(linked.stderr or linked.stdout)
+            rejected = subprocess.run(
+                [
+                    "artifact-memory",
+                    "import-session-ledger",
+                    str(source),
+                    "--vault",
+                    str(junction),
+                    "--json",
+                ],
+                cwd=root,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            if rejected.returncode != 2:
+                raise SystemExit(rejected.stderr or rejected.stdout)
+            payload = json.loads(rejected.stdout)
+            if payload.get("diagnostics", [{}])[0].get("code") != "sync-storage-unsafe":
+                raise SystemExit(rejected.stdout)
+            if (target / "records").exists():
+                raise SystemExit("session-ledger junction proof crossed the vault boundary")
 
 
 if __name__ == "__main__":

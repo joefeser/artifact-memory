@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/coordination-local-append-receipt/v0",
+  "title": "Artifact Memory coordination local append receipt v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "receipt_id",
+    "outcome",
+    "record_ref",
+    "storage_state",
+    "delivery_state",
+    "authority_boundary"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/coordination-local-append-receipt/v0"},
+    "receipt_id": {"type": "string", "pattern": "^coordination-local-append-receipt://sha-256/[0-9a-f]{64}$"},
+    "outcome": {"type": "string", "enum": ["appended", "duplicate"]},
+    "record_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_id", "revision_digest"],
+      "properties": {
+        "record_id": {"type": "string", "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(?:task/task_[0-7][0-9A-HJKMNP-TV-Z]{25}|receipt/rcpt-[0-7][0-9A-HJKMNP-TV-Z]{25}|label/(?=[A-Za-z0-9._~-]*[A-Za-z0-9_~-]$)[A-Za-z0-9._~-]+)$"},
+        "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+      }
+    },
+    "storage_state": {"const": "local-stored"},
+    "delivery_state": {"const": "not-attempted"},
+    "authority_boundary": {"const": "local append receipt grants no execution, disclosure, authorization, or delivery guarantee"}
+  }
+}

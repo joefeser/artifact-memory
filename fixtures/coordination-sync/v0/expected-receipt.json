@@ -1,0 +1,19 @@
+{
+  "authority_boundary": "synthetic sync proof grants no execution, disclosure, authorization, or trust",
+  "authorized_union_pair_count": 2,
+  "equal_time_scope_replay": "rejected",
+  "label_rotation_vector_count": 1,
+  "outcome": "passed",
+  "pagination_page_count": 2,
+  "pair_set_vector_count": 2,
+  "pending_outcome_recovery": "protected-and-consumed",
+  "project_provenance_vector_count": 1,
+  "receipt_id": "coordination-sync-conformance-receipt://sha-256/b827ac3c66a46ff2da9388f78a54b4b0d6c6d0f213f49ffdcdb72fa65c40d37a",
+  "record_bound_egress_vector_count": 1,
+  "replica_count": 2,
+  "schema_id": "artifact-memory/coordination-sync-conformance-receipt/v0",
+  "second_replica_pair_count": 2,
+  "second_round": "byte-identical-no-op",
+  "task_chain_vector_count": 1,
+  "typed_outcome_count": 10
+}

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/coordination-freshness-conformance-receipt/v0",
+  "title": "Artifact Memory coordination freshness conformance receipt v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "stale_observation", "current_observation", "unknown_optional_preserved", "negative_codes", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/coordination-freshness-conformance-receipt/v0"},
+    "receipt_id": {"type": "string", "pattern": "^coordination-freshness-conformance-receipt://sha-256/[0-9a-f]{64}$"},
+    "outcome": {"const": "passed"},
+    "stale_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "true_as_of_commit", "observed_head"],
+      "properties": {
+        "status": {"const": "stale-verify"},
+        "true_as_of_commit": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+        "observed_head": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"}
+      }
+    },
+    "current_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "true_as_of_commit", "observed_head"],
+      "properties": {
+        "status": {"const": "current"},
+        "true_as_of_commit": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+        "observed_head": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"}
+      }
+    },
+    "unknown_optional_preserved": {"const": true},
+    "negative_codes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unknown_required", "top_level_freshness"],
+      "properties": {
+        "unknown_required": {"const": "required-extension-unsupported"},
+        "top_level_freshness": {"const": "unknown-field"}
+      }
+    },
+    "authority_boundary": {"const": "freshness conformance evidence is informational only and grants no execution, mutation, routing, disclosure, credential, spending, deployment, approval, or merge authority"}
+  }
+}

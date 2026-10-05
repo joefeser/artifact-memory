@@ -11,8 +11,8 @@ from pathlib import Path
 from unittest import mock
 
 from artifact_memory import cli
-from artifact_memory.canonical import receipt_with_digest
-from artifact_memory.canonical import sha256_bytes
+from artifact_memory.canonical import canonical_bytes, receipt_with_digest, sha256_bytes
+from artifact_memory.context import build_selection_policy, export_context
 from artifact_memory.release_preparation import RELEASE_PREPARATION_RECEIPT_PREFIX
 from artifact_memory.scan import ScanLimits, make_scan_policy, scan_path
 
@@ -21,21 +21,338 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "fixtures" / "synthetic" / "contracts"
 RELEASE_FIXTURES = ROOT / "fixtures" / "synthetic" / "release"
 ARCHIVE_FIXTURES = ROOT / "fixtures" / "synthetic" / "archives" / "v1"
+COORDINATION_FIXTURES = ROOT / "fixtures" / "coordination"
 
 
 class CliTests(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run([sys.executable, "-m", "artifact_memory", *args], cwd=ROOT, text=True, capture_output=True)
 
+    def create_identity_repository(self, root: Path, manifest_text: str) -> Path:
+        identity = root / ".agent-memory"
+        identity.mkdir(parents=True)
+        (identity / "repo.json").write_text(manifest_text, encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Synthetic Fixture"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "fixture@example.invalid"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "add", ".agent-memory/repo.json"], cwd=root, check=True
+        )
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "Synthetic identity"],
+            cwd=root,
+            check=True,
+        )
+        return root
+
+    def fixture_identity_repository(self, root: Path, name: str) -> Path:
+        fixture = (
+            ROOT
+            / "fixtures"
+            / "coordination-repo-identity"
+            / "v0"
+            / "repositories"
+            / name
+            / ".agent-memory"
+            / "repo.json"
+        )
+        return self.create_identity_repository(
+            root, fixture.read_text(encoding="utf-8")
+        )
+
     def test_version_json(self):
         result = self.run_cli("version", "--json")
         self.assertEqual(result.returncode, 0)
         self.assertEqual(json.loads(result.stdout)["contract_version"], "v0")
 
+    def test_record_append_is_local_idempotent_and_does_not_require_a_hub(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary) / "vault"
+            first = self.run_cli(
+                "record",
+                "append",
+                str(COORDINATION_FIXTURES / "task-open.json"),
+                "--vault",
+                str(vault),
+                "--json",
+            )
+            second = self.run_cli(
+                "record",
+                "append",
+                str(COORDINATION_FIXTURES / "task-open.json"),
+                "--vault",
+                str(vault),
+                "--json",
+            )
+            stored_count = len(
+                list((vault / "canonical" / "coordination").glob("*/*.json"))
+            )
+
+        self.assertEqual(first.returncode, 0)
+        self.assertEqual(second.returncode, 0)
+        first_receipt = json.loads(first.stdout)
+        second_receipt = json.loads(second.stdout)
+        self.assertEqual(first_receipt["outcome"], "appended")
+        self.assertEqual(second_receipt["outcome"], "duplicate")
+        self.assertEqual(first_receipt["record_ref"], second_receipt["record_ref"])
+        self.assertEqual(first_receipt["delivery_state"], "not-attempted")
+        self.assertEqual(second_receipt["delivery_state"], "not-attempted")
+        self.assertEqual(stored_count, 1)
+
+    def test_record_append_rejects_invalid_coordination_input_without_writing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            invalid = root / "invalid.json"
+            invalid.write_text("{}", encoding="utf-8")
+            vault = root / "vault"
+            result = self.run_cli(
+                "record",
+                "append",
+                str(invalid),
+                "--vault",
+                str(vault),
+                "--json",
+            )
+            vault_created = vault.exists()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            json.loads(result.stdout)["diagnostics"][0]["code"],
+            "schema-unsupported",
+        )
+        self.assertFalse(vault_created)
+
+    def test_record_append_rejects_deep_input_without_a_traceback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate = json.loads(
+                (COORDINATION_FIXTURES / "task-open.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            value = {}
+            cursor = value
+            for _ in range(70):
+                cursor["nested"] = {}
+                cursor = cursor["nested"]
+            candidate["extensions"][
+                "https://synthetic.example/extensions/deep/v1"
+            ] = {"version": "v1", "required": False, "value": value}
+            record = root / "deep.json"
+            record.write_text(json.dumps(candidate), encoding="utf-8")
+            vault = root / "vault"
+            result = self.run_cli(
+                "record",
+                "append",
+                str(record),
+                "--vault",
+                str(vault),
+                "--json",
+            )
+            vault_created = vault.exists()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            json.loads(result.stdout)["diagnostics"][0]["code"],
+            "sync-depth-limit",
+        )
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertFalse(vault_created)
+
+    def test_record_append_rejects_unpaired_surrogate_without_a_traceback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate = json.loads(
+                (COORDINATION_FIXTURES / "task-open.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            candidate["title"] = "\ud800"
+            record = root / "surrogate.json"
+            record.write_text(json.dumps(candidate), encoding="utf-8")
+            vault = root / "vault"
+            result = self.run_cli(
+                "record",
+                "append",
+                str(record),
+                "--vault",
+                str(vault),
+                "--json",
+            )
+            vault_created = vault.exists()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            json.loads(result.stdout)["diagnostics"][0]["code"],
+            "canonicalization-failed",
+        )
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertFalse(vault_created)
+
     def test_valid_record(self):
         result = self.run_cli("validate", str(FIXTURES / "v0-valid-record.json"), "--json")
         self.assertEqual(result.returncode, 0)
         self.assertTrue(json.loads(result.stdout)["valid"])
+
+    def test_repo_validate_binds_coordination_records_to_known_uuid(self):
+        result = self.run_cli(
+            "repo",
+            "validate",
+            str(ROOT),
+            "--records",
+            str(COORDINATION_FIXTURES / "access-label.json"),
+            str(COORDINATION_FIXTURES / "task-open.json"),
+            "--json",
+        )
+        self.assertEqual(result.returncode, 2)
+        receipt = json.loads(result.stdout)
+        self.assertEqual(
+            receipt["diagnostics"][0]["code"], "coordination-project-unknown"
+        )
+
+    def test_repo_validate_accepts_same_name_distinct_project_uuids(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            record_root = Path(temporary).resolve()
+            alpha = self.fixture_identity_repository(
+                record_root / "alpha", "alpha"
+            )
+            beta = self.fixture_identity_repository(record_root / "beta", "beta")
+            label = json.loads(
+                (COORDINATION_FIXTURES / "access-label.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            task = json.loads(
+                (COORDINATION_FIXTURES / "task-open.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            label_path = record_root / "label.json"
+            task_path = record_root / "task.json"
+            label_path.write_text(json.dumps(label), encoding="utf-8")
+            task_path.write_text(json.dumps(task), encoding="utf-8")
+            result = self.run_cli(
+                "repo",
+                "validate",
+                str(alpha),
+                str(beta),
+                "--records",
+                str(label_path),
+                str(task_path),
+                "--json",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(result.stdout)
+        self.assertTrue(receipt["repo_identity_verified"])
+        self.assertEqual(receipt["known_project_count"], 2)
+
+    def test_repo_validate_identifies_invalid_root_index(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            alpha = self.fixture_identity_repository(base / "alpha", "alpha")
+            invalid_root = self.create_identity_repository(
+                base / "invalid",
+                '{"uuid":"not-a-uuid","humanName":"synthetic"}',
+            )
+            result = self.run_cli(
+                "repo",
+                "validate",
+                str(alpha),
+                str(invalid_root),
+                "--records",
+                str(COORDINATION_FIXTURES / "access-label.json"),
+                str(COORDINATION_FIXTURES / "task-open.json"),
+                "--json",
+            )
+        self.assertEqual(result.returncode, 2)
+        diagnostic = json.loads(result.stdout)["diagnostics"][0]
+        self.assertEqual(diagnostic["code"], "constraint-failed")
+        self.assertEqual(diagnostic["path"], "$.roots[1].uuid")
+
+    def test_repo_validate_rejects_recursive_manifest_with_typed_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            alpha = self.fixture_identity_repository(base / "alpha", "alpha")
+            invalid_root = self.create_identity_repository(
+                base / "recursive", ("[" * 100_000) + ("]" * 100_000)
+            )
+            result = self.run_cli(
+                "repo",
+                "validate",
+                str(alpha),
+                str(invalid_root),
+                "--records",
+                str(COORDINATION_FIXTURES / "access-label.json"),
+                str(COORDINATION_FIXTURES / "task-open.json"),
+                "--json",
+            )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        diagnostic = json.loads(result.stdout)["diagnostics"][0]
+        self.assertEqual(diagnostic["code"], "invalid-json")
+        self.assertEqual(diagnostic["path"], "$.roots[1]")
+
+    def test_repo_validate_rejects_recursive_record_with_typed_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            alpha = self.fixture_identity_repository(base / "alpha", "alpha")
+            record_path = base / "recursive-record.json"
+            record_path.write_text(
+                ("[" * 100_000) + ("]" * 100_000),
+                encoding="utf-8",
+            )
+            result = self.run_cli(
+                "repo",
+                "validate",
+                str(alpha),
+                "--records",
+                str(record_path),
+                "--json",
+            )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        diagnostic = json.loads(result.stdout)["diagnostics"][0]
+        self.assertEqual(diagnostic["code"], "invalid-json")
+        self.assertEqual(diagnostic["path"], "$.files[0]")
+
+    def test_repo_validate_rejects_recursive_record_validation(self):
+        candidate = json.loads(
+            (COORDINATION_FIXTURES / "task-open.json").read_text(encoding="utf-8")
+        )
+        value = {}
+        cursor = value
+        for _ in range(500):
+            cursor["nested"] = {}
+            cursor = cursor["nested"]
+        candidate["extensions"][
+            "https://synthetic.example/extensions/deep-validation/v1"
+        ] = {"version": "v1", "required": False, "value": value}
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            alpha = self.fixture_identity_repository(base / "alpha", "alpha")
+            record_path = base / "deep-validation-record.json"
+            record_path.write_text(json.dumps(candidate), encoding="utf-8")
+            result = self.run_cli(
+                "repo",
+                "validate",
+                str(alpha),
+                "--records",
+                str(record_path),
+                "--json",
+            )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        diagnostic = json.loads(result.stdout)["diagnostics"][0]
+        self.assertEqual(diagnostic["code"], "invalid-json")
+        self.assertEqual(diagnostic["path"], "$.records")
 
     def test_project_reports_projection_creation_failure_as_json(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -289,7 +606,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("semantic rules", result.stdout)
         self.assertIn("release-manifest releasability", result.stdout)
-        self.assertIn("verify authenticity or accept release evidence", result.stdout)
+        self.assertIn("context-pack", result.stdout)
+        self.assertIn("identity/budget binding", result.stdout)
+        self.assertIn("verify authenticity or accept", result.stdout)
+        self.assertIn("release evidence", result.stdout)
 
     def test_release_manifest_validation_preserves_v0_result_shape(self):
         for fixture in (
@@ -426,6 +746,103 @@ class CliTests(unittest.TestCase):
         self.assertEqual(receipt["selected_record_count"], 1)
         self.assertEqual(receipt["excluded_record_count"], 0)
         self.assertEqual(receipt["authority_boundary"], "informational-only; no execution, routing, disclosure, or mutation authority")
+
+    def test_validate_context_pack_applies_identity_and_byte_bound_semantics(self):
+        record = json.loads((FIXTURES / "v0-valid-record.json").read_text(encoding="utf-8"))
+        pack = export_context(
+            [record],
+            allowed_sensitivity="public",
+            max_bytes=4096,
+            supported_context_schema_ids=["artifact-memory/context-pack/v4"],
+            **build_selection_policy(
+                [record["record_id"]],
+                selected_at="2026-09-15T00:00:00Z",
+                freshness_basis="synthetic-cli-semantic-validation",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid_path = root / "valid.json"
+            valid_path.write_text(json.dumps(pack), encoding="utf-8")
+
+            tampered = copy.deepcopy(pack)
+            tampered["records"][0]["summary"] += " tampered"
+            tampered_path = root / "tampered.json"
+            tampered_path.write_text(json.dumps(tampered), encoding="utf-8")
+
+            over_budget = copy.deepcopy(pack)
+            over_budget["selection_receipt"]["max_bytes"] = 1
+            body = {key: value for key, value in over_budget.items() if key != "pack_id"}
+            over_budget["pack_id"] = "context-pack://" + sha256_bytes(
+                canonical_bytes(body)
+            ).removeprefix("sha-256:")
+            over_budget_path = root / "over-budget.json"
+            over_budget_path.write_text(json.dumps(over_budget), encoding="utf-8")
+
+            valid_result = self.run_cli("validate", str(valid_path), "--json")
+            tampered_result = self.run_cli("validate", str(tampered_path), "--json")
+            over_budget_result = self.run_cli("validate", str(over_budget_path), "--json")
+
+        self.assertEqual(valid_result.returncode, 0, valid_result.stderr)
+        self.assertTrue(json.loads(valid_result.stdout)["valid"])
+        for rejected in (tampered_result, over_budget_result):
+            self.assertEqual(rejected.returncode, 2, rejected.stderr)
+            result = json.loads(rejected.stdout)
+            self.assertFalse(result["valid"])
+            self.assertEqual(result["diagnostics"][0]["code"], "context-pack-invalid")
+
+    def test_validate_legacy_context_pack_applies_identity_and_byte_bound_semantics(self):
+        body = {
+            "schema_id": "artifact-memory/context-pack/v1",
+            "authority_boundary": "informational-only; no execution, routing, disclosure, or mutation authority",
+            "records": [],
+            "artifact_refs": [],
+            "external_evidence": [],
+            "selection_receipt": {
+                "selector_id": "artifact-memory/reference-cli/v0",
+                "source_record_set_digest": "sha-256:" + "0" * 64,
+                "selected_record_ids": [],
+                "redacted_record_ids": [],
+                "max_bytes": 4096,
+                "freshness": "selection-time",
+                "disclosure": "informational-only",
+            },
+        }
+        valid = {
+            **body,
+            "pack_id": "context-pack://" + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:"),
+        }
+        forged = copy.deepcopy(valid)
+        forged["pack_id"] = "context-pack://" + "f" * 64
+        over_budget = copy.deepcopy(valid)
+        over_budget["selection_receipt"]["max_bytes"] = 1
+        over_budget_body = {key: value for key, value in over_budget.items() if key != "pack_id"}
+        over_budget["pack_id"] = "context-pack://" + sha256_bytes(
+            canonical_bytes(over_budget_body)
+        ).removeprefix("sha-256:")
+        noncanonical = copy.deepcopy(valid)
+        noncanonical["selection_receipt"]["max_bytes"] = 9_007_199_254_740_992
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            results = []
+            for name, pack in (
+                ("valid", valid),
+                ("forged", forged),
+                ("over-budget", over_budget),
+                ("noncanonical", noncanonical),
+            ):
+                path = root / f"{name}.json"
+                path.write_text(json.dumps(pack), encoding="utf-8")
+                results.append(self.run_cli("validate", str(path), "--json"))
+
+        self.assertEqual(results[0].returncode, 0, results[0].stderr)
+        self.assertTrue(json.loads(results[0].stdout)["valid"])
+        for rejected in results[1:]:
+            self.assertEqual(rejected.returncode, 2, rejected.stderr)
+            result = json.loads(rejected.stdout)
+            self.assertFalse(result["valid"])
+            self.assertEqual(result["diagnostics"][0]["code"], "context-pack-invalid")
 
     def test_context_command_explicitly_negotiates_lifecycle_aware_v4(self):
         fixture = ROOT / "fixtures/synthetic/record-evolution/v2"

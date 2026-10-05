@@ -37,6 +37,12 @@ and every declared adapter outcome without echoing protected input or paths.
 `vault-intake/v1/` proves immutable registration, verification, canonical
 artifact/version records, duplicate replay, and digest-mismatch quarantine.
 
+`private-vault-onboarding/v1/` proves the public-safe operator path from three
+synthetic private-sensitivity knowledge records through validation, generated
+projection, two literal operational searches, bounded context-pack v4 export,
+and independent informational recall. Generated files remain disposable and
+outside the committed fixture.
+
 `benchmarks/v1/` is the benchmark-profile v1 namespace. Its expected receipt
 declares benchmark-receipt v2 in `schema_id`; directory names do not select a
 receipt schema. Projection records in this fixture are generated ephemeral

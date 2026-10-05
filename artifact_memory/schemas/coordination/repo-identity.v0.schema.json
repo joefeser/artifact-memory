@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/coordination/repo-identity/v0",
+  "title": "Artifact Memory repository identity manifest v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["uuid", "humanName"],
+  "properties": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "humanName": {"type": "string", "minLength": 1}
+  }
+}

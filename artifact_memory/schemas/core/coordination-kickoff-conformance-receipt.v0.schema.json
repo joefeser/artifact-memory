@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/coordination-kickoff-conformance-receipt/v0",
+  "title": "Artifact Memory coordination kickoff conformance receipt v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "selected_task_id", "open_task_count", "sync_receipt_ref", "scope_generation", "latest_open_selected", "command_rendering", "negative_codes", "pack_digest", "prompt_digest", "authority_boundary"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/coordination-kickoff-conformance-receipt/v0"},
+    "receipt_id": {"type": "string", "pattern": "^coordination-kickoff-conformance-receipt://sha-256/[0-9a-f]{64}$"},
+    "outcome": {"const": "passed"},
+    "selected_task_id": {"type": "string", "pattern": "^task_[0-7][0-9A-HJKMNP-TV-Z]{25}$"},
+    "open_task_count": {"type": "integer", "minimum": 1},
+    "sync_receipt_ref": {"type": "string", "pattern": "^coordination-sync-receipt://sha-256/[0-9a-f]{64}$"},
+    "scope_generation": {"type": "integer", "minimum": 0},
+    "latest_open_selected": {"const": true},
+    "command_rendering": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["escaped", "do_not_execute_present", "marker_created"],
+      "properties": {
+        "escaped": {"const": true},
+        "do_not_execute_present": {"const": true},
+        "marker_created": {"const": false}
+      }
+    },
+    "negative_codes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["missing_receipt", "unadmitted_task"],
+      "properties": {
+        "missing_receipt": {"const": "sync-marker-missing"},
+        "unadmitted_task": {"const": "kickoff-record-not-admitted"}
+      }
+    },
+    "pack_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "prompt_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+    "authority_boundary": {"const": "kickoff conformance evidence grants no execution, mutation, routing, disclosure, credential, spending, deployment, approval, or merge authority"}
+  }
+}

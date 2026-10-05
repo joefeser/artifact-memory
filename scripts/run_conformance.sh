@@ -7,6 +7,15 @@ python3 scripts/run_search_receipt_slice.py --check >/dev/null
 python3 scripts/run_search_literal_slice.py --check >/dev/null
 python3 scripts/run_search_supersession_slice.py --check >/dev/null
 python3 scripts/run_search_ranking_slice.py --check >/dev/null
+python3 scripts/run_private_vault_onboarding_slice.py --check >/dev/null
+python3 scripts/run_coordination_sync_conformance.py --check >/dev/null
+python3 scripts/run_coordination_outbox_conformance.py --check >/dev/null
+python3 scripts/run_coordination_repo_identity_conformance.py --check >/dev/null
+python3 scripts/run_coordination_onboarding_conformance.py --check >/dev/null
+python3 scripts/run_coordination_kickoff_conformance.py --check >/dev/null
+python3 scripts/run_coordination_freshness_conformance.py --check >/dev/null
+python3 scripts/run_coordination_access_scope_conformance.py --check >/dev/null
+python3 scripts/run_session_ledger_conformance.py --check >/dev/null
 python3 scripts/run_context_export_slice.py --check >/dev/null
 python3 scripts/run_retention_lifecycle_slice.py --check >/dev/null
 python3 scripts/run_authenticity_conformance.py --check >/dev/null

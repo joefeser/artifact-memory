@@ -1,0 +1,3080 @@
+"""Provider-free v0 coordination sync over a local synthetic hub directory.
+
+The directory adapter proves the protocol seam without claiming WITS network
+interoperability. Hub configuration is server-side policy state: callers name
+an opaque session handle and cannot select a principal or AccessLabel revision.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import stat
+import tempfile
+from bisect import bisect_right
+from contextlib import ExitStack, contextmanager
+from copy import deepcopy
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Iterator
+from uuid import UUID
+
+from .canonical import (
+    CanonicalizationFailure,
+    canonical_bytes,
+    expected_receipt_id,
+    receipt_with_digest,
+    sha256_bytes,
+)
+from .coordination import (
+    ACCESS_LABEL_SCHEMA_ID,
+    TASK_PACKET_SCHEMA_ID,
+    WORK_RECEIPT_SCHEMA_ID,
+    current_coordination_task_leaves,
+    revision_digest,
+    validate_coordination_record_body,
+    validate_coordination_records,
+)
+from .schema_resources import core_schemas, load_schema
+from .validator import ValidationFailure, load_json, load_json_bytes, validate
+
+
+SYNC_RECEIPT_SCHEMA_ID = "artifact-memory/coordination-sync-receipt/v0"
+LOCAL_APPEND_RECEIPT_SCHEMA_ID = (
+    "artifact-memory/coordination-local-append-receipt/v0"
+)
+MEMBERSHIP_PAGE_SCHEMA_ID = (
+    "artifact-memory/coordination-authorized-membership-page/v0"
+)
+LOCAL_HUB_SCHEMA_ID = "artifact-memory/local-coordination-hub/v0"
+AUTHORITY_BOUNDARY = (
+    "sync receipt grants no execution, disclosure, authorization, or trust"
+)
+LOCAL_APPEND_AUTHORITY_BOUNDARY = (
+    "local append receipt grants no execution, disclosure, authorization, or delivery guarantee"
+)
+_LOCAL_APPEND_RECEIPT_SCHEMA = load_schema(
+    "core", "coordination-local-append-receipt.v0.schema.json"
+)
+PENDING_OUTCOMES_SCHEMA_ID = "artifact-memory/local-coordination-pending-outcomes/v0"
+
+# Normative source: docs/contracts/v0-coordination-plane.md, "V0 sync resource bounds".
+MAX_REQUEST_BYTES = 8 * 1024 * 1024
+MAX_SUBMITTED_RECORDS = 1_000
+MAX_RECORD_BYTES = 1024 * 1024
+MAX_NESTING_DEPTH = 64
+MAX_STRING_BYTES = 1024 * 1024
+MAX_PAGE_BYTES = 4 * 1024 * 1024
+MAX_PAGE_RECORDS = 500
+MAX_PENDING_OUTCOMES_BYTES = MAX_PAGE_BYTES
+MAX_SYNC_MARKER_BYTES = 64 * 1024
+MAX_SYNC_RECEIPT_BYTES = MAX_REQUEST_BYTES
+MAX_MEMBERSHIP_MANIFEST_BYTES = MAX_REQUEST_BYTES
+MAX_HUB_CONFIG_BYTES = MAX_REQUEST_BYTES
+
+
+class SyncFailure(ValidationFailure):
+    """Typed sync failure that must not advance local successful-sync state."""
+
+
+@dataclass(frozen=True)
+class StoredRecord:
+    record_ref: dict[str, str]
+    record: dict[str, Any]
+    raw: bytes
+    path: Path
+
+
+@dataclass(frozen=True)
+class PendingOutcomes:
+    outcomes: list[dict[str, Any]]
+    access_label_ref: dict[str, str]
+    scope_generation: int
+    source_digest: str | None
+
+
+def _pair_key(reference: dict[str, str]) -> tuple[str, str]:
+    return reference["record_id"], reference["revision_digest"]
+
+
+def _pair(record: dict[str, Any], digest: str | None = None) -> dict[str, str]:
+    return {
+        "record_id": record["record_id"],
+        "revision_digest": digest or revision_digest(record),
+    }
+
+
+def sorted_pairs(pairs: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Return canonical pair membership order without Unicode normalization."""
+    return sorted(
+        ({"record_id": item["record_id"], "revision_digest": item["revision_digest"]} for item in pairs),
+        key=lambda item: (item["record_id"], item["revision_digest"]),
+    )
+
+
+def _validated_pair_manifest(value: Any) -> list[dict[str, str]]:
+    """Validate a durable full-membership manifest before identity operations."""
+    if not isinstance(value, list):
+        raise ValidationFailure(
+            "sync-membership-invalid",
+            "authorized membership must be an array of exact record pairs",
+            "$.pairs",
+        )
+    pair_schema = core_schemas()[MEMBERSHIP_PAGE_SCHEMA_ID]["properties"]["pairs"][
+        "items"
+    ]
+    for index, pair in enumerate(value):
+        try:
+            validate(pair, pair_schema)
+            canonical_bytes(pair)
+        except CanonicalizationFailure as exc:
+            raise ValidationFailure(
+                "canonicalization-failed",
+                str(exc),
+                f"$.pairs[{index}]",
+            ) from exc
+        except ValidationFailure as exc:
+            raise ValidationFailure(
+                exc.code,
+                exc.message,
+                f"$.pairs[{index}]",
+            ) from exc
+    keys = [_pair_key(pair) for pair in value]
+    if len(keys) != len(set(keys)):
+        raise ValidationFailure(
+            "sync-membership-duplicate",
+            "authorized membership contains a duplicate pair",
+            "$.pairs",
+        )
+    return sorted_pairs(value)
+
+
+def pair_set_digest(pairs: list[dict[str, str]]) -> str:
+    return sha256_bytes(canonical_bytes(sorted_pairs(pairs)))
+
+
+def _record_path(root: Path, record_ref: dict[str, str]) -> Path:
+    identity_hash = hashlib.sha256(record_ref["record_id"].encode("utf-8")).hexdigest()
+    digest_hex = record_ref["revision_digest"].removeprefix("sha-256:")
+    return root / "canonical" / "coordination" / identity_hash / f"{digest_hex}.json"
+
+
+def _policy_label_path(root: Path, label_ref: dict[str, str]) -> Path:
+    identity_hash = hashlib.sha256(label_ref["record_id"].encode("utf-8")).hexdigest()
+    digest_hex = label_ref["revision_digest"].removeprefix("sha-256:")
+    return root / "policy" / "labels" / identity_hash / f"{digest_hex}.json"
+
+
+def _retained_policy_label(
+    hub: Path,
+    label_ref: dict[str, str],
+    *,
+    failure_code: str,
+    failure_message: str,
+) -> dict[str, Any]:
+    """Resolve one exact immutable AccessLabel revision from hub policy history."""
+    path = _policy_label_path(hub, label_ref)
+    try:
+        relative = path.relative_to(hub)
+        current = hub
+        for part in relative.parts[:-1]:
+            current = current / part
+            if current.is_symlink() or not current.is_dir():
+                raise SyncFailure(failure_code, failure_message)
+        if path.is_symlink() or not path.is_file():
+            raise SyncFailure(failure_code, failure_message)
+        raw = _read_local_regular_file(
+            hub,
+            path,
+            maximum_bytes=MAX_RECORD_BYTES,
+            missing_code=failure_code,
+            missing_message=failure_message,
+        )
+        if len(raw) > MAX_RECORD_BYTES:
+            raise SyncFailure(
+                "sync-record-too-large",
+                "hub policy label exceeds the v0 record byte limit",
+            )
+        _check_raw_depth(raw)
+        materialized, digest = validate_coordination_record_body(load_json_bytes(raw))
+    except SyncFailure:
+        raise
+    except (OSError, RecursionError, ValidationFailure) as exc:
+        raise SyncFailure(failure_code, failure_message) from exc
+    if (
+        materialized["schema_id"] != ACCESS_LABEL_SCHEMA_ID
+        or _pair(materialized, digest) != label_ref
+    ):
+        raise SyncFailure(failure_code, failure_message)
+    return materialized
+
+
+def _scan_retained_policy_labels(
+    hub: Path,
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Validate retained policy history and key it by exact portable identity."""
+    _validate_storage_root(hub, create=False)
+    root = hub / "policy" / "labels"
+    if not root.exists():
+        return {}
+    if root.is_symlink() or not root.is_dir():
+        raise SyncFailure("sync-storage-unsafe", "hub policy label storage is unsafe")
+    identity_directories = sorted(root.iterdir())
+    if any(path.is_symlink() or not path.is_dir() for path in identity_directories):
+        raise SyncFailure("sync-storage-unsafe", "hub policy label storage is unsafe")
+    paths = sorted(
+        item for directory in identity_directories for item in directory.glob("*.json")
+    )
+    if any(path.is_symlink() or not path.is_file() for path in paths):
+        raise SyncFailure("sync-storage-unsafe", "hub policy label storage is unsafe")
+    labels: dict[tuple[str, str], dict[str, Any]] = {}
+    for path in paths:
+        if len(path.stem) != 64 or any(
+            character not in "0123456789abcdef" for character in path.stem
+        ):
+            raise SyncFailure(
+                "hub-record-invalid",
+                "hub policy contains an invalid AccessLabel revision",
+            )
+        try:
+            raw = _read_local_regular_file(
+                hub,
+                path,
+                maximum_bytes=MAX_RECORD_BYTES,
+                missing_code="hub-record-invalid",
+                missing_message="hub policy contains an invalid AccessLabel revision",
+            )
+            if len(raw) > MAX_RECORD_BYTES:
+                raise SyncFailure(
+                    "sync-record-too-large",
+                    "hub policy label exceeds the v0 record byte limit",
+                )
+            _check_raw_depth(raw)
+            label, digest = validate_coordination_record_body(load_json_bytes(raw))
+        except SyncFailure:
+            raise
+        except (OSError, RecursionError, ValidationFailure) as exc:
+            raise SyncFailure(
+                "hub-record-invalid",
+                "hub policy contains an invalid AccessLabel revision",
+            ) from exc
+        reference = _pair(label, digest)
+        if (
+            label["schema_id"] != ACCESS_LABEL_SCHEMA_ID
+            or _policy_label_path(hub, reference) != path
+        ):
+            raise SyncFailure(
+                "hub-record-invalid",
+                "hub policy contains an invalid AccessLabel revision",
+            )
+        labels[_pair_key(reference)] = label
+    return labels
+
+
+def _validate_storage_root(
+    boundary: Path,
+    *,
+    create: bool,
+    reject_linked_ancestors: bool = False,
+) -> None:
+    """Reject an unsafe root and, when requested, every linked ancestor."""
+    if reject_linked_ancestors:
+        if ".." in boundary.parts:
+            raise SyncFailure(
+                "sync-storage-unsafe",
+                "sync storage root must not contain parent-directory traversal",
+            )
+        absolute = Path(os.path.abspath(os.fspath(boundary)))
+        anchor = Path(absolute.anchor)
+        current_component = anchor
+        for part in absolute.relative_to(anchor).parts:
+            current_component /= part
+            try:
+                component_metadata = os.lstat(current_component)
+            except FileNotFoundError:
+                break
+            except OSError as exc:
+                raise SyncFailure(
+                    "sync-storage-unsafe", "sync storage root is unsafe"
+                ) from exc
+            if _is_link_or_reparse(component_metadata) or not stat.S_ISDIR(
+                component_metadata.st_mode
+            ):
+                raise SyncFailure(
+                    "sync-storage-unsafe",
+                    "sync storage root traverses a link, reparse point, or non-directory",
+                )
+    if boundary.exists() or boundary.is_symlink():
+        try:
+            metadata = os.lstat(boundary)
+        except OSError as exc:
+            raise SyncFailure(
+                "sync-storage-unsafe", "sync storage root is unsafe"
+            ) from exc
+        if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
+            raise SyncFailure(
+                "sync-storage-unsafe",
+                "sync storage root is a link, reparse point, or non-directory",
+            )
+    else:
+        if not create:
+            return
+        missing: list[Path] = []
+        current = boundary
+        while not current.exists() and not current.is_symlink():
+            missing.append(current)
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        try:
+            current_metadata = os.lstat(current)
+        except OSError as exc:
+            raise SyncFailure(
+                "sync-storage-unsafe", "sync storage root is unsafe"
+            ) from exc
+        if _is_link_or_reparse(current_metadata) or not stat.S_ISDIR(
+            current_metadata.st_mode
+        ):
+            raise SyncFailure("sync-storage-unsafe", "sync storage root is unsafe")
+        for candidate in reversed(missing):
+            parent = candidate.parent
+            try:
+                candidate.mkdir()
+            except FileExistsError:
+                pass
+            try:
+                candidate_metadata = os.lstat(candidate)
+            except OSError as exc:
+                raise SyncFailure(
+                    "sync-storage-unsafe", "sync storage root is unsafe"
+                ) from exc
+            if _is_link_or_reparse(candidate_metadata) or not stat.S_ISDIR(
+                candidate_metadata.st_mode
+            ):
+                raise SyncFailure("sync-storage-unsafe", "sync storage root is unsafe")
+            _sync_directory(candidate)
+            _sync_directory(parent)
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(boundary, flags)
+    except OSError as exc:
+        raise SyncFailure("sync-storage-unsafe", "sync storage root is unsafe") from exc
+    try:
+        if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            raise SyncFailure("sync-storage-unsafe", "sync storage root is not a directory")
+    finally:
+        os.close(descriptor)
+
+
+def _is_link_or_reparse(metadata: os.stat_result) -> bool:
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return stat.S_ISLNK(metadata.st_mode) or bool(
+        getattr(metadata, "st_file_attributes", 0) & reparse_flag
+    )
+
+
+def _entry_identity(metadata: os.stat_result) -> tuple[int, int, int]:
+    return metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode)
+
+
+def _observe_local_file(boundary: Path, path: Path) -> list[os.stat_result]:
+    """Observe one regular file and every directory beneath the storage root."""
+    try:
+        relative = path.relative_to(boundary)
+    except ValueError as exc:
+        raise SyncFailure(
+            "sync-storage-escape", "sync read path escapes its storage root"
+        ) from exc
+    if not relative.parts or ".." in relative.parts:
+        raise SyncFailure("sync-storage-escape", "sync read path is unsafe")
+    observations: list[os.stat_result] = []
+    current = boundary
+    for index, part in enumerate(relative.parts):
+        current /= part
+        metadata = os.lstat(current)
+        final = index == len(relative.parts) - 1
+        expected_type = (
+            stat.S_ISREG(metadata.st_mode) if final else stat.S_ISDIR(metadata.st_mode)
+        )
+        if _is_link_or_reparse(metadata) or not expected_type:
+            raise SyncFailure(
+                "sync-storage-unsafe",
+                "sync read path traverses a link, reparse point, or unexpected entry type",
+            )
+        observations.append(metadata)
+    return observations
+
+
+def _read_local_regular_file(
+    boundary: Path,
+    path: Path,
+    *,
+    missing_code: str,
+    missing_message: str,
+    maximum_bytes: int | None = None,
+) -> bytes:
+    """Read a regular file without following descendants outside the root."""
+    if maximum_bytes is not None and maximum_bytes < 0:
+        raise ValueError("maximum_bytes must be non-negative")
+
+    def read_snapshot(stream: Any) -> bytes:
+        if maximum_bytes is None:
+            return stream.read()
+        remaining = maximum_bytes + 1
+        chunks: list[bytes] = []
+        while remaining:
+            chunk = stream.read(min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+
+    _validate_storage_root(boundary, create=False)
+    try:
+        relative = path.relative_to(boundary)
+    except ValueError as exc:
+        raise SyncFailure(
+            "sync-storage-escape", "sync read path escapes its storage root"
+        ) from exc
+    if not relative.parts or ".." in relative.parts:
+        raise SyncFailure("sync-storage-escape", "sync read path is unsafe")
+
+    secure_directory_open = os.open in os.supports_dir_fd and all(
+        hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")
+    )
+    if secure_directory_open:
+        descriptor: int | None = None
+        try:
+            descriptor = os.open(
+                boundary,
+                os.O_RDONLY
+                | os.O_DIRECTORY
+                | os.O_NOFOLLOW
+                | getattr(os, "O_CLOEXEC", 0),
+            )
+            for index, part in enumerate(relative.parts):
+                final = index == len(relative.parts) - 1
+                flags = (
+                    os.O_RDONLY
+                    | os.O_NOFOLLOW
+                    | getattr(os, "O_CLOEXEC", 0)
+                )
+                flags |= (
+                    (getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0))
+                    if final else os.O_DIRECTORY
+                )
+                # Opening a FIFO must not block before fstat can reject it.
+                child = os.open(part, flags, dir_fd=descriptor)
+                os.close(descriptor)
+                descriptor = child
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise SyncFailure(
+                    "sync-storage-unsafe", "sync read target is not a regular file"
+                )
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                return read_snapshot(stream)
+        except FileNotFoundError as exc:
+            raise SyncFailure(missing_code, missing_message) from exc
+        except SyncFailure:
+            raise
+        except OSError as exc:
+            raise SyncFailure(
+                "sync-storage-unsafe", "sync read path could not be opened safely"
+            ) from exc
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
+    try:
+        before = _observe_local_file(boundary, path)
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+        )
+        descriptor = os.open(path, flags)
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or _entry_identity(before[-1]) != _entry_identity(opened)
+            ):
+                raise SyncFailure(
+                    "sync-storage-unsafe", "sync read target changed before opening"
+                )
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                snapshot = read_snapshot(stream)
+            opened_after = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        after = _observe_local_file(boundary, path)
+    except FileNotFoundError as exc:
+        raise SyncFailure(missing_code, missing_message) from exc
+    except SyncFailure:
+        raise
+    except OSError as exc:
+        raise SyncFailure(
+            "sync-storage-unsafe", "sync read path could not be inspected safely"
+        ) from exc
+    if (
+        len(before) != len(after)
+        or any(
+            _entry_identity(left) != _entry_identity(right)
+            for left, right in zip(before, after)
+        )
+        or _entry_identity(opened) != _entry_identity(opened_after)
+    ):
+        raise SyncFailure("sync-storage-unsafe", "sync read path changed during reading")
+    return snapshot
+
+
+def _sync_directory(path: Path) -> None:
+    """Persist POSIX directory metadata; Windows installs use write-through moves."""
+    if os.name == "nt":
+        return
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError as exc:
+        raise SyncFailure(
+            "sync-storage-durability-unavailable",
+            "sync storage directory metadata could not be made durable",
+        ) from exc
+
+
+def _move_file_write_through(
+    source: str, destination: Path, *, replace: bool
+) -> None:
+    """Install one Windows file with metadata write-through semantics."""
+    import ctypes
+
+    move = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
+    move.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+    move.restype = ctypes.c_int
+    flags = 0x8 | (0x1 if replace else 0)  # WRITE_THROUGH | REPLACE_EXISTING
+    if move(source, str(destination), flags):
+        return
+    error = ctypes.get_last_error()
+    if not replace and error in {80, 183}:
+        raise FileExistsError(error, ctypes.FormatError(error), str(destination))
+    raise OSError(error, ctypes.FormatError(error), str(destination))
+
+
+def _prepare_parent(boundary: Path, path: Path) -> None:
+    """Create only real directories beneath a caller-selected storage root."""
+    try:
+        relative = path.relative_to(boundary)
+    except ValueError as exc:
+        raise SyncFailure("sync-storage-escape", "sync storage path escapes its root") from exc
+    _validate_storage_root(boundary, create=True)
+    current = boundary
+    for part in relative.parts[:-1]:
+        parent = current
+        candidate = parent / part
+        if candidate.exists() or candidate.is_symlink():
+            try:
+                metadata = os.lstat(candidate)
+            except OSError as exc:
+                raise SyncFailure(
+                    "sync-storage-unsafe", "sync storage parent is unsafe"
+                ) from exc
+            if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
+                raise SyncFailure(
+                    "sync-storage-unsafe",
+                    "sync storage contains a link, reparse point, or non-directory parent",
+                )
+        else:
+            created = False
+            try:
+                candidate.mkdir()
+                created = True
+            except FileExistsError:
+                pass
+            try:
+                metadata = os.lstat(candidate)
+            except OSError as exc:
+                raise SyncFailure(
+                    "sync-storage-unsafe", "sync storage parent is unsafe"
+                ) from exc
+            if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
+                raise SyncFailure(
+                    "sync-storage-unsafe",
+                    "sync storage contains a link, reparse point, or non-directory parent",
+                )
+            if created:
+                _sync_directory(candidate)
+                _sync_directory(parent)
+        current = candidate
+
+
+def _write_immutable(boundary: Path, path: Path, data: bytes) -> str:
+    _prepare_parent(boundary, path)
+    if path.exists() or path.is_symlink():
+        if not _immutable_target_matches(boundary, path, data):
+            raise SyncFailure(
+                "immutable-record-collision",
+                "an immutable coordination path contains different bytes",
+            )
+        return "duplicate"
+    descriptor, temporary = tempfile.mkstemp(prefix=".partial-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            if os.name == "nt":
+                _move_file_write_through(temporary, path, replace=False)
+            else:
+                os.link(temporary, path)
+                _sync_directory(path.parent)
+        except FileExistsError:
+            if not _immutable_target_matches(boundary, path, data):
+                raise SyncFailure(
+                    "immutable-record-collision",
+                    "an immutable coordination path contains different bytes",
+                )
+            return "duplicate"
+        return "created"
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        else:
+            _sync_directory(path.parent)
+
+
+def _immutable_target_matches(boundary: Path, path: Path, data: bytes) -> bool:
+    """Compare one existing immutable target without an unbounded read."""
+    try:
+        metadata = os.lstat(path)
+    except OSError as exc:
+        raise SyncFailure(
+            "immutable-record-collision",
+            "an immutable coordination path changed during comparison",
+        ) from exc
+    if (
+        _is_link_or_reparse(metadata)
+        or not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_size != len(data)
+    ):
+        return False
+    observed = _read_local_regular_file(
+        boundary,
+        path,
+        maximum_bytes=len(data),
+        missing_code="immutable-record-collision",
+        missing_message="an immutable coordination path changed during comparison",
+    )
+    return observed == data
+
+
+def _write_atomic(boundary: Path, path: Path, data: bytes) -> None:
+    _prepare_parent(boundary, path)
+    descriptor, temporary = tempfile.mkstemp(prefix=".partial-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if os.name == "nt":
+            _move_file_write_through(temporary, path, replace=True)
+        else:
+            os.replace(temporary, path)
+            _sync_directory(path.parent)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def _store_coordination_record(
+    root: Path, record: dict[str, Any]
+) -> tuple[dict[str, str], str]:
+    materialized, digest = validate_coordination_record_body(record)
+    reference = _pair(materialized, digest)
+    outcome = _write_immutable(
+        root,
+        _record_path(root, reference),
+        canonical_bytes(materialized),
+    )
+    return reference, outcome
+
+
+def load_local_coordination_record(path: Path) -> dict[str, Any]:
+    """Load one bounded append candidate before recursive schema validation."""
+    try:
+        if path.stat().st_size > MAX_REQUEST_BYTES:
+            raise SyncFailure(
+                "sync-request-too-large",
+                "local append input exceeds the v0 request byte limit",
+            )
+        raw = path.read_bytes()
+        if len(raw) > MAX_REQUEST_BYTES:
+            raise SyncFailure(
+                "sync-request-too-large",
+                "local append input exceeds the v0 request byte limit",
+            )
+        _check_raw_depth(raw)
+        candidate = load_json_bytes(raw)
+    except RecursionError as exc:
+        raise SyncFailure(
+            "sync-depth-limit",
+            "local append input exceeds the v0 nesting limit",
+        ) from exc
+    if not isinstance(candidate, dict):
+        raise ValidationFailure(
+            "invalid-input", "coordination record must be a JSON object"
+        )
+    _walk_bounds(candidate)
+    return candidate
+
+
+def store_coordination_record(root: Path, record: dict[str, Any]) -> dict[str, str]:
+    """Append one validated canonical revision to a local vault or hub."""
+    reference, _ = _store_coordination_record(root, record)
+    return reference
+
+
+def append_local_coordination_record(
+    vault: Path, record: dict[str, Any]
+) -> dict[str, Any]:
+    """Append locally without consulting a hub; canonical pairs are the outbox."""
+    try:
+        _walk_bounds(record)
+    except RecursionError as exc:
+        raise SyncFailure(
+            "sync-depth-limit",
+            "local coordination record exceeds the v0 nesting limit",
+        ) from exc
+    materialized, digest = validate_coordination_record_body(record)
+    raw = canonical_bytes(materialized)
+    if len(raw) > MAX_RECORD_BYTES:
+        raise SyncFailure(
+            "sync-record-too-large",
+            "local coordination record exceeds the v0 record byte limit",
+        )
+    reference = _pair(materialized, digest)
+    write_outcome = _write_immutable(vault, _record_path(vault, reference), raw)
+    receipt = receipt_with_digest(
+        LOCAL_APPEND_RECEIPT_SCHEMA_ID,
+        "coordination-local-append-receipt://sha-256/",
+        {
+            "outcome": "appended" if write_outcome == "created" else "duplicate",
+            "record_ref": reference,
+            "storage_state": "local-stored",
+            "delivery_state": "not-attempted",
+            "authority_boundary": LOCAL_APPEND_AUTHORITY_BOUNDARY,
+        },
+    )
+    validate(receipt, _LOCAL_APPEND_RECEIPT_SCHEMA)
+    return receipt
+
+
+def _record_files(root: Path) -> list[Path]:
+    _validate_storage_root(root, create=False)
+    base = root / "canonical" / "coordination"
+    if not base.exists():
+        return []
+    if base.is_symlink() or not base.is_dir():
+        raise SyncFailure("sync-storage-unsafe", "canonical coordination storage is unsafe")
+    identity_directories = sorted(base.iterdir())
+    if any(path.is_symlink() or not path.is_dir() for path in identity_directories):
+        raise SyncFailure("sync-storage-unsafe", "canonical coordination storage is unsafe")
+    paths = sorted(
+        item for directory in identity_directories for item in directory.glob("*.json")
+    )
+    if any(path.is_symlink() or not path.is_file() for path in paths):
+        raise SyncFailure("sync-storage-unsafe", "canonical coordination storage is unsafe")
+    return paths
+
+
+def _check_raw_depth(raw: bytes, *, max_depth: int = MAX_NESTING_DEPTH) -> None:
+    depth = 0
+    in_string = False
+    escaped = False
+    for byte in raw:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 0x5C:
+                escaped = True
+            elif byte == 0x22:
+                in_string = False
+            continue
+        if byte == 0x22:
+            in_string = True
+        elif byte in {0x7B, 0x5B}:
+            depth += 1
+            if depth > max_depth:
+                raise SyncFailure("sync-depth-limit", "sync record nesting exceeds the v0 limit")
+        elif byte in {0x7D, 0x5D}:
+            depth -= 1
+
+
+def _load_record_paths(
+    root: Path,
+    paths: list[Path],
+    *,
+    maximum_bytes: int | None = None,
+) -> list[StoredRecord]:
+    effective_maximum = (
+        MAX_RECORD_BYTES if maximum_bytes is None else maximum_bytes
+    )
+    records: list[StoredRecord] = []
+    for path in paths:
+        if len(path.stem) != 64 or any(
+            character not in "0123456789abcdef" for character in path.stem
+        ):
+            raise SyncFailure(
+                "local-record-path-mismatch",
+                "canonical coordination storage has an invalid digest path",
+            )
+        try:
+            raw = _read_local_regular_file(
+                root,
+                path,
+                maximum_bytes=effective_maximum,
+                missing_code="local-record-invalid",
+                missing_message="canonical record is unavailable",
+            )
+            if len(raw) > effective_maximum:
+                raise SyncFailure(
+                    "sync-record-too-large",
+                    "local record exceeds the v0 byte limit",
+                )
+            _check_raw_depth(raw)
+            value = load_json_bytes(raw)
+        except SyncFailure:
+            raise
+        except (OSError, RecursionError, ValidationFailure) as exc:
+            raise SyncFailure(
+                "local-record-invalid", "canonical coordination storage is unreadable"
+            ) from exc
+        if not isinstance(value, dict) or not isinstance(value.get("record_id"), str):
+            raise SyncFailure(
+                "local-record-invalid", "canonical coordination storage contains an invalid body"
+            )
+        claimed_digest = "sha-256:" + path.stem
+        reference = _pair(value, claimed_digest)
+        expected = _record_path(root, reference)
+        if expected != path:
+            raise SyncFailure(
+                "local-record-path-mismatch",
+                "canonical coordination storage path does not match its claimed pair",
+            )
+        records.append(StoredRecord(reference, value, raw, path))
+    return records
+
+
+def _scan_records(root: Path) -> list[StoredRecord]:
+    return _load_record_paths(root, _record_files(root))
+
+
+def _scan_record_identity(root: Path, record_id: str) -> list[StoredRecord]:
+    """Read one record identity without traversing unrelated hub revisions."""
+    _validate_storage_root(root, create=False)
+    base = root / "canonical" / "coordination"
+    if not base.exists():
+        return []
+    if base.is_symlink() or not base.is_dir():
+        raise SyncFailure("sync-storage-unsafe", "canonical coordination storage is unsafe")
+    identity_hash = hashlib.sha256(record_id.encode("utf-8")).hexdigest()
+    directory = base / identity_hash
+    if not directory.exists():
+        return []
+    if directory.is_symlink() or not directory.is_dir():
+        raise SyncFailure("sync-storage-unsafe", "canonical coordination storage is unsafe")
+    paths = sorted(directory.glob("*.json"))
+    if any(path.is_symlink() or not path.is_file() for path in paths):
+        raise SyncFailure("sync-storage-unsafe", "canonical coordination storage is unsafe")
+    return _load_record_paths(root, paths)
+
+
+def _validate_hub_config(
+    config: Any,
+    *,
+    allow_legacy_without_origin_projects: bool = False,
+) -> dict[str, Any]:
+    current_keys = {
+        "schema_id",
+        "hub_id",
+        "scope_generation",
+        "bindings",
+        "origin_projects",
+    }
+    legacy_keys = current_keys - {"origin_projects"}
+    if not isinstance(config, dict) or (
+        set(config) != current_keys
+        and not (
+            allow_legacy_without_origin_projects and set(config) == legacy_keys
+        )
+    ):
+        raise SyncFailure("hub-config-invalid", "local hub configuration has an invalid shape")
+    if config["schema_id"] != LOCAL_HUB_SCHEMA_ID:
+        raise SyncFailure("hub-config-invalid", "local hub schema is unsupported")
+    if not isinstance(config["hub_id"], str) or not config["hub_id"].startswith(
+        "coordination-hub://"
+    ):
+        raise SyncFailure("hub-config-invalid", "hub_id is not a logical coordination hub ID")
+    if (
+        not isinstance(config["scope_generation"], int)
+        or isinstance(config["scope_generation"], bool)
+        or config["scope_generation"] < 0
+    ):
+        raise SyncFailure("hub-config-invalid", "scope_generation must be a non-negative integer")
+    bindings = config["bindings"]
+    if not isinstance(bindings, list):
+        raise SyncFailure("hub-config-invalid", "bindings must be an array")
+    principals: set[str] = set()
+    sessions: set[str] = set()
+    for binding in bindings:
+        if not isinstance(binding, dict) or set(binding) != {
+            "session_id",
+            "principal_id",
+            "access_label",
+        }:
+            raise SyncFailure("hub-config-invalid", "principal binding has an invalid shape")
+        session_id = binding["session_id"]
+        if (
+            not isinstance(session_id, str)
+            or not session_id.startswith("coordination-session://")
+            or session_id in sessions
+        ):
+            raise SyncFailure("hub-config-invalid", "session binding is invalid or duplicated")
+        sessions.add(session_id)
+        principal = binding["principal_id"]
+        if (
+            not isinstance(principal, str)
+            or not principal.startswith("coordination-principal://")
+            or principal in principals
+        ):
+            raise SyncFailure("hub-config-invalid", "principal binding is invalid or duplicated")
+        principals.add(principal)
+        label, _ = validate_coordination_record_body(binding["access_label"])
+        if label["schema_id"] != ACCESS_LABEL_SCHEMA_ID:
+            raise SyncFailure("hub-config-invalid", "principal binding requires an AccessLabel")
+    if "origin_projects" in config:
+        origin_projects = config["origin_projects"]
+        if not isinstance(origin_projects, dict):
+            raise SyncFailure("hub-config-invalid", "origin_projects must be an object")
+        for origin_id, project_id in origin_projects.items():
+            try:
+                canonical_origin = str(UUID(origin_id))
+                canonical_project = str(UUID(project_id))
+            except (AttributeError, TypeError, ValueError) as exc:
+                raise SyncFailure(
+                    "hub-config-invalid",
+                    "origin_projects must map canonical UUIDs to canonical UUIDs",
+                ) from exc
+            if canonical_origin != origin_id or canonical_project != project_id:
+                raise SyncFailure(
+                    "hub-config-invalid",
+                    "origin_projects must map canonical UUIDs to canonical UUIDs",
+                )
+    return deepcopy(config)
+
+
+def configure_local_hub(
+    hub: Path,
+    *,
+    hub_id: str,
+    scope_generation: int,
+    bindings: list[dict[str, Any]],
+    origin_projects: dict[str, str] | None = None,
+) -> None:
+    """Write synthetic server-owned bindings and retain label revision history."""
+    if origin_projects is None:
+        # Backward-compatible single-project fixture setup. The caller still
+        # owns this administrative configuration; ambiguous multi-project
+        # labels derive no origin binding and therefore fail admission closed.
+        derived: dict[str, str] = {}
+        for binding in bindings:
+            label = binding.get("access_label") if isinstance(binding, dict) else None
+            projects = label.get("projectNames") if isinstance(label, dict) else None
+            if isinstance(projects, list) and len(projects) == 1:
+                project = projects[0]
+                if isinstance(project, dict):
+                    origin_id = label.get("originId")
+                    project_id = project.get("projectId")
+                    if isinstance(origin_id, str) and isinstance(project_id, str):
+                        prior_project_id = derived.get(origin_id)
+                        if (
+                            prior_project_id is not None
+                            and prior_project_id != project_id
+                        ):
+                            raise SyncFailure(
+                                "hub-config-invalid",
+                                "conflicting derived origin bindings require explicit origin_projects",
+                            )
+                        derived[origin_id] = project_id
+        origin_projects = derived
+    config = _validate_hub_config(
+        {
+            "schema_id": LOCAL_HUB_SCHEMA_ID,
+            "hub_id": hub_id,
+            "scope_generation": scope_generation,
+            "bindings": bindings,
+            "origin_projects": origin_projects,
+        }
+    )
+    with _configuration_lock(hub):
+        prior_principals: set[str] = set()
+        config_path = hub / "hub-config.json"
+        if config_path.exists() or config_path.is_symlink():
+            # The immediately preceding v0 shape lacked origin_projects. Only
+            # this explicit administrative rewrite may read that exact legacy
+            # shape; ordinary sync continues to fail closed until migration.
+            prior_config = _load_hub_config(
+                hub,
+                allow_legacy_without_origin_projects=True,
+            )
+            if prior_config["hub_id"] != config["hub_id"]:
+                raise SyncFailure(
+                    "hub-identity-mismatch",
+                    "an existing local hub cannot change its logical hub_id",
+                )
+            if config["scope_generation"] < prior_config["scope_generation"]:
+                raise SyncFailure(
+                    "scope-generation-rollback",
+                    "an existing local hub cannot decrease scope_generation",
+                )
+            prior_principals = {
+                binding["principal_id"]
+                for binding in prior_config["bindings"]
+            }
+        next_principals = {
+            binding["principal_id"] for binding in config["bindings"]
+        }
+        with ExitStack() as locks:
+            for principal_id in sorted(prior_principals | next_principals):
+                locks.enter_context(_principal_lock(hub, principal_id))
+            for binding in config["bindings"]:
+                label = binding["access_label"]
+                reference = _pair(label)
+                _write_immutable(
+                    hub,
+                    _policy_label_path(hub, reference),
+                    canonical_bytes(label),
+                )
+            _write_atomic(hub, config_path, canonical_bytes(config))
+
+
+def _load_hub_config(
+    hub: Path,
+    *,
+    allow_legacy_without_origin_projects: bool = False,
+) -> dict[str, Any]:
+    _validate_storage_root(hub, create=False)
+    path = hub / "hub-config.json"
+    try:
+        raw = _read_local_regular_file(
+            hub,
+            path,
+            missing_code="hub-config-invalid",
+            missing_message="local hub configuration is unavailable",
+            maximum_bytes=MAX_HUB_CONFIG_BYTES,
+        )
+        if len(raw) > MAX_HUB_CONFIG_BYTES:
+            raise SyncFailure(
+                "hub-config-invalid",
+                "local hub configuration exceeds its byte limit",
+            )
+        _check_raw_depth(raw)
+        return _validate_hub_config(
+            load_json_bytes(raw),
+            allow_legacy_without_origin_projects=allow_legacy_without_origin_projects,
+        )
+    except (OSError, RecursionError, ValidationFailure) as exc:
+        if isinstance(exc, SyncFailure):
+            raise
+        raise SyncFailure("hub-config-invalid", "local hub configuration is unavailable") from exc
+
+
+def _binding(
+    hub: Path, session_id: str
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    config = _load_hub_config(hub)
+    matches = [item for item in config["bindings"] if item["session_id"] == session_id]
+    if len(matches) != 1:
+        raise SyncFailure(
+            "principal-binding-invalid",
+            "authenticated session must resolve to exactly one principal and AccessLabel",
+        )
+    return config, matches[0]["access_label"], matches[0]["principal_id"]
+
+
+def _project_registration(
+    config: dict[str, Any],
+    label: dict[str, Any],
+    *,
+    project_id: str | None,
+) -> dict[str, Any]:
+    names: dict[str, str] = {}
+    for item in label["projectNames"]:
+        if item["projectId"] in names:
+            raise SyncFailure(
+                "onboard-project-provenance-ambiguous",
+                "the server-bound AccessLabel repeats a project UUID in display provenance",
+            )
+        names[item["projectId"]] = item["projectName"]
+    denied = set(label["mayNot"]["readProjects"])
+    readable = sorted(
+        project
+        for project in label["may"]["readProjects"]
+        if project in names and project not in denied
+    )
+    if project_id is not None and project_id not in readable:
+        raise SyncFailure(
+            "onboard-project-not-authorized",
+            "the authenticated hub binding does not grant read access to the requested onboarding project",
+        )
+    selected = readable if project_id is None else [project_id]
+    return {
+        "hub_id": config["hub_id"],
+        "scope_generation": config["scope_generation"],
+        "access_label_ref": _pair(label),
+        "projects": [
+            {"project_id": item, "project_name": names[item]}
+            for item in selected
+        ],
+    }
+
+
+def describe_local_hub_registration(
+    hub: Path,
+    *,
+    session_id: str,
+    project_id: str | None = None,
+    wait_for_principal: bool = False,
+) -> dict[str, Any]:
+    """Return only project identities the authenticated binding may read.
+
+    The full AccessLabel remains hub-side policy state. This description is
+    onboarding evidence, not a credential, grant, or administrative mutation.
+    """
+    with _bound_principal_lock(
+        hub, session_id, blocking=wait_for_principal
+    ) as (config, label, _principal_id):
+        return _project_registration(
+            config,
+            label,
+            project_id=project_id,
+        )
+
+
+def _walk_bounds(value: Any, depth: int = 0) -> None:
+    if depth > MAX_NESTING_DEPTH:
+        raise SyncFailure("sync-depth-limit", "sync record nesting exceeds the v0 limit")
+    if isinstance(value, str):
+        try:
+            encoded = value.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise SyncFailure(
+                "canonicalization-failed",
+                "unpaired Unicode surrogate is unsupported in a sync record",
+            ) from exc
+        if len(encoded) > MAX_STRING_BYTES:
+            raise SyncFailure("sync-field-too-large", "sync string field exceeds the v0 limit")
+    if isinstance(value, list):
+        for item in value:
+            _walk_bounds(item, depth + 1)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _walk_bounds(key, depth + 1)
+            _walk_bounds(item, depth + 1)
+
+
+def _request_bounds(records: list[StoredRecord]) -> None:
+    if len(records) > MAX_SUBMITTED_RECORDS:
+        raise SyncFailure("sync-record-limit", "sync request exceeds the v0 record limit")
+    if sum(len(item.raw) for item in records) > MAX_REQUEST_BYTES:
+        raise SyncFailure("sync-request-too-large", "sync request exceeds the v0 byte limit")
+    for item in records:
+        if len(item.raw) > MAX_RECORD_BYTES:
+            raise SyncFailure("sync-record-too-large", "sync record exceeds the v0 byte limit")
+        _walk_bounds(item.record)
+
+
+@contextmanager
+def _advisory_lock(
+    root: Path,
+    identity: str,
+    *,
+    busy_code: str,
+    busy_message: str,
+    blocking: bool = False,
+) -> Iterator[None]:
+    """Hold a crash-released OS lock; the persistent lock file is not state."""
+    lock = (
+        root
+        / "locks"
+        / f"{hashlib.sha256(identity.encode('utf-8')).hexdigest()}.lock"
+    )
+    _prepare_parent(root, lock)
+    if lock.is_symlink() or (lock.exists() and not lock.is_file()):
+        raise SyncFailure("sync-storage-unsafe", "sync lock storage is unsafe")
+    flags = os.O_CREAT | os.O_RDWR
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(lock, flags, 0o600)
+    except OSError as exc:
+        raise SyncFailure("sync-storage-unsafe", "sync lock storage is unavailable") from exc
+    locked = False
+    try:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                if os.fstat(descriptor).st_size == 0:
+                    os.write(descriptor, b"\0")
+                    os.fsync(descriptor)
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                mode = msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK
+                msvcrt.locking(descriptor, mode, 1)
+            else:
+                import fcntl
+
+                operation = fcntl.LOCK_EX
+                if not blocking:
+                    operation |= fcntl.LOCK_NB
+                fcntl.flock(descriptor, operation)
+            locked = True
+        except (BlockingIOError, OSError) as exc:
+            raise SyncFailure(busy_code, busy_message) from exc
+        yield
+    finally:
+        if locked:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+            except OSError:
+                pass
+        os.close(descriptor)
+
+
+@contextmanager
+def _principal_lock(
+    hub: Path, principal_id: str, *, blocking: bool = False
+) -> Iterator[None]:
+    with _advisory_lock(
+        hub,
+        f"principal:{principal_id}",
+        busy_code="sync-principal-busy",
+        busy_message="one sync request is already in flight for this principal",
+        blocking=blocking,
+    ):
+        yield
+
+
+@contextmanager
+def _configuration_lock(hub: Path, *, blocking: bool = False) -> Iterator[None]:
+    with _advisory_lock(
+        hub,
+        "hub-configuration",
+        busy_code="sync-config-busy",
+        busy_message="hub configuration is being replaced or bound",
+        blocking=blocking,
+    ):
+        yield
+
+
+@contextmanager
+def _bound_principal_lock(
+    hub: Path, session_id: str, *, blocking: bool = False
+) -> Iterator[tuple[dict[str, Any], dict[str, Any], str]]:
+    """Bind a session atomically with acquiring its stable principal lock."""
+    principal_guard = ExitStack()
+    try:
+        with _configuration_lock(hub, blocking=blocking):
+            config, label, principal_id = _binding(hub, session_id)
+            principal_guard.enter_context(
+                _principal_lock(hub, principal_id, blocking=blocking)
+            )
+            rebound = _binding(hub, session_id)
+            if rebound != (config, label, principal_id):
+                raise SyncFailure(
+                    "principal-binding-changed",
+                    "authenticated binding changed while acquiring its principal lock",
+                )
+        yield config, label, principal_id
+    finally:
+        principal_guard.close()
+
+
+@contextmanager
+def _task_admission_lock(hub: Path, record_id: str) -> Iterator[None]:
+    """Serialize competing revisions of one TaskPacket identity across principals."""
+    with _advisory_lock(
+        hub,
+        f"task-admission:{record_id}",
+        busy_code="sync-task-admission-busy",
+        busy_message="one task identity is already being admitted",
+    ):
+        yield
+
+
+def _label_declares_project(label: dict[str, Any], project_id: str) -> bool:
+    """Match record projects to UUID provenance carried by the bound label."""
+    return any(item["projectId"] == project_id for item in label["projectNames"])
+
+
+@contextmanager
+def _projection_apply_lock(vault: Path) -> Iterator[None]:
+    with _advisory_lock(
+        vault,
+        "projection-apply",
+        busy_code="sync-local-apply-busy",
+        busy_message="one pull response is already being applied to this vault",
+    ):
+        yield
+
+
+@contextmanager
+def coordination_onboarding_lock(vault: Path, project_id: str) -> Iterator[None]:
+    """Serialize one project's idempotent bootstrap publication."""
+    with _advisory_lock(
+        vault,
+        f"coordination-onboarding:{project_id}",
+        busy_code="onboard-project-busy",
+        busy_message="project onboarding is already in progress",
+        blocking=True,
+    ):
+        yield
+
+
+def _submission_policy_code(
+    stored: StoredRecord,
+    label: dict[str, Any],
+    origin_projects: dict[str, str],
+) -> str:
+    record = stored.record
+    try:
+        materialized, actual_digest = validate_coordination_record_body(record)
+    except ValidationFailure as exc:
+        return (
+            "unsupported-required-extension"
+            if exc.code == "required-extension-unsupported"
+            else "schema-invalid"
+        )
+    schema_id = materialized["schema_id"]
+    if schema_id == ACCESS_LABEL_SCHEMA_ID:
+        return "unauthorized-record-type"
+    effective_label = _pair(label)
+    if materialized.get("accessLabelRef") != effective_label:
+        return "label-mismatch"
+    project_id = materialized["projectId"]
+    if origin_projects.get(materialized["originId"]) != project_id:
+        return "unauthorized-project"
+    if (
+        project_id not in label["may"]["readProjects"]
+        or project_id in label["mayNot"]["readProjects"]
+    ):
+        return "unauthorized-project"
+    permission = (
+        "syncTaskPackets"
+        if schema_id == TASK_PACKET_SCHEMA_ID
+        else "syncWorkReceipts"
+    )
+    if project_id not in label["may"][permission]:
+        return "unauthorized-project"
+    if not _label_declares_project(label, project_id):
+        return "schema-invalid"
+    return "admitted"
+
+
+def _submission_code(
+    stored: StoredRecord,
+    label: dict[str, Any],
+    principal_id: str,
+    hub_by_pair: dict[tuple[str, str], StoredRecord],
+    origin_projects: dict[str, str],
+) -> str:
+    code = _submission_policy_code(stored, label, origin_projects)
+    if code != "admitted":
+        return code
+    materialized, actual_digest = validate_coordination_record_body(stored.record)
+    if actual_digest != stored.record_ref["revision_digest"]:
+        return "digest-mismatch"
+    schema_id = materialized["schema_id"]
+    if schema_id == TASK_PACKET_SCHEMA_ID:
+        if materialized["status"] != "open":
+            return "principal-mismatch"
+        key = _pair_key(stored.record_ref)
+        if key not in hub_by_pair and any(
+            candidate.record_ref["record_id"] == materialized["record_id"]
+            for candidate in hub_by_pair.values()
+        ):
+            return "schema-invalid"
+    if schema_id == WORK_RECEIPT_SCHEMA_ID:
+        if materialized["writer"] != principal_id:
+            return "principal-mismatch"
+        if not _work_receipt_binding_valid(materialized, hub_by_pair, label):
+            return "schema-invalid"
+    return "admitted"
+
+
+def _work_receipt_binding_valid(
+    receipt: dict[str, Any],
+    hub_by_pair: dict[tuple[str, str], StoredRecord],
+    label: dict[str, Any],
+) -> bool:
+    """Validate one WorkReceipt with its complete exact TaskPacket chain."""
+    task_record_id = receipt["taskRef"]["record_id"]
+    task_revisions: list[dict[str, Any]] = []
+    try:
+        for candidate in hub_by_pair.values():
+            if candidate.record.get("record_id") != task_record_id:
+                continue
+            task, task_digest = validate_coordination_record_body(candidate.record)
+            if (
+                task["schema_id"] != TASK_PACKET_SCHEMA_ID
+                or task_digest != candidate.record_ref["revision_digest"]
+            ):
+                return False
+            task_revisions.append(task)
+        validate_coordination_records([label, *task_revisions, receipt])
+    except ValidationFailure:
+        return False
+    return True
+
+
+def _validate_hub_task_histories(
+    hub: Path,
+    records: list[dict[str, Any]],
+    policy_labels: dict[tuple[str, str], dict[str, Any]],
+) -> None:
+    """Fail egress closed unless every retained TaskPacket history is complete."""
+    tasks = [
+        record for record in records if record["schema_id"] == TASK_PACKET_SCHEMA_ID
+    ]
+    if not tasks:
+        return
+    labels: dict[tuple[str, str], dict[str, Any]] = {}
+    try:
+        for task in tasks:
+            bound_ref = task["accessLabelRef"]
+            bound_key = _pair_key(bound_ref)
+            if bound_key not in policy_labels:
+                policy_labels[bound_key] = _retained_policy_label(
+                    hub,
+                    bound_ref,
+                    failure_code="hub-record-invalid",
+                    failure_message=(
+                        "hub TaskPacket names an unavailable or invalid "
+                        "AccessLabel revision"
+                    ),
+                )
+            labels[bound_key] = policy_labels[bound_key]
+        validate_coordination_records([*labels.values(), *tasks])
+    except ValidationFailure as exc:
+        raise SyncFailure(
+            "hub-record-invalid",
+            "hub contains an incomplete or forked TaskPacket history",
+        ) from exc
+
+
+def _expected_outcome(code: str) -> str:
+    if code == "admitted":
+        return "admitted"
+    if code == "same-pair-different-bytes":
+        return "quarantined"
+    return "rejected"
+
+
+def _validate_submission_outcomes(
+    outcomes: Any, *, require_order: bool
+) -> None:
+    outcome_schema = core_schemas()[SYNC_RECEIPT_SCHEMA_ID]["properties"][
+        "submission_outcomes"
+    ]
+    try:
+        validate(outcomes, outcome_schema)
+    except ValidationFailure as exc:
+        raise SyncFailure(
+            "sync-outcomes-invalid", "submission outcomes are invalid"
+        ) from exc
+    if require_order and outcomes != sorted(
+        outcomes, key=lambda item: _pair_key(item["record_ref"])
+    ):
+        raise SyncFailure("sync-outcomes-order-invalid", "submission outcomes are not canonical")
+    if len({_pair_key(item["record_ref"]) for item in outcomes}) != len(outcomes):
+        raise SyncFailure("sync-outcomes-duplicate", "submission outcomes contain a duplicate pair")
+    if any(item["outcome"] != _expected_outcome(item["code"]) for item in outcomes):
+        raise SyncFailure(
+            "sync-outcome-code-mismatch",
+            "submission outcome does not match its typed outcome code",
+        )
+
+
+def _outcome(reference: dict[str, str], code: str) -> dict[str, Any]:
+    return {
+        "record_ref": deepcopy(reference),
+        "outcome": _expected_outcome(code),
+        "code": code,
+    }
+
+
+def _canonical_record_bytes(stored: StoredRecord) -> bytes:
+    return canonical_bytes(stored.record)
+
+
+def _quarantine_collision(
+    hub: Path, existing: StoredRecord, incoming: StoredRecord
+) -> None:
+    report = {
+        "claimed_pair": deepcopy(incoming.record_ref),
+        "observed_content_digests": sorted(
+            {
+                sha256_bytes(_canonical_record_bytes(existing)),
+                sha256_bytes(_canonical_record_bytes(incoming)),
+            }
+        ),
+        "outcome": "quarantined",
+        "code": "same-pair-different-bytes",
+    }
+    name = sha256_bytes(canonical_bytes(report)).removeprefix("sha-256:") + ".json"
+    _write_immutable(
+        hub,
+        hub / "quarantine" / "coordination" / name,
+        canonical_bytes(report),
+    )
+
+
+def _admit_submission(
+    hub: Path,
+    stored: StoredRecord,
+    label: dict[str, Any],
+    principal_id: str,
+    hub_by_pair: dict[tuple[str, str], StoredRecord],
+    origin_projects: dict[str, str],
+) -> dict[str, Any]:
+    policy_code = _submission_policy_code(stored, label, origin_projects)
+    if policy_code != "admitted":
+        return _outcome(stored.record_ref, policy_code)
+    key = _pair_key(stored.record_ref)
+    existing = hub_by_pair.get(key)
+    if (
+        existing is not None
+        and _canonical_record_bytes(existing) != _canonical_record_bytes(stored)
+    ):
+        _quarantine_collision(hub, existing, stored)
+        return _outcome(stored.record_ref, "same-pair-different-bytes")
+    code = _submission_code(
+        stored, label, principal_id, hub_by_pair, origin_projects
+    )
+    if code != "admitted" or existing is not None:
+        return _outcome(stored.record_ref, code)
+    materialized, _ = validate_coordination_record_body(stored.record)
+    canonical_raw = canonical_bytes(materialized)
+    path = _record_path(hub, stored.record_ref)
+    _write_immutable(hub, path, canonical_raw)
+    hub_by_pair[key] = StoredRecord(
+        stored.record_ref,
+        materialized,
+        canonical_raw,
+        path,
+    )
+    return _outcome(stored.record_ref, code)
+
+
+def _acknowledged_hub_state(
+    vault: Path, hub_id: str, principal_id: str
+) -> tuple[
+    set[tuple[str, str]],
+    set[tuple[str, str]],
+    tuple[str, str] | None,
+    tuple[str, str] | None,
+    bool,
+]:
+    """Recover admitted pairs and durable fair-scheduling state."""
+    _validate_storage_root(vault, create=False)
+    roots = vault / "generated" / "coordination-sync" / "projections"
+    known: set[tuple[str, str]] = set()
+    attempted: set[tuple[str, str]] = set()
+    fresh_cursor: tuple[str, str] | None = None
+    retry_cursor: tuple[str, str] | None = None
+    retry_first = False
+    if not roots.exists():
+        return known, attempted, fresh_cursor, retry_cursor, retry_first
+    if roots.is_symlink() or not roots.is_dir():
+        raise SyncFailure("sync-storage-unsafe", "sync projection storage is unsafe")
+    projections = sorted(roots.iterdir())
+    if any(item.is_symlink() or not item.is_dir() for item in projections):
+        raise SyncFailure("sync-storage-unsafe", "sync projection storage is unsafe")
+    verified: list[
+        tuple[datetime, str, dict[str, Any], list[dict[str, str]]]
+    ] = []
+    for projection in projections:
+        try:
+            receipt_raw = _read_local_regular_file(
+                vault,
+                projection / "receipt.json",
+                maximum_bytes=MAX_SYNC_RECEIPT_BYTES,
+                missing_code="sync-projection-incomplete",
+                missing_message="historical sync projection is incomplete",
+            )
+            manifest_raw = _read_local_regular_file(
+                vault,
+                projection / "authorized-membership.json",
+                maximum_bytes=MAX_MEMBERSHIP_MANIFEST_BYTES,
+                missing_code="sync-projection-incomplete",
+                missing_message="historical sync projection is incomplete",
+            )
+            if (
+                len(receipt_raw) > MAX_SYNC_RECEIPT_BYTES
+                or len(manifest_raw) > MAX_MEMBERSHIP_MANIFEST_BYTES
+            ):
+                raise SyncFailure(
+                    "sync-projection-invalid",
+                    "historical sync projection exceeds its byte limit",
+                )
+            _check_raw_depth(receipt_raw)
+            _check_raw_depth(manifest_raw)
+            receipt = load_json_bytes(receipt_raw)
+            pairs = _validated_pair_manifest(load_json_bytes(manifest_raw))
+        except SyncFailure as exc:
+            if exc.code == "sync-projection-incomplete":
+                # A crash can leave either publication file absent. Such a
+                # directory acknowledges nothing; resend local pairs until a
+                # complete receipt and manifest prove admission. Unsafe paths
+                # and oversized evidence remain hard failures.
+                continue
+            raise
+        except (KeyError, TypeError, ValueError, RecursionError, ValidationFailure):
+            continue
+        if not isinstance(receipt, dict):
+            continue
+        try:
+            validate_sync_receipt(receipt)
+            if (
+                receipt["hub_id"] != hub_id
+                or receipt["principal_id"] != principal_id
+                or len(pairs) != receipt["authorized_membership"]["pair_count"]
+                or pair_set_digest(pairs)
+                != receipt["authorized_membership"]["pair_set_digest"]
+            ):
+                continue
+        except ValidationFailure:
+            continue
+        verified.append(
+            (
+                _parse_receipt_time(receipt["completed_at"]),
+                receipt["receipt_id"],
+                receipt,
+                pairs,
+            )
+        )
+
+    for _, _, receipt, pairs in sorted(verified, key=lambda item: item[:2]):
+        known.update(_pair_key(pair) for pair in pairs)
+        outcome_keys = [
+            _pair_key(item["record_ref"])
+            for item in receipt["submission_outcomes"]
+        ]
+        fresh_keys = [key for key in outcome_keys if key not in attempted]
+        retry_keys = [key for key in outcome_keys if key in attempted]
+        if fresh_keys:
+            fresh_cursor = max(
+                fresh_keys,
+                key=lambda key: _record_path(
+                    vault,
+                    {"record_id": key[0], "revision_digest": key[1]},
+                ),
+            )
+        if retry_keys:
+            retry_cursor = max(
+                retry_keys,
+                key=lambda key: _record_path(
+                    vault,
+                    {"record_id": key[0], "revision_digest": key[1]},
+                ),
+            )
+        if outcome_keys:
+            # Alternate classes when both remain. A batch that serviced any
+            # retry yields first position to fresh work next; an all-fresh
+            # batch yields it to retries.
+            retry_first = not retry_keys
+        for item, key in zip(receipt["submission_outcomes"], outcome_keys):
+            attempted.add(key)
+            if item["outcome"] == "admitted":
+                known.add(key)
+    return known, attempted, fresh_cursor, retry_cursor, retry_first
+
+
+def _pending_outcomes_path(vault: Path) -> Path:
+    return vault / "generated" / "coordination-sync" / "pending-submission-outcomes.json"
+
+
+def _pending_outcomes_envelope(
+    *,
+    config: dict[str, Any],
+    label: dict[str, Any],
+    principal_id: str,
+    outcomes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "schema_id": PENDING_OUTCOMES_SCHEMA_ID,
+        "hub_id": config["hub_id"],
+        "principal_id": principal_id,
+        "access_label_ref": _pair(label),
+        "scope_generation": config["scope_generation"],
+        "submission_outcomes": deepcopy(outcomes),
+    }
+
+
+def _load_pending_outcomes(
+    vault: Path,
+    *,
+    hub: Path,
+    config: dict[str, Any],
+    label: dict[str, Any],
+    principal_id: str,
+) -> PendingOutcomes:
+    _validate_storage_root(vault, create=False)
+    path = _pending_outcomes_path(vault)
+    if not path.exists():
+        return PendingOutcomes(
+            [], _pair(label), config["scope_generation"], None
+        )
+    if path.is_symlink() or not path.is_file():
+        raise SyncFailure("sync-storage-unsafe", "pending sync outcome storage is unsafe")
+    try:
+        raw = _read_local_regular_file(
+            vault,
+            path,
+            missing_code="sync-outcomes-invalid",
+            missing_message="pending submission outcomes are invalid",
+            maximum_bytes=MAX_PENDING_OUTCOMES_BYTES,
+        )
+        if len(raw) > MAX_PENDING_OUTCOMES_BYTES:
+            raise SyncFailure(
+                "sync-outcomes-invalid",
+                "pending submission outcomes exceed the v0 byte limit",
+            )
+        _check_raw_depth(raw)
+        value = load_json_bytes(raw)
+    except SyncFailure:
+        raise
+    except (OSError, RecursionError, ValidationFailure) as exc:
+        raise SyncFailure("sync-outcomes-invalid", "pending submission outcomes are invalid") from exc
+    required = {
+        "schema_id",
+        "hub_id",
+        "principal_id",
+        "access_label_ref",
+        "scope_generation",
+        "submission_outcomes",
+    }
+    if not isinstance(value, dict) or set(value) != required:
+        raise SyncFailure("sync-outcomes-invalid", "pending submission outcomes are invalid")
+    expected_binding = {
+        "schema_id": PENDING_OUTCOMES_SCHEMA_ID,
+        "hub_id": config["hub_id"],
+        "principal_id": principal_id,
+    }
+    if any(value[field] != expected for field, expected in expected_binding.items()):
+        raise SyncFailure(
+            "sync-pending-binding-mismatch",
+            "pending submission outcomes belong to another authenticated binding",
+        )
+    pending_label_ref = value["access_label_ref"]
+    pending_generation = value["scope_generation"]
+    current_label_ref = _pair(label)
+    if (
+        not isinstance(pending_label_ref, dict)
+        or set(pending_label_ref) != {"record_id", "revision_digest"}
+        or not isinstance(pending_label_ref.get("record_id"), str)
+        or not isinstance(pending_label_ref.get("revision_digest"), str)
+        or not isinstance(pending_generation, int)
+        or isinstance(pending_generation, bool)
+        or pending_generation < 0
+        or pending_generation > config["scope_generation"]
+    ):
+        raise SyncFailure(
+            "sync-pending-binding-mismatch",
+            "pending submission outcomes have an invalid label generation binding",
+        )
+    try:
+        validate(
+            pending_label_ref,
+            core_schemas()[SYNC_RECEIPT_SCHEMA_ID]["properties"]["access_label_ref"],
+        )
+    except ValidationFailure as exc:
+        raise SyncFailure(
+            "sync-pending-binding-mismatch",
+            "pending submission outcomes have an invalid AccessLabel reference",
+        ) from exc
+    if pending_label_ref != current_label_ref:
+        _retained_policy_label(
+            hub,
+            pending_label_ref,
+            failure_code="sync-pending-binding-mismatch",
+            failure_message=(
+                "pending submission outcomes do not match retained AccessLabel history"
+            ),
+        )
+    outcomes = value["submission_outcomes"]
+    _validate_submission_outcomes(outcomes, require_order=True)
+    return PendingOutcomes(
+        deepcopy(outcomes),
+        deepcopy(pending_label_ref),
+        pending_generation,
+        sha256_bytes(raw),
+    )
+
+
+def _consume_pending_outcomes(vault: Path, pending: PendingOutcomes) -> None:
+    """Remove only the exact pending envelope included in a successful pull."""
+    if pending.source_digest is None:
+        return
+    path = _pending_outcomes_path(vault)
+    if path.is_symlink() or not path.is_file():
+        raise SyncFailure(
+            "sync-pending-changed",
+            "pending submission outcomes changed before acknowledgement",
+        )
+    try:
+        raw = _read_local_regular_file(
+            vault,
+            path,
+            missing_code="sync-pending-changed",
+            missing_message="pending submission outcomes changed before acknowledgement",
+            maximum_bytes=MAX_PENDING_OUTCOMES_BYTES,
+        )
+        if len(raw) > MAX_PENDING_OUTCOMES_BYTES:
+            raise SyncFailure(
+                "sync-pending-changed",
+                "pending submission outcomes changed before acknowledgement",
+            )
+        current_digest = sha256_bytes(raw)
+    except SyncFailure:
+        raise
+    except OSError as exc:
+        raise SyncFailure(
+            "sync-pending-changed",
+            "pending submission outcomes changed before acknowledgement",
+        ) from exc
+    if current_digest != pending.source_digest:
+        raise SyncFailure(
+            "sync-pending-changed",
+            "pending submission outcomes changed before acknowledgement",
+        )
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise SyncFailure(
+            "sync-pending-consumption-failed",
+            "acknowledged pending submission outcomes could not be removed",
+        ) from exc
+
+
+def _push_bound(
+    vault: Path,
+    hub: Path,
+    *,
+    config: dict[str, Any],
+    label: dict[str, Any],
+    principal_id: str,
+) -> list[dict[str, Any]]:
+    """Push while the caller holds the authenticated principal lock."""
+    (
+        known,
+        attempted,
+        fresh_cursor,
+        retry_cursor,
+        retry_first,
+    ) = _acknowledged_hub_state(vault, config["hub_id"], principal_id)
+    pending = _load_pending_outcomes(
+        vault,
+        hub=hub,
+        config=config,
+        label=label,
+        principal_id=principal_id,
+    )
+    if pending.outcomes:
+        raise SyncFailure(
+            "sync-pending-reconciliation-required",
+            "pull must acknowledge pending submission outcomes before another push",
+        )
+    outcomes: list[dict[str, Any]] = []
+    known_paths = {
+        _record_path(
+            vault,
+            {"record_id": record_id, "revision_digest": revision_digest},
+        )
+        for record_id, revision_digest in known
+    }
+    attempted_paths = {
+        _record_path(
+            vault,
+            {"record_id": record_id, "revision_digest": revision_digest},
+        )
+        for record_id, revision_digest in attempted
+    }
+    candidates = [
+        path for path in _record_files(vault) if path not in known_paths
+    ]
+    # Keep independent cyclic cursors for first attempts and retries. When both
+    # classes remain, alternate which class leads the bounded batch so neither
+    # sustained fresh ingestion nor a terminal retry prefix can starve the
+    # other class forever, including when the deployment limit is one record.
+    never_attempted_paths = [
+        path for path in candidates if path not in attempted_paths
+    ]
+    retry_paths = [path for path in candidates if path in attempted_paths]
+    if fresh_cursor is not None and never_attempted_paths:
+        cursor_path = _record_path(
+            vault,
+            {"record_id": fresh_cursor[0], "revision_digest": fresh_cursor[1]},
+        )
+        split = bisect_right(never_attempted_paths, cursor_path)
+        never_attempted_paths = (
+            never_attempted_paths[split:] + never_attempted_paths[:split]
+        )
+    if retry_cursor is not None and retry_paths:
+        cursor_path = _record_path(
+            vault,
+            {"record_id": retry_cursor[0], "revision_digest": retry_cursor[1]},
+        )
+        split = bisect_right(retry_paths, cursor_path)
+        retry_paths = retry_paths[split:] + retry_paths[:split]
+    submission_paths = (
+        retry_paths + never_attempted_paths
+        if retry_first and retry_paths and never_attempted_paths
+        else never_attempted_paths + retry_paths
+    )
+    bounded_paths: list[Path] = []
+    bounded_bytes = 0
+    for path in submission_paths:
+        try:
+            size = path.stat().st_size
+        except OSError as exc:
+            raise SyncFailure(
+                "local-record-invalid",
+                "canonical coordination storage is unreadable",
+            ) from exc
+        if size > MAX_RECORD_BYTES:
+            raise SyncFailure(
+                "sync-record-too-large", "sync record exceeds the v0 byte limit"
+            )
+        if size > MAX_REQUEST_BYTES:
+            raise SyncFailure(
+                "sync-request-too-large", "sync request exceeds the v0 byte limit"
+            )
+        if len(bounded_paths) >= MAX_SUBMITTED_RECORDS:
+            break
+        if bounded_paths and bounded_bytes + size > MAX_REQUEST_BYTES:
+            break
+        bounded_paths.append(path)
+        bounded_bytes += size
+    submission_paths = bounded_paths
+    submissions = _load_record_paths(vault, submission_paths)
+    _request_bounds(submissions)
+    hub_by_pair = {_pair_key(item.record_ref): item for item in _scan_records(hub)}
+    for stored in submissions:
+        if (
+            stored.record.get("schema_id") == TASK_PACKET_SCHEMA_ID
+            and isinstance(stored.record.get("record_id"), str)
+        ):
+            record_id = stored.record["record_id"]
+            with _task_admission_lock(hub, record_id):
+                for existing in _scan_record_identity(hub, record_id):
+                    hub_by_pair[_pair_key(existing.record_ref)] = existing
+                outcomes.append(
+                    _admit_submission(
+                        hub,
+                        stored,
+                        label,
+                        principal_id,
+                        hub_by_pair,
+                        config["origin_projects"],
+                    )
+                )
+        else:
+            outcomes.append(
+                _admit_submission(
+                    hub,
+                    stored,
+                    label,
+                    principal_id,
+                    hub_by_pair,
+                    config["origin_projects"],
+                )
+            )
+    outcomes.sort(key=lambda item: _pair_key(item["record_ref"]))
+    _write_atomic(
+        vault,
+        _pending_outcomes_path(vault),
+        canonical_bytes(
+            _pending_outcomes_envelope(
+                config=config,
+                label=label,
+                principal_id=principal_id,
+                outcomes=outcomes,
+            )
+        ),
+    )
+    return outcomes
+
+
+def push(
+    vault: Path,
+    hub: Path,
+    *,
+    session_id: str,
+) -> list[dict[str, Any]]:
+    """Push every local pair through server-owned policy as an idempotent union."""
+    with _bound_principal_lock(hub, session_id) as (config, label, principal_id):
+        return _push_bound(
+            vault,
+            hub,
+            config=config,
+            label=label,
+            principal_id=principal_id,
+        )
+
+
+def _authorized_records(
+    hub: Path, label: dict[str, Any]
+) -> tuple[list[StoredRecord], int]:
+    allowed = set(label["may"]["readProjects"])
+    denied = set(label["mayNot"]["readProjects"])
+    authorized: list[StoredRecord] = []
+    policy_labels = _scan_retained_policy_labels(hub)
+    all_records = _scan_records(hub)
+    hub_by_pair = {_pair_key(item.record_ref): item for item in all_records}
+    materialized_records: list[tuple[StoredRecord, dict[str, Any]]] = []
+    for stored in all_records:
+        try:
+            record, digest = validate_coordination_record_body(stored.record)
+        except ValidationFailure as exc:
+            raise SyncFailure("hub-record-invalid", "hub contains an invalid record") from exc
+        if digest != stored.record_ref["revision_digest"]:
+            raise SyncFailure("hub-record-invalid", "hub record digest does not match its pair")
+        materialized_records.append((stored, record))
+    _validate_hub_task_histories(
+        hub,
+        [record for _, record in materialized_records],
+        policy_labels,
+    )
+    for stored, record in materialized_records:
+        if record.get("schema_id") == ACCESS_LABEL_SCHEMA_ID:
+            continue
+        project_id = record.get("projectId")
+        bound_ref = record["accessLabelRef"]
+        bound_key = _pair_key(bound_ref)
+        if bound_key not in policy_labels:
+            policy_labels[bound_key] = _retained_policy_label(
+                hub,
+                bound_ref,
+                failure_code="hub-record-invalid",
+                failure_message=(
+                    "hub record names an unavailable or invalid AccessLabel revision"
+                ),
+            )
+        bound_label = policy_labels[bound_key]
+        if not _label_declares_project(bound_label, project_id):
+            raise SyncFailure(
+                "hub-record-invalid",
+                "hub record AccessLabel lacks matching project provenance",
+            )
+        if (
+            record["schema_id"] == WORK_RECEIPT_SCHEMA_ID
+            and not _work_receipt_binding_valid(record, hub_by_pair, bound_label)
+        ):
+            raise SyncFailure(
+                "hub-record-invalid",
+                "hub WorkReceipt does not resolve to its exact current claimed TaskPacket",
+            )
+        bound_allowed = set(bound_label["may"]["readProjects"])
+        bound_denied = set(bound_label["mayNot"]["readProjects"])
+        if (
+            project_id in allowed
+            and project_id not in denied
+            and _label_declares_project(label, project_id)
+            and project_id in bound_allowed
+            and project_id not in bound_denied
+        ):
+            authorized.append(stored)
+    authorized.sort(key=lambda item: _pair_key(item.record_ref))
+    authorized_pairs = {_pair_key(item.record_ref) for item in authorized}
+    excluded_pairs = (
+        set(hub_by_pair) - authorized_pairs
+    ) | set(policy_labels)
+    return authorized, len(excluded_pairs)
+
+
+def _page_pair_groups(pairs: list[dict[str, str]]) -> list[list[dict[str, str]]]:
+    if not pairs:
+        return [[]]
+    groups: list[list[dict[str, str]]] = []
+    current: list[dict[str, str]] = []
+    for pair in pairs:
+        candidate = current + [pair]
+        # The real page adds bounded fixed metadata; reserve 1 KiB for it.
+        if current and (
+            len(current) >= MAX_PAGE_RECORDS
+            or len(canonical_bytes(candidate)) + 1024 > MAX_PAGE_BYTES
+        ):
+            groups.append(current)
+            current = [pair]
+        else:
+            current = candidate
+    groups.append(current)
+    return groups
+
+
+def _record_page_groups(records: list[StoredRecord]) -> list[list[StoredRecord]]:
+    if not records:
+        return [[]]
+    groups: list[list[StoredRecord]] = []
+    current: list[StoredRecord] = []
+    for record in records:
+        singleton_body = {
+            "pairs": [record.record_ref],
+            "records": [record.record],
+        }
+        if len(canonical_bytes(singleton_body)) + 1024 > MAX_PAGE_BYTES:
+            raise SyncFailure(
+                "sync-page-too-large",
+                "one authorized hub record cannot fit in a bounded response page",
+            )
+        candidate = current + [record]
+        candidate_body = {
+            "pairs": [item.record_ref for item in candidate],
+            "records": [item.record for item in candidate],
+        }
+        if current and (
+            len(current) >= MAX_PAGE_RECORDS
+            or len(canonical_bytes(candidate_body)) + 1024 > MAX_PAGE_BYTES
+        ):
+            groups.append(current)
+            current = [record]
+        else:
+            current = candidate
+    groups.append(current)
+    return groups
+
+
+def _continuation_token(
+    receipt_id: str, principal_id: str, generation: int, next_page: int
+) -> str:
+    return "continuation://sha-256/" + hashlib.sha256(
+        canonical_bytes(
+            {
+                "receipt_ref": receipt_id,
+                "principal_id": principal_id,
+                "scope_generation": generation,
+                "next_page": next_page,
+            }
+        )
+    ).hexdigest()
+
+
+def build_membership_pages(
+    pairs: list[dict[str, str]], receipt_id: str, principal_id: str, generation: int
+) -> list[dict[str, Any]]:
+    return _membership_pages_from_groups(
+        _page_pair_groups(pairs), receipt_id, principal_id, generation
+    )
+
+
+def _membership_pages_from_groups(
+    groups: list[list[dict[str, str]]],
+    receipt_id: str,
+    principal_id: str,
+    generation: int,
+) -> list[dict[str, Any]]:
+    pages: list[dict[str, Any]] = []
+    for index, group in enumerate(groups):
+        token = None
+        if index + 1 < len(groups):
+            token = _continuation_token(
+                receipt_id, principal_id, generation, index + 1
+            )
+        pages.append(
+            {
+                "schema_id": MEMBERSHIP_PAGE_SCHEMA_ID,
+                "receipt_ref": receipt_id,
+                "page_index": index,
+                "page_count": len(groups),
+                "pairs": deepcopy(group),
+                "next_token": token,
+            }
+        )
+    return pages
+
+
+def validate_sync_receipt(receipt: dict[str, Any]) -> None:
+    validate(receipt, core_schemas()[SYNC_RECEIPT_SCHEMA_ID])
+    try:
+        expected = expected_receipt_id(
+            receipt,
+            "coordination-sync-receipt://sha-256/",
+        )
+    except CanonicalizationFailure as exc:
+        raise SyncFailure(
+            "canonicalization-failed",
+            "sync receipt cannot be encoded in the canonical JSON profile",
+        ) from exc
+    if receipt["receipt_id"] != expected:
+        raise SyncFailure("sync-receipt-identity-mismatch", "sync receipt identity is invalid")
+    _validate_submission_outcomes(receipt["submission_outcomes"], require_order=True)
+
+
+def validate_membership_pages(
+    receipt: dict[str, Any], pages: list[dict[str, Any]], *, opaque_tokens: bool = False
+) -> list[dict[str, str]]:
+    validate_sync_receipt(receipt)
+    membership = receipt["authorized_membership"]
+    if len(pages) != membership["page_count"]:
+        raise SyncFailure("sync-page-missing", "membership page count is incomplete")
+    seen_indexes: set[int] = set()
+    pairs: list[dict[str, str]] = []
+    for page in pages:
+        validate(page, core_schemas()[MEMBERSHIP_PAGE_SCHEMA_ID])
+        index = page["page_index"]
+        if index in seen_indexes:
+            raise SyncFailure("sync-page-duplicate", "membership page index is duplicated")
+        seen_indexes.add(index)
+        if page["receipt_ref"] != receipt["receipt_id"]:
+            raise SyncFailure("sync-page-receipt-mismatch", "membership page names another receipt")
+        if page["page_count"] != membership["page_count"]:
+            raise SyncFailure("sync-page-count-mismatch", "membership page count conflicts")
+        expected_token = (
+            None
+            if index + 1 == membership["page_count"]
+            else _continuation_token(
+                receipt["receipt_id"],
+                receipt["principal_id"],
+                receipt["scope_generation"],
+                index + 1,
+            )
+        )
+        token = page["next_token"]
+        opaque_valid = (token is None if index + 1 == membership["page_count"] else
+                        isinstance(token, str) and 0 < len(token) <= 500_000)
+        if (not opaque_valid if opaque_tokens else token != expected_token):
+            raise SyncFailure("sync-page-token-invalid", "membership continuation state is invalid")
+        if len(canonical_bytes(page)) > MAX_PAGE_BYTES:
+            raise SyncFailure("sync-page-too-large", "membership page exceeds the v0 byte limit")
+        pairs.extend(page["pairs"])
+    if seen_indexes != set(range(membership["page_count"])):
+        raise SyncFailure("sync-page-missing", "membership page indexes are incomplete")
+    keys = [_pair_key(item) for item in pairs]
+    if len(set(keys)) != len(keys):
+        raise SyncFailure("sync-membership-duplicate", "membership contains a duplicate pair")
+    canonical = sorted_pairs(pairs)
+    if len(canonical) != membership["pair_count"]:
+        raise SyncFailure("sync-membership-count-mismatch", "membership pair count is invalid")
+    if pair_set_digest(canonical) != membership["pair_set_digest"]:
+        raise SyncFailure("sync-membership-digest-mismatch", "membership pair-set digest is invalid")
+    return canonical
+
+
+def _build_pull_response_bound(
+    hub: Path,
+    *,
+    config: dict[str, Any],
+    label: dict[str, Any],
+    principal_id: str,
+    completed_at: str,
+    submission_outcomes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build one response while the caller holds the principal lock."""
+    records, excluded_count = _authorized_records(hub, label)
+    pairs = [item.record_ref for item in records]
+    record_groups = _record_page_groups(records)
+    pair_groups = [[item.record_ref for item in group] for group in record_groups]
+    outcomes = deepcopy(submission_outcomes or [])
+    _validate_submission_outcomes(outcomes, require_order=False)
+    body = {
+        "hub_id": config["hub_id"],
+        "principal_id": principal_id,
+        "access_label_ref": _pair(label),
+        "scope_generation": config["scope_generation"],
+        "completed_at": completed_at,
+        "authorized_membership": {
+            "pair_count": len(pairs),
+            "pair_set_digest": pair_set_digest(pairs),
+            "page_count": len(pair_groups),
+        },
+        "excluded_count": excluded_count,
+        "submission_outcomes": sorted(outcomes, key=lambda item: _pair_key(item["record_ref"])),
+        "transport_state": "authenticated",
+        "issuer_state": "unverified",
+        "authority_boundary": AUTHORITY_BOUNDARY,
+    }
+    receipt = receipt_with_digest(
+        SYNC_RECEIPT_SCHEMA_ID,
+        "coordination-sync-receipt://sha-256/",
+        body,
+    )
+    pages = _membership_pages_from_groups(
+        pair_groups,
+        receipt["receipt_id"],
+        principal_id,
+        config["scope_generation"],
+    )
+    validate_membership_pages(receipt, pages)
+    return {
+        "receipt": receipt,
+        "pages": pages,
+        "record_pages": [
+            [deepcopy(item.record) for item in group] for group in record_groups
+        ],
+    }
+
+
+def build_pull_response(
+    hub: Path,
+    *,
+    session_id: str,
+    completed_at: str,
+    submission_outcomes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    with _bound_principal_lock(hub, session_id) as (config, label, principal_id):
+        return _build_pull_response_bound(
+            hub,
+            config=config,
+            label=label,
+            principal_id=principal_id,
+            completed_at=completed_at,
+            submission_outcomes=submission_outcomes,
+        )
+
+
+def _projection_root(vault: Path, receipt_id: str) -> Path:
+    return (
+        vault
+        / "generated"
+        / "coordination-sync"
+        / "projections"
+        / receipt_id.rsplit("/", 1)[-1]
+    )
+
+
+def _load_current_projection(
+    vault: Path,
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, str]]]:
+    _validate_storage_root(vault, create=False)
+    marker_path = vault / "generated" / "coordination-sync" / "last-successful.json"
+    try:
+        marker_raw = _read_local_regular_file(
+            vault,
+            marker_path,
+            maximum_bytes=MAX_SYNC_MARKER_BYTES,
+            missing_code="sync-marker-missing",
+            missing_message="no successful authorized sync projection exists",
+        )
+        if len(marker_raw) > MAX_SYNC_MARKER_BYTES:
+            raise SyncFailure(
+                "sync-marker-invalid",
+                "successful sync marker exceeds its byte limit",
+            )
+        _check_raw_depth(marker_raw)
+        marker = load_json_bytes(marker_raw)
+    except SyncFailure:
+        raise
+    except ValidationFailure as exc:
+        raise SyncFailure("sync-marker-invalid", "successful sync marker is invalid") from exc
+    required_marker_fields = {
+        "receipt_ref",
+        "pair_count",
+        "pair_set_digest",
+        "scope_generation",
+        "access_label_ref",
+    }
+    if not isinstance(marker, dict) or set(marker) != required_marker_fields:
+        raise SyncFailure("sync-marker-invalid", "successful sync marker is invalid")
+    receipt_ref = marker["receipt_ref"]
+    prefix = "coordination-sync-receipt://sha-256/"
+    if (
+        not isinstance(receipt_ref, str)
+        or not receipt_ref.startswith(prefix)
+        or len(receipt_ref.removeprefix(prefix)) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in receipt_ref.removeprefix(prefix)
+        )
+    ):
+        raise SyncFailure("sync-marker-invalid", "successful sync marker is invalid")
+    projection = _projection_root(vault, receipt_ref)
+    receipt_path = projection / "receipt.json"
+    manifest_path = projection / "authorized-membership.json"
+    try:
+        receipt_raw = _read_local_regular_file(
+            vault,
+            receipt_path,
+            maximum_bytes=MAX_SYNC_RECEIPT_BYTES,
+            missing_code="sync-projection-invalid",
+            missing_message="authorized projection is incomplete",
+        )
+        manifest_raw = _read_local_regular_file(
+            vault,
+            manifest_path,
+            maximum_bytes=MAX_MEMBERSHIP_MANIFEST_BYTES,
+            missing_code="sync-projection-invalid",
+            missing_message="authorized projection is incomplete",
+        )
+        if (
+            len(receipt_raw) > MAX_SYNC_RECEIPT_BYTES
+            or len(manifest_raw) > MAX_MEMBERSHIP_MANIFEST_BYTES
+        ):
+            raise SyncFailure(
+                "sync-projection-invalid",
+                "authorized projection exceeds its byte limit",
+            )
+        _check_raw_depth(receipt_raw)
+        _check_raw_depth(manifest_raw)
+        receipt = load_json_bytes(receipt_raw)
+        pairs = _validated_pair_manifest(load_json_bytes(manifest_raw))
+    except SyncFailure:
+        raise
+    except ValidationFailure as exc:
+        raise SyncFailure("sync-projection-invalid", "authorized projection is invalid") from exc
+    if not isinstance(receipt, dict):
+        raise SyncFailure("sync-projection-invalid", "authorized projection is invalid")
+    validate_sync_receipt(receipt)
+    membership = receipt["authorized_membership"]
+    if (
+        marker["receipt_ref"] != receipt["receipt_id"]
+        or marker["scope_generation"] != receipt["scope_generation"]
+        or marker["access_label_ref"] != receipt["access_label_ref"]
+        or marker["pair_count"] != membership["pair_count"]
+        or marker["pair_set_digest"] != membership["pair_set_digest"]
+        or len(pairs) != membership["pair_count"]
+        or pair_set_digest(pairs) != membership["pair_set_digest"]
+    ):
+        raise SyncFailure(
+            "sync-projection-mismatch",
+            "successful marker, receipt, and authorized membership do not agree",
+        )
+    return marker, receipt, sorted_pairs(pairs)
+
+
+def _parse_receipt_time(value: str) -> datetime:
+    try:
+        normalized = value[:-1] + "+00:00" if value.endswith(("Z", "z")) else value
+        return datetime.fromisoformat(normalized)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise SyncFailure(
+            "sync-receipt-time-invalid", "sync receipt completed_at is invalid"
+        ) from exc
+
+
+def _apply_verified_pull(
+    vault: Path,
+    receipt: dict[str, Any],
+    pairs: list[dict[str, str]],
+    by_pair: dict[tuple[str, str], dict[str, Any]],
+    *,
+    force_receipt: bool = False,
+) -> dict[str, Any]:
+    marker_path = vault / "generated" / "coordination-sync" / "last-successful.json"
+    if marker_path.exists():
+        _, prior_receipt, prior_manifest = _load_current_projection(vault)
+        if (
+            prior_receipt["hub_id"] != receipt["hub_id"]
+            or prior_receipt["principal_id"] != receipt["principal_id"]
+        ):
+            raise SyncFailure(
+                "sync-binding-mismatch",
+                "pull response does not match the vault's successful hub and principal binding",
+            )
+        if receipt["scope_generation"] < prior_receipt["scope_generation"]:
+            raise SyncFailure(
+                "sync-generation-stale",
+                "pull response uses a prior scope generation",
+            )
+        prior_completed = _parse_receipt_time(prior_receipt["completed_at"])
+        current_completed = _parse_receipt_time(receipt["completed_at"])
+        if current_completed < prior_completed:
+            raise SyncFailure(
+                "sync-receipt-stale",
+                "pull response predates the last successful sync receipt",
+            )
+        if (
+            current_completed == prior_completed
+            and receipt["receipt_id"] != prior_receipt["receipt_id"]
+        ):
+            raise SyncFailure(
+                "sync-receipt-order-conflict",
+                "distinct pull responses cannot share a completion time",
+            )
+        same_scope = (
+            prior_receipt["access_label_ref"] == receipt["access_label_ref"]
+            and prior_receipt["scope_generation"] == receipt["scope_generation"]
+        )
+        if same_scope and not {
+            _pair_key(pair) for pair in prior_manifest
+        }.issubset({_pair_key(pair) for pair in pairs}):
+            raise SyncFailure(
+                "sync-membership-regression",
+                "an unchanged scope generation cannot remove authorized membership",
+            )
+        if (
+            same_scope
+            and prior_receipt["authorized_membership"]
+            == receipt["authorized_membership"]
+            and prior_receipt["excluded_count"] == receipt["excluded_count"]
+            and not receipt["submission_outcomes"]
+            and not force_receipt
+        ):
+            # A no-op is valid only if the local authorized material still
+            # matches the previously verified marker and projection.
+            _load_authorized_coordination_snapshot_unlocked(vault)
+            return {
+                "outcome": "no-op",
+                "receipt": prior_receipt,
+                "authorized_pairs": prior_manifest,
+            }
+
+    projection = _projection_root(vault, receipt["receipt_id"])
+    _write_immutable(vault, projection / "receipt.json", canonical_bytes(receipt))
+    _write_immutable(
+        vault,
+        projection / "authorized-membership.json",
+        canonical_bytes(pairs),
+    )
+
+    # Persist exact response provenance before exposing received records in the
+    # append-only canonical namespace. A projection without the success marker
+    # is durable retry evidence, not a claim that the pull completed.
+    for pair in pairs:
+        record = by_pair[_pair_key(pair)]
+        _write_immutable(vault, _record_path(vault, pair), canonical_bytes(record))
+
+    marker = {
+        "receipt_ref": receipt["receipt_id"],
+        "pair_count": len(pairs),
+        "pair_set_digest": pair_set_digest(pairs),
+        "scope_generation": receipt["scope_generation"],
+        "access_label_ref": receipt["access_label_ref"],
+    }
+    _write_atomic(vault, marker_path, canonical_bytes(marker))
+    return {"outcome": "complete", "receipt": receipt, "authorized_pairs": pairs}
+
+
+def _validated_pull_response(
+    response: dict[str, Any],
+    *, opaque_tokens: bool = False,
+) -> tuple[
+    dict[str, Any],
+    list[dict[str, str]],
+    dict[tuple[str, str], dict[str, Any]],
+]:
+    if not isinstance(response, dict) or set(response) != {
+        "receipt",
+        "pages",
+        "record_pages",
+    }:
+        raise SyncFailure("sync-response-invalid", "pull response has an invalid shape")
+    receipt = response["receipt"]
+    pages = response["pages"]
+    record_pages = response["record_pages"]
+    if (
+        not isinstance(receipt, dict)
+        or not isinstance(pages, list)
+        or not isinstance(record_pages, list)
+    ):
+        raise SyncFailure("sync-response-invalid", "pull response has invalid field types")
+    pairs = validate_membership_pages(receipt, pages, opaque_tokens=opaque_tokens)
+    if len(record_pages) != len(pages) or any(
+        not isinstance(page, list) for page in record_pages
+    ):
+        raise SyncFailure("sync-record-page-mismatch", "pull record pages are incomplete")
+    by_pair: dict[tuple[str, str], dict[str, Any]] = {}
+    for page, record_page in zip(pages, record_pages):
+        if len(record_page) > MAX_PAGE_RECORDS or len(
+            canonical_bytes({"pairs": page["pairs"], "records": record_page})
+        ) + 1024 > MAX_PAGE_BYTES:
+            raise SyncFailure("sync-page-too-large", "pull record page exceeds the v0 limit")
+        page_keys: set[tuple[str, str]] = set()
+        for record in record_page:
+            materialized, digest = validate_coordination_record_body(record)
+            if materialized["schema_id"] == ACCESS_LABEL_SCHEMA_ID:
+                raise SyncFailure(
+                    "sync-record-type-unauthorized",
+                    "restricted sync responses cannot contain AccessLabel bodies",
+                )
+            reference = _pair(materialized, digest)
+            key = _pair_key(reference)
+            if key in by_pair:
+                raise SyncFailure("sync-record-duplicate", "pull response contains a duplicate record")
+            page_keys.add(key)
+            by_pair[key] = materialized
+        if page_keys != {_pair_key(item) for item in page["pairs"]}:
+            raise SyncFailure(
+                "sync-record-page-mismatch",
+                "pull record page does not match its authorized membership page",
+            )
+    if set(by_pair) != {_pair_key(item) for item in pairs}:
+        raise SyncFailure("sync-record-set-mismatch", "pull records do not match authorized membership")
+    _validate_pull_record_relationships(by_pair)
+    return receipt, pairs, by_pair
+
+
+def _validate_pull_record_relationships(
+    by_pair: dict[tuple[str, str], dict[str, Any]],
+) -> None:
+    """Validate relationships that do not require private AccessLabel bodies."""
+    tasks = [
+        record
+        for record in by_pair.values()
+        if record["schema_id"] == TASK_PACKET_SCHEMA_ID
+    ]
+    try:
+        leaves = {
+            (record["record_id"], revision_digest(record))
+            for record in current_coordination_task_leaves(tasks)
+        }
+        for record in by_pair.values():
+            if record["schema_id"] != WORK_RECEIPT_SCHEMA_ID:
+                continue
+            task_key = _pair_key(record["taskRef"])
+            task = by_pair.get(task_key)
+            if task is None or task.get("schema_id") != TASK_PACKET_SCHEMA_ID:
+                raise ValidationFailure(
+                    "work-receipt-task-ref-unresolved",
+                    "WorkReceipt taskRef does not resolve to an exact supplied TaskPacket revision",
+                    "$.taskRef",
+                )
+            if task_key not in leaves:
+                raise ValidationFailure(
+                    "work-receipt-task-ref-stale",
+                    "WorkReceipt taskRef does not name the unique supplied TaskPacket leaf",
+                    "$.taskRef",
+                )
+            if task["status"] != "claimed":
+                raise ValidationFailure(
+                    "work-receipt-task-not-claimed",
+                    "WorkReceipt must bind a claimed TaskPacket revision",
+                    "$.taskRef",
+                )
+            if record["projectId"] != task["projectId"]:
+                raise ValidationFailure(
+                    "work-receipt-project-mismatch",
+                    "WorkReceipt project must match its exact TaskPacket revision",
+                    "$.projectId",
+                )
+            if record["accessLabelRef"] != task["accessLabelRef"]:
+                raise ValidationFailure(
+                    "work-receipt-label-mismatch",
+                    "WorkReceipt AccessLabel must match its exact TaskPacket revision",
+                    "$.accessLabelRef",
+                )
+            if record["writer"] != task["assignedWriter"]:
+                raise ValidationFailure(
+                    "work-receipt-writer-mismatch",
+                    "WorkReceipt writer must match TaskPacket assignedWriter",
+                    "$.writer",
+                )
+    except ValidationFailure as exc:
+        raise SyncFailure(
+            "sync-record-history-invalid",
+            "pull response contains an incomplete or inconsistent coordination history",
+        ) from exc
+
+
+def apply_pull_response(
+    vault: Path,
+    response: dict[str, Any],
+    *,
+    _before_apply: Callable[[dict[str, Any]], None] | None = None,
+    opaque_tokens: bool = False,
+) -> dict[str, Any]:
+    """Verify a complete pull before appending records and advancing the marker."""
+    receipt, pairs, by_pair = _validated_pull_response(response, opaque_tokens=opaque_tokens)
+    if _before_apply is not None:
+        _before_apply(deepcopy(response))
+    with _projection_apply_lock(vault):
+        return _apply_verified_pull(
+            vault,
+            receipt,
+            pairs,
+            by_pair,
+            force_receipt=_before_apply is not None,
+        )
+
+
+def _pull_bound(
+    vault: Path,
+    hub: Path,
+    *,
+    config: dict[str, Any],
+    label: dict[str, Any],
+    principal_id: str,
+    completed_at: str,
+    before_apply: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Pull and consume pending evidence under one principal lock."""
+    pending = _load_pending_outcomes(
+        vault,
+        hub=hub,
+        config=config,
+        label=label,
+        principal_id=principal_id,
+    )
+    response = _build_pull_response_bound(
+        hub,
+        config=config,
+        label=label,
+        principal_id=principal_id,
+        completed_at=completed_at,
+        submission_outcomes=pending.outcomes,
+    )
+    result = apply_pull_response(
+        vault,
+        response,
+        _before_apply=before_apply,
+    )
+    _consume_pending_outcomes(vault, pending)
+    return result
+
+
+def pull(
+    vault: Path,
+    hub: Path,
+    *,
+    session_id: str,
+    completed_at: str,
+) -> dict[str, Any]:
+    with _bound_principal_lock(hub, session_id) as (config, label, principal_id):
+        return _pull_bound(
+            vault,
+            hub,
+            config=config,
+            label=label,
+            principal_id=principal_id,
+            completed_at=completed_at,
+        )
+
+
+def sync(
+    vault: Path,
+    hub: Path | str,
+    *,
+    session_id: str | None = None,
+    completed_at: str | None = None,
+    phase: str = "both",
+    required_project_id: str | None = None,
+    expected_hub_id: str | None = None,
+    expected_access_label_ref: dict[str, str] | None = None,
+    _before_sync: Callable[[], None] | None = None,
+    _before_pull_apply: Callable[[dict[str, Any]], None] | None = None,
+    _resume_pending: bool = False,
+    bearer: str | None = None,
+    expected_principal_id: str | None = None,
+) -> dict[str, Any]:
+    if isinstance(hub, str) and "://" in hub:
+        from .coordination_http import sync_http
+
+        if required_project_id is not None:
+            raise SyncFailure("sync-http-repo-binding-unsupported", "HTTP repo onboarding is not yet supported")
+        if _before_sync is not None:
+            _before_sync()
+        return sync_http(vault, hub, bearer=bearer,
+                         expected_hub_id=expected_hub_id,
+                         expected_principal_id=expected_principal_id,
+                         expected_access_label_ref=expected_access_label_ref,
+                         phase=phase, before_apply=_before_pull_apply)
+    if not session_id or not completed_at:
+        raise SyncFailure("sync-local-binding-required", "local-path sync requires session_id and completed_at")
+    hub = Path(hub)
+    if phase not in {"push", "pull", "both"}:
+        raise SyncFailure("sync-phase-invalid", "sync phase must be push, pull, or both")
+    result: dict[str, Any] = {"outcome": "complete", "phase": phase}
+    with _bound_principal_lock(hub, session_id) as (config, label, principal_id):
+        if required_project_id is not None:
+            result["project_registration"] = _project_registration(
+                config,
+                label,
+                project_id=required_project_id,
+            )
+        if expected_hub_id is not None and config["hub_id"] != expected_hub_id:
+            raise SyncFailure(
+                "onboard-hub-mismatch",
+                "repo-bound sync selected a different logical hub than its onboarding link",
+            )
+        if (
+            expected_access_label_ref is not None
+            and _pair(label) != expected_access_label_ref
+        ):
+            raise SyncFailure(
+                "onboard-label-mismatch",
+                "repo-bound sync selected a different AccessLabel revision than its onboarding link",
+            )
+        if _before_sync is not None:
+            _before_sync()
+        pending_path = _pending_outcomes_path(vault)
+        pending_exists = pending_path.exists() or pending_path.is_symlink()
+        resume_pending = _resume_pending and phase == "both" and pending_exists
+        if phase in {"push", "both"} and not resume_pending:
+            result["submission_outcomes"] = _push_bound(
+                vault,
+                hub,
+                config=config,
+                label=label,
+                principal_id=principal_id,
+            )
+        if phase in {"pull", "both"}:
+            pulled = _pull_bound(
+                vault,
+                hub,
+                config=config,
+                label=label,
+                principal_id=principal_id,
+                completed_at=completed_at,
+                before_apply=_before_pull_apply,
+            )
+            result.update(pulled)
+            result["phase"] = phase
+            if "submission_outcomes" not in result:
+                result["submission_outcomes"] = deepcopy(
+                    pulled["receipt"]["submission_outcomes"]
+                )
+    return result
+
+
+def recover_matching_sync_result(
+    vault: Path,
+    hub: Path,
+    *,
+    session_id: str,
+    response: dict[str, Any],
+    completed_at: str,
+    required_project_id: str,
+    expected_hub_id: str,
+    expected_access_label_ref: dict[str, str],
+) -> dict[str, Any]:
+    """Recover one attempt-specific immutable pull and reconcile its outcome."""
+    with _bound_principal_lock(
+        hub, session_id, blocking=True
+    ) as (config, label, principal_id):
+        registration = _project_registration(
+            config,
+            label,
+            project_id=required_project_id,
+        )
+        if config["hub_id"] != expected_hub_id:
+            raise SyncFailure(
+                "onboard-hub-mismatch",
+                "repo-bound sync selected a different logical hub than its onboarding link",
+            )
+        if _pair(label) != expected_access_label_ref:
+            raise SyncFailure(
+                "onboard-label-mismatch",
+                "repo-bound sync selected a different AccessLabel revision than its onboarding link",
+            )
+        receipt, pairs, by_pair = _validated_pull_response(response)
+        if (
+            receipt["hub_id"] != config["hub_id"]
+            or receipt["principal_id"] != principal_id
+            or receipt["access_label_ref"] != _pair(label)
+            or receipt["scope_generation"] != config["scope_generation"]
+            or receipt["completed_at"] != completed_at
+        ):
+            raise SyncFailure(
+                "onboard-sync-checkpoint-mismatch",
+                "retained onboarding sync evidence does not match the current authenticated binding",
+            )
+        marker_path = (
+            vault / "generated" / "coordination-sync" / "last-successful.json"
+        )
+        with _projection_apply_lock(vault):
+            if marker_path.is_symlink():
+                raise SyncFailure(
+                    "sync-storage-unsafe",
+                    "successful sync marker is a symlink",
+                )
+            if marker_path.exists():
+                _, current_receipt, _ = _load_current_projection(vault)
+                if (
+                    current_receipt["hub_id"] != config["hub_id"]
+                    or current_receipt["principal_id"] != principal_id
+                ):
+                    raise SyncFailure(
+                        "sync-binding-mismatch",
+                        "current sync projection belongs to another authenticated binding",
+                    )
+                current_time = _parse_receipt_time(current_receipt["completed_at"])
+                checkpoint_time = _parse_receipt_time(receipt["completed_at"])
+                if (
+                    current_time == checkpoint_time
+                    and current_receipt["receipt_id"] != receipt["receipt_id"]
+                ):
+                    raise SyncFailure(
+                        "sync-receipt-order-conflict",
+                        "distinct pull responses cannot share a completion time",
+                    )
+                if current_time < checkpoint_time:
+                    _apply_verified_pull(vault, receipt, pairs, by_pair)
+            else:
+                _apply_verified_pull(vault, receipt, pairs, by_pair)
+
+        pending = _load_pending_outcomes(
+            vault,
+            hub=hub,
+            config=config,
+            label=label,
+            principal_id=principal_id,
+        )
+        if (
+            pending.source_digest is not None
+            and pending.outcomes == receipt["submission_outcomes"]
+        ):
+            _consume_pending_outcomes(vault, pending)
+        return {
+            "outcome": "recovered",
+            "phase": "both",
+            "project_registration": registration,
+            "submission_outcomes": deepcopy(receipt["submission_outcomes"]),
+            "receipt": receipt,
+            "authorized_pairs": pairs,
+            "authorized_records": [
+                by_pair[_pair_key(pair)] for pair in pairs
+            ],
+        }
+
+
+def _load_authorized_coordination_snapshot_unlocked(vault: Path) -> dict[str, Any]:
+    """Load one snapshot while the caller owns the projection apply lock."""
+    _validate_storage_root(vault, create=False)
+    _, receipt, pairs = _load_current_projection(vault)
+    records: list[dict[str, Any]] = []
+    for pair in sorted_pairs(pairs):
+        path = _record_path(vault, pair)
+        try:
+            raw = _read_local_regular_file(
+                vault,
+                path,
+                maximum_bytes=MAX_RECORD_BYTES,
+                missing_code="sync-local-record-missing",
+                missing_message="authorized local record is unavailable",
+            )
+            if len(raw) > MAX_RECORD_BYTES:
+                raise SyncFailure(
+                    "sync-record-too-large",
+                    "authorized local record exceeds the v0 byte limit",
+                )
+            _check_raw_depth(raw)
+            record = load_json_bytes(raw)
+        except SyncFailure:
+            raise
+        except ValidationFailure as exc:
+            raise SyncFailure("sync-local-record-missing", "authorized local record is unavailable") from exc
+        if not isinstance(record, dict):
+            raise SyncFailure("sync-local-record-mismatch", "authorized local record has changed")
+        try:
+            materialized, digest = validate_coordination_record_body(record)
+        except ValidationFailure as exc:
+            raise SyncFailure("sync-local-record-mismatch", "authorized local record has changed") from exc
+        if _pair(materialized, digest) != pair:
+            raise SyncFailure("sync-local-record-mismatch", "authorized local record has changed")
+        records.append(materialized)
+    return {
+        "receipt": deepcopy(receipt),
+        "authorized_pairs": deepcopy(pairs),
+        "records": records,
+    }
+
+
+@contextmanager
+def authorized_coordination_snapshot(
+    vault: Path,
+) -> Iterator[dict[str, Any]]:
+    """Hold the projection lock while one verified snapshot is consumed."""
+    _validate_storage_root(vault, create=False)
+    with _projection_apply_lock(vault):
+        yield _load_authorized_coordination_snapshot_unlocked(vault)
+
+
+def load_authorized_coordination_snapshot(vault: Path) -> dict[str, Any]:
+    """Load one coherent verified authorization snapshot."""
+    with authorized_coordination_snapshot(vault) as snapshot:
+        return snapshot
+
+
+def load_authorized_projection(vault: Path) -> list[dict[str, Any]]:
+    """Load only the verified generated authorization view for context consumers."""
+    return load_authorized_coordination_snapshot(vault)["records"]
+
+
+def load_local_coordination_records(vault: Path) -> list[dict[str, Any]]:
+    """Load every exact local coordination pair without claiming admission."""
+    records: list[dict[str, Any]] = []
+    for stored in _scan_records(vault):
+        try:
+            materialized, digest = validate_coordination_record_body(stored.record)
+        except ValidationFailure as exc:
+            raise SyncFailure(
+                "sync-local-record-mismatch",
+                "local coordination record is invalid",
+            ) from exc
+        if digest != stored.record_ref["revision_digest"]:
+            raise SyncFailure(
+                "sync-local-record-mismatch",
+                "local coordination record digest does not match its path",
+            )
+        records.append(
+            {
+                "record_ref": deepcopy(stored.record_ref),
+                "record": materialized,
+            }
+        )
+    return records
+
+
+def export_authorized_coordination_context(vault: Path) -> dict[str, Any]:
+    """Compatibility wrapper for the strict AM-7 coordination context pack."""
+    from .coordination_context import build_coordination_context_pack
+
+    return build_coordination_context_pack(vault)
+
+
+def directory_digest(root: Path) -> str:
+    """Stable test helper for byte-identical no-op assertions."""
+    entries: list[dict[str, str]] = []
+    if root.exists():
+        for path in sorted(item for item in root.rglob("*") if item.is_file()):
+            entries.append(
+                {
+                    "path": path.relative_to(root).as_posix(),
+                    "digest": sha256_bytes(path.read_bytes()),
+                }
+            )
+    return sha256_bytes(canonical_bytes(entries))
+
+
+def coordination_pair_count(root: Path) -> int:
+    """Count validated immutable coordination pairs in one storage root."""
+    return len(_scan_records(root))

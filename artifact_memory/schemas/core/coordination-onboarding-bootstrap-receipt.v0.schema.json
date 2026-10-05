@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/coordination-onboarding-bootstrap-receipt/v0",
+  "title": "Artifact Memory coordination onboarding bootstrap receipt v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "receipt_id",
+    "outcome",
+    "project",
+    "repo_identity_state",
+    "vault_state",
+    "access_label_registration",
+    "sync_receipt_ref",
+    "kickoff_pack_ref",
+    "record_state",
+    "history_import",
+    "authority_boundary"
+  ],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/coordination-onboarding-bootstrap-receipt/v0"},
+    "receipt_id": {
+      "type": "string",
+      "pattern": "^coordination-onboarding-bootstrap-receipt://sha-256/[0-9a-f]{64}$"
+    },
+    "outcome": {"const": "bootstrapped"},
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id", "project_name"],
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "project_name": {"type": "string", "minLength": 1}
+      }
+    },
+    "repo_identity_state": {
+      "enum": ["created-pending-commit", "existing-pending-commit", "verified-committed"]
+    },
+    "vault_state": {"enum": ["created", "linked"]},
+    "access_label_registration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "hub_id", "access_label_ref"],
+      "properties": {
+        "state": {"const": "external-admin-binding-verified"},
+        "hub_id": {"type": "string", "pattern": "^coordination-hub://\\S+$"},
+        "access_label_ref": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["record_id", "revision_digest"],
+          "properties": {
+            "record_id": {
+              "type": "string",
+              "pattern": "^record://coordination/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/label/[^/]+$"
+            },
+            "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+          }
+        }
+      }
+    },
+    "sync_receipt_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipt_id"],
+      "properties": {
+        "receipt_id": {
+          "type": "string",
+          "pattern": "^coordination-sync-receipt://sha-256/[0-9a-f]{64}$"
+        }
+      }
+    },
+    "kickoff_pack_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pack_id", "content_digest"],
+      "properties": {
+        "pack_id": {
+          "type": "string",
+          "pattern": "^coordination-onboarding-kickoff-pack://sha-256/[0-9a-f]{64}$"
+        },
+        "content_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+      }
+    },
+    "record_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pair_count_before", "pair_count_after", "duplicate_pair_count"],
+      "properties": {
+        "pair_count_before": {"type": "integer", "minimum": 0},
+        "pair_count_after": {"type": "integer", "minimum": 0},
+        "duplicate_pair_count": {"const": 0}
+      }
+    },
+    "history_import": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "records_imported"],
+      "properties": {
+        "state": {"const": "deferred-to-am-1"},
+        "records_imported": {"const": 0}
+      }
+    },
+    "authority_boundary": {
+      "const": "onboarding artifacts are informational only and grant no execution, mutation, routing, disclosure, credential, spending, deployment, approval, or merge authority"
+    }
+  }
+}

@@ -1,0 +1,109 @@
+{
+  "authority_boundary": "informational-only; no execution, routing, disclosure, or mutation authority",
+  "context": {
+    "artifact_retrieval": "not-attempted/separately-authorized",
+    "disclosure_authority": "absent",
+    "execution_authority": "absent",
+    "max_bytes": 4096,
+    "mutation_authority": "absent",
+    "not_caller_selected_count": 1,
+    "pack_id": "context-pack://c798443823b44c58d5a40a9b9de9be1332d84721af6377d4bad5673e7b72c75b",
+    "recall_receipt_id": "context-recall-receipt://e7aef6ebb3489f45ff71a6c3518dfaaae2a7f202051c1523cd9545286eeb87df",
+    "schema_id": "artifact-memory/context-pack/v4",
+    "selected_record_count": 2,
+    "serialized_bytes": 2094
+  },
+  "limitations": [
+    "fixture-specific pattern checks do not prove that every protected value is absent from arbitrary future records",
+    "freshness is an explicit operator assertion, not inferred truth",
+    "generated projections and context packs can disclose private summaries and require the same local access controls as their source vault",
+    "search and memory remain informational and do not grant operational authority"
+  ],
+  "operations": [
+    {
+      "name": "validate-synthetic-canonical-records",
+      "outcome": "complete"
+    },
+    {
+      "name": "check-public-fixture-boundary",
+      "outcome": "verified"
+    },
+    {
+      "name": "build-replaceable-search-projection",
+      "outcome": "complete"
+    },
+    {
+      "name": "find-operational-topics",
+      "outcome": "verified"
+    },
+    {
+      "name": "export-bounded-context-pack-v4",
+      "outcome": "verified"
+    },
+    {
+      "name": "independent-informational-recall",
+      "outcome": "verified"
+    }
+  ],
+  "outcome": "complete",
+  "projection": {
+    "generated_views": [
+      "fts",
+      "metadata",
+      "ndjson",
+      "provenance",
+      "relationships",
+      "sqlite"
+    ],
+    "record_count": 3,
+    "source_record_set_digest": "sha-256:fd48ce48562dadcd87c4663a80a94b6082c586e9dc5d4142d5c25237c0ba4f38"
+  },
+  "public_fixture_safety": {
+    "categories_checked": [
+      "credential-fields",
+      "email-addresses",
+      "machine-local-paths",
+      "network-addresses",
+      "non-json-raw-sources",
+      "non-synthetic-records"
+    ],
+    "forbidden_category_match_count": 0,
+    "raw_source_file_count": 0,
+    "scanned_record_count": 3
+  },
+  "receipt_id": "private-vault-onboarding-slice-receipt://synthetic/eea54d6f18cf649b23bce1407a94f8d38b8d36eff115243a11f5956a6a70ef79",
+  "record_validation": {
+    "record_count": 3,
+    "schema_ids": [
+      "artifact-memory/knowledge-record/v3"
+    ],
+    "synthetic_namespace": "record://synthetic-onboarding/"
+  },
+  "schema_id": "artifact-memory/private-vault-onboarding-slice-receipt/v1",
+  "searches": [
+    {
+      "exclude_superseded": true,
+      "integrity_gate": "verified",
+      "outcome": "complete",
+      "query_digest": "sha-256:d04a2b9493ade8780e89c976d3f11fc071f64bf1e3028159272b8ead3b884e7d",
+      "query_mode": "literal",
+      "record_ids": [
+        "record://synthetic-onboarding/relay-connectivity"
+      ],
+      "schema_id": "artifact-memory/search-receipt/v1",
+      "source_record_set_digest": "sha-256:fd48ce48562dadcd87c4663a80a94b6082c586e9dc5d4142d5c25237c0ba4f38"
+    },
+    {
+      "exclude_superseded": true,
+      "integrity_gate": "verified",
+      "outcome": "complete",
+      "query_digest": "sha-256:25e355faca37b1129fda3150c32647eb0b511622cd77ac896ca769d07cefa3cd",
+      "query_mode": "literal",
+      "record_ids": [
+        "record://synthetic-onboarding/jsonc-mode"
+      ],
+      "schema_id": "artifact-memory/search-receipt/v1",
+      "source_record_set_digest": "sha-256:fd48ce48562dadcd87c4663a80a94b6082c586e9dc5d4142d5c25237c0ba4f38"
+    }
+  ]
+}

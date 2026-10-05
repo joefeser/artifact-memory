@@ -66,6 +66,54 @@ matrix. Provider schemas remain TraceMap-owned contracts.
 `vault-intake-conformance-receipt.v1.schema.json` define the issue #18 private
 filesystem intake outcomes and checked public-safe synthetic evidence.
 
+The `coordination-*.v0.schema.json` contracts define the strict coordination
+record, sync receipt, authorized-membership page, and checked AM-3 conformance
+receipt surfaces. Their fixtures are synthetic, and their receipts grant no
+execution, disclosure, authorization, or trust.
+
+`coordination/repo-identity.v0.schema.json` defines the strict committed
+`.agent-memory/repo.json` shape without adding a canonical-record `schema_id`.
+The UUID is authoritative; `humanName` is display-only provenance. The checked
+AM-8 receipt proves same-name coexistence, typed unknown-UUID rejection, and
+record-digest stability across a display-name rename.
+
+`coordination/project-link.v0.schema.json`,
+`coordination/onboarding-attempt.v0.schema.json`,
+`coordination/onboarding-sync-checkpoint.v0.schema.json`,
+`coordination/onboarding-publication.v0.schema.json`,
+`coordination-onboarding-kickoff-pack.v0.schema.json`,
+`coordination-onboarding-bootstrap-receipt.v0.schema.json`, and
+`coordination-onboarding-conformance-receipt.v0.schema.json` define AM-9's
+local project link, pre-sync attempt evidence, exact sync-response checkpoint,
+recoverable immutable publication transaction, minimal informational bootstrap
+view, digest-bound receipt, and checked synthetic proof. Full AccessLabel
+bodies remain hub-side; AM-1 provides history import through a separate
+operator-invoked command, and queue/command rendering is an AM-5 surface.
+
+`coordination-kickoff-pack.v0.schema.json`,
+`coordination-kickoff-pack.v1.schema.json`, and
+`coordination-kickoff-conformance-receipt.v0.schema.json` define AM-5's bounded
+receipt-qualified queue summary and its checked synthetic proof. Queue text is
+untrusted data, the selected acceptance command is escaped and explicitly not
+executable, and no pack grants operational authority.
+
+`coordination-freshness-conformance-receipt.v0.schema.json` defines AM-6's
+checked repository-ancestry proof. Repo-bound kickoff v1 marks the supported
+freshness extension `current` or `stale-verify`; v0 and generic context-pack
+v2-v4 remain unchanged when freshness support is not requested.
+
+`coordination-context-pack.v0.schema.json` and
+`coordination-access-scope-conformance-receipt.v0.schema.json` define AM-7's
+receipt-bound informational export and checked scope-narrowing proof. Context
+records come only from the latest verified authorized projection. Exclusions
+remain count-only, full AccessLabel bodies are forbidden, and canonical local
+history is not deleted when generated membership narrows.
+
+`session-ledger-import-conformance-receipt.v0.schema.json` defines AM-1's
+checked synthetic proof. Dated done-log lines become deterministic private
+draft knowledge records with `session-ledger` import provenance; dry-run writes
+nothing, the raw source is not copied, and replay is idempotent.
+
 `release-manifest.v2.schema.json`, `release-manifest.v3.schema.json`, the three
 versions of `release-candidate-preparation-receipt`, and the three versions of
 `release-candidate-verification-receipt` separate deterministic asset

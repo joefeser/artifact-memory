@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/private-vault-onboarding-slice-receipt/v1",
+  "title": "Artifact Memory synthetic private-vault onboarding slice receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_id", "outcome", "operations", "record_validation", "projection", "searches", "context", "public_fixture_safety", "authority_boundary", "limitations"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/private-vault-onboarding-slice-receipt/v1"},
+    "receipt_id": {"type": "string", "pattern": "^private-vault-onboarding-slice-receipt://synthetic/[0-9a-f]{64}$"},
+    "outcome": {"type": "string", "enum": ["complete", "failed"]},
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "outcome"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "outcome": {"type": "string", "enum": ["complete", "verified", "failed"]}
+        }
+      }
+    },
+    "record_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_count", "schema_ids", "synthetic_namespace"],
+      "properties": {
+        "record_count": {"type": "integer", "minimum": 1},
+        "schema_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "synthetic_namespace": {"const": "record://synthetic-onboarding/"}
+      }
+    },
+    "projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_count", "source_record_set_digest", "generated_views"],
+      "properties": {
+        "record_count": {"type": "integer", "minimum": 1},
+        "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+        "generated_views": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "searches": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema_id", "outcome", "query_digest", "query_mode", "record_ids", "source_record_set_digest", "integrity_gate", "exclude_superseded"],
+        "properties": {
+          "schema_id": {"const": "artifact-memory/search-receipt/v1"},
+          "outcome": {"const": "complete"},
+          "query_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+          "query_mode": {"const": "literal"},
+          "exclude_superseded": {"const": true},
+          "record_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^record://synthetic-onboarding/[A-Za-z0-9._~-]+$"}},
+          "source_record_set_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"},
+          "integrity_gate": {"const": "verified"}
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_id", "pack_id", "serialized_bytes", "max_bytes", "selected_record_count", "not_caller_selected_count", "recall_receipt_id", "artifact_retrieval", "mutation_authority", "disclosure_authority", "execution_authority"],
+      "properties": {
+        "schema_id": {"const": "artifact-memory/context-pack/v4"},
+        "pack_id": {"type": "string", "pattern": "^context-pack://[0-9a-f]{64}$"},
+        "serialized_bytes": {"type": "integer", "minimum": 1, "maximum": 4096},
+        "max_bytes": {"const": 4096},
+        "selected_record_count": {"type": "integer", "minimum": 1},
+        "not_caller_selected_count": {"type": "integer", "minimum": 0},
+        "recall_receipt_id": {"type": "string", "pattern": "^context-recall-receipt://[0-9a-f]{64}$"},
+        "artifact_retrieval": {"const": "not-attempted/separately-authorized"},
+        "mutation_authority": {"const": "absent"},
+        "disclosure_authority": {"const": "absent"},
+        "execution_authority": {"const": "absent"}
+      }
+    },
+    "public_fixture_safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scanned_record_count", "raw_source_file_count", "forbidden_category_match_count", "categories_checked"],
+      "properties": {
+        "scanned_record_count": {"type": "integer", "minimum": 1},
+        "raw_source_file_count": {"const": 0},
+        "forbidden_category_match_count": {"const": 0},
+        "categories_checked": {
+          "type": "array",
+          "const": ["credential-fields", "email-addresses", "machine-local-paths", "network-addresses", "non-json-raw-sources", "non-synthetic-records"]
+        }
+      }
+    },
+    "authority_boundary": {"const": "informational-only; no execution, routing, disclosure, or mutation authority"},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  },
+  "allOf": [
+    {"if": {"required": ["outcome"], "properties": {"outcome": {"const": "complete"}}}, "then": {"properties": {"operations": {"items": {"properties": {"outcome": {"enum": ["complete", "verified"]}}}}}}},
+    {"if": {"required": ["outcome"], "properties": {"outcome": {"const": "failed"}}}, "then": {"not": {"properties": {"operations": {"items": {"properties": {"outcome": {"enum": ["complete", "verified"]}}}}}}}}
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artifact-memory.dev/schemas/core/coordination-authorized-membership-page/v0",
+  "title": "Artifact Memory coordination authorized membership page v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "receipt_ref", "page_index", "page_count", "pairs", "next_token"],
+  "properties": {
+    "schema_id": {"const": "artifact-memory/coordination-authorized-membership-page/v0"},
+    "receipt_ref": {"type": "string", "pattern": "^coordination-sync-receipt://sha-256/[0-9a-f]{64}$"},
+    "page_index": {"type": "integer", "minimum": 0},
+    "page_count": {"type": "integer", "minimum": 1},
+    "pairs": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["record_id", "revision_digest"],
+        "properties": {
+          "record_id": {"type": "string", "minLength": 1},
+          "revision_digest": {"type": "string", "pattern": "^sha-256:[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "next_token": {
+      "anyOf": [
+        {"type": "null"},
+        {"type": "string", "minLength": 1}
+      ]
+    }
+  }
+}
