@@ -528,6 +528,10 @@ grant-versus-denial precedence rule for an invalid label. If a bound label is
 later found to violate this invariant, sync and context export fail closed
 rather than choosing either interpretation.
 
+Each project-UUID set under `may` or `mayNot` is limited to 1,000 unique
+entries. Validators enforce the count before uniqueness comparison or per-item
+validation.
+
 `credentialHint` is display-only provenance and never selects or authenticates
 a policy. WITS maintains a server-owned binding from the authenticated
 `AgentApiKey` identity to both (a) one stable coordination principal identifier

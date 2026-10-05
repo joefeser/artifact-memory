@@ -164,6 +164,31 @@ class CoordinationRecordTests(unittest.TestCase):
                 ]
                 self.assert_rejected(records, "constraint-failed")
 
+    def test_access_label_project_sets_are_bounded(self):
+        project_ids = [
+            f"00000000-0000-4000-8000-{index:012x}" for index in range(1001)
+        ]
+        for section, fields in (
+            (
+                "may",
+                (
+                    "claimProjects",
+                    "postReceipts",
+                    "readProjects",
+                    "syncTaskPackets",
+                    "syncWorkReceipts",
+                ),
+            ),
+            ("mayNot", ("readProjects",)),
+        ):
+            for field in fields:
+                with self.subTest(section=section, field=field):
+                    label = fixture("access-label.json")
+                    label[section][field] = project_ids
+                    with self.assertRaises(ValidationFailure) as raised:
+                        validate(label, core_schemas()[ACCESS_LABEL_SCHEMA_ID])
+                    self.assertEqual(raised.exception.code, "constraint-failed")
+
     def test_same_human_task_id_from_distinct_origins_does_not_collide(self):
         records = valid_records()
         tasks = [record for record in records if record["schema_id"] == TASK_PACKET_SCHEMA_ID]

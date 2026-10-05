@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .canonical import (
+    CanonicalizationFailure,
     canonical_bytes,
     expected_receipt_id,
     receipt_with_digest,
@@ -15,6 +16,9 @@ from .canonical import (
 )
 from .coordination import ACCESS_LABEL_SCHEMA_ID, validate_coordination_record_body
 from .coordination_sync import (
+    MAX_RECORD_BYTES,
+    MAX_REQUEST_BYTES,
+    _read_local_regular_file,
     _validate_storage_root,
     _write_immutable,
     coordination_onboarding_lock,
@@ -51,6 +55,13 @@ AUTHORITY_BOUNDARY = (
     "routing, disclosure, credential, spending, deployment, approval, or merge authority"
 )
 QUEUE_STATE = "not-rendered; AM-5 kickoff semantics required"
+MAX_ONBOARDING_LINK_BYTES = MAX_RECORD_BYTES
+MAX_ONBOARDING_RECEIPT_BYTES = MAX_RECORD_BYTES
+MAX_ONBOARDING_PACK_BYTES = MAX_RECORD_BYTES
+MAX_ONBOARDING_MARKDOWN_BYTES = MAX_RECORD_BYTES
+MAX_ONBOARDING_ATTEMPT_BYTES = MAX_RECORD_BYTES
+MAX_ONBOARDING_PUBLICATION_BYTES = MAX_REQUEST_BYTES
+MAX_ONBOARDING_CHECKPOINT_BYTES = 64 * 1024 * 1024
 # Normative sources: issue #142; v0 coordination-plane contract sections
 # "Authority boundary" and "Repo identity"; decision 0031.
 STARTUP_PROTOCOL = [
@@ -80,6 +91,59 @@ _PUBLICATION_SCHEMA = load_schema(
 )
 
 
+def _canonical_onboarding_bytes(value: Any) -> bytes:
+    try:
+        return canonical_bytes(value)
+    except CanonicalizationFailure as exc:
+        raise ValidationFailure(
+            "canonicalization-failed",
+            "coordination onboarding artifact cannot be canonicalized",
+            "$",
+        ) from exc
+
+
+def _bounded_onboarding_bytes(value: Any, maximum_bytes: int) -> bytes:
+    encoded = _canonical_onboarding_bytes(value)
+    if len(encoded) > maximum_bytes:
+        raise ValidationFailure(
+            "onboard-state-too-large",
+            "onboarding state exceeds its byte limit",
+        )
+    return encoded
+
+
+def _bounded_onboarding_text(value: str, maximum_bytes: int) -> bytes:
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeError as exc:
+        raise ValidationFailure(
+            "canonicalization-failed",
+            "coordination onboarding artifact cannot be encoded as UTF-8",
+            "$",
+        ) from exc
+    if len(encoded) > maximum_bytes:
+        raise ValidationFailure(
+            "onboard-state-too-large",
+            "onboarding state exceeds its byte limit",
+        )
+    return encoded
+
+
+def _onboarding_receipt_with_digest(
+    schema_id: str,
+    id_prefix: str,
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        return receipt_with_digest(schema_id, id_prefix, body)
+    except CanonicalizationFailure as exc:
+        raise ValidationFailure(
+            "canonicalization-failed",
+            "coordination onboarding artifact cannot be canonicalized",
+            "$",
+        ) from exc
+
+
 def validate_bootstrap_pack(pack: dict[str, Any]) -> None:
     validate(pack, _BOOTSTRAP_PACK_SCHEMA)
     body = {
@@ -89,7 +153,7 @@ def validate_bootstrap_pack(pack: dict[str, Any]) -> None:
     }
     expected = (
         "coordination-onboarding-kickoff-pack://sha-256/"
-        + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:")
+        + sha256_bytes(_canonical_onboarding_bytes(body)).removeprefix("sha-256:")
     )
     if pack["pack_id"] != expected:
         raise ValidationFailure(
@@ -101,9 +165,16 @@ def validate_bootstrap_pack(pack: dict[str, Any]) -> None:
 
 def validate_bootstrap_receipt(receipt: dict[str, Any]) -> None:
     validate(receipt, _BOOTSTRAP_RECEIPT_SCHEMA)
-    expected = expected_receipt_id(
-        receipt, "coordination-onboarding-bootstrap-receipt://sha-256/"
-    )
+    try:
+        expected = expected_receipt_id(
+            receipt, "coordination-onboarding-bootstrap-receipt://sha-256/"
+        )
+    except CanonicalizationFailure as exc:
+        raise ValidationFailure(
+            "canonicalization-failed",
+            "coordination onboarding artifact cannot be canonicalized",
+            "$",
+        ) from exc
     if receipt["receipt_id"] != expected:
         raise ValidationFailure(
             "onboard-receipt-id-mismatch",
@@ -191,12 +262,46 @@ def _stale_attempt_root(
     )
 
 
+def _read_onboarding_bytes(
+    vault: Path,
+    path: Path,
+    *,
+    maximum_bytes: int,
+    missing_code: str,
+) -> bytes:
+    try:
+        raw = _read_local_regular_file(
+            vault,
+            path,
+            missing_code=missing_code,
+            missing_message="onboarding state is missing",
+            maximum_bytes=maximum_bytes,
+        )
+    except ValidationFailure as exc:
+        if exc.code == missing_code:
+            raise ValidationFailure(
+                missing_code,
+                "onboarding state is missing",
+            ) from exc
+        raise ValidationFailure(
+            "onboard-state-unsafe",
+            "onboarding state could not be read safely",
+        ) from exc
+    if len(raw) > maximum_bytes:
+        raise ValidationFailure(
+            "onboard-state-too-large",
+            "onboarding state exceeds its byte limit",
+        )
+    return raw
+
+
 def _load_vault_object(
     vault: Path,
     path: Path,
     schema: dict[str, Any],
     *,
     missing_code: str,
+    maximum_bytes: int,
 ) -> dict[str, Any]:
     if not vault.exists() and not vault.is_symlink():
         raise ValidationFailure(missing_code, "onboarding state is missing")
@@ -217,8 +322,14 @@ def _load_vault_object(
             )
     if path.is_symlink() or not path.is_file():
         raise ValidationFailure(missing_code, "onboarding state is incomplete")
+    raw = _read_onboarding_bytes(
+        vault,
+        path,
+        maximum_bytes=maximum_bytes,
+        missing_code=missing_code,
+    )
     try:
-        value = load_json_bytes(path.read_bytes())
+        value = load_json_bytes(raw)
     except (OSError, RecursionError, ValidationFailure) as exc:
         raise ValidationFailure(
             "onboard-state-invalid", "onboarding state is unreadable or invalid"
@@ -313,7 +424,7 @@ def _validate_bootstrap_components(
         or receipt["sync_receipt_ref"]["receipt_id"]
         != pack["sync_observation"]["receipt_id"]
         or receipt["kickoff_pack_ref"]["content_digest"]
-        != sha256_bytes(canonical_bytes(pack))
+        != sha256_bytes(_canonical_onboarding_bytes(pack))
     ):
         raise ValidationFailure(
             "onboard-state-conflict",
@@ -352,7 +463,7 @@ def _validate_attempt_identity(
     validate(attempt, _ATTEMPT_SCHEMA)
     expected = (
         "coordination-onboarding-attempt://sha-256/"
-        + sha256_bytes(canonical_bytes(_attempt_body(attempt))).removeprefix(
+        + sha256_bytes(_canonical_onboarding_bytes(_attempt_body(attempt))).removeprefix(
             "sha-256:"
         )
     )
@@ -414,6 +525,7 @@ def _load_attempt(
         path,
         _ATTEMPT_SCHEMA,
         missing_code="onboard-state-incomplete",
+        maximum_bytes=MAX_ONBOARDING_ATTEMPT_BYTES,
     )
     _validate_attempt_identity(attempt, identity)
     return attempt
@@ -448,12 +560,16 @@ def _create_attempt(
         "schema_id": ATTEMPT_SCHEMA_ID,
         "attempt_id": (
             "coordination-onboarding-attempt://sha-256/"
-            + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:")
+            + sha256_bytes(_canonical_onboarding_bytes(body)).removeprefix("sha-256:")
         ),
         **body,
     }
     _validate_attempt(attempt, identity, registration)
-    _write_immutable(vault, path, canonical_bytes(attempt))
+    _write_immutable(
+        vault,
+        path,
+        _bounded_onboarding_bytes(attempt, MAX_ONBOARDING_ATTEMPT_BYTES),
+    )
     return attempt
 
 
@@ -464,7 +580,7 @@ def _validate_sync_checkpoint(
     expected = (
         "coordination-onboarding-sync-checkpoint://sha-256/"
         + sha256_bytes(
-            canonical_bytes(_sync_checkpoint_body(checkpoint))
+            _canonical_onboarding_bytes(_sync_checkpoint_body(checkpoint))
         ).removeprefix("sha-256:")
     )
     if checkpoint["checkpoint_id"] != expected:
@@ -500,6 +616,7 @@ def _load_sync_checkpoint(
         path,
         _SYNC_CHECKPOINT_SCHEMA,
         missing_code="onboard-state-incomplete",
+        maximum_bytes=MAX_ONBOARDING_CHECKPOINT_BYTES,
     )
     _validate_sync_checkpoint(checkpoint, attempt)
     return checkpoint
@@ -522,7 +639,7 @@ def _create_sync_checkpoint(
         "schema_id": SYNC_CHECKPOINT_SCHEMA_ID,
         "checkpoint_id": (
             "coordination-onboarding-sync-checkpoint://sha-256/"
-            + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:")
+            + sha256_bytes(_canonical_onboarding_bytes(body)).removeprefix("sha-256:")
         ),
         **body,
     }
@@ -530,7 +647,10 @@ def _create_sync_checkpoint(
     _write_immutable(
         vault,
         _sync_checkpoint_path(vault, identity["uuid"]),
-        canonical_bytes(checkpoint),
+        _bounded_onboarding_bytes(
+            checkpoint,
+            MAX_ONBOARDING_CHECKPOINT_BYTES,
+        ),
     )
     return checkpoint
 
@@ -548,14 +668,14 @@ def _remove_exact_active_evidence(
             "onboard-state-unsafe",
             "active onboarding evidence is not a regular local file",
         )
-    try:
-        raw = path.read_bytes()
-    except OSError as exc:
-        raise ValidationFailure(
-            "onboard-state-invalid",
-            "active onboarding evidence is unreadable",
-        ) from exc
-    if raw != canonical_bytes(expected):
+    expected_bytes = _canonical_onboarding_bytes(expected)
+    raw = _read_onboarding_bytes(
+        vault,
+        path,
+        maximum_bytes=len(expected_bytes),
+        missing_code="onboard-state-incomplete",
+    )
+    if raw != expected_bytes:
         raise ValidationFailure(
             "onboard-state-conflict",
             "active onboarding evidence changed before retirement",
@@ -583,7 +703,11 @@ def _retire_stale_attempt(
             "only an obsolete pre-checkpoint attempt can be retired as stale",
         )
     archive = _stale_attempt_root(vault, identity["uuid"], attempt)
-    _write_immutable(vault, archive / "attempt.json", canonical_bytes(attempt))
+    _write_immutable(
+        vault,
+        archive / "attempt.json",
+        _bounded_onboarding_bytes(attempt, MAX_ONBOARDING_ATTEMPT_BYTES),
+    )
     _remove_exact_active_evidence(
         vault,
         _attempt_path(vault, identity["uuid"]),
@@ -614,6 +738,7 @@ def _finish_stale_attempt_retirement(
         archive_path,
         _ATTEMPT_SCHEMA,
         missing_code="onboard-state-incomplete",
+        maximum_bytes=MAX_ONBOARDING_ATTEMPT_BYTES,
     )
     _validate_attempt_identity(archived_attempt, identity)
     if (
@@ -644,12 +769,15 @@ def _retire_failed_attempt(
     _write_immutable(
         vault,
         archive / "attempt.json",
-        canonical_bytes(attempt),
+        _bounded_onboarding_bytes(attempt, MAX_ONBOARDING_ATTEMPT_BYTES),
     )
     _write_immutable(
         vault,
         archive / "sync.json",
-        canonical_bytes(checkpoint),
+        _bounded_onboarding_bytes(
+            checkpoint,
+            MAX_ONBOARDING_CHECKPOINT_BYTES,
+        ),
     )
     # Checkpoint first is deliberate: after interruption, a remaining active
     # attempt still identifies the complete immutable archive for recovery.
@@ -697,6 +825,7 @@ def _finish_failed_attempt_retirement(
         archived_attempt_path,
         _ATTEMPT_SCHEMA,
         missing_code="onboard-state-incomplete",
+        maximum_bytes=MAX_ONBOARDING_ATTEMPT_BYTES,
     )
     _validate_attempt_identity(archived_attempt, identity)
     archived_checkpoint = _load_vault_object(
@@ -704,6 +833,7 @@ def _finish_failed_attempt_retirement(
         archived_checkpoint_path,
         _SYNC_CHECKPOINT_SCHEMA,
         missing_code="onboard-state-incomplete",
+        maximum_bytes=MAX_ONBOARDING_CHECKPOINT_BYTES,
     )
     _validate_sync_checkpoint(archived_checkpoint, archived_attempt)
     if archived_attempt != attempt or (
@@ -732,7 +862,7 @@ def _validate_publication(
     validate(publication, _PUBLICATION_SCHEMA)
     expected = (
         "coordination-onboarding-publication://sha-256/"
-        + sha256_bytes(canonical_bytes(_publication_body(publication))).removeprefix(
+        + sha256_bytes(_canonical_onboarding_bytes(_publication_body(publication))).removeprefix(
             "sha-256:"
         )
     )
@@ -784,27 +914,36 @@ def _load_existing_bootstrap(
         paths[0],
         _PROJECT_LINK_SCHEMA,
         missing_code="coordination-onboarding-required",
+        maximum_bytes=MAX_ONBOARDING_LINK_BYTES,
     )
     receipt = _load_vault_object(
         vault,
         paths[1],
         _BOOTSTRAP_RECEIPT_SCHEMA,
         missing_code="onboard-state-incomplete",
+        maximum_bytes=MAX_ONBOARDING_RECEIPT_BYTES,
     )
     pack = _load_vault_object(
         vault,
         paths[2],
         _BOOTSTRAP_PACK_SCHEMA,
         missing_code="onboard-state-incomplete",
+        maximum_bytes=MAX_ONBOARDING_PACK_BYTES,
     )
     if paths[3].is_symlink() or not paths[3].is_file():
         raise ValidationFailure(
             "onboard-state-unsafe",
             "bootstrap kickoff rendering must be a regular local file",
         )
+    markdown_bytes = _read_onboarding_bytes(
+        vault,
+        paths[3],
+        maximum_bytes=MAX_ONBOARDING_MARKDOWN_BYTES,
+        missing_code="onboard-state-incomplete",
+    )
     try:
-        markdown = paths[3].read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
+        markdown = markdown_bytes.decode("utf-8")
+    except UnicodeError as exc:
         raise ValidationFailure(
             "onboard-state-invalid", "bootstrap kickoff rendering is unreadable"
         ) from exc
@@ -843,6 +982,7 @@ def _load_publication(
         path,
         _PUBLICATION_SCHEMA,
         missing_code="onboard-state-incomplete",
+        maximum_bytes=MAX_ONBOARDING_PUBLICATION_BYTES,
     )
     _validate_publication(publication, identity)
     return publication
@@ -853,22 +993,34 @@ def _write_publication_outputs(vault: Path, publication: dict[str, Any]) -> None
     _write_immutable(
         vault,
         _project_link_path(vault, project_id),
-        canonical_bytes(publication["project_link"]),
+        _bounded_onboarding_bytes(
+            publication["project_link"],
+            MAX_ONBOARDING_LINK_BYTES,
+        ),
     )
     _write_immutable(
         vault,
         _pack_path(vault, project_id),
-        canonical_bytes(publication["kickoff_pack"]),
+        _bounded_onboarding_bytes(
+            publication["kickoff_pack"],
+            MAX_ONBOARDING_PACK_BYTES,
+        ),
     )
     _write_immutable(
         vault,
         _pack_markdown_path(vault, project_id),
-        publication["kickoff_markdown"].encode("utf-8"),
+        _bounded_onboarding_text(
+            publication["kickoff_markdown"],
+            MAX_ONBOARDING_MARKDOWN_BYTES,
+        ),
     )
     _write_immutable(
         vault,
         _bootstrap_receipt_path(vault, project_id),
-        canonical_bytes(publication["bootstrap_receipt"]),
+        _bounded_onboarding_bytes(
+            publication["bootstrap_receipt"],
+            MAX_ONBOARDING_RECEIPT_BYTES,
+        ),
     )
 
 
@@ -1150,12 +1302,12 @@ def _onboard_project_locked(
         "schema_id": BOOTSTRAP_PACK_SCHEMA_ID,
         "pack_id": (
             "coordination-onboarding-kickoff-pack://sha-256/"
-            + sha256_bytes(canonical_bytes(pack_body)).removeprefix("sha-256:")
+            + sha256_bytes(_canonical_onboarding_bytes(pack_body)).removeprefix("sha-256:")
         ),
         **pack_body,
     }
     validate_bootstrap_pack(pack)
-    pack_bytes = canonical_bytes(pack)
+    pack_bytes = _bounded_onboarding_bytes(pack, MAX_ONBOARDING_PACK_BYTES)
     link = {
         "schema_id": PROJECT_LINK_SCHEMA_ID,
         "project_id": identity["uuid"],
@@ -1166,7 +1318,7 @@ def _onboard_project_locked(
     }
     validate(link, _PROJECT_LINK_SCHEMA)
     pair_count_after = coordination_pair_count(vault)
-    bootstrap = receipt_with_digest(
+    bootstrap = _onboarding_receipt_with_digest(
         BOOTSTRAP_RECEIPT_SCHEMA_ID,
         "coordination-onboarding-bootstrap-receipt://sha-256/",
         {
@@ -1211,7 +1363,7 @@ def _onboard_project_locked(
         "schema_id": PUBLICATION_SCHEMA_ID,
         "publication_id": (
             "coordination-onboarding-publication://sha-256/"
-            + sha256_bytes(canonical_bytes(publication_body)).removeprefix(
+            + sha256_bytes(_canonical_onboarding_bytes(publication_body)).removeprefix(
                 "sha-256:"
             )
         ),
@@ -1221,7 +1373,10 @@ def _onboard_project_locked(
     _write_immutable(
         vault,
         _publication_path(vault, identity["uuid"]),
-        canonical_bytes(publication),
+        _bounded_onboarding_bytes(
+            publication,
+            MAX_ONBOARDING_PUBLICATION_BYTES,
+        ),
     )
     _write_publication_outputs(vault, publication)
     return bootstrap
@@ -1285,6 +1440,7 @@ def load_onboarded_project(
             path,
             _PROJECT_LINK_SCHEMA,
             missing_code="coordination-onboarding-required",
+            maximum_bytes=MAX_ONBOARDING_LINK_BYTES,
         )
         if path.name != f"{link['project_id']}.json":
             raise ValidationFailure(

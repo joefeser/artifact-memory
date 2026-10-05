@@ -84,6 +84,14 @@ publication transaction containing their exact bytes. A retry validates that
 transaction and installs only missing matching outputs; any conflicting output
 fails closed. This makes interruption recoverable without rewriting or losing
 immutable evidence, and concurrent calls replay the first completed receipt.
+
+All retained onboarding reads are byte-bounded before JSON decoding or UTF-8
+rendering. Project links, bootstrap receipts, kickoff packs, rendered kickoff
+Markdown, and attempts are limited to 1 MiB each; publication transactions are
+limited to 8 MiB; multi-page sync checkpoints are limited to 64 MiB. Oversized
+state fails typed as `onboard-state-too-large` and is never parsed; writers
+enforce the same limits before retention.
+
 If the authenticated scope generation advances before an attempt has any sync
 checkpoint, onboarding preserves that attempt in a separate digest-addressed
 `stale/` archive and retries under the current generation. It does not use this

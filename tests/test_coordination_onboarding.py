@@ -1165,6 +1165,185 @@ class CoordinationOnboardingTests(unittest.TestCase):
             )
             self.assertEqual(pack_error.exception.code, "onboard-pack-id-mismatch")
 
+    def test_persisted_onboarding_state_reads_are_bounded_by_type(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repo, vault, hub = root / "repo", root / "vault", root / "hub"
+            self.init_repo(repo)
+            self.configure(hub, self.label())
+            onboard_project(
+                repo,
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at=COMPLETED_AT,
+                human_name="synthetic-public",
+            )
+            identity = {"uuid": PROJECT_A, "humanName": "synthetic-public"}
+            transaction_root = vault / "transactions" / "coordination-onboarding"
+            attempt_path = transaction_root / f"{PROJECT_A}.attempt.json"
+            checkpoint_path = transaction_root / f"{PROJECT_A}.sync.json"
+            publication_path = transaction_root / f"{PROJECT_A}.json"
+            attempt = load_json(attempt_path)
+            bootstrap_root = (
+                vault / "generated" / "coordination-onboarding" / PROJECT_A
+            )
+            cases = (
+                (
+                    "project-link",
+                    "MAX_ONBOARDING_LINK_BYTES",
+                    vault
+                    / "config"
+                    / "coordination"
+                    / "projects"
+                    / f"{PROJECT_A}.json",
+                    lambda: onboarding_module._load_existing_bootstrap(vault, identity),
+                ),
+                (
+                    "bootstrap-receipt",
+                    "MAX_ONBOARDING_RECEIPT_BYTES",
+                    vault
+                    / "receipts"
+                    / "coordination-onboarding"
+                    / f"{PROJECT_A}.json",
+                    lambda: onboarding_module._load_existing_bootstrap(vault, identity),
+                ),
+                (
+                    "kickoff-pack",
+                    "MAX_ONBOARDING_PACK_BYTES",
+                    bootstrap_root / "bootstrap-kickoff.json",
+                    lambda: onboarding_module._load_existing_bootstrap(vault, identity),
+                ),
+                (
+                    "kickoff-markdown",
+                    "MAX_ONBOARDING_MARKDOWN_BYTES",
+                    bootstrap_root / "bootstrap-kickoff.md",
+                    lambda: onboarding_module._load_existing_bootstrap(vault, identity),
+                ),
+                (
+                    "attempt",
+                    "MAX_ONBOARDING_ATTEMPT_BYTES",
+                    attempt_path,
+                    lambda: onboarding_module._load_attempt(vault, identity),
+                ),
+                (
+                    "sync-checkpoint",
+                    "MAX_ONBOARDING_CHECKPOINT_BYTES",
+                    checkpoint_path,
+                    lambda: onboarding_module._load_sync_checkpoint(
+                        vault, identity, attempt
+                    ),
+                ),
+                (
+                    "publication",
+                    "MAX_ONBOARDING_PUBLICATION_BYTES",
+                    publication_path,
+                    lambda: onboarding_module._load_publication(vault, identity),
+                ),
+            )
+            for name, constant, path, load_state in cases:
+                with (
+                    self.subTest(state=name),
+                    mock.patch.object(
+                        onboarding_module,
+                        constant,
+                        path.stat().st_size - 1,
+                    ),
+                    self.assertRaises(ValidationFailure) as raised,
+                ):
+                    load_state()
+                self.assertEqual(
+                    raised.exception.code,
+                    "onboard-state-too-large",
+                )
+
+    def test_onboarding_identity_validators_translate_canonical_failures(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repo, vault, hub = root / "repo", root / "vault", root / "hub"
+            self.init_repo(repo)
+            self.configure(hub, self.label())
+            receipt = onboard_project(
+                repo,
+                vault,
+                hub,
+                session_id=SESSION,
+                completed_at=COMPLETED_AT,
+                human_name="synthetic-public",
+            )
+            identity = {"uuid": PROJECT_A, "humanName": "synthetic-public"}
+            transaction_root = vault / "transactions" / "coordination-onboarding"
+            attempt = load_json(transaction_root / f"{PROJECT_A}.attempt.json")
+            checkpoint = load_json(transaction_root / f"{PROJECT_A}.sync.json")
+            publication = load_json(transaction_root / f"{PROJECT_A}.json")
+            pack = load_json(
+                vault
+                / "generated"
+                / "coordination-onboarding"
+                / PROJECT_A
+                / "bootstrap-kickoff.json"
+            )
+            oversized = 9_007_199_254_740_992
+            pack["sync_observation"]["scope_generation"] = oversized
+            receipt["record_state"]["pair_count_before"] = oversized
+            attempt["pair_count_before"] = oversized
+            checkpoint["sync_response"]["receipt"]["scope_generation"] = oversized
+            publication["kickoff_pack"]["sync_observation"][
+                "scope_generation"
+            ] = oversized
+            validations = (
+                ("pack", lambda: validate_bootstrap_pack(pack)),
+                ("receipt", lambda: validate_bootstrap_receipt(receipt)),
+                (
+                    "attempt",
+                    lambda: onboarding_module._validate_attempt_identity(
+                        attempt, identity
+                    ),
+                ),
+                (
+                    "checkpoint",
+                    lambda: onboarding_module._validate_sync_checkpoint(
+                        checkpoint, attempt
+                    ),
+                ),
+                (
+                    "publication",
+                    lambda: onboarding_module._validate_publication(
+                        publication, identity
+                    ),
+                ),
+            )
+            for name, validate_artifact in validations:
+                with (
+                    self.subTest(artifact=name),
+                    self.assertRaises(ValidationFailure) as raised,
+                ):
+                    validate_artifact()
+                self.assertEqual(raised.exception.code, "canonicalization-failed")
+
+            for name, artifact in (("pack", pack), ("receipt", receipt)):
+                artifact_path = root / f"invalid-{name}.json"
+                artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "artifact_memory",
+                        "validate",
+                        str(artifact_path),
+                        "--json",
+                    ],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(completed.returncode, 2)
+                self.assertEqual(
+                    json.loads(completed.stdout)["diagnostics"][0]["code"],
+                    "canonicalization-failed",
+                )
+                self.assertNotIn("Traceback", completed.stderr)
+
     def test_repo_bound_append_rejects_project_label_and_label_bodies(self):
         label = self.label()
         link = {
