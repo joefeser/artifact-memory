@@ -197,6 +197,28 @@ class CoordinationKickoffTests(unittest.TestCase):
                         raised.exception.code, "kickoff-queue-contradictory"
                     )
 
+    def test_canonicalization_failure_is_typed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            vault, _, _, _ = self.setup_vault(root)
+            pack = build_kickoff_pack(vault, PROJECT_ID)
+            pack["sync_observation"]["scope_generation"] = 9_007_199_254_740_992
+
+            with self.assertRaises(ValidationFailure) as raised:
+                validate_kickoff_pack(pack)
+
+            self.assertEqual(raised.exception.code, "canonicalization-failed")
+            self.assertEqual(raised.exception.path, "$")
+
+            pack_path = root / "oversized-number-kickoff.json"
+            pack_path.write_text(json.dumps(pack), encoding="utf-8")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                exit_code = main(["validate", str(pack_path), "--json"])
+            self.assertEqual(exit_code, 2)
+            diagnostic = json.loads(stdout.getvalue())["diagnostics"][0]
+            self.assertEqual(diagnostic["code"], "canonicalization-failed")
+
     def test_mutating_one_pack_does_not_change_later_startup_protocol(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

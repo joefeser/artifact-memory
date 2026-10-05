@@ -249,6 +249,21 @@ class CoordinationSyncTests(unittest.TestCase):
                     self.assertEqual(raised.exception.code, "hub-config-invalid")
                     self.assertFalse(hub.exists())
 
+    def test_hub_configuration_is_bounded_before_json_parsing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            hub = Path(temporary) / "hub"
+            configure(hub, label_for([PROJECT_A]))
+            with patch("artifact_memory.coordination_sync.MAX_HUB_CONFIG_BYTES", 32):
+                with self.assertRaises(SyncFailure) as raised:
+                    pull(
+                        Path(temporary) / "vault",
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+            self.assertEqual(raised.exception.code, "hub-config-invalid")
+            self.assertIn("byte limit", raised.exception.message)
+
     def test_two_vaults_converge_and_second_round_is_byte_identical(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

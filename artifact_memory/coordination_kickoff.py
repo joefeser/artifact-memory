@@ -8,7 +8,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from .canonical import canonical_bytes, sha256_bytes
+from .canonical import CanonicalizationFailure, canonical_bytes, sha256_bytes
 from .coordination import (
     FRESHNESS_EXTENSION_ID,
     TASK_PACKET_SCHEMA_ID,
@@ -70,9 +70,17 @@ def validate_kickoff_pack(pack: dict[str, Any]) -> None:
         for key, value in pack.items()
         if key not in {"schema_id", "pack_id"}
     }
+    try:
+        body_bytes = canonical_bytes(body)
+    except CanonicalizationFailure as exc:
+        raise ValidationFailure(
+            "canonicalization-failed",
+            "coordination kickoff pack cannot be canonicalized",
+            "$",
+        ) from exc
     expected = (
         "coordination-kickoff-pack://sha-256/"
-        + sha256_bytes(canonical_bytes(body)).removeprefix("sha-256:")
+        + sha256_bytes(body_bytes).removeprefix("sha-256:")
     )
     if pack["pack_id"] != expected:
         raise ValidationFailure(

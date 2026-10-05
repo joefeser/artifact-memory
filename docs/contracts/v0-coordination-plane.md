@@ -397,6 +397,10 @@ merging is an operator convenience, never a requirement.
 }
 ```
 
+Each `scopeFence` path array is limited to 1,000 unique entries. Validators
+enforce that count before uniqueness comparison or per-item validation, and
+kickoff-pack projections preserve the same ceiling.
+
 The claim entry in the hub-created successor has this strict shape; its
 `taskRef` and the successor's `predecessor` both name the open revision above:
 

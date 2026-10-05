@@ -71,6 +71,7 @@ MAX_PENDING_OUTCOMES_BYTES = MAX_PAGE_BYTES
 MAX_SYNC_MARKER_BYTES = 64 * 1024
 MAX_SYNC_RECEIPT_BYTES = MAX_REQUEST_BYTES
 MAX_MEMBERSHIP_MANIFEST_BYTES = MAX_REQUEST_BYTES
+MAX_HUB_CONFIG_BYTES = MAX_REQUEST_BYTES
 
 
 class SyncFailure(ValidationFailure):
@@ -1085,10 +1086,19 @@ def _load_hub_config(
 ) -> dict[str, Any]:
     _validate_storage_root(hub, create=False)
     path = hub / "hub-config.json"
-    if path.is_symlink() or not path.is_file():
-        raise SyncFailure("hub-config-invalid", "local hub configuration is unavailable")
     try:
-        raw = path.read_bytes()
+        raw = _read_local_regular_file(
+            hub,
+            path,
+            missing_code="hub-config-invalid",
+            missing_message="local hub configuration is unavailable",
+            maximum_bytes=MAX_HUB_CONFIG_BYTES,
+        )
+        if len(raw) > MAX_HUB_CONFIG_BYTES:
+            raise SyncFailure(
+                "hub-config-invalid",
+                "local hub configuration exceeds its byte limit",
+            )
         _check_raw_depth(raw)
         return _validate_hub_config(
             load_json_bytes(raw),

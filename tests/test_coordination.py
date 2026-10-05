@@ -155,6 +155,15 @@ class CoordinationRecordTests(unittest.TestCase):
         records[-1]["evidence"] = []
         self.assert_rejected(records, "constraint-failed")
 
+    def test_scope_fence_path_arrays_are_bounded(self):
+        for field in ("allowedPaths", "forbiddenPaths"):
+            with self.subTest(field=field):
+                records = valid_records()
+                records[1]["scopeFence"][field] = [
+                    f"synthetic/path-{index}" for index in range(1001)
+                ]
+                self.assert_rejected(records, "constraint-failed")
+
     def test_same_human_task_id_from_distinct_origins_does_not_collide(self):
         records = valid_records()
         tasks = [record for record in records if record["schema_id"] == TASK_PACKET_SCHEMA_ID]
