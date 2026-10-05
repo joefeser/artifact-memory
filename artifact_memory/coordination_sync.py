@@ -31,6 +31,7 @@ from .coordination import (
     ACCESS_LABEL_SCHEMA_ID,
     TASK_PACKET_SCHEMA_ID,
     WORK_RECEIPT_SCHEMA_ID,
+    current_coordination_task_leaves,
     revision_digest,
     validate_coordination_record_body,
     validate_coordination_records,
@@ -2510,7 +2511,70 @@ def _validated_pull_response(
             )
     if set(by_pair) != {_pair_key(item) for item in pairs}:
         raise SyncFailure("sync-record-set-mismatch", "pull records do not match authorized membership")
+    _validate_pull_record_relationships(by_pair)
     return receipt, pairs, by_pair
+
+
+def _validate_pull_record_relationships(
+    by_pair: dict[tuple[str, str], dict[str, Any]],
+) -> None:
+    """Validate relationships that do not require private AccessLabel bodies."""
+    tasks = [
+        record
+        for record in by_pair.values()
+        if record["schema_id"] == TASK_PACKET_SCHEMA_ID
+    ]
+    try:
+        leaves = {
+            (record["record_id"], revision_digest(record))
+            for record in current_coordination_task_leaves(tasks)
+        }
+        for record in by_pair.values():
+            if record["schema_id"] != WORK_RECEIPT_SCHEMA_ID:
+                continue
+            task_key = _pair_key(record["taskRef"])
+            task = by_pair.get(task_key)
+            if task is None or task.get("schema_id") != TASK_PACKET_SCHEMA_ID:
+                raise ValidationFailure(
+                    "work-receipt-task-ref-unresolved",
+                    "WorkReceipt taskRef does not resolve to an exact supplied TaskPacket revision",
+                    "$.taskRef",
+                )
+            if task_key not in leaves:
+                raise ValidationFailure(
+                    "work-receipt-task-ref-stale",
+                    "WorkReceipt taskRef does not name the unique supplied TaskPacket leaf",
+                    "$.taskRef",
+                )
+            if task["status"] != "claimed":
+                raise ValidationFailure(
+                    "work-receipt-task-not-claimed",
+                    "WorkReceipt must bind a claimed TaskPacket revision",
+                    "$.taskRef",
+                )
+            if record["projectId"] != task["projectId"]:
+                raise ValidationFailure(
+                    "work-receipt-project-mismatch",
+                    "WorkReceipt project must match its exact TaskPacket revision",
+                    "$.projectId",
+                )
+            if record["accessLabelRef"] != task["accessLabelRef"]:
+                raise ValidationFailure(
+                    "work-receipt-label-mismatch",
+                    "WorkReceipt AccessLabel must match its exact TaskPacket revision",
+                    "$.accessLabelRef",
+                )
+            if record["writer"] != task["assignedWriter"]:
+                raise ValidationFailure(
+                    "work-receipt-writer-mismatch",
+                    "WorkReceipt writer must match TaskPacket assignedWriter",
+                    "$.writer",
+                )
+    except ValidationFailure as exc:
+        raise SyncFailure(
+            "sync-record-history-invalid",
+            "pull response contains an incomplete or inconsistent coordination history",
+        ) from exc
 
 
 def apply_pull_response(
@@ -2785,9 +2849,15 @@ def _load_authorized_coordination_snapshot_unlocked(vault: Path) -> dict[str, An
             raw = _read_local_regular_file(
                 vault,
                 path,
+                maximum_bytes=MAX_RECORD_BYTES,
                 missing_code="sync-local-record-missing",
                 missing_message="authorized local record is unavailable",
             )
+            if len(raw) > MAX_RECORD_BYTES:
+                raise SyncFailure(
+                    "sync-record-too-large",
+                    "authorized local record exceeds the v0 byte limit",
+                )
             _check_raw_depth(raw)
             record = load_json_bytes(raw)
         except SyncFailure:

@@ -382,10 +382,16 @@ class CoordinationKickoffTests(unittest.TestCase):
                 PRINCIPAL_ID,
                 7,
             )
-            apply_pull_response(
-                vault,
-                {"receipt": receipt, "pages": pages, "record_pages": [records]},
-            )
+            # Simulate a fork already admitted by an older or defective sync
+            # implementation so kickoff retains its independent fail-closed
+            # coverage. Current pull validation rejects this response earlier.
+            with patch(
+                "artifact_memory.coordination_sync._validate_pull_record_relationships"
+            ):
+                apply_pull_response(
+                    vault,
+                    {"receipt": receipt, "pages": pages, "record_pages": [records]},
+                )
 
             with self.assertRaises(ValidationFailure) as raised:
                 build_kickoff_pack(vault, PROJECT_ID)

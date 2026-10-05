@@ -1211,6 +1211,63 @@ class CoordinationSyncTests(unittest.TestCase):
                 apply_pull_response(vault, tampered)
             self.assertFalse((vault / "generated" / "coordination-sync" / "last-successful.json").exists())
 
+    def test_incomplete_task_history_or_unresolved_receipt_does_not_advance_marker(self):
+        def response_for(records: list[dict]) -> dict:
+            pairs = sorted_pairs(
+                [
+                    {
+                        "record_id": record["record_id"],
+                        "revision_digest": revision_digest(record),
+                    }
+                    for record in records
+                ]
+            )
+            receipt = receipt_for_pairs(pairs, 1)
+            pages = build_membership_pages(pairs, receipt["receipt_id"], PRINCIPAL, 1)
+            records_by_pair = {
+                (record["record_id"], revision_digest(record)): record
+                for record in records
+            }
+            return {
+                "receipt": receipt,
+                "pages": pages,
+                "record_pages": [
+                    [
+                        records_by_pair[(pair["record_id"], pair["revision_digest"])]
+                        for pair in page["pairs"]
+                    ]
+                    for page in pages
+                ],
+            }
+
+        label = label_for([PROJECT_A])
+        _, claimed = claimed_task_for(label)
+        receipt = work_receipt_for(label, claimed)
+        for records in ([claimed], [receipt]):
+            with self.subTest(schema_id=records[0]["schema_id"]):
+                with tempfile.TemporaryDirectory() as temporary:
+                    vault = Path(temporary) / "vault"
+                    with self.assertRaises(SyncFailure) as raised:
+                        apply_pull_response(vault, response_for(records))
+                    self.assertEqual(
+                        raised.exception.code,
+                        "sync-record-history-invalid",
+                    )
+                    self.assertFalse(
+                        (
+                            vault
+                            / "generated"
+                            / "coordination-sync"
+                            / "last-successful.json"
+                        ).exists()
+                    )
+                    self.assertEqual(
+                        list(
+                            (vault / "canonical" / "coordination").glob("*/*.json")
+                        ),
+                        [],
+                    )
+
     def test_projection_collision_precedes_canonical_record_exposure(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1705,6 +1762,27 @@ class CoordinationSyncTests(unittest.TestCase):
             with self.assertRaises(SyncFailure) as raised:
                 load_authorized_projection(vault)
             self.assertEqual(raised.exception.code, "sync-local-record-mismatch")
+
+    def test_local_authorized_record_read_is_bounded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            task = task_for(label)
+            pair = store_coordination_record(hub, task)
+            pull(vault, hub, session_id=SESSION, completed_at="2026-09-25T20:00:00Z")
+            marker_path = vault / "generated" / "coordination-sync" / "last-successful.json"
+            before = marker_path.read_bytes()
+            claimed_path(vault, task, pair["revision_digest"]).write_bytes(
+                b"{" + (b" " * 64)
+            )
+
+            with patch("artifact_memory.coordination_sync.MAX_RECORD_BYTES", 32):
+                with self.assertRaises(SyncFailure) as raised:
+                    load_authorized_projection(vault)
+            self.assertEqual(raised.exception.code, "sync-record-too-large")
+            self.assertEqual(marker_path.read_bytes(), before)
 
     def test_initial_outcome_codes_reject_or_quarantine_without_entering_union(self):
         with tempfile.TemporaryDirectory() as temporary:
