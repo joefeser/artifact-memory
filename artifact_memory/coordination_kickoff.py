@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import html
 import json
+from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .canonical import CanonicalizationFailure, canonical_bytes, sha256_bytes
 from .coordination import (
@@ -18,7 +19,7 @@ from .coordination import (
 from .coordination_freshness import evaluate_coordination_freshness
 from .coordination_onboarding import load_onboarded_project, require_repo_onboarding
 from .coordination_sync import (
-    load_authorized_coordination_snapshot,
+    authorized_coordination_snapshot,
     load_local_coordination_records,
 )
 from .schema_resources import load_schema
@@ -184,6 +185,18 @@ def build_kickoff_pack(
     repo_root: Path | None = None,
 ) -> dict[str, Any]:
     """Build one receipt-bound queue view for an onboarded project."""
+    with open_kickoff_pack(vault, project_selector, repo_root=repo_root) as pack:
+        return pack
+
+
+@contextmanager
+def open_kickoff_pack(
+    vault: Path,
+    project_selector: str,
+    *,
+    repo_root: Path | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Hold authorization stable through construction and caller-owned export."""
     link, _, bootstrap_pack = load_onboarded_project(vault, project_selector)
     if repo_root is not None:
         repo_link = require_repo_onboarding(repo_root, vault)
@@ -192,7 +205,18 @@ def build_kickoff_pack(
                 "kickoff-repository-binding-mismatch",
                 "selected repository does not match the kickoff project binding",
             )
-    snapshot = load_authorized_coordination_snapshot(vault)
+    with authorized_coordination_snapshot(vault) as snapshot:
+        yield _build_kickoff_pack(vault, link, bootstrap_pack, snapshot, repo_root=repo_root)
+
+
+def _build_kickoff_pack(
+    vault: Path,
+    link: dict[str, Any],
+    bootstrap_pack: dict[str, Any],
+    snapshot: dict[str, Any],
+    *,
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
     receipt = snapshot["receipt"]
     if (
         receipt["hub_id"] != link["hub_id"]

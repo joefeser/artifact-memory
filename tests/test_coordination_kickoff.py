@@ -30,8 +30,10 @@ from artifact_memory.coordination_sync import (
     apply_pull_response,
     append_local_coordination_record,
     build_membership_pages,
+    build_pull_response,
     configure_local_hub,
     load_authorized_coordination_snapshot,
+    load_local_coordination_records,
     pair_set_digest,
     pull,
     sorted_pairs,
@@ -56,6 +58,61 @@ MALICIOUS_COMMAND = (
 
 
 class CoordinationKickoffTests(unittest.TestCase):
+    def test_scope_cannot_change_during_kickoff_build_or_cli_export(self):
+        for as_json in (False, True):
+            with self.subTest(as_json=as_json), tempfile.TemporaryDirectory() as temporary:
+                vault, hub, label, tasks = self.setup_vault(Path(temporary).resolve())
+                narrow = copy.deepcopy(label)
+                for field in narrow["may"]:
+                    narrow["may"][field] = []
+                narrow["mayNot"]["readProjects"] = [PROJECT_ID]
+                configure_local_hub(
+                    hub, hub_id=HUB_ID, scope_generation=8,
+                    bindings=[{"session_id": SESSION_ID, "principal_id": PRINCIPAL_ID,
+                               "access_label": narrow}],
+                )
+                response = build_pull_response(
+                    hub, session_id=SESSION_ID, completed_at="2026-09-27T12:10:00Z",
+                )
+                stages = set()
+
+                def try_narrow(stage):
+                    with self.assertRaises(SyncFailure) as caught:
+                        apply_pull_response(vault, response)
+                    self.assertEqual(caught.exception.code, "sync-local-apply-busy")
+                    stages.add(stage)
+
+                def load_records(path):
+                    try_narrow("build")
+                    return load_local_coordination_records(path)
+
+                def render(pack):
+                    try_narrow("render")
+                    return render_kickoff_prompt(pack)
+
+                class Output(io.StringIO):
+                    def write(self, value):
+                        try_narrow("write")
+                        return super().write(value)
+
+                    def flush(self):
+                        try_narrow("flush")
+                        return super().flush()
+
+                stdout = Output()
+                with patch("artifact_memory.coordination_kickoff.load_local_coordination_records", load_records), \
+                        patch("artifact_memory.cli.render_kickoff_prompt", render), \
+                        contextlib.redirect_stdout(stdout):
+                    code = main(["kickoff", "--vault", str(vault), "--project", PROJECT_ID]
+                                + (["--json"] if as_json else []))
+                self.assertEqual(code, 0)
+                self.assertEqual(stages, {"build", "render", "write", "flush"})
+                self.assertIn(tasks[-1]["taskId"], stdout.getvalue())
+                self.assertEqual(apply_pull_response(vault, response)["outcome"], "complete")
+                self.assertEqual(load_authorized_coordination_snapshot(vault)["records"], [])
+                with self.assertRaises(ValidationFailure):
+                    build_kickoff_pack(vault, PROJECT_ID)
+
     def rebind_pack(self, pack: dict) -> None:
         body = {
             key: value

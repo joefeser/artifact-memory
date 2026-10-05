@@ -1478,6 +1478,40 @@ class CoordinationSyncTests(unittest.TestCase):
                 ["admitted", "admitted"],
             )
 
+    def test_interrupted_projection_publication_does_not_block_future_push(self):
+        from artifact_memory.coordination_sync import _write_immutable
+
+        for interrupted_file in ("receipt.json", "authorized-membership.json"):
+            with self.subTest(interrupted_file=interrupted_file), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                hub, vault = root / "hub", root / "vault"
+                label = label_for([PROJECT_A])
+                configure(hub, label)
+                task = task_for(label)
+                ref = store_coordination_record(vault, task)
+                store_coordination_record(hub, task)
+
+                def interrupt(boundary, path, data):
+                    if path.name == interrupted_file:
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        raise OSError("synthetic interrupted projection publication")
+                    return _write_immutable(boundary, path, data)
+
+                with patch("artifact_memory.coordination_sync._write_immutable", interrupt):
+                    with self.assertRaises(OSError):
+                        pull(vault, hub, session_id=SESSION, completed_at="2026-09-25T20:00:00Z")
+                self.assertFalse((vault / "generated/coordination-sync/last-successful.json").exists())
+                result = sync(vault, hub, session_id=SESSION, completed_at="2026-09-25T20:01:00Z")
+                self.assertEqual(result["outcome"], "complete")
+                # Incomplete evidence must not acknowledge the local pair: it is
+                # resubmitted idempotently before a complete receipt is installed.
+                self.assertEqual(result["submission_outcomes"], [
+                    {"record_ref": ref, "outcome": "admitted", "code": "admitted"},
+                ])
+                self.assertEqual(load_authorized_projection(vault), [task])
+                self.assertEqual(sync(vault, hub, session_id=SESSION,
+                                      completed_at="2026-09-25T20:02:00Z")["outcome"], "no-op")
+
     def test_tampered_existing_marker_and_prior_generation_cannot_advance_state(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

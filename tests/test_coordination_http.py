@@ -126,6 +126,27 @@ class HttpCoordinationTests(unittest.TestCase):
         self.assertEqual(len(self.requests[-2][0]["records"]), 1)
         self.assertFalse(pending.exists())
 
+    def test_http_push_recovers_after_interrupted_projection_publication(self):
+        from artifact_memory.coordination_sync import _write_immutable
+        ref = store_coordination_record(self.vault, self.tasks[0])
+
+        def interrupt(boundary, path, data):
+            if path.name == "authorized-membership.json":
+                raise OSError("synthetic interrupted projection publication")
+            return _write_immutable(boundary, path, data)
+
+        with patch("artifact_memory.coordination_sync._write_immutable", interrupt):
+            with self.assertRaises(OSError):
+                sync(self.vault, self.url, phase="pull", **self.binding)
+        self.assertFalse((self.vault / "generated/coordination-sync/last-successful.json").exists())
+        outcomes = [{"record_ref": ref, "outcome": "admitted", "code": "admitted"}]
+        self.response(outcomes)
+        result = sync(self.vault, self.url, **self.binding)
+        self.assertEqual(result["outcome"], "complete")
+        self.assertEqual(result["submission_outcomes"], outcomes)
+        self.assertEqual(self.requests[-2][0]["records"][0]["record_ref"], ref)
+        self.assertFalse((self.vault / "generated/coordination-sync/http-pending.json").exists())
+
     def test_forged_records_or_page_receipt_never_advance_marker(self):
         for mutation in ("record", "receipt", "index", "token", "binding"):
             with self.subTest(mutation=mutation):

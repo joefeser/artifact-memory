@@ -54,6 +54,12 @@ count mismatches, response-record mismatches, and receipt tampering fail typed
 before the marker advances. AccessLabel rotation replaces only the generated
 projection; canonical history remains append-only.
 
+An interruption before both projection files are durable leaves no usable
+acknowledgment. Push recovery ignores that incomplete historical directory
+and resubmits local pairs idempotently until a complete receipt and membership
+manifest prove admission. Unsafe paths and oversized evidence still fail
+closed; a damaged current projection cannot authorize context export.
+
 Full AccessLabel bodies and continuation tokens are never written into a
 restricted replica. Exclusions are count-only. Coordination records, receipts,
 and generated views are informational and grant no execution, mutation,

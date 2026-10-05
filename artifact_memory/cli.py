@@ -31,7 +31,7 @@ from .coordination_context import (
 )
 from .coordination_kickoff import (
     KICKOFF_PACK_SCHEMA_IDS,
-    build_kickoff_pack,
+    open_kickoff_pack,
     render_kickoff_prompt,
     validate_kickoff_pack,
 )
@@ -477,12 +477,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "kickoff":
         try:
-            result = build_kickoff_pack(
+            with open_kickoff_pack(
                 args.vault,
                 args.project,
                 repo_root=args.repo,
-            )
-            prompt = render_kickoff_prompt(result)
+            ) as result:
+                prompt = render_kickoff_prompt(result)
+                if args.as_json:
+                    _receipt(result, True)
+                else:
+                    print(prompt, end="")
+                sys.stdout.flush()
         except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
             _receipt(
                 {
@@ -501,10 +506,6 @@ def main(argv: list[str] | None = None) -> int:
                 args.as_json,
             )
             return EXIT_INVALID
-        if args.as_json:
-            _receipt(result, True)
-        else:
-            print(prompt, end="")
         return EXIT_OK
 
     if args.command == "coordination-context":

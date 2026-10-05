@@ -24,6 +24,12 @@ selects the unique current open leaf with the lexicographically greatest
 ULID-bearing `taskId`. Its observation time and hub scope generation qualify
 the result; it is not a freshness or global-state claim beyond that receipt.
 
+The CLI holds the authorized-projection lock through pack construction,
+rendering, stdout emission, and flush. A concurrent pull cannot replace the
+scope midway through that export. Library exporters can use `open_kickoff_pack`
+to hold the same lock through their output operation; `build_kickoff_pack`
+returns a detached receipt-bound snapshot.
+
 ## Evaluate repository-linked freshness
 
 Freshness support is explicit and repo-bound. Add `--repo` to compare the

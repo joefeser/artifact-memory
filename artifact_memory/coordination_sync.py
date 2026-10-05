@@ -1638,14 +1638,14 @@ def _acknowledged_hub_state(
                 vault,
                 projection / "receipt.json",
                 maximum_bytes=MAX_SYNC_RECEIPT_BYTES,
-                missing_code="sync-projection-invalid",
+                missing_code="sync-projection-incomplete",
                 missing_message="historical sync projection is incomplete",
             )
             manifest_raw = _read_local_regular_file(
                 vault,
                 projection / "authorized-membership.json",
                 maximum_bytes=MAX_MEMBERSHIP_MANIFEST_BYTES,
-                missing_code="sync-projection-invalid",
+                missing_code="sync-projection-incomplete",
                 missing_message="historical sync projection is incomplete",
             )
             if (
@@ -1660,7 +1660,13 @@ def _acknowledged_hub_state(
             _check_raw_depth(manifest_raw)
             receipt = load_json_bytes(receipt_raw)
             pairs = _validated_pair_manifest(load_json_bytes(manifest_raw))
-        except SyncFailure:
+        except SyncFailure as exc:
+            if exc.code == "sync-projection-incomplete":
+                # A crash can leave either publication file absent. Such a
+                # directory acknowledges nothing; resend local pairs until a
+                # complete receipt and manifest prove admission. Unsafe paths
+                # and oversized evidence remain hard failures.
+                continue
             raise
         except (KeyError, TypeError, ValueError, RecursionError, ValidationFailure):
             continue
