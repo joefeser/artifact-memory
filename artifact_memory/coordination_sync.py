@@ -68,6 +68,9 @@ MAX_STRING_BYTES = 1024 * 1024
 MAX_PAGE_BYTES = 4 * 1024 * 1024
 MAX_PAGE_RECORDS = 500
 MAX_PENDING_OUTCOMES_BYTES = MAX_PAGE_BYTES
+MAX_SYNC_MARKER_BYTES = 64 * 1024
+MAX_SYNC_RECEIPT_BYTES = MAX_REQUEST_BYTES
+MAX_MEMBERSHIP_MANIFEST_BYTES = MAX_REQUEST_BYTES
 
 
 class SyncFailure(ValidationFailure):
@@ -180,9 +183,22 @@ def _retained_policy_label(
                 raise SyncFailure(failure_code, failure_message)
         if path.is_symlink() or not path.is_file():
             raise SyncFailure(failure_code, failure_message)
-        raw = path.read_bytes()
+        raw = _read_local_regular_file(
+            hub,
+            path,
+            maximum_bytes=MAX_RECORD_BYTES,
+            missing_code=failure_code,
+            missing_message=failure_message,
+        )
+        if len(raw) > MAX_RECORD_BYTES:
+            raise SyncFailure(
+                "sync-record-too-large",
+                "hub policy label exceeds the v0 record byte limit",
+            )
         _check_raw_depth(raw)
         materialized, digest = validate_coordination_record_body(load_json_bytes(raw))
+    except SyncFailure:
+        raise
     except (OSError, RecursionError, ValidationFailure) as exc:
         raise SyncFailure(failure_code, failure_message) from exc
     if (
@@ -221,9 +237,22 @@ def _scan_retained_policy_labels(
                 "hub policy contains an invalid AccessLabel revision",
             )
         try:
-            raw = path.read_bytes()
+            raw = _read_local_regular_file(
+                hub,
+                path,
+                maximum_bytes=MAX_RECORD_BYTES,
+                missing_code="hub-record-invalid",
+                missing_message="hub policy contains an invalid AccessLabel revision",
+            )
+            if len(raw) > MAX_RECORD_BYTES:
+                raise SyncFailure(
+                    "sync-record-too-large",
+                    "hub policy label exceeds the v0 record byte limit",
+                )
             _check_raw_depth(raw)
             label, digest = validate_coordination_record_body(load_json_bytes(raw))
+        except SyncFailure:
+            raise
         except (OSError, RecursionError, ValidationFailure) as exc:
             raise SyncFailure(
                 "hub-record-invalid",
@@ -987,6 +1016,15 @@ def configure_local_hub(
                     origin_id = label.get("originId")
                     project_id = project.get("projectId")
                     if isinstance(origin_id, str) and isinstance(project_id, str):
+                        prior_project_id = derived.get(origin_id)
+                        if (
+                            prior_project_id is not None
+                            and prior_project_id != project_id
+                        ):
+                            raise SyncFailure(
+                                "hub-config-invalid",
+                                "conflicting derived origin bindings require explicit origin_projects",
+                            )
                         derived[origin_id] = project_id
         origin_projects = derived
     config = _validate_hub_config(
@@ -2304,9 +2342,15 @@ def _load_current_projection(
         marker_raw = _read_local_regular_file(
             vault,
             marker_path,
+            maximum_bytes=MAX_SYNC_MARKER_BYTES,
             missing_code="sync-marker-missing",
             missing_message="no successful authorized sync projection exists",
         )
+        if len(marker_raw) > MAX_SYNC_MARKER_BYTES:
+            raise SyncFailure(
+                "sync-marker-invalid",
+                "successful sync marker exceeds its byte limit",
+            )
         _check_raw_depth(marker_raw)
         marker = load_json_bytes(marker_raw)
     except SyncFailure:
@@ -2341,15 +2385,25 @@ def _load_current_projection(
         receipt_raw = _read_local_regular_file(
             vault,
             receipt_path,
+            maximum_bytes=MAX_SYNC_RECEIPT_BYTES,
             missing_code="sync-projection-invalid",
             missing_message="authorized projection is incomplete",
         )
         manifest_raw = _read_local_regular_file(
             vault,
             manifest_path,
+            maximum_bytes=MAX_MEMBERSHIP_MANIFEST_BYTES,
             missing_code="sync-projection-invalid",
             missing_message="authorized projection is incomplete",
         )
+        if (
+            len(receipt_raw) > MAX_SYNC_RECEIPT_BYTES
+            or len(manifest_raw) > MAX_MEMBERSHIP_MANIFEST_BYTES
+        ):
+            raise SyncFailure(
+                "sync-projection-invalid",
+                "authorized projection exceeds its byte limit",
+            )
         _check_raw_depth(receipt_raw)
         _check_raw_depth(manifest_raw)
         receipt = load_json_bytes(receipt_raw)

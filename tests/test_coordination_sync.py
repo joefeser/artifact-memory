@@ -209,6 +209,46 @@ def receipt_for_pairs(pairs: list[dict[str, str]], page_count: int) -> dict:
 
 
 class CoordinationSyncTests(unittest.TestCase):
+    def test_conflicting_derived_origin_bindings_require_explicit_mapping(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub = root / "hub"
+            first = label_identity(label_for([PROJECT_A]), "label-first")
+            first["projectNames"] = [
+                item
+                for item in first["projectNames"]
+                if item["projectId"] == PROJECT_A
+            ]
+            second = label_identity(label_for([PROJECT_B]), "label-second")
+            second["projectNames"] = [
+                item
+                for item in second["projectNames"]
+                if item["projectId"] == PROJECT_B
+            ]
+            bindings = [
+                {
+                    "session_id": SESSION,
+                    "principal_id": PRINCIPAL,
+                    "access_label": first,
+                },
+                {
+                    "session_id": "coordination-session://synthetic/session-2",
+                    "principal_id": "coordination-principal://synthetic/agent-2",
+                    "access_label": second,
+                },
+            ]
+            for ordered in (bindings, list(reversed(bindings))):
+                with self.subTest(first_label=ordered[0]["access_label"]["labelId"]):
+                    with self.assertRaises(SyncFailure) as raised:
+                        configure_local_hub(
+                            hub,
+                            hub_id=HUB_ID,
+                            scope_generation=1,
+                            bindings=ordered,
+                        )
+                    self.assertEqual(raised.exception.code, "hub-config-invalid")
+                    self.assertFalse(hub.exists())
+
     def test_two_vaults_converge_and_second_round_is_byte_identical(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1708,6 +1748,27 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "hub-record-invalid")
             self.assertFalse((vault / "generated").exists())
 
+    def test_retained_policy_label_read_is_bounded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(hub, task_for(label))
+            policy_path = next((hub / "policy" / "labels").glob("*/*.json"))
+            policy_path.write_bytes(b"{" + (b" " * 64))
+
+            with patch("artifact_memory.coordination_sync.MAX_RECORD_BYTES", 32):
+                with self.assertRaises(SyncFailure) as raised:
+                    pull(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+            self.assertEqual(raised.exception.code, "sync-record-too-large")
+            self.assertFalse((vault / "generated").exists())
+
     def test_egress_requires_project_provenance_in_the_caller_label(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1816,6 +1877,55 @@ class CoordinationSyncTests(unittest.TestCase):
                     load_authorized_projection(vault)
             self.assertEqual(raised.exception.code, "sync-record-too-large")
             self.assertEqual(marker_path.read_bytes(), before)
+
+    def test_generated_projection_state_reads_are_bounded(self):
+        limits = (
+            ("last-successful.json", "MAX_SYNC_MARKER_BYTES", "sync-marker-invalid"),
+            ("receipt.json", "MAX_SYNC_RECEIPT_BYTES", "sync-projection-invalid"),
+            (
+                "authorized-membership.json",
+                "MAX_MEMBERSHIP_MANIFEST_BYTES",
+                "sync-projection-invalid",
+            ),
+        )
+        for target_name, limit_name, expected_code in limits:
+            with self.subTest(target=target_name):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    hub, vault = root / "hub", root / "vault"
+                    label = label_for([PROJECT_A])
+                    configure(hub, label)
+                    store_coordination_record(hub, task_for(label))
+                    result = pull(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+                    if target_name == "last-successful.json":
+                        target = (
+                            vault
+                            / "generated"
+                            / "coordination-sync"
+                            / target_name
+                        )
+                    else:
+                        target = (
+                            vault
+                            / "generated"
+                            / "coordination-sync"
+                            / "projections"
+                            / result["receipt"]["receipt_id"].rsplit("/", 1)[-1]
+                            / target_name
+                        )
+                    target.write_bytes(b"{" + (b" " * 64))
+                    with patch(
+                        f"artifact_memory.coordination_sync.{limit_name}",
+                        32,
+                    ):
+                        with self.assertRaises(SyncFailure) as raised:
+                            load_authorized_projection(vault)
+                    self.assertEqual(raised.exception.code, expected_code)
 
     def test_initial_outcome_codes_reject_or_quarantine_without_entering_union(self):
         with tempfile.TemporaryDirectory() as temporary:
