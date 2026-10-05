@@ -1047,6 +1047,53 @@ class CoordinationSyncTests(unittest.TestCase):
                 "sync-receipt-identity-mismatch",
             )
 
+    def test_receipt_canonicalization_failures_are_typed_in_cli(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name, value in (
+                ("integer", 9_007_199_254_740_992),
+                ("unicode", "\ud800"),
+            ):
+                receipt = receipt_for_pairs([], 1)
+                if name == "integer":
+                    receipt["scope_generation"] = value
+                else:
+                    receipt["submission_outcomes"] = [
+                        {
+                            "record_ref": {
+                                "record_id": value,
+                                "revision_digest": "sha-256:" + ("a" * 64),
+                            },
+                            "outcome": "rejected",
+                            "code": "schema-invalid",
+                        }
+                    ]
+                path = root / f"{name}.json"
+                path.write_text(
+                    json.dumps(receipt),
+                    encoding="utf-8",
+                )
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "artifact_memory",
+                        "validate",
+                        str(path),
+                        "--json",
+                    ],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                )
+                with self.subTest(name=name):
+                    self.assertEqual(completed.returncode, 2)
+                    self.assertEqual(
+                        json.loads(completed.stdout)["diagnostics"][0]["code"],
+                        "canonicalization-failed",
+                    )
+                    self.assertNotIn("Traceback", completed.stderr)
+
     def test_sync_receipt_schema_rejects_missing_unknown_nested_and_constant_mutations(self):
         receipt = receipt_for_pairs([], 1)
         for field in core_schemas()[SYNC_RECEIPT_SCHEMA_ID]["required"]:
@@ -1926,6 +1973,45 @@ class CoordinationSyncTests(unittest.TestCase):
                         with self.assertRaises(SyncFailure) as raised:
                             load_authorized_projection(vault)
                     self.assertEqual(raised.exception.code, expected_code)
+
+    def test_historical_projection_reads_are_bounded(self):
+        limits = (
+            ("receipt.json", "MAX_SYNC_RECEIPT_BYTES"),
+            ("authorized-membership.json", "MAX_MEMBERSHIP_MANIFEST_BYTES"),
+        )
+        for target_name, limit_name in limits:
+            with self.subTest(target=target_name):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    hub, vault = root / "hub", root / "vault"
+                    label = label_for([PROJECT_A])
+                    configure(hub, label)
+                    store_coordination_record(hub, task_for(label))
+                    result = pull(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+                    target = (
+                        vault
+                        / "generated"
+                        / "coordination-sync"
+                        / "projections"
+                        / result["receipt"]["receipt_id"].rsplit("/", 1)[-1]
+                        / target_name
+                    )
+                    target.write_bytes(b"{" + (b" " * 64))
+                    with patch(
+                        f"artifact_memory.coordination_sync.{limit_name}",
+                        32,
+                    ):
+                        with self.assertRaises(SyncFailure) as raised:
+                            push(vault, hub, session_id=SESSION)
+                    self.assertEqual(
+                        raised.exception.code,
+                        "sync-projection-invalid",
+                    )
 
     def test_initial_outcome_codes_reject_or_quarantine_without_entering_union(self):
         with tempfile.TemporaryDirectory() as temporary:

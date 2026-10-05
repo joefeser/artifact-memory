@@ -1624,11 +1624,35 @@ def _acknowledged_hub_state(
     ] = []
     for projection in projections:
         try:
-            receipt = load_json(projection / "receipt.json")
-            pairs = _validated_pair_manifest(
-                load_json(projection / "authorized-membership.json")
+            receipt_raw = _read_local_regular_file(
+                vault,
+                projection / "receipt.json",
+                maximum_bytes=MAX_SYNC_RECEIPT_BYTES,
+                missing_code="sync-projection-invalid",
+                missing_message="historical sync projection is incomplete",
             )
-        except (KeyError, TypeError, ValueError, ValidationFailure):
+            manifest_raw = _read_local_regular_file(
+                vault,
+                projection / "authorized-membership.json",
+                maximum_bytes=MAX_MEMBERSHIP_MANIFEST_BYTES,
+                missing_code="sync-projection-invalid",
+                missing_message="historical sync projection is incomplete",
+            )
+            if (
+                len(receipt_raw) > MAX_SYNC_RECEIPT_BYTES
+                or len(manifest_raw) > MAX_MEMBERSHIP_MANIFEST_BYTES
+            ):
+                raise SyncFailure(
+                    "sync-projection-invalid",
+                    "historical sync projection exceeds its byte limit",
+                )
+            _check_raw_depth(receipt_raw)
+            _check_raw_depth(manifest_raw)
+            receipt = load_json_bytes(receipt_raw)
+            pairs = _validated_pair_manifest(load_json_bytes(manifest_raw))
+        except SyncFailure:
+            raise
+        except (KeyError, TypeError, ValueError, RecursionError, ValidationFailure):
             continue
         if not isinstance(receipt, dict):
             continue
@@ -2195,7 +2219,16 @@ def _membership_pages_from_groups(
 
 def validate_sync_receipt(receipt: dict[str, Any]) -> None:
     validate(receipt, core_schemas()[SYNC_RECEIPT_SCHEMA_ID])
-    expected = expected_receipt_id(receipt, "coordination-sync-receipt://sha-256/")
+    try:
+        expected = expected_receipt_id(
+            receipt,
+            "coordination-sync-receipt://sha-256/",
+        )
+    except CanonicalizationFailure as exc:
+        raise SyncFailure(
+            "canonicalization-failed",
+            "sync receipt cannot be encoded in the canonical JSON profile",
+        ) from exc
     if receipt["receipt_id"] != expected:
         raise SyncFailure("sync-receipt-identity-mismatch", "sync receipt identity is invalid")
     _validate_submission_outcomes(receipt["submission_outcomes"], require_order=True)
