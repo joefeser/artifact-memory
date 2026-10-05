@@ -218,7 +218,8 @@ replacement is coordinated with the affected principal locks, so revocation or
 scope rotation cannot race an already authenticated request. The logical
 `hub_id` is immutable for one local hub directory; reconfiguration may rotate
 bindings and scope but cannot relabel retained records as belonging to another
-hub identity.
+hub identity. A pending-outcome envelope is bounded to 4 MiB before parsing;
+oversized or unsafe local evidence fails typed without advancing sync state.
 
 Response pages are at most 4 MiB and 500 records. A larger authorized delta or
 membership manifest is paginated with opaque, principal- and

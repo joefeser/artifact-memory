@@ -115,6 +115,9 @@ class SessionLedgerTests(unittest.TestCase):
                 "secret" + "=" + synthetic_value,
                 "service" + "_secret" + "=" + synthetic_value,
                 "session=" + "g" + "hs_" + "syntheticvalue1234",
+                "session=" + "g" + "ho_" + "syntheticvalue1234",
+                "session=" + "g" + "hr_" + "syntheticvalue1234",
+                "session=" + "g" + "hu_" + "syntheticvalue1234",
             )
             for index, fragment in enumerate(cases):
                 source = root / f"synthetic-sensitive-{index}.md"

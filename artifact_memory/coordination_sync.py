@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator
+from uuid import UUID
 
 from .canonical import (
     CanonicalizationFailure,
@@ -65,6 +66,7 @@ MAX_NESTING_DEPTH = 64
 MAX_STRING_BYTES = 1024 * 1024
 MAX_PAGE_BYTES = 4 * 1024 * 1024
 MAX_PAGE_RECORDS = 500
+MAX_PENDING_OUTCOMES_BYTES = MAX_PAGE_BYTES
 
 
 class SyncFailure(ValidationFailure):
@@ -845,6 +847,7 @@ def _validate_hub_config(config: Any) -> dict[str, Any]:
         "hub_id",
         "scope_generation",
         "bindings",
+        "origin_projects",
     }:
         raise SyncFailure("hub-config-invalid", "local hub configuration has an invalid shape")
     if config["schema_id"] != LOCAL_HUB_SCHEMA_ID:
@@ -890,6 +893,23 @@ def _validate_hub_config(config: Any) -> dict[str, Any]:
         label, _ = validate_coordination_record_body(binding["access_label"])
         if label["schema_id"] != ACCESS_LABEL_SCHEMA_ID:
             raise SyncFailure("hub-config-invalid", "principal binding requires an AccessLabel")
+    origin_projects = config["origin_projects"]
+    if not isinstance(origin_projects, dict):
+        raise SyncFailure("hub-config-invalid", "origin_projects must be an object")
+    for origin_id, project_id in origin_projects.items():
+        try:
+            canonical_origin = str(UUID(origin_id))
+            canonical_project = str(UUID(project_id))
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise SyncFailure(
+                "hub-config-invalid",
+                "origin_projects must map canonical UUIDs to canonical UUIDs",
+            ) from exc
+        if canonical_origin != origin_id or canonical_project != project_id:
+            raise SyncFailure(
+                "hub-config-invalid",
+                "origin_projects must map canonical UUIDs to canonical UUIDs",
+            )
     return deepcopy(config)
 
 
@@ -899,14 +919,32 @@ def configure_local_hub(
     hub_id: str,
     scope_generation: int,
     bindings: list[dict[str, Any]],
+    origin_projects: dict[str, str] | None = None,
 ) -> None:
     """Write synthetic server-owned bindings and retain label revision history."""
+    if origin_projects is None:
+        # Backward-compatible single-project fixture setup. The caller still
+        # owns this administrative configuration; ambiguous multi-project
+        # labels derive no origin binding and therefore fail admission closed.
+        derived: dict[str, str] = {}
+        for binding in bindings:
+            label = binding.get("access_label") if isinstance(binding, dict) else None
+            projects = label.get("projectNames") if isinstance(label, dict) else None
+            if isinstance(projects, list) and len(projects) == 1:
+                project = projects[0]
+                if isinstance(project, dict):
+                    origin_id = label.get("originId")
+                    project_id = project.get("projectId")
+                    if isinstance(origin_id, str) and isinstance(project_id, str):
+                        derived[origin_id] = project_id
+        origin_projects = derived
     config = _validate_hub_config(
         {
             "schema_id": LOCAL_HUB_SCHEMA_ID,
             "hub_id": hub_id,
             "scope_generation": scope_generation,
             "bindings": bindings,
+            "origin_projects": origin_projects,
         }
     )
     with _configuration_lock(hub):
@@ -1220,11 +1258,10 @@ def coordination_onboarding_lock(vault: Path, project_id: str) -> Iterator[None]
         yield
 
 
-def _submission_code(
+def _submission_policy_code(
     stored: StoredRecord,
     label: dict[str, Any],
-    principal_id: str,
-    hub_by_pair: dict[tuple[str, str], StoredRecord],
+    origin_projects: dict[str, str],
 ) -> str:
     record = stored.record
     try:
@@ -1235,8 +1272,6 @@ def _submission_code(
             if exc.code == "required-extension-unsupported"
             else "schema-invalid"
         )
-    if actual_digest != stored.record_ref["revision_digest"]:
-        return "digest-mismatch"
     schema_id = materialized["schema_id"]
     if schema_id == ACCESS_LABEL_SCHEMA_ID:
         return "unauthorized-record-type"
@@ -1244,6 +1279,13 @@ def _submission_code(
     if materialized.get("accessLabelRef") != effective_label:
         return "label-mismatch"
     project_id = materialized["projectId"]
+    if origin_projects.get(materialized["originId"]) != project_id:
+        return "unauthorized-project"
+    if (
+        project_id not in label["may"]["readProjects"]
+        or project_id in label["mayNot"]["readProjects"]
+    ):
+        return "unauthorized-project"
     permission = (
         "syncTaskPackets"
         if schema_id == TASK_PACKET_SCHEMA_ID
@@ -1253,6 +1295,23 @@ def _submission_code(
         return "unauthorized-project"
     if not _label_declares_project(label, project_id):
         return "schema-invalid"
+    return "admitted"
+
+
+def _submission_code(
+    stored: StoredRecord,
+    label: dict[str, Any],
+    principal_id: str,
+    hub_by_pair: dict[tuple[str, str], StoredRecord],
+    origin_projects: dict[str, str],
+) -> str:
+    code = _submission_policy_code(stored, label, origin_projects)
+    if code != "admitted":
+        return code
+    materialized, actual_digest = validate_coordination_record_body(stored.record)
+    if actual_digest != stored.record_ref["revision_digest"]:
+        return "digest-mismatch"
+    schema_id = materialized["schema_id"]
     if schema_id == TASK_PACKET_SCHEMA_ID:
         if materialized["status"] != "open":
             return "principal-mismatch"
@@ -1403,7 +1462,11 @@ def _admit_submission(
     label: dict[str, Any],
     principal_id: str,
     hub_by_pair: dict[tuple[str, str], StoredRecord],
+    origin_projects: dict[str, str],
 ) -> dict[str, Any]:
+    policy_code = _submission_policy_code(stored, label, origin_projects)
+    if policy_code != "admitted":
+        return _outcome(stored.record_ref, policy_code)
     key = _pair_key(stored.record_ref)
     existing = hub_by_pair.get(key)
     if (
@@ -1412,7 +1475,9 @@ def _admit_submission(
     ):
         _quarantine_collision(hub, existing, stored)
         return _outcome(stored.record_ref, "same-pair-different-bytes")
-    code = _submission_code(stored, label, principal_id, hub_by_pair)
+    code = _submission_code(
+        stored, label, principal_id, hub_by_pair, origin_projects
+    )
     if code != "admitted" or existing is not None:
         return _outcome(stored.record_ref, code)
     materialized, _ = validate_coordination_record_body(stored.record)
@@ -1560,9 +1625,22 @@ def _load_pending_outcomes(
     if path.is_symlink() or not path.is_file():
         raise SyncFailure("sync-storage-unsafe", "pending sync outcome storage is unsafe")
     try:
-        raw = path.read_bytes()
+        raw = _read_local_regular_file(
+            vault,
+            path,
+            missing_code="sync-outcomes-invalid",
+            missing_message="pending submission outcomes are invalid",
+            maximum_bytes=MAX_PENDING_OUTCOMES_BYTES,
+        )
+        if len(raw) > MAX_PENDING_OUTCOMES_BYTES:
+            raise SyncFailure(
+                "sync-outcomes-invalid",
+                "pending submission outcomes exceed the v0 byte limit",
+            )
         _check_raw_depth(raw)
         value = load_json_bytes(raw)
+    except SyncFailure:
+        raise
     except (OSError, RecursionError, ValidationFailure) as exc:
         raise SyncFailure("sync-outcomes-invalid", "pending submission outcomes are invalid") from exc
     required = {
@@ -1642,7 +1720,21 @@ def _consume_pending_outcomes(vault: Path, pending: PendingOutcomes) -> None:
             "pending submission outcomes changed before acknowledgement",
         )
     try:
-        current_digest = sha256_bytes(path.read_bytes())
+        raw = _read_local_regular_file(
+            vault,
+            path,
+            missing_code="sync-pending-changed",
+            missing_message="pending submission outcomes changed before acknowledgement",
+            maximum_bytes=MAX_PENDING_OUTCOMES_BYTES,
+        )
+        if len(raw) > MAX_PENDING_OUTCOMES_BYTES:
+            raise SyncFailure(
+                "sync-pending-changed",
+                "pending submission outcomes changed before acknowledgement",
+            )
+        current_digest = sha256_bytes(raw)
+    except SyncFailure:
+        raise
     except OSError as exc:
         raise SyncFailure(
             "sync-pending-changed",
@@ -1776,12 +1868,24 @@ def _push_bound(
                     hub_by_pair[_pair_key(existing.record_ref)] = existing
                 outcomes.append(
                     _admit_submission(
-                        hub, stored, label, principal_id, hub_by_pair
+                        hub,
+                        stored,
+                        label,
+                        principal_id,
+                        hub_by_pair,
+                        config["origin_projects"],
                     )
                 )
         else:
             outcomes.append(
-                _admit_submission(hub, stored, label, principal_id, hub_by_pair)
+                _admit_submission(
+                    hub,
+                    stored,
+                    label,
+                    principal_id,
+                    hub_by_pair,
+                    config["origin_projects"],
+                )
             )
     outcomes.sort(key=lambda item: _pair_key(item["record_ref"]))
     _write_atomic(

@@ -1,5 +1,7 @@
 """Transport adversarial fixtures; actual WITS proof is the opt-in integration."""
 import copy
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -15,6 +17,7 @@ from unittest.mock import patch
 from artifact_memory.coordination_sync import (
     SyncFailure, build_pull_response, directory_digest, store_coordination_record, sync,
 )
+from artifact_memory import cli
 from artifact_memory.coordination import revision_digest
 from artifact_memory.canonical import canonical_bytes
 from artifact_memory.validator import ValidationFailure
@@ -161,6 +164,22 @@ class HttpCoordinationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['receipt']['authorized_membership']['pair_count'], 3)
         self.assertNotIn('synthetic-bearer', result.stdout + result.stderr)
+
+    def test_cli_rejects_recursive_access_label_reference_without_traceback(self):
+        stdout = io.StringIO()
+        with patch("artifact_memory.cli.json.loads", side_effect=RecursionError), \
+             contextlib.redirect_stdout(stdout):
+            exit_code = cli.main([
+                'sync', '--vault', str(self.vault), '--hub', self.url,
+                '--hub-id', HUB_ID, '--principal-id', PRINCIPAL,
+                '--access-label-ref', 'synthetic-recursive-json',
+                '--phase', 'pull', '--json',
+            ])
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(
+            json.JSONDecoder().decode(stdout.getvalue())['diagnostics'][0]['code'],
+            'sync-http-binding-required',
+        )
 
     def test_redirect_is_rejected_without_forwarding_bearer(self):
         self.redirect = True

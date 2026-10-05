@@ -324,6 +324,33 @@ class CoordinationFreshnessTests(unittest.TestCase):
                 "coordination-freshness-repository-identity-mismatch",
             )
 
+    def test_recursive_committed_identity_fails_typed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo, _, _, _, ancestor = self.setup_plane(
+                Path(temporary).resolve()
+            )
+            manifest_path = repo / ".agent-memory/repo.json"
+            manifest_path.write_text(
+                ("[" * 100_000) + ("]" * 100_000),
+                encoding="utf-8",
+            )
+            self.git(repo, "add", ".agent-memory/repo.json")
+            self.commit(
+                repo,
+                "Add recursive synthetic identity",
+                "2026-09-27T15:06:00Z",
+            )
+            with self.assertRaises(ValidationFailure) as raised:
+                compare_commit_to_head(
+                    repo,
+                    ancestor,
+                    expected_project_id=PROJECT_ID,
+                )
+            self.assertEqual(
+                raised.exception.code,
+                "coordination-freshness-repository-identity-mismatch",
+            )
+
     def test_unknown_required_and_top_level_freshness_fail_closed(self):
         label = copy.deepcopy(load_json(FIXTURES / "access-label.json"))
         task = self.task(label, 3, "a" * 40)

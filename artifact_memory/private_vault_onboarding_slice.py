@@ -24,6 +24,8 @@ SEARCH_CASES = (
     ("overlay connectivity", ["record://synthetic-onboarding/relay-connectivity"]),
     ("JSONC mode", ["record://synthetic-onboarding/jsonc-mode"]),
 )
+# Governing sources: AGENTS.md public-repository boundaries and
+# docs/decisions/0028-cli-first-private-vault-agent-onboarding.md.
 SAFETY_CATEGORIES = [
     "credential-fields",
     "email-addresses",

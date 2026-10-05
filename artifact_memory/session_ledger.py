@@ -46,7 +46,10 @@ _TOKEN_PREFIXES = "|".join(
     re.escape(value)
     for value in (
         "g" + "hp_",
+        "g" + "ho_",
+        "g" + "hr_",
         "g" + "hs_",
+        "g" + "hu_",
         "github" + "_pat_",
         "s" + "k-",
         "xox" + "a-",

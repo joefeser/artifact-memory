@@ -45,6 +45,10 @@ PROJECT_B = "22222222-2222-4222-8222-222222222222"
 PRINCIPAL = "coordination-principal://synthetic/agent-1"
 SESSION = "coordination-session://synthetic/session-1"
 HUB_ID = "coordination-hub://synthetic/hub-a"
+ORIGIN_PROJECTS = {
+    "33333333-3333-4333-8333-333333333333": PROJECT_A,
+    "44444444-4444-4444-8444-444444444444": PROJECT_B,
+}
 
 
 def fixture(name: str) -> dict:
@@ -159,6 +163,7 @@ def configure(hub: Path, label: dict, generation: int = 1) -> None:
                 "access_label": label,
             }
         ],
+        origin_projects=ORIGIN_PROJECTS,
     )
 
 
@@ -229,6 +234,63 @@ class CoordinationSyncTests(unittest.TestCase):
                 (directory_digest(hub), directory_digest(first), directory_digest(second)),
                 before,
             )
+
+    def test_unknown_and_foreign_origins_fail_before_identity_lookup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            label = label_for([PROJECT_A, PROJECT_B])
+            for name, origin_projects in (
+                ("unknown", ORIGIN_PROJECTS),
+                (
+                    "foreign",
+                    ORIGIN_PROJECTS
+                    | {"55555555-5555-4555-8555-555555555555": PROJECT_B},
+                ),
+            ):
+                hub, vault = root / f"hub-{name}", root / f"vault-{name}"
+                configure_local_hub(
+                    hub,
+                    hub_id=HUB_ID,
+                    scope_generation=1,
+                    bindings=[{
+                        "session_id": SESSION,
+                        "principal_id": PRINCIPAL,
+                        "access_label": label,
+                    }],
+                    origin_projects=origin_projects,
+                )
+                task = task_for(label)
+                task["originId"] = "55555555-5555-4555-8555-555555555555"
+                task["record_id"] = (
+                    f"record://coordination/{task['originId']}/task/{task['taskId']}"
+                )
+                store_coordination_record(vault, task)
+                self.assertEqual(
+                    push(vault, hub, session_id=SESSION)[0]["code"],
+                    "unauthorized-project",
+                )
+                self.assertEqual(list((hub / "canonical").glob("**/*.json")), [])
+
+    def test_pending_outcomes_are_bounded_before_json_parsing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            hub, vault = root / "hub", root / "vault"
+            label = label_for([PROJECT_A])
+            configure(hub, label)
+            store_coordination_record(vault, task_for(label))
+            push(vault, hub, session_id=SESSION)
+            with patch(
+                "artifact_memory.coordination_sync.MAX_PENDING_OUTCOMES_BYTES",
+                32,
+            ):
+                with self.assertRaises(SyncFailure) as raised:
+                    pull(
+                        vault,
+                        hub,
+                        session_id=SESSION,
+                        completed_at="2026-09-25T20:00:00Z",
+                    )
+            self.assertEqual(raised.exception.code, "sync-outcomes-invalid")
 
     def test_outbox_larger_than_record_limit_drains_in_bounded_batches(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -304,7 +366,7 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(len(second["submission_outcomes"]), 1)
             self.assertEqual(len(load_authorized_projection(vault)), 2)
 
-    def test_rejected_and_quarantined_prefix_cannot_starve_later_append(self):
+    def test_rejected_prefix_cannot_starve_later_append(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             hub, vault = root / "hub", root / "vault"
@@ -316,13 +378,10 @@ class CoordinationSyncTests(unittest.TestCase):
             rejected["projectName"] = "sample-analytics"
             append_local_coordination_record(vault, rejected)
 
-            original = unique_task_for(label, 1)
-            original["projectId"] = PROJECT_B
-            original["projectName"] = "sample-analytics"
-            store_coordination_record(hub, original)
-            collision = copy.deepcopy(original)
-            collision["title"] = "Synthetic same-pair collision"
-            write_claimed(vault, collision, revision_digest(original))
+            second_rejected = unique_task_for(label, 1)
+            second_rejected["projectId"] = PROJECT_B
+            second_rejected["projectName"] = "sample-analytics"
+            append_local_coordination_record(vault, second_rejected)
 
             admitted = unique_task_for(label, 2)
             append_local_coordination_record(vault, admitted)
@@ -351,7 +410,7 @@ class CoordinationSyncTests(unittest.TestCase):
 
             self.assertEqual(
                 [item["outcome"] for item in first["submission_outcomes"]],
-                ["rejected", "quarantined"],
+                ["rejected", "rejected"],
             )
             self.assertIn(
                 {
@@ -650,6 +709,7 @@ class CoordinationSyncTests(unittest.TestCase):
                         "access_label": label,
                     },
                 ],
+                origin_projects=ORIGIN_PROJECTS,
             )
             first = task_for(label)
             competing = copy.deepcopy(first)
@@ -1478,14 +1538,12 @@ class CoordinationSyncTests(unittest.TestCase):
             self.assertEqual(len(second["authorized_pairs"]), 1)
             self.assertNotIn(task_b["record_id"], json.dumps(second))
 
-    def test_egress_intersects_caller_and_record_bound_access_labels(self):
+    def test_write_only_submission_is_unauthorized_without_history_probe(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            hub, source, reader = root / "hub", root / "source", root / "reader"
+            hub, source = root / "hub", root / "source"
             record_label = label_identity(label_for([]), "label-sync-only")
             record_label["may"]["syncTaskPackets"] = [PROJECT_A]
-            reader_label = label_identity(label_for([PROJECT_A]), "label-reader")
-            reader_session = "coordination-session://synthetic/reader"
             configure_local_hub(
                 hub,
                 hub_id=HUB_ID,
@@ -1496,26 +1554,26 @@ class CoordinationSyncTests(unittest.TestCase):
                         "principal_id": PRINCIPAL,
                         "access_label": record_label,
                     },
-                    {
-                        "session_id": reader_session,
-                        "principal_id": "coordination-principal://synthetic/reader",
-                        "access_label": reader_label,
-                    },
                 ],
+                origin_projects=ORIGIN_PROJECTS,
             )
-            task = task_for(record_label)
-            store_coordination_record(source, task)
-            self.assertEqual(push(source, hub, session_id=SESSION)[0]["code"], "admitted")
+            absent = task_for(record_label)
+            store_coordination_record(source, absent)
+            self.assertEqual(
+                push(source, hub, session_id=SESSION)[0]["code"],
+                "unauthorized-project",
+            )
+            self.assertEqual(list((hub / "canonical").glob("**/*.json")), [])
 
-            result = pull(
-                reader,
-                hub,
-                session_id=reader_session,
-                completed_at="2026-09-25T20:00:00Z",
+            existing = copy.deepcopy(absent)
+            existing["title"] = "Retained synthetic task"
+            store_coordination_record(hub, existing)
+            second_source = root / "second-source"
+            store_coordination_record(second_source, absent)
+            self.assertEqual(
+                push(second_source, hub, session_id=SESSION)[0]["code"],
+                "unauthorized-project",
             )
-            self.assertEqual(result["authorized_pairs"], [])
-            self.assertEqual(result["receipt"]["excluded_count"], 3)
-            self.assertNotIn(task["record_id"], json.dumps(result))
 
     def test_excluded_count_deduplicates_canonical_and_policy_label_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1742,6 +1800,7 @@ class CoordinationSyncTests(unittest.TestCase):
                         "access_label": label,
                     },
                 ],
+                origin_projects=ORIGIN_PROJECTS,
             )
             store_coordination_record(vault, task_for(label))
             push(vault, hub, session_id=SESSION)
@@ -1785,6 +1844,7 @@ class CoordinationSyncTests(unittest.TestCase):
                         "access_label": label,
                     }
                 ],
+                origin_projects=ORIGIN_PROJECTS,
             )
             result = pull(
                 vault,
@@ -2079,6 +2139,7 @@ class CoordinationSyncTests(unittest.TestCase):
                         "access_label": label,
                     }
                 ],
+                origin_projects=ORIGIN_PROJECTS,
             )
             store_coordination_record(vault, task_for(label))
             push(vault, first_hub, session_id=SESSION)

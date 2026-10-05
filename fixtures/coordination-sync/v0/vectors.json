@@ -49,8 +49,9 @@
   "record_bound_egress_vectors": [
     {
       "name": "caller-allows-record-label-denies",
+      "expected_submission_code": "unauthorized-project",
       "expected_authorized_pair_count": 0,
-      "expected_excluded_count": 3
+      "expected_excluded_count": 2
     }
   ],
   "project_provenance_vectors": [

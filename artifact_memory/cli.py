@@ -405,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise SyncFailure("sync-local-binding-required", "local sync requires session-id and completed-at")
             try:
                 http_label_ref = json.loads(args.access_label_ref) if args.access_label_ref else None
-            except ValueError:
+            except (ValueError, RecursionError):
                 raise SyncFailure("sync-http-binding-required", "access-label-ref must be a JSON record reference") from None
             link = None
             if args.repo is not None:
@@ -426,7 +426,7 @@ def main(argv: list[str] | None = None) -> int:
                 expected_principal_id=args.principal_id,
                 bearer=os.environ.get(args.bearer_env) if is_http else None,
             )
-        except (SyncFailure, ValidationFailure, OSError) as exc:
+        except (SyncFailure, ValidationFailure, OSError, RecursionError) as exc:
             _receipt(
                 {
                     "outcome": "rejected",

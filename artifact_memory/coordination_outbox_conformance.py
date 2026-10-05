@@ -122,6 +122,7 @@ def run(fixtures: Path, _: Path | None = None) -> dict[str, Any]:
                     "access_label": label,
                 }
             ],
+            origin_projects={label["originId"]: PROJECT_ID},
         )
         recovered = sync(
             vault,

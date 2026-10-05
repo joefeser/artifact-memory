@@ -8,10 +8,16 @@ interoperability.
 The adapter requires three distinct roots or inputs:
 
 - a local vault containing append-only canonical coordination revisions;
-- a synthetic hub directory containing server-owned session, principal, and
-  exact AccessLabel bindings; and
+- a synthetic hub directory containing server-owned session, principal, exact
+  AccessLabel, and origin-to-project bindings; and
 - an opaque session handle. The client cannot select the effective principal
-  or AccessLabel carried by the receipt.
+or AccessLabel carried by the receipt.
+
+Before any retained identity lookup, admission resolves the submitted
+`originId` through that server-owned origin policy and requires effective read
+permission in addition to the type-specific sync grant. Unknown origins,
+foreign origins, and both known and absent write-only submissions return the
+same `unauthorized-project` outcome.
 
 These commands are the low-level provider-free adapter. A repository-bound
 operator flow should first run

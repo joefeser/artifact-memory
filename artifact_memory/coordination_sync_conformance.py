@@ -14,7 +14,7 @@ from .coordination_sync import (
     apply_pull_response,
     build_pull_response,
     build_membership_pages,
-    configure_local_hub,
+    configure_local_hub as _configure_local_hub,
     directory_digest,
     load_authorized_projection,
     pair_set_digest,
@@ -37,6 +37,16 @@ HUB_ID = "coordination-hub://synthetic/hub-a"
 CONFORMANCE_SCHEMA_ID = (
     "artifact-memory/coordination-sync-conformance-receipt/v0"
 )
+ORIGIN_PROJECTS = {
+    "33333333-3333-4333-8333-333333333333": PROJECT_A,
+    "44444444-4444-4444-8444-444444444444": PROJECT_B,
+}
+
+
+def configure_local_hub(*args: Any, **kwargs: Any) -> None:
+    """Configure the fixture hub with explicit server-owned origin policy."""
+    kwargs.setdefault("origin_projects", ORIGIN_PROJECTS)
+    _configure_local_hub(*args, **kwargs)
 
 
 def _label(fixtures: Path) -> dict[str, Any]:
@@ -300,7 +310,13 @@ def run(
                 ],
             )
             store_coordination_record(source, _task(fixtures, record_label, False))
-            push(source, hub, session_id=SESSION)
+            submission = push(source, hub, session_id=SESSION)
+            if [item["code"] for item in submission] != [
+                vector["expected_submission_code"]
+            ]:
+                raise RuntimeError(
+                    f"record-bound admission vector failed: {vector['name']}"
+                )
             store_coordination_record(hub, record_label)
             result = pull(
                 reader,
