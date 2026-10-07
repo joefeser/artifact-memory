@@ -231,6 +231,17 @@ gh attestation verify <asset> \
   --deny-self-hosted-runners
 ```
 
+GitHub CLI attestation verification may require authenticated API access even
+for a public repository. During the v0.1.4 post-publication check, anonymous
+release downloads, checksums, owner-signed tag verification, deterministic
+replay, and isolated installation all passed, and the public attestation page
+was anonymously reachable; `gh attestation verify` still required a logged-in
+GitHub CLI session to fetch and verify the bundles. That access requirement is
+platform friction, not a release-integrity failure, and this project does not
+claim fully anonymous attestation verification. Independently publishing
+bundles and offline trusted-root material remains out of scope until a product
+requirement justifies the extra custody and maintenance surface.
+
 Online verification depends on GitHub's attestation API and current Sigstore
 trust roots. For offline use, preserve the downloaded attestation bundle and a
 trusted-root snapshot, then follow GitHub's offline verification procedure.
