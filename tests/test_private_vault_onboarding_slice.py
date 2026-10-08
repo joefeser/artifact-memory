@@ -122,6 +122,10 @@ class PrivateVaultOnboardingSliceTests(unittest.TestCase):
         guide = (
             ROOT / "docs/onboarding/private-project-vault.md"
         ).read_text(encoding="utf-8")
+        quickstart = (ROOT / "docs/quickstart.md").read_text(encoding="utf-8")
+        adoption = (
+            ROOT / "docs/onboarding/repository-adoption.md"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("[published v0.1.4 release notes]", readme)
         self.assertNotIn("[v0.1.4 candidate notes]", readme)
@@ -138,6 +142,13 @@ class PrivateVaultOnboardingSliceTests(unittest.TestCase):
             "does not claim that signing, publication, or attestation has occurred",
             release_notes,
         )
+        self.assertIn("owner-signed v0.1.4 release", quickstart)
+        self.assertNotIn("owner-signed v0.1.3 release", quickstart)
+        self.assertIn(
+            "https://github.com/joefeser/artifact-memory/releases/tag/v0.1.4",
+            adoption,
+        )
+        self.assertNotIn("v0.1.3", adoption)
 
     def test_fixture_boundary_rejects_raw_source_material(self):
         with tempfile.TemporaryDirectory() as temporary:
