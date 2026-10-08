@@ -114,6 +114,31 @@ class PrivateVaultOnboardingSliceTests(unittest.TestCase):
         self.assertIn("python3 -m artifact_memory validate", template)
         self.assertNotIn("artifact-memory version --json", template)
 
+    def test_published_private_vault_baseline_is_coherent_across_docs(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        release_notes = (
+            ROOT / "docs/release/v0.1.4-release-notes.md"
+        ).read_text(encoding="utf-8")
+        guide = (
+            ROOT / "docs/onboarding/private-project-vault.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("[published v0.1.4 release notes]", readme)
+        self.assertNotIn("[v0.1.4 candidate notes]", readme)
+        self.assertIn(
+            "Published `v0.1.4` is a sufficient release baseline",
+            guide,
+        )
+        self.assertNotIn("Until a newer release is published", guide)
+        self.assertIn(
+            "Release status is not established by this editable document alone",
+            release_notes,
+        )
+        self.assertNotIn(
+            "does not claim that signing, publication, or attestation has occurred",
+            release_notes,
+        )
+
     def test_fixture_boundary_rejects_raw_source_material(self):
         with tempfile.TemporaryDirectory() as temporary:
             copied_fixture, _ = self._copied_fixture(temporary)
